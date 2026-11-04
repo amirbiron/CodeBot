@@ -3832,7 +3832,9 @@
       a.setAttribute('data-remind-at', String(it.remind_at || '').replace(/[^0-9T:+.Z-]/g, ''));
       a.style.textDecoration = 'none';
       a.style.color = 'inherit';
-      a.textContent = '• ' + (it.preview || 'פתק ללא כותרת') + '...';
+      // בלי "..." קבוע בסוף: ``preview`` הוא שם הפתק כשיש לו (``note_label`` בשרת), והשרת
+      // כבר מוסיף "…" כשהוא קיצר. עד נובמבר 2026 כל שורה קיבלה "...", גם שורה שלמה.
+      a.textContent = '• ' + (it.preview || 'פתק ללא כותרת');
       li.appendChild(a);
       list.appendChild(li);
     });

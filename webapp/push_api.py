@@ -18,6 +18,7 @@ import note_threads as nt
 # רשימת דפוסי הסודות האחת (``mcp_server/redaction.py``, מודול טהור). גוף התראה
 # מוצג גם במסך הנעילה, ותגובה של סוכן היא טקסט חופשי.
 from mcp_server.redaction import redact_secrets
+from sticky_notes_target import NOTE_LABEL_FIELDS, note_label
 
 # כשל מסד בהכנת בונה של סוג אירוע — הסיכון היחיד שמסלול "נשאר לסבב הבא" הוצהר בשבילו.
 # ייבוא עמיד, כמו ב-``sticky_notes_api``: בסביבות stub אין pymongo, ומחלקה מקומית שלא
@@ -1032,7 +1033,7 @@ def _build_reminder_payload(db, reminder_doc: dict) -> dict:
     ‏``data`` object for custom handling in SW.
     """
     title_text = "🔔 יש פתק ממתין"
-    body_text = _coerce_preview(db, reminder_doc)
+    body_text = _reminder_label(db, reminder_doc)
     note_id_str = str(reminder_doc.get("note_id") or "")
     file_id_str = str(reminder_doc.get("file_id") or "")
     board_id_str = str(reminder_doc.get("board_id") or "")
@@ -1280,10 +1281,10 @@ def _build_file_saved_payload(event_doc: dict) -> dict | None:
             "tag": "mcp-file-" + hashlib.sha256(full_name.encode("utf-8")).hexdigest()[:16],
             "silent": False,
             "requireInteraction": False,
-            # רשימה ריקה במכוון, ולא כפתור משלנו. ה-Service Worker מתעלם
-            # מכל action שאינו open_note/snooze_10, ולכן התראה שנושאת כפתור
-            # בשם חדש לא תיפתח כלל אצל מי שה-SW שלו עדיין ישן — וה-SW
-            # מתעדכן באיחור. בלי כפתורים, לחיצה על גוף ההתראה מגיעה ל-SW
+            # רשימה ריקה במכוון, ולא כפתור משלנו. ה-Service Worker פותח רק
+            # על open_note או על לחיצה בלי action (``shouldOpen`` ב-sw.js),
+            # ולכן התראה שנושאת כפתור בשם חדש לא תיפתח כלל אצל מי שה-SW שלו
+            # עדיין ישן — וה-SW מתעדכן באיחור. בלי כפתורים, לחיצה על גוף ההתראה מגיעה ל-SW
             # בלי action, נופלת למסלול הפתיחה, ומנותבת ל-/md/<file_id>.
             # ‏JS מתייחס למערך ריק כ-truthy, ולכן הוא גובר על ברירת המחדל
             # של הפתקים במקום ליפול אליה.
@@ -1692,44 +1693,49 @@ def _send_due_events_once(max_users: int = 100, max_per_user: int = 10) -> None:
         _send_events_for_user(uid, items[:max_per_user])
 
 
-def _coerce_preview(db, reminder_doc: dict) -> str:
-    try:
-        note_id = str(reminder_doc.get("note_id") or "")
-        if not note_id:
-            return ""
-        # Try ObjectId, else raw
-        try:
-            from bson import ObjectId  # type: ignore
+def _reminder_label(db, reminder_doc: dict) -> str:
+    """השורה שמתחת לכותרת בהתראת תזכורת: :func:`sticky_notes_target.note_label` — שם
+    הפתק, ובלעדיו תחילת התוכן. אותה פונקציה מזינה את חלונית הפעמון
+    (``sticky_notes_api.reminders_list``), כך שהפוש והפעמון מציגים את הפתק באותו שם.
 
-            oid = ObjectId(note_id)
-        except Exception:
-            oid = None
-        note = None
-        if oid is not None:
-            try:
-                note = db.sticky_notes.find_one({"_id": oid})
-            except Exception:
-                note = None
-        if note is None and note_id:
-            try:
-                note = db.sticky_notes.find_one({"_id": note_id})
-            except Exception:
-                note = None
-        if not isinstance(note, dict):
-            return ""
-        content = str(note.get("content") or note.get("anchor_text") or "").strip()
-        if not content:
-            return ""
-        parts = [w for w in content.split() if w]
-        if not parts:
-            return ""
-        head = parts[:6]
-        out = " ".join(head)
-        if len(parts) > 6:
-            out += "…"
-        return out
-    except Exception:
+    מחרוזת ריקה כשהפתק לא נמצא: ההתראה עדיין נשלחת, עם הכותרת בלבד.
+
+    **הפתק נשלף רק מבין הפתקים של בעל התזכורת** (K12), כמו ב-``reminders_list``: תזכורת
+    פגומה שמצביעה על פתק של משתמש אחר הייתה מציגה את שמו או את תחילתו לנמען. תזכורת בלי
+    ``user_id`` אינה מציגה כלום — fail-closed, ולא "כל פתק עם המזהה הזה". הצורות של המזהה
+    (מספר ומחרוזת) מ-:func:`_user_id_variants`, כמו בשאר המודול.
+    """
+    note_id = str(reminder_doc.get("note_id") or "")
+    owner = reminder_doc.get("user_id")
+    if not note_id or owner is None:
         return ""
+    try:
+        from bson import ObjectId  # type: ignore
+        from bson.errors import InvalidId  # type: ignore
+
+        # מזהה שאינו ObjectId נשמר בתזכורות ישנות כמחרוזת; מחפשים אותו גם כך, כמו
+        # ``reminders_list``. ‏``InvalidId`` הוא התשובה של ``bson`` למחרוזת שאינה
+        # ObjectId (נבדק ב-pymongo 4.15.3) — לא כשל, אלא "חפש כמחרוזת".
+        ids: list = []
+        try:
+            ids.append(ObjectId(note_id))
+        except InvalidId:
+            pass
+        ids.append(note_id)
+        owner_ids = _user_id_variants(owner)
+        for candidate in ids:
+            note = db.sticky_notes.find_one({"_id": candidate, "user_id": {"$in": owner_ids}}, NOTE_LABEL_FIELDS)
+            if isinstance(note, dict):
+                return note_label(note)
+    except Exception:
+        # גבול של לולאת השליחה, ולא "הפתק לא נמצא": התזכורת כבר נתפסה
+        # (``_claim_reminder``), וחריגה שעולה מכאן עוצרת את כל הסבב: ``_send_for_user``
+        # ו-``_send_due_once`` אינם עוטפים משתמש בודד, ולכן כל משתמש שאחריו לא מקבל
+        # פוש — ושוב בכל סבב שבו התזכורת הזו נתפסת מחדש. לכן ההתראה יוצאת בלי השורה
+        # הזו, והחריגה נרשמת במלואה.
+        logger.exception("push_reminder_label_failed")
+        return ""
+    return ""
 
 
 @push_bp.route("/test", methods=["POST"])

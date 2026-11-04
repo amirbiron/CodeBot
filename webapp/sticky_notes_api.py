@@ -41,6 +41,7 @@ from sticky_notes_target import (
     note_color_hex,
     note_color_id,
     note_search_needle_error,
+    note_label,
     TARGET_FIELDS,
 )
 # מצב התזכורת — אותה שכבה טהורה, ומאותה סיבה: שלושה מודולים שואלים "האם
@@ -1430,6 +1431,11 @@ def reminders_list():
 
     ``remind_at`` הוא המועד שהפריט הזה נורה עליו; החלונית מחזירה אותו ב-``ack``,
     כדי שהאישור ייקשר למועד הזה ולא ל"איזו שהיא" תזכורת של הפתק.
+
+    ``preview`` הוא השם שבו החלונית מציגה את הפתק — ``sticky_notes_target.note_label``,
+    אותה פונקציה שממלאת את התראת הפוש (``push_api._reminder_label``): שם הפתק, ובלעדיו
+    תחילת התוכן. שם השדה נשאר ``preview`` מהתקופה שלפני שמות, כדי לא לשבור את החוזה עם
+    הדף.
     """
     try:
         _ensure_indexes()
@@ -1463,17 +1469,6 @@ def reminders_list():
         reminders = list(cursor)
         items = []
 
-        def _first_n_words(text: str, n: int = 6) -> str:
-            # המילים כמו שהן שמורות — בלי פענוח. עד אוקטובר 2026 הטקסט עבר כאן
-            # ``html.unescape`` בפעם השנייה (הראשונה ב-``_coerce_content_from_doc``).
-            words = str(text or '').split()
-            if not words:
-                return ''
-            out = ' '.join(words[:max(1, n)])
-            if len(words) > n:
-                out += '…'
-            return out
-
         for r in reminders:
             try:
                 note_id = str(r.get('note_id') or '')
@@ -1501,8 +1496,8 @@ def reminders_list():
                         note_doc = None
 
                 if isinstance(note_doc, dict):
-                    preview_source = _coerce_content_from_doc(note_doc.get('content', '')) or (note_doc.get('anchor_text') or '')
-                    preview = _first_n_words(preview_source, 6)
+                    # המילים כמו שהן שמורות — בלי פענוח (עד אוקטובר 2026 עבר כאן ``html.unescape``).
+                    preview = note_label(note_doc)
                     anchor_id = str(note_doc.get('anchor_id') or '')
                     anchor_text = str(note_doc.get('anchor_text') or '')
                     # Prefer file_id/board_id from note if missing on reminder

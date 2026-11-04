@@ -1,5 +1,5 @@
 // SW Version for cache busting
-const SW_VERSION = '2.2.0';
+const SW_VERSION = '2.3.0';
 
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing version:', SW_VERSION);
@@ -324,7 +324,19 @@ self.addEventListener('notificationclick', (event) => {
   const d = (event.notification && event.notification.data) || {};
   event.notification && event.notification.close && event.notification.close();
 
-  event.waitUntil((async () => {
+  // דיווחים לשרת אינם חוסמים את מה שהמשתמש מחכה לו. ב-Chromium חלון חייב להיפתח תוך
+  // ``kWindowInteractionTimeout`` — עשר שניות מהלחיצה, "otherwise the calls will fail"
+  // (third_party/blink/renderer/modules/service_worker/wait_until_observer.cc). דיווח
+  // שממתינים לו לפני ``openWindow`` — ``fetch`` בלי תקרת זמן, אחרי ``getSubscription``
+  // ו-digest — יכול ברשת איטית לאכול את החלון כולו, ואז הפתק פשוט לא נפתח. לכן כל דיווח
+  // יוצא מיד ונאסף כאן, ו-``waitUntil`` ממתין לכולם **בסוף**: ה-SW נשאר חי עד שהם נשלחו,
+  // בלי שאף אחד מהם עומד בדרך.
+  const reports = [];
+  const report = (eventType, status, extra) => {
+    reports.push(Promise.resolve().then(() => reportToServer(eventType, status, extra)).catch(() => {}));
+  };
+
+  const handled = (async () => {
     const fileId = (d && d.file_id != null) ? String(d.file_id) : '';
     const noteId = (d && d.note_id != null) ? String(d.note_id) : '';
     const remindAt = (d && d.remind_at != null) ? String(d.remind_at) : '';
@@ -337,15 +349,19 @@ self.addEventListener('notificationclick', (event) => {
     const threadId = (isComment && d.thread_id != null) ? String(d.thread_id) : '';
 
     // Report click (no PII: only presence + action)
-    try {
-      await reportToServer('notification_click', 'started', {
-        action: action || '',
-        has_file_id: !!fileId,
-        has_note_id: !!noteId,
-      });
-    } catch (_) {}
+    report('notification_click', 'started', {
+      action: action || '',
+      has_file_id: !!fileId,
+      has_note_id: !!noteId,
+    });
 
-    // Snooze actions (NOTE: some environments mis-map action buttons; keep open fallback below)
+    // דחייה: קובעים את הדחייה, ובזה הלחיצה נגמרת — ההתראה כבר נסגרה בראש ה-handler.
+    //
+    // עד נובמבר 2026 "דחה 10 דק׳" גם פתח את הפתק: ``snooze_10`` היה ברשימת הפתיחה כפולבק
+    // למקרה ש"כפתורי הפעולה ממופים שגוי" (נוסף בינואר 2026, PR #2733). אין מיפוי כזה —
+    // לחיצה על כפתור מביאה את ה-``action`` שלו, ולחיצה על גוף ההתראה מביאה מחרוזת ריקה
+    // (https://notifications.spec.whatwg.org/#activating-a-notification) — והדחייה עצמה
+    // נקבעה ל-10 דקות בדיוק, כלומר השם הגיע נכון. ורק ``snooze_10`` היה שם: "דחה שעה" לא פתח.
     const isSnooze = !!(action && action.startsWith('snooze_') && noteId);
     if (isSnooze) {
       const minutes = Number(action.split('_')[1] || 10);
@@ -368,7 +384,7 @@ self.addEventListener('notificationclick', (event) => {
       } catch (e) {
         detail.error = String(e);
       }
-      try { await reportToServer('snooze', outcome, detail); } catch (_) {}
+      report('snooze', outcome, detail);
       if (outcome !== 'success') {
         try {
           await self.registration.showNotification('הדחייה לא התקבלה', {
@@ -381,18 +397,13 @@ self.addEventListener('notificationclick', (event) => {
           });
         } catch (_) {}
       }
+      return;
     }
 
-    // Open-note action OR clicking the notification body: open the markdown view with deep-link
-    // (matches the in-app behavior: /md/<file_id>?note=<note_id>)
-    //
-    // Fallback: if action buttons are mis-mapped and we got snooze_10, still open the note.
-    const shouldOpen =
-      !action ||
-      action === 'open_note' ||
-      action === 'snooze_10';
+    // פתיחה: רק "פתח פתק", או לחיצה על גוף ההתראה (בלי action).
+    const shouldOpen = !action || action === 'open_note';
     if (!shouldOpen) {
-      try { await reportToServer('notification_click', 'skipped_open', { action: action || '' }); } catch (_) {}
+      report('notification_click', 'skipped_open', { action: action || '' });
       return;
     }
     // הפרמלינק /note/<id> הוא הבונה היחיד של יעד הפתק. השרת יודע אם הפתק
@@ -422,18 +433,15 @@ self.addEventListener('notificationclick', (event) => {
 
     // Best-effort ack when we actually have a note id.
     //
-    // ‏`!isSnooze` אינו קישוט: ‏`shouldOpen` כולל בכוונה גם `snooze_10`,
-    // כפולבק לסביבות שבהן כפתורי הפעולה ממופים שגוי. כלומר לחיצה על
-    // "דחה 10 דק׳" הריצה קודם snooze ומיד אחריו ack — וה-ack ביטל את
-    // הדחייה שזה עתה נקבעה, כך שהתזכורת לא חזרה לעולם. שתי הפעולות
-    // סותרות: דחייה אומרת "תחזור אליי", אישור אומר "ראיתי, די".
-    // הדחייה גוברת.
+    // דחייה אינה מגיעה לכאן — היא חוזרת למעלה. עד נובמבר 2026 היא הגיעה (``snooze_10`` היה
+    // ברשימת הפתיחה), ולכן כאן עמד גם ``!isSnooze``: בלעדיו ה-ack ביטל את הדחייה שזה עתה
+    // נקבעה, כי שתי הפעולות סותרות — דחייה אומרת "תחזור אליי", אישור אומר "ראיתי, די".
     //
-    // ‏`!isComment` מאותה משפחה: התראת תגובה נושאת `note_id` רק כדי לפתוח את הפתק. בלי
+    // ‏`!isComment`: התראת תגובה נושאת `note_id` רק כדי לפתוח את הפתק. בלי
     // `remind_at` האישור **אינו קשור למועד**, ולכן לחיצה עליה הייתה סוגרת כל תזכורת פעילה
     // של הפתק. מכשיר שעדיין מריץ SW ישן (לפני 2.2.0) עדיין שולח כאן אישור עד שהדפדפן מעדכן
     // אותו — חלון מעבר מתועד, ב-``docs/deployment/workers.rst``.
-    if (noteId && !isSnooze && !isComment) {
+    if (noteId && !isComment) {
       // המועד שההתראה נשאה חוזר לשרת, והאישור נקשר אליו: התראה שישבה במגש
       // מאתמול לא סוגרת תזכורת שנקבעה מחדש מאז. התראה בלי מועד (הוצגה לפני
       // שהשדה נוסף) מאשרת בלי קשירה, כמו קודם.
@@ -448,28 +456,25 @@ self.addEventListener('notificationclick', (event) => {
       } catch (_) {}
     }
 
+    // תמיד לשונית חדשה: ``openWindow`` יוצר top-level browsing context חדש
+    // (https://w3c.github.io/ServiceWorker/#clients-openwindow — "Let newContext be a new
+    // top-level browsing context").
+    //
+    // עד נובמבר 2026 כאן חיפשנו לשונית קיימת וניווטנו אותה: לשונית של אותו קובץ כשבהתראה
+    // היה ``file_id``, ובלעדיו — ``windowClients[0]``, שהיא לפי המפרט הלשונית של האתר
+    // שהייתה **אחרונה בפוקוס** (https://w3c.github.io/ServiceWorker/#clients-matchall). כלומר
+    // תזכורת של פתק לוח, והתראת תגובה, חטפו את הלשונית שהמשתמש עבד בה. והחיפוש כלל גם
+    // לשוניות שה-SW אינו שולט בהן (``includeUncontrolled``), שעליהן ``navigate`` נדחה ב-
+    // TypeError (https://w3c.github.io/ServiceWorker/#client-navigate) — וה-catch פתח את שורש
+    // האתר במקום את הפתק.
     try {
-      const windowClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-      let matchingClient = null;
-      try {
-        if (fileId) {
-          const needle = `/md/${encodeURIComponent(fileId)}`;
-          matchingClient = windowClients.find((client) => client && client.url && client.url.includes(needle));
-        } else {
-          matchingClient = windowClients.length ? windowClients[0] : null;
-        }
-      } catch (_) {}
-
-      if (matchingClient && matchingClient.navigate) {
-        const client = await matchingClient.navigate(urlToOpen);
-        try { client && client.focus && client.focus(); } catch (_) {}
-      } else {
-        await clients.openWindow(urlToOpen);
-      }
-      try { await reportToServer('notification_click', 'opened', { action: action || '', opened: true }); } catch (_) {}
+      await clients.openWindow(urlToOpen);
+      report('notification_click', 'opened', { action: action || '', opened: true });
     } catch (e) {
-      try { await reportToServer('notification_click', 'error', { action: action || '', error: String(e) }); } catch (_) {}
+      report('notification_click', 'error', { action: action || '', error: String(e) });
       try { await clients.openWindow('/'); } catch (_) {}
     }
-  })());
+  })();
+
+  event.waitUntil(handled.finally(() => Promise.all(reports)));
 });

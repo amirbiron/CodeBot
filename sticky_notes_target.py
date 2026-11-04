@@ -167,6 +167,56 @@ def canonical_title_text(value: Any) -> str:
     return " ".join(text.split())
 
 
+#: כמה מילים מתחילת הפתק מוצגות במקומו של שם, כשאין לפתק שם (:func:`note_label`).
+NOTE_LABEL_WORDS = 6
+
+#: תקרת התווים של מה ש-:func:`note_label` מציגה במקום שם — **התקרה של שם**,
+#: :data:`MAX_NOTE_TITLE`. מה שעומד במקום השם מקבל את הגבול שלו. מילים לבדן אינן
+#: גבול: "מילה" היא כל רצף בלי רווח, ולכן קישור או מחרוזת ארוכה בתחילת הפתק היו
+#: מגיעים שלמים — עד :data:`MAX_NOTE_CHARS` — לגוף התראת הפוש, שבו שירות הפוש
+#: רשאי לדחות כל מה שמעבר ל-4096 בתים (RFC 8030 §7.2), ולשורה בחלונית הפעמון.
+#: החיתוך בתווים ולא בבתים (H6).
+NOTE_LABEL_MAX_CHARS = MAX_NOTE_TITLE
+
+#: השדות ש-:func:`note_label` קוראת — היטלה למי ששולף פתק רק בשבילה.
+NOTE_LABEL_FIELDS: Dict[str, int] = {"title": 1, "content": 1, "anchor_text": 1}
+
+
+def note_label(note: Mapping[str, Any]) -> str:
+    """השם שבו פתק מוצג בשורה אחת קצרה — בהתראת הפוש של תזכורת ובחלונית הפעמון.
+
+    **שם הפתק, אם יש לו** (אותה קנוניזציה של השמירה, ולכן ערך שאינו מחרוזת נחשב
+    "אין שם"). בלי שם — עד :data:`NOTE_LABEL_WORDS` מילים מתחילת התוכן, ובלי
+    תוכן (פתק שנוצר ונשאר ריק) — מטקסט העוגן, הכותרת בקובץ שהפתק נצמד אליה. בלי
+    כל אלה — מחרוזת ריקה, והצרכן מחליט מה להציג.
+
+    **מקום אחד שמחליט.** עד נובמבר 2026 היו שני עותקים של "תחילת התוכן" —
+    ``push_api._coerce_preview`` ו-``reminders_list`` — ושניהם נכתבו לפני שלפתקים
+    היו שמות, ולכן אף אחד מהם לא הכיר אותם.
+
+    "…" נוסף כשמשהו לא נכנס: יותר מילים, או יותר מ-:data:`NOTE_LABEL_MAX_CHARS`
+    תווים — **גם בשם.** השם נקרא ב-:func:`canonical_title_text`, בלי הקיצוץ של
+    :func:`normalize_note_title`: קיצוץ שקט היה מציג שם חתוך בלי שום סימן, והחלונית
+    כבר אינה מוסיפה "..." משלה לכל שורה.
+    """
+    title = canonical_title_text(note.get("title"))
+    if title:
+        label, cut = title, False
+    else:
+        # טקסט העוגן רק כשהתוכן ריק — כמו בשני העותקים שהפונקציה החליפה (``content or
+        # anchor_text``). תוכן של רווחים בלבד אינו ריק, ולכן גם כאן הוא לא נופל לעוגן.
+        content = note.get("content")
+        source = content if isinstance(content, str) and content else note.get("anchor_text")
+        words: List[str] = source.split() if isinstance(source, str) else []
+        if not words:
+            return ""
+        label, cut = " ".join(words[:NOTE_LABEL_WORDS]), len(words) > NOTE_LABEL_WORDS
+    if len(label) > NOTE_LABEL_MAX_CHARS:
+        label = label[:NOTE_LABEL_MAX_CHARS].rstrip()
+        cut = True
+    return label + "…" if cut else label
+
+
 #: מפרט האינדקס שאוכף "שם אחד לכל לוח" — **מקור האמת היחיד**.
 #:
 #: הוא כאן ולא ב-``webapp`` מאותה סיבה שהביאה הנה את התקרות: גם ה-webapp
