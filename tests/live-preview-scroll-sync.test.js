@@ -120,6 +120,9 @@ console.log('קלט פגום לא שובר את הנקודות');
   const points = S.buildPoints([null, { start: NaN, end: 2, top: 0, bottom: 1 }, { start: 2, end: 1, top: 40, bottom: 60 }, { start: 3, end: 4, top: 80, bottom: 70 }], 5, 120);
   check('בלוק בלי סוף תקין מקבל שורה אחת, והפגומים נזרקים', plain(points) === '[[-1,0],[2,40],[3,60],[6,120]]', plain(points));
   check('בלי נקודות — null', S.lineToY([], 3) === null && S.yToLine([], 3) === null);
+  // קצה שאינו מספר (``Number`` של מאפיין חסר או פגום הוא ``NaN``) — הבלוק נשאר, בשורה אחת, ולא נזרק.
+  const noEnd = S.buildPoints([{ start: 4, end: NaN, top: 10, bottom: 20 }], 6, 100);
+  check('קצה NaN — שורה אחת', plain(noEnd) === '[[-1,0],[4,10],[5,20],[7,100]]', plain(noEnd));
 }
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);

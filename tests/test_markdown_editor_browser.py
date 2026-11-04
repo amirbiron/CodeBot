@@ -1297,3 +1297,45 @@ def test_a_scroll_while_the_preview_renders_waits_for_the_render(session):
     r = sync.state(page, second)
     assert abs(r["previewDelta"]) <= SYNC_TOLERANCE_PX, r
     assert session.errors == []
+
+
+def test_a_render_overtaken_by_a_newer_one_does_not_take_over(session):
+    """רינדור שחיכה לתרשים, ובינתיים התחיל ונגמר רינדור חדש — לא שומר את התוצאות שלו כשהוא מסתיים: התוכן בתצוגה כבר
+    של החדש. עד התיקון הרינדור הישן הדליק את הגלילה המסונכרנת עם מספר השורות שלו — ואז התצוגה לא הגיעה לסוף כשהעורך
+    בסוף — והחזיר לצ'קבוקסים את הטקסט הישן."""
+    session.open()
+    page = session.page
+    page.evaluate(HOLD_MERMAID)
+    session.append("\n")
+    page.wait_for_function("() => window.__mermaidPending() > 0", timeout=10000)
+
+    short = "\n".join(session.editor_text().split("\n")[:120]) + "\n"
+    assert "```mermaid" not in short, "התנאי של הבדיקה: בטקסט החדש אין תרשים, ולכן הרינדור שלו לא מחכה"
+    page.evaluate(
+        "(t) => { const v = window.editorManager.cmInstance; v.dispatch({changes: {from: 0, to: v.state.doc.length, insert: t}}); }",
+        short,
+    )
+    # הרינדור של הטקסט החדש הסתיים: אין בתצוגה מקום לתרשים (של הרינדור הישן), והתצוגה מעודכנת.
+    page.wait_for_function(
+        "() => !document.querySelector('[data-preview-canvas] .mermaid-diagram')"
+        " && document.querySelector('[data-preview-status]').dataset.state === 'ready'",
+        timeout=20000,
+    )
+    page.evaluate("() => window.__releaseMermaid()")
+    sync.settle(page, 800)
+
+    assert page.evaluate("() => window.livePreviewController.state.taskSourceContent") == session.editor_text()
+
+    sync.lead(page, ".cm-scroller")
+    for _ in range(20):
+        page.mouse.wheel(0, 1500)
+        page.wait_for_timeout(30)
+    sync.settle(page, 600)
+    s = page.evaluate(
+        """() => { const sc = window.editorManager.cmInstance.scrollDOM, cv = document.querySelector('[data-preview-canvas]');
+      return {editorTop: sc.scrollTop, editorMax: sc.scrollHeight - sc.clientHeight,
+              previewTop: cv.scrollTop, previewMax: cv.scrollHeight - cv.clientHeight}; }"""
+    )
+    assert s["editorMax"] > 500 and abs(s["editorTop"] - s["editorMax"]) <= 1, s
+    assert abs(s["previewTop"] - s["previewMax"]) <= 1, s
+    assert session.errors == []

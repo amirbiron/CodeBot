@@ -592,6 +592,8 @@
         previewAllowed: false,
         // הטקסט שממנו רונדרו הצ'קבוקסים שבתצוגה עכשיו — המיפוי שלהם לשורות (data-source-line) נכון רק לו.
         taskSourceContent: null,
+        // עולה בכל פעם שהתוכן בתצוגה מוחלף (``invalidateRenderedContent``).
+        renderGeneration: 0,
       };
       this.init();
     }
@@ -771,8 +773,7 @@
       const presentation = data.presentation || 'fragment';
       // רינדור מהשרת: הצ'קבוקסים שלו אינם ממופים לשורות, ולחיצה עליהם לא כותבת לעורך — ומאותה סיבה אין בו גלילה
       // מסונכרנת.
-      this.state.taskSourceContent = null;
-      if (this.scrollSync) this.scrollSync.contentCleared();
+      this.invalidateRenderedContent();
       const mode = data.mode || 'code';
       this.setMarkdownContext(mode === 'markdown' && presentation !== 'iframe');
       if (presentation === 'iframe') {
@@ -807,8 +808,7 @@
       const content = payload.content || '';
       const trimmed = content.trim();
       if (!trimmed) {
-        this.state.taskSourceContent = null;
-        if (this.scrollSync) this.scrollSync.contentCleared();
+        this.invalidateRenderedContent();
         this.setMarkdownContext(true);
         this.previewCanvas.innerHTML = '<p>אין תוכן להצגה.</p>';
         this.updateMeta({ language: 'markdown', mode: 'markdown', bytes: 0, characters: 0, duration_ms: 0 });
@@ -825,13 +825,15 @@
         // לפני שהתוכן מוחלף: עד ``contentRendered`` שלמטה הבלוקים בתצוגה אינם של הרינדור שהגלילה המסונכרנת מכירה
         // (ההסבר ב-``attach`` שב-``live-preview-scroll-sync.js``). אם הרינדור נכשל באמצע, הסנכרון נשאר כבוי עד
         // הרינדור הבא שמצליח.
-        if (this.scrollSync) this.scrollSync.contentCleared();
+        const generation = this.invalidateRenderedContent();
         this.setMarkdownContext(true);
         this.previewCanvas.innerHTML = html || '<p>אין תוכן להצגה.</p>';
         if (this.styleEl) {
           this.styleEl.textContent = '';
         }
         await MarkdownLiveRenderer.enhance(this.previewCanvas, rendered.anchors, { documentCodeBlocks: true, interactiveTasks: true });
+        // בזמן ש-``enhance`` חיכה לתרשימים התחיל רינדור חדש, והתוכן בתצוגה כבר שלו: הוא זה שיודיע כשיסתיים.
+        if (generation !== this.state.renderGeneration) return;
         this.state.taskSourceContent = content;
         // אחרי ``enhance``: התרשימים כבר במקומם, ולכן הגבהים שהגלילה המסונכרנת מודדת הם הסופיים.
         if (this.scrollSync) this.scrollSync.contentRendered(content.split('\n').length);
@@ -981,6 +983,18 @@
       }
     }
 
+    // כל מסלול שמחליף את התוכן בתצוגה קורא לזה לפני ההחלפה: מה שהיה מוצג, והמיפוי של הצ'קבוקסים ושל הגלילה המסונכרנת
+    // אליו, כבר לא בתוקף. מחזיר את מספר הרינדור החדש. רינדור בדפדפן שחיכה לתרשימים (``enhance``) בודק אותו אחרי ה-
+    // ``await``: אם בינתיים התחיל רינדור אחר — הקלדה בזמן שתרשים מצויר — התוכן בתצוגה כבר של האחר, והרינדור הישן לא
+    // שומר את התוצאות שלו. בלי זה, רינדור ישן שהסתיים אחרון הדליק את הגלילה המסונכרנת עם מספר השורות שלו, והחזיר
+    // לצ'קבוקסים טקסט שאינו מה שמוצג.
+    invalidateRenderedContent() {
+      this.state.renderGeneration += 1;
+      this.state.taskSourceContent = null;
+      if (this.scrollSync) this.scrollSync.contentCleared();
+      return this.state.renderGeneration;
+    }
+
     // גלילה בעורך מזיזה את התצוגה לאותו מקום בטקסט, וגלילה בתצוגה מזיזה את העורך — ההסבר בראש
     // ``live-preview-scroll-sync.js``. רק כש-CodeMirror הוא העורך הפעיל: בעורך הפשוט אין סנכרון (החלטת המשתמש).
     // ``renderClientMarkdown`` מודיע על כל רינדור, וכל מסלול אחר — רינדור מהשרת, טקסט ריק, תצוגה כבויה — מודיע
@@ -1085,7 +1099,7 @@
       this.cancelPending();
       this.state.lastRenderedHash = null;
       this.state.inflightHash = null;
-      if (this.scrollSync) this.scrollSync.contentCleared();
+      this.invalidateRenderedContent();
       this.syncToggleButton(false);
       this.root.classList.remove('is-active');
       this.root.dataset.activePanel = 'editor';
