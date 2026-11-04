@@ -689,7 +689,7 @@
         language: this.languageSelect ? this.languageSelect.value : '',
         file_name: this.fileNameInput ? this.fileNameInput.value : '',
       };
-      payload.mode = this.previewModeFor(payload.language, payload.file_name);
+      payload.mode = this.options.fixedMode || resolvePreviewMode(payload.language, payload.file_name);
       const payloadHash = JSON.stringify(payload);
       this.cancelPending();
       if (
@@ -989,27 +989,7 @@
       );
     }
 
-    // הסוג של התצוגה — ``markdown``, ``html`` או ``code`` — לפי ``data-preview-mode`` של העמוד, ואחרת לפי השפה ושם
-    // הקובץ (``resolvePreviewMode``). גם הבקשה לרינדור וגם הכיתוב של הלשונית נגזרים מכאן.
-    previewModeFor(language, fileName) {
-      return this.options.fixedMode || resolvePreviewMode(language, fileName);
-    }
-
-    // הכיתוב של לשונית התצוגה בטלפון: בקובץ Markdown — ``data-label-markdown`` של הלשונית ("תצוגה מקדימה"), ובכל
-    // קובץ אחר — הכיתוב שבתבנית ("תצוגה חיה"). שני הכיתובים כתובים בתבנית, ונשמרים ב-``data-label-default``
-    // בפעם הראשונה. בלי ``data-label-markdown`` (העורך הציבורי, שתמיד Markdown) — הכיתוב שבתבנית נשאר.
-    syncPreviewTabLabel() {
-      const tab = this.root.querySelector('[data-panel-target="preview"][data-label-markdown]');
-      if (!tab) return;
-      if (!tab.dataset.labelDefault) tab.dataset.labelDefault = tab.textContent.trim();
-      const language = this.languageSelect ? this.languageSelect.value : '';
-      const fileName = this.fileNameInput ? this.fileNameInput.value : '';
-      const markdown = this.previewModeFor(language, fileName) === 'markdown';
-      tab.textContent = markdown ? tab.dataset.labelMarkdown : tab.dataset.labelDefault;
-    }
-
     updatePreviewAvailability(options = {}) {
-      this.syncPreviewTabLabel();
       const allowed = this.isPreviewEligible();
       this.state.previewAllowed = allowed;
       this.root.classList.toggle('preview-enabled', allowed);

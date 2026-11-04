@@ -178,12 +178,20 @@ const MarkdownToolbar = {
       // בדוק אם כבר הועבר
       if (editorActions.contains(toolbar)) return;
 
-      // אחרון בשורה, לפני התא של ההודעות (``.editor-info-slot``, תמיד אחרון): אחרי "בטל / בצע שוב", עם קו הפרדה
-      // לפניו. ההודעה הזמנית צפה בתא, ברווח שאחרי הסרגל, ולכן היא לא מכסה אותו. הסידור בשורות וקו ההפרדה —
-      // ``layoutSwitcherRow`` ב-``editor-manager.js``.
-      const infoSlot = editorActions.querySelector(':scope > .editor-info-slot');
+      // אחרי התא של ההודעות (``.editor-info-slot``), ביחידה האחרונה של קבוצת הכפתורים (``.editor-clip-tail``, עם
+      // "הדבק"): הסרגל אחרון בשורה, והתא ממלא את הרווח שבין "הדבק" לסרגל — שם ההודעה הזמנית צפה
+      // (``codemirror-custom.css``), ולכן היא לא מכסה את כפתור ה-MD. היחידה לא נשברת, ולכן כשהקבוצה נשברת לשתי
+      // שורות (בטלפון) הסרגל נשאר באותה שורה עם "הדבק". בלי התא — אחרי code-tools-group או editor-clipboard-actions.
+      const infoSlot = editorActions.querySelector('.editor-info-slot');
+      const codeTools = editorActions.querySelector('.code-tools-group');
+      const clipboardActions = editorActions.querySelector('.editor-clipboard-actions');
+
       if (infoSlot) {
-        infoSlot.before(toolbar);
+        infoSlot.after(toolbar);
+      } else if (codeTools) {
+        codeTools.after(toolbar);
+      } else if (clipboardActions) {
+        clipboardActions.after(toolbar);
       } else {
         editorActions.appendChild(toolbar);
       }

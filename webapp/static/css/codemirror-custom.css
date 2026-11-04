@@ -26,64 +26,46 @@
 /* Modified: Default to row layout for tablets/desktop */
 .editor-switcher { display:flex; flex-direction:column; align-items: stretch; gap:.5rem; margin:.5rem 0; padding:.65rem; background: rgba(255,255,255,0.05); border-radius:8px; }
 .editor-switcher-row { display:flex; justify-content:flex-start; align-items:center; gap:clamp(.5rem,1.5vw,1.25rem); flex-wrap:nowrap; width:100%; min-height:48px; }
-/* שורת הכפתורים של העורך (``addSwitcherButton`` ב-``editor-manager.js``), מימין לשמאל: "עורך פשוט / מתקדם", "בחר
-   הכל / העתק / הדבק" (``.editor-clipboard-actions``), "בטל / בצע שוב" (``.editor-history-actions``), ואחריהם סרגל
-   ה-MD בקובץ Markdown או כלי הקוד בקובץ פייתון (``moveToEditorRow`` ב-``markdown-toolbar.js``,
-   ``moveToolsToEditorRow`` ב-``code-tools.js``) — כל אחד בגודל התוכן שלו, צמודים לימין, וקו הפרדה בין כל שניים.
-   ``layoutSwitcherRow`` מחליט בכמה שורות: שורה אחת כשהכול נכנס; וכשלא — "עורך פשוט", "בטל / בצע שוב" ו-MD
-   בשורה הראשונה ו"בחר הכל / העתק / הדבק" בשנייה (ובעורך הציבורי, שאין בו מתג עורך: "בחר הכל / העתק / הדבק"
-   ראשונים). ההחלטה לפי מה שבאמת נכנס, ולא לפי רוחב מסך, ולכן היא נכונה גם בשורה צרה במחשב (כשהתצוגה החיה דלוקה)
-   וגם כשהגופן במכשיר רחב יותר. הוא מסמן ``data-row`` על כל פריט, ``data-rows`` על השורה, ו-``data-line-start``
-   על הראשון בכל שורה — ולו אין קו. השבירה בין השורות היא ``::before`` / ``::after`` ברוחב מלא; הרווח האנכי בין
-   השורות הוא ``margin-block`` של הפריטים ולא ``row-gap``, כי לשבירה יש שורה משלה בגובה אפס, ו-``row-gap`` היה
-   נספר משני צדיה. */
-.editor-switcher-actions { --editor-divider-space:.6rem; --editor-divider-color:color-mix(in srgb, currentColor 35%, transparent); --editor-row-gap:.5rem; display:flex; align-items:center; gap:0; flex-wrap:wrap; flex:1 1 auto; min-width:0; }
-/* כשהכפתורים מתחלקים לכמה שורות (טלפון, או שורה צרה) הרווח סביב הקו קטן יותר: כך "עורך פשוט", "בטל / בצע שוב"
-   ו-MD נכנסים לשורה אחת כבר ברוחב 390 (נמדד עם אייקוני Font Awesome: בלי זה חסרו כ-7px, ו-MD ירד לשורה משלו עד
-   412). ``layoutSwitcherRow`` בודק אם השורה נכנסת אחרי ש-``data-rows`` כבר הוצב, ולכן הבדיקה כוללת את הרווח הזה. */
-.editor-switcher-actions:not([data-rows="1"]) { --editor-divider-space:.4rem; }
-.editor-switcher-actions > * { margin-block: calc(var(--editor-row-gap) / 2); }
-.editor-switcher-actions > [data-row="1"] { order:1; }
-.editor-switcher-actions[data-rows="2"]::before,
-.editor-switcher-actions[data-rows="3"]::before { content:""; flex-basis:100%; order:2; }
-.editor-switcher-actions > [data-row="2"] { order:3; }
-.editor-switcher-actions[data-rows="3"]::after { content:""; flex-basis:100%; order:4; }
-.editor-switcher-actions > [data-row="3"] { order:5; }
-/* קו ההפרדה — אחד לכל השורה, גם זה שלפני סרגל ה-MD (עד נובמבר 2026 הוא ישב ב-``markdown-toolbar.css``, לבן
-   ב-15%, ובערכה בהירה כמו Rose Pine Dawn לא נראה). הצבע הוא צבע הטקסט של השורה, שכל ערכה כבר קבעה כקריא על הרקע
-   שלה, בעוצמה נמוכה — ולכן הוא נראה בכל ערכה, גם מיובאת. */
-.editor-switcher-actions > :not(.editor-info-slot):not([data-line-start]) { margin-inline-start:var(--editor-divider-space); padding-inline-start:var(--editor-divider-space); border-inline-start:1px solid var(--editor-divider-color); }
+.editor-switcher-actions { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; flex:1 1 auto; min-width:0; }
 .btn-switch-editor { padding:.5rem 1rem; background: rgba(100,100,255,0.2); border:1px solid rgba(100,100,255,0.5); border-radius:6px; color:#fff; cursor:pointer; }
 .btn-switch-editor i { margin-inline-end:.35rem; }
 .editor-switcher .btn-switch-editor { min-width: fit-content; }
 .btn-switch-editor:hover { background: rgba(100,100,255,0.3); }
-.editor-clipboard-actions,
-.editor-history-actions { display:flex; gap:.5rem; flex-wrap:wrap; flex:0 1 auto; min-width:0; }
-/* בעורך הפשוט "בטל / בצע שוב" מוסתרים (``syncHistoryButtons``), ו-``display:flex`` היה גובר על ``hidden``. */
-.editor-history-actions[hidden] { display:none; }
-/* כל הכפתורים באותו גובה, גם "בטל" ו"בצע שוב" שיש בהם רק אייקון: הגובה של התוכן הוא שורת טקסט אחת (``1lh``), ולא
-   הגובה של האייקון. האייקון של Font Awesome מגיע עם ``line-height: 1``, ובלי זה כפתור של אייקון בלבד יצא נמוך יותר;
-   ``min-height`` מחזיק את הגובה גם כשגופן האייקונים לא נטען. */
-.btn-editor-clip { padding:.35rem .75rem; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; font-size:.85rem; line-height:1.2; display:flex; flex:0 0 auto; align-items:center; justify-content:center; gap:.35rem; cursor:pointer; transition: background .2s ease, border-color .2s ease; }
-.btn-editor-clip > i { line-height:inherit; min-height:1lh; }
+/* קבוצת הכפתורים בנויה משתי יחידות (``addSwitcherButton`` ב-``editor-manager.js``). הראשונה — "בטל", "בצע שוב",
+   "בחר הכל" ו"העתק" — כולם באותו גובה: כפתור שיש בו רק אייקון נמתח לגובה של כפתור עם טקסט (``align-items``
+   נשאר ``stretch``). השנייה — "הדבק", התא של ההודעות וסרגל ה-MD — לא נשברת: כשהשורה צרה היא יורדת לשורה הבאה
+   כולה, ולכן MD תמיד באותה שורה עם "הדבק". היא ממלאת את מה שנשאר בשורה שלה, והתא שבתוכה את הרווח שבין "הדבק"
+   לסרגל. הסרגל לא באותה יחידה עם הכפתורים של הראשונה, כי הוא גבוה מהם בקצת (נמדד: 29.8 מול 28.2), ובאותה
+   יחידה היה מותח את כולם לגובה שלו. */
+.editor-clipboard-actions { --editor-clip-gap:.5rem; display:flex; align-items:center; gap:var(--editor-clip-gap); flex-wrap:wrap; flex:1 1 auto; min-width:0; }
+.editor-clip-head { display:flex; gap:var(--editor-clip-gap); flex-wrap:wrap; min-width:0; }
+.editor-clip-tail { display:flex; align-items:center; gap:var(--editor-clip-gap); flex:1 1 auto; min-width:max-content; align-self:stretch; }
+.btn-editor-clip { padding:.35rem .75rem; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; font-size:.85rem; display:flex; align-items:center; gap:.35rem; cursor:pointer; transition: background .2s ease, border-color .2s ease; }
 .btn-editor-clip:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); }
 .btn-editor-clip:disabled { opacity:.6; cursor:not-allowed; }
 /* "בטל" ו"בצע שוב" (``.btn-editor-history`` ב-``editor-manager.js``) — אייקון בלי טקסט. בעמוד מימין לשמאל "אחורה"
    הוא ימינה, ולכן החצים בתמונת ראי: החץ של "בטל" פונה ימינה. ``html[dir="rtl"]`` ולא ``:dir(rtl)`` — התקדים
    בריפו (ההסבר ב-``toast.css``). */
 html[dir="rtl"] .btn-editor-history > i { transform: scaleX(-1); }
+/* בעורך הפשוט הכפתורים מוסתרים (``hidden``), ו-``display:flex`` של ``.btn-editor-clip`` היה גובר על ``hidden``. */
+.btn-editor-history[hidden] { display: none; }
 .editor-info-primary { display:flex; align-items:center; gap:.4rem; font-size:.85rem; opacity:.9; margin-inline-start:auto; margin-inline-end:0; margin-left:auto; padding:.25rem .85rem; border-radius: 999px; background: rgba(255,255,255,0.04); white-space:nowrap; flex-shrink:0; }
 html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
 /* הודעה זמנית ("כל הקוד סומן", "הוזרק: טבלה") — צפה בקצה הרווח שאחרי הכפתורים, ואינה תופסת מקום, ולכן השורה לא
-   משנה גובה כשהיא מופיעה, והעורך לא קופץ (בלי זה: 17px בעורך הציבורי ברוחב 1024 ו-31px בעמוד העריכה ברוחב 820,
-   נמדד באוקטובר 2026). התא (``.editor-info-slot``) הוא הפריט האחרון בשורה (``order`` אחרי כל השורות), בלי קו,
-   וממלא את מה שנשאר בשורה האחרונה; ההודעה צפה בקצה שלו. בשורה צרה הרווח קטן מההודעה, והיא מכסה לכמה שניות חלק
-   מהכפתורים שלפניה, ולכן יש לה רקע; ``pointer-events: none`` משאיר אותם לחיצים. התווית "עורך טקסט בסיסי" של
-   העורך הפשוט יושבת באותו תא, בקצה שלו: כשהיא מוצגת התא לפחות ברוחב שלה, כדי שלא תיחתך, ו-``layoutSwitcherRow``
-   מציב אותו בשורה הראשונה שיש בה מקום (``data-row``, שגובר על ה-``order`` כאן); בזמן הודעה היא נעלמת
-   (visibility). */
-.editor-info-slot { position:relative; display:grid; align-items:center; justify-items:end; flex:1 1 0; min-width:0; align-self:stretch; order:6; }
-.editor-info-slot:has(> .editor-info-primary:not([hidden])) { min-width:max-content; }
+   משנה גובה כשהיא מופיעה, והעורך לא קופץ. עד נובמבר 2026 היא ישבה באותו תא של grid עם התווית "קיצורי מקלדת
+   זמינים", שהחזיקה לה את המקום; התווית הוסרה (``updateInfoBanner`` ב-``editor-manager.js``), ובלעדיה הודעה הזיזה
+   את העורך — נמדד 17px בעורך הציבורי ברוחב 1024 ו-31px בעמוד העריכה ברוחב 820.
+   התא (``.editor-info-slot``) יושב ביחידה האחרונה של קבוצת הכפתורים (``.editor-clip-tail``), אחרי "הדבק", וסרגל
+   ה-MD של עמודי העריכה וההעלאה אחריו, אחרון ביחידה (``moveToEditorRow`` ב-``markdown-toolbar.js``). התא ממלא את
+   הרווח שבין "הדבק" לסרגל, וההודעה צפה בקצה שלו — ולכן היא לא מכסה את כפתור ה-MD. כשאין רווח התא מתכווץ לאפס,
+   ובזכות השוליים השליליים (בגודל הרווח שלפניו) הוא גם לא מוסיף רווח. בשורה צרה הרווח קטן מההודעה, והיא מכסה
+   לכמה שניות חלק מהכפתורים שלפניה, ולכן יש לה רקע; ``pointer-events: none`` משאיר אותם לחיצים. כשהקבוצה נשברת
+   לשתי שורות (בטלפון, או כשהתצוגה החיה דלוקה והשורה בחצי של העורך), היחידה יורדת כולה, והסרגל נשאר עם "הדבק".
+   עד נובמבר 2026 התא והסרגל ישבו מחוץ לקבוצה, ובטלפון כל אחד מהם ירד לשורה משלו. התווית "עורך טקסט בסיסי" של
+   העורך הפשוט נשארה, בקצה התא: כשהיא מוצגת התא לפחות ברוחב שלה, ובלי שוליים שליליים, כדי שלא תיחתך ולא תיצמד
+   לכפתור; בזמן הודעה היא נעלמת (visibility). */
+.editor-info-slot { position:relative; display:grid; align-items:center; justify-items:end; flex:1 1 0; min-width:0; align-self:stretch; margin-inline-start:calc(-1 * var(--editor-clip-gap, .5rem)); }
+.editor-info-slot:has(> .editor-info-primary:not([hidden])) { min-width:max-content; margin-inline-start:0; }
 .editor-info-slot > .editor-info-status,
 .editor-info-slot > .editor-info-primary { grid-area: 1 / 1; }
 .editor-info-slot:has(> .editor-info-status:not(:empty)) > .editor-info-primary { visibility:hidden; }
@@ -113,6 +95,15 @@ body.telegram-mini-app #codeMirrorContainer .cm-editor {
 @media (max-width: 768px){
   .cm-editor { max-height: 50vh; font-size: 14px; }
   #codeMirrorContainer .cm-editor { font-size: 12px; }
+  /* Mobile: Stack vertically */
+  .editor-switcher-row { flex-direction: column; align-items: stretch; gap:.5rem; }
+  /* בעמודה הגדילה (``flex-grow``) היא לגובה: בלי ``flex: 0 1 auto`` הקבוצה גדלה לגובה השורה (48px בעורך
+     הציבורי), והכפתורים ירדו 10px לאמצע שלה (נמדד). */
+  .editor-switcher-actions { width: 100%; flex-direction: column; flex: 0 1 auto; }
+  .editor-clipboard-actions { width: 100%; }
+  /* כל כפתור ברוחב הטקסט שלו. עד נובמבר 2026 הכפתורים התרחבו למלא את השורה, ו"הדבק", שירד לשורה השנייה לבד,
+     תפס את כולה — וסרגל ה-MD ירד לשורה שלישית. */
+  .btn-editor-clip { flex: 0 0 auto; justify-content: center; }
 }
 
 /* Upload/Edit pages: Larger code editor on mobile */
