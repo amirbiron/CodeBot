@@ -688,7 +688,8 @@ def test_a_preview_shows_the_note_text_exactly_as_the_note_holds_it(chromium_exe
           const a = document.querySelector('.notif-popover a.reminder-link');
           return {text: a.textContent, noteId: a.getAttribute('data-note-id'), elements: a.children.length};
         }""")
-    assert link == {"text": "• " + preview + "...", "noteId": 'n"1', "elements": 0}, link
+    # בלי "..." קבוע: ``preview`` הוא שם הפתק כשיש לו, והשרת מוסיף "…" רק כשהוא קיצר.
+    assert link == {"text": "• " + preview, "noteId": 'n"1', "elements": 0}, link
 
 
 def test_falling_back_to_an_empty_list_breaks_the_test(chromium_executable):

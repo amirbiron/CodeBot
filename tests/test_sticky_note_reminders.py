@@ -689,6 +689,20 @@ class TestNoteRemindersAPI(unittest.TestCase):
         self.assertEqual(data['items'][0]['note_id'], self.note_id)
         self.assertEqual(data['items'][0]['preview'], 'שלום עולם דביק')
 
+    def test_list_shows_the_note_name_when_it_has_one(self):
+        """לפתק עם שם — השם, ולא תחילת התוכן: אותה ``note_label`` שממלאת את התראת הפוש."""
+        self._login()
+        self.db.sticky_notes._docs[0]['content'] = 'שלום עולם דביק'
+        self.db.sticky_notes._docs[0]['title'] = 'שם הפתק'
+        now = datetime.now(timezone.utc)
+        self.db.note_reminders._docs.append({
+            '_id': 'r1', 'user_id': self.user_id, 'note_id': self.note_id, 'file_id': 'file-1',
+            'status': 'pending', 'remind_at': now - timedelta(minutes=1), 'ack_at': None,
+        })
+        r = self.client.get('/api/sticky-notes/reminders/list')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()['items'][0]['preview'], 'שם הפתק')
+
 
 def _reminder_route_functions(tree):
     """הפונקציות שרשומות כמסלולי תזכורות — לפי הנתיב בדקורטור, לא לפי שם הפונקציה."""

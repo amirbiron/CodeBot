@@ -32,14 +32,23 @@ OUTCOME_FROM_RESPONSE = "outcome = resp.ok ? 'success' : 'refused';"
 
 HARNESS = """
 window.__reports = []; window.__shown = []; window.__fetches = []; window.__opened = null;
+window.__navigated = [];
 self.registration = {
   showNotification: (title, options) => {
     window.__shown.push({ title: title, options: options }); return Promise.resolve();
   },
   pushManager: { getSubscription: () => Promise.resolve(null) },
 };
+// ``__tabs`` — כתובות של לשוניות האתר שפתוחות (הראשונה היא האחרונה שהייתה בפוקוס, כמו במפרט),
+// ו-``navigate`` של כל אחת נרשם ב-``__navigated``: לחיצה על התראה אסור לה לחטוף לשונית.
 window.clients = {
-  matchAll: () => Promise.resolve([]),
+  matchAll: () => Promise.resolve((window.__tabs || []).map((u) => ({
+    url: u,
+    navigate: (to) => {
+      window.__navigated.push(String(to));
+      return Promise.resolve({ focus: () => Promise.resolve() });
+    },
+  }))),
   openWindow: (u) => { window.__opened = String(u); return Promise.resolve(null); },
   claim: () => Promise.resolve(),
 };
@@ -178,7 +187,7 @@ def test_ignoring_the_response_breaks_the_test(chromium_executable):
 # -- התראת תגובה של סוכן (``note_comment``) -----------------------------------------------
 
 #: הבידול שמונע את האישור; המוטציה מוחקת אותו.
-COMMENT_IS_NOT_A_REMINDER = "if (noteId && !isSnooze && !isComment) {"
+COMMENT_IS_NOT_A_REMINDER = "if (noteId && !isComment) {"
 
 #: ההתראה כפי ש-``push_api._build_note_comment_payload`` בונה אותה (``data``), בלי כפתורים.
 COMMENT_DATA = {
@@ -212,9 +221,106 @@ def test_a_reminder_body_click_still_acks(chromium_executable):
 
 def test_without_the_type_check_a_comment_click_acks_the_reminder(chromium_executable):
     """ריצת בקרה: בלי הבידול לפי ``type`` — הלחיצה על התראת התגובה שולחת אישור תזכורת."""
-    source = _mutate(_sw_source(), COMMENT_IS_NOT_A_REMINDER, "if (noteId && !isSnooze) {")
+    source = _mutate(_sw_source(), COMMENT_IS_NOT_A_REMINDER, "if (noteId) {")
     with _worker(chromium_executable, source, __action="", __notifData=COMMENT_DATA) as page:
         page.evaluate(CLICK)
         page.wait_for_timeout(200)
         bodies = _ack_bodies(page)
     assert bodies == [{"note_id": "n1"}], bodies
+
+
+# -- "דחה 10 דק׳" אינו פותח, ו"פתח פתק" תמיד בלשונית חדשה --------------------------------
+
+#: הסוף של מסלול הדחייה; המוטציה מחזירה את הפולבק הישן (``snooze_10`` ברשימת הפתיחה).
+SNOOZE_ENDS_THE_CLICK = "      return;\n    }\n\n    // פתיחה: רק \"פתח פתק\""
+OPEN_ONLY_ON_OPEN_NOTE = "const shouldOpen = !action || action === 'open_note';"
+
+#: הפתיחה עצמה; המוטציה מחזירה את חטיפת הלשונית — הראשונה ש-``matchAll`` מחזיר.
+OPENS_A_NEW_TAB = "      await clients.openWindow(urlToOpen);\n"
+
+
+def _opened_and_navigated(page):
+    page.evaluate(CLICK)
+    page.wait_for_timeout(200)
+    return page.evaluate("window.__opened"), page.evaluate("window.__navigated")
+
+
+def test_snooze_10_snoozes_and_opens_nothing(chromium_executable):
+    """"דחה 10 דק׳" קובע דחייה של 10 דקות — ולא פותח את הפתק ולא שולח אישור.
+
+    עד נובמבר 2026 ``snooze_10`` היה גם ברשימת הפתיחה, כפולבק למיפוי כפתורים שגוי, ולכן
+    הלחיצה גם פתחה את הפתק.
+    """
+    data = {"note_id": "n1", "file_id": "f1", "remind_at": OCCURRENCE}
+    with _worker(chromium_executable, _sw_source(), __snoozeStatus=200, __action="snooze_10",
+                 __notifData=data, __tabs=["https://ck.test/files"]) as page:
+        out = _click(page)
+        navigated = page.evaluate("window.__navigated")
+        acks = _ack_bodies(page)
+    assert out["snooze_bodies"] == ['{"minutes":10}'], out["snooze_bodies"]
+    assert [r["status"] for r in out["reports"]] == ["success"], out["reports"]
+    assert out["opened"] is None, out["opened"]
+    assert navigated == [], navigated
+    assert acks == [], acks
+
+
+def test_with_the_old_open_fallback_snooze_10_opens_the_note(chromium_executable):
+    """ריצת בקרה: ``snooze_10`` חוזר לרשימת הפתיחה — והטסט שמעל היה נופל."""
+    source = _mutate(_sw_source(), SNOOZE_ENDS_THE_CLICK, SNOOZE_ENDS_THE_CLICK.replace("      return;\n", "", 1))
+    source = _mutate(source, OPEN_ONLY_ON_OPEN_NOTE,
+                     "const shouldOpen = !action || action === 'open_note' || action === 'snooze_10';")
+    data = {"note_id": "n1", "file_id": "f1", "remind_at": OCCURRENCE}
+    with _worker(chromium_executable, source, __snoozeStatus=200, __action="snooze_10", __notifData=data) as page:
+        out = _click(page)
+    assert out["opened"] is not None and out["opened"].endswith("/note/n1"), out["opened"]
+
+
+#: כל סוג התראה שנפתח, עם הלשונית שהקוד הישן חטף בשבילו: ``(action, data, הלשוניות, סוף הכתובת)``.
+#: הלשונית הראשונה היא זו שהייתה אחרונה בפוקוס.
+NEW_TAB_CASES = {
+    # פתק לוח: אין ``file_id``, והקוד הישן לקח את ``windowClients[0]`` — הלשונית שעבדו בה.
+    "reminder_on_a_board_note": (
+        "open_note", {"note_id": "n1", "file_id": "", "board_id": "b1", "remind_at": OCCURRENCE},
+        ["https://ck.test/files"], "/note/n1",
+    ),
+    # פתק קובץ, כשהקובץ עצמו פתוח בלשונית: גם היא לא נלקחת.
+    "reminder_on_a_file_that_is_open": (
+        "open_note", {"note_id": "n1", "file_id": "f1", "board_id": "", "remind_at": OCCURRENCE},
+        ["https://ck.test/files", "https://ck.test/md/f1"], "/note/n1",
+    ),
+    # לחיצה על גוף ההתראה, בלי כפתור.
+    "reminder_body_click": (
+        "", {"note_id": "n1", "file_id": "", "board_id": "b1", "remind_at": OCCURRENCE},
+        ["https://ck.test/boards/b1"], "/note/n1",
+    ),
+    "agent_comment": ("", COMMENT_DATA, ["https://ck.test/files"], "/note/n1?thread=64b7f1d2e3a4b5c6d7e8f901"),
+    # קובץ שסוכן שמר דרך ה-MCP — כמו ``push_api._build_file_saved_payload``.
+    "mcp_file_saved": (
+        "", {"type": "mcp_file_saved", "note_id": "", "file_id": "f1", "board_id": ""},
+        ["https://ck.test/md/f1"], "/md/f1",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(NEW_TAB_CASES))
+def test_opening_from_a_notification_always_uses_a_new_tab(chromium_executable, case):
+    """הפתיחה תמיד ב-``openWindow`` — לשונית חדשה — ואף לשונית פתוחה של האתר אינה מנווטת."""
+    action, data, tabs, url_tail = NEW_TAB_CASES[case]
+    with _worker(chromium_executable, _sw_source(), __action=action, __notifData=data, __tabs=tabs) as page:
+        opened, navigated = _opened_and_navigated(page)
+    assert navigated == [], navigated
+    assert opened is not None and opened.endswith(url_tail), opened
+
+
+def test_taking_over_the_last_focused_tab_breaks_the_test(chromium_executable):
+    """ריצת בקרה: הפתיחה מנווטת את הלשונית הראשונה של ``matchAll``, כמו הקוד הישן בפתק לוח."""
+    source = _mutate(
+        _sw_source(), OPENS_A_NEW_TAB,
+        "      const [tab] = await clients.matchAll({ type: 'window' });\n"
+        "      await (tab ? tab.navigate(urlToOpen) : clients.openWindow(urlToOpen));\n",
+    )
+    action, data, tabs, _tail = NEW_TAB_CASES["reminder_on_a_board_note"]
+    with _worker(chromium_executable, source, __action=action, __notifData=data, __tabs=tabs) as page:
+        opened, navigated = _opened_and_navigated(page)
+    assert opened is None, opened
+    assert len(navigated) == 1 and navigated[0].endswith("/note/n1"), navigated
