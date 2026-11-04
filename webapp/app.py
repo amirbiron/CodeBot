@@ -14649,7 +14649,8 @@ def _note_file_target_id(db_ref, user_id: int, note: Dict[str, Any]) -> str:
     האחרונה של **הקובץ**, ולא הגרסה שעליה הפתק נוצר.
 
     פתק על קובץ מזוהה עם הקובץ לפי השם (``file_name`` ו-``scope_id``, ששינוי שם מעדכן —
-    ``sync_sticky_notes_on_rename``), ואילו ``file_id`` שבפתק הוא רק הגרסה שהייתה האחרונה
+    ``sync_sticky_notes_on_rename``, אחרי שינוי שם בבוט או של קובץ גדול בוובאפ; בוובאפ, שמירה
+    של קובץ רגיל בשם חדש יוצרת קובץ חדש), ואילו ``file_id`` שבפתק הוא רק הגרסה שהייתה האחרונה
     כשהפתק נוצר: כל שמירה יוצרת מסמך חדש עם מזהה חדש. הפניה לפי ``file_id`` הובילה,
     מהתראה ומהפעמון, לגרסה ישנה של הקובץ.
 
@@ -14657,10 +14658,13 @@ def _note_file_target_id(db_ref, user_id: int, note: Dict[str, Any]) -> str:
     ומסלול אחד ששוכח לעדכן היה מחזיר את הבאג בשקט — וזו גם כתיבה למסד על כל שמירה, בשביל
     פתקים שרובם לא ייפתחו.
 
+    * ``file_id`` הוא קובץ גדול של המשתמש (``large_files``) — הוא עצמו, **לפני** כל חיפוש לפי
+      שם: לקובץ גדול אין גרסאות, והחיפוש לפי שם רואה רק את ``code_snippets`` — כלומר קובץ
+      רגיל באותו שם היה נבחר במקומו. בכל מצב, גם בסל, כמו קודם.
     * יש ``file_name`` — הגרסה האחרונה לפי השם (:func:`_latest_active_version_doc`).
     * אין (פתק ישן) — השם נגזר מהמסמך שב-``file_id``, תחום ל-``user_id``.
-    * אין גרסה פעילה (הקובץ בסל, קובץ גדול שאין לו גרסאות ב-``code_snippets``, מזהה פגום)
-      — ה-``file_id`` השמור, כמו קודם, כדי שהקישור לא יישבר.
+    * אין גרסה פעילה (הקובץ בסל, מזהה פגום) — ה-``file_id`` השמור, כמו קודם, כדי שהקישור
+      לא יישבר.
 
     כשל של המסד (``PyMongoError``) מחזיר גם הוא את ה-``file_id`` השמור, עם אזהרה בלוג:
     קישור לגרסה ישנה, עם הבאנר שלה, עדיף על קישור שבור. חריגה אחרת עולה.
@@ -14669,17 +14673,21 @@ def _note_file_target_id(db_ref, user_id: int, note: Dict[str, Any]) -> str:
     raw_name = note.get('file_name')
     name = raw_name.strip() if isinstance(raw_name, str) else ''
     try:
-        if not name and stored:
-            try:
-                stored_oid = ObjectId(stored)
-            except (InvalidId, TypeError):
-                stored_oid = None
-            if stored_oid is not None:
-                stored_doc = db_ref.code_snippets.find_one(
-                    {'_id': stored_oid, 'user_id': user_id}, {'file_name': 1}
-                )
-                stored_name = (stored_doc or {}).get('file_name')
-                name = stored_name.strip() if isinstance(stored_name, str) else ''
+        stored_oid = ObjectId(stored)
+    except (InvalidId, TypeError):
+        stored_oid = None
+    try:
+        large_coll = getattr(db_ref, 'large_files', None)
+        if stored_oid is not None and large_coll is not None:
+            # רק ``_id`` בהיטלה: קובץ גדול יכול להחזיק מגהבייטים, וכאן שואלים רק אם הוא קיים.
+            if large_coll.find_one({'_id': stored_oid, 'user_id': user_id}, {'_id': 1}) is not None:
+                return stored
+        if not name and stored_oid is not None:
+            stored_doc = db_ref.code_snippets.find_one(
+                {'_id': stored_oid, 'user_id': user_id}, {'file_name': 1}
+            )
+            stored_name = (stored_doc or {}).get('file_name')
+            name = stored_name.strip() if isinstance(stored_name, str) else ''
         latest = _latest_active_version_doc(db_ref, user_id, name, {'_id': 1}) if name else None
     except PyMongoError:
         logger.warning("note permalink: latest file version lookup failed", exc_info=True)

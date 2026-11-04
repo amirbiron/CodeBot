@@ -37,6 +37,8 @@ R1, R2 = _oid(0xB1), _oid(0xB2)
 TRASH1, TRASH2 = _oid(0xC1), _oid(0xC2)
 #: שתי שמירות מקבילות שקיבלו אותו מספר גרסה — מכריעים ``updated_at`` ואז ``_id``.
 TIE_OLD, TIE_NEW = _oid(0xD1), _oid(0xD2)
+#: קובץ גדול (``large_files``) — **באותו שם** של קובץ רגיל, ``a.md``. אין לו גרסאות.
+LARGE = _oid(0xE1)
 
 SNIPPETS = [
     {"_id": V1, "user_id": USER, "file_name": "a.md", "version": 1, "is_active": True, "updated_at": T0},
@@ -64,6 +66,7 @@ NOTE_ON_TRASHED_FILE = _oid(0x104)
 NOTE_OF_OTHER_USER = _oid(0x105)
 NOTE_ON_A_TIE = _oid(0x106)
 NOTE_ON_A_LARGE_FILE = _oid(0x107)
+NOTE_ON_A_LARGE_FILE_IN_THE_BIN = _oid(0x108)
 
 NOTES = [
     {"_id": NOTE_ON_OLD_VERSION, "user_id": USER, "file_id": str(V1), "file_name": "a.md"},
@@ -73,8 +76,14 @@ NOTES = [
     {"_id": NOTE_ON_TRASHED_FILE, "user_id": USER, "file_id": str(TRASH1), "file_name": "gone.md"},
     {"_id": NOTE_OF_OTHER_USER, "user_id": OTHER, "file_id": str(FOREIGN), "file_name": "a.md"},
     {"_id": NOTE_ON_A_TIE, "user_id": USER, "file_id": str(TIE_OLD), "file_name": "tie.md"},
-    # קובץ גדול (``large_files``) — אין לו גרסאות ב-``code_snippets``.
-    {"_id": NOTE_ON_A_LARGE_FILE, "user_id": USER, "file_id": "big-file-1", "file_name": "big.log"},
+    # קובץ גדול ששמו ``a.md`` — כמו הקובץ הרגיל. החיפוש לפי שם רואה רק את ``code_snippets``.
+    {"_id": NOTE_ON_A_LARGE_FILE, "user_id": USER, "file_id": str(LARGE), "file_name": "a.md"},
+    {"_id": NOTE_ON_A_LARGE_FILE_IN_THE_BIN, "user_id": USER, "file_id": str(_oid(0xE2)), "file_name": "a.md"},
+]
+
+LARGE_FILES = [
+    {"_id": LARGE, "user_id": USER, "file_name": "a.md", "is_active": True},
+    {"_id": _oid(0xE2), "user_id": USER, "file_name": "a.md", "is_active": False},
 ]
 
 
@@ -114,6 +123,7 @@ class _DB:
     def __init__(self, snippets):
         self.sticky_notes = _Coll(NOTES)
         self.code_snippets = snippets
+        self.large_files = _Coll(LARGE_FILES)
 
 
 def _client(monkeypatch, snippets=None):
@@ -166,9 +176,21 @@ def test_a_file_in_the_recycle_bin_opens_the_stored_version_as_before(monkeypatc
     assert _location(client, NOTE_ON_TRASHED_FILE) == f"/md/{TRASH1}?note={NOTE_ON_TRASHED_FILE}"
 
 
-def test_a_large_file_without_versions_opens_the_stored_id_as_before(monkeypatch):
+def test_a_large_file_opens_itself_and_not_a_regular_file_with_the_same_name(monkeypatch):
+    """לקובץ גדול אין גרסאות, והחיפוש לפי שם רואה רק את ``code_snippets`` — ולכן ``a.md`` הרגיל
+    (v3) היה נבחר במקומו. הבדיקה של ``large_files`` באה לפני החיפוש לפי שם, תחומה למשתמש,
+    ומבקשת רק את ``_id``."""
+    client, db = _client(monkeypatch)
+    assert _location(client, NOTE_ON_A_LARGE_FILE) == f"/md/{LARGE}?note={NOTE_ON_A_LARGE_FILE}"
+    assert db.large_files.queries == [{"_id": LARGE, "user_id": USER}], db.large_files.queries
+    assert not [q for q in db.code_snippets.queries if "file_name" in q], db.code_snippets.queries
+
+
+def test_a_large_file_in_the_recycle_bin_opens_itself_as_before(monkeypatch):
     client, _db = _client(monkeypatch)
-    assert _location(client, NOTE_ON_A_LARGE_FILE) == f"/md/big-file-1?note={NOTE_ON_A_LARGE_FILE}"
+    assert _location(client, NOTE_ON_A_LARGE_FILE_IN_THE_BIN) == (
+        f"/md/{_oid(0xE2)}?note={NOTE_ON_A_LARGE_FILE_IN_THE_BIN}"
+    )
 
 
 def test_a_note_of_another_user_is_not_exposed(monkeypatch):
