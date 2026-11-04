@@ -433,10 +433,10 @@ def test_editing_a_file_whose_latest_version_lost_the_mark_keeps_it_in_favorites
     assert f'data-file-id="{newest["_id"]}"' in page, "הקובץ לא מוצג בגרסה האחרונה שלו"
 
 
-def test_renaming_a_favorite_file_in_the_editor_keeps_it_a_favorite(wa):
-    """עריכה שמשנה את שם הקובץ כותבת את הגרסה החדשה תחת השם החדש, ושם עוד אין אף גרסה.
+def test_saving_a_favorite_file_under_a_new_name_in_the_editor_writes_a_file_that_is_not_a_favorite(wa):
+    """שמירה בשם אחר כותבת קובץ אחר, והקובץ שנערך נשאר — מועדף, כמו שהיה.
 
-    לכן העריכה שואלת גם את השם שממנו יצאה. בלי זה, שינוי שם היה מוציא קובץ מהמועדפים.
+    עד 4.11.2026 העריכה שאלה גם את השם שממנו יצאה, והקובץ החדש יצא מועדף. ההתנהגות המלאה של שמירה בשם אחר — ``tests/test_webapp_edit_new_name_is_a_new_file.py``.
     """
     ids = _seed(wa, "old-name.md", versions=1, favorite=(1,))
 
@@ -445,7 +445,10 @@ def test_renaming_a_favorite_file_in_the_editor_keeps_it_a_favorite(wa):
     })
 
     assert response.status_code in (200, 302), response.get_data(as_text=True)[:300]
-    _assert_new_version_is_still_a_favorite(wa, "new-name.md", 1)
+    created = _latest(wa, "new-name.md")
+    assert created["version"] == 1, created
+    assert created.get("is_favorite") is False and created.get("favorited_at") is None, created
+    assert [v.get("is_favorite") for v in _versions(wa, "old-name.md")] == [True]
 
 
 @pytest.mark.parametrize("versions, favorite", MARKED)
@@ -612,9 +615,9 @@ def test_the_rule_needs_a_file_name():
     from file_favorite import favorite_fields_for_new_version
 
     with pytest.raises(ValueError):
-        favorite_fields_for_new_version(_OneDoc(None), USER_ID)
+        favorite_fields_for_new_version(_OneDoc(None), USER_ID, "")
     with pytest.raises(ValueError):
-        favorite_fields_for_new_version(_OneDoc(None), USER_ID, "", None)
+        favorite_fields_for_new_version(_OneDoc(None), USER_ID, None)
 
 
 def test_the_rule_writes_an_explicit_not_favorite_when_nothing_is_marked():

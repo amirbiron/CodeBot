@@ -16329,7 +16329,9 @@ def edit_file_page(file_id):
             language = (request.form.get('language') or '').strip() or (file.get('programming_language') or 'text')
             description = (request.form.get('description') or '').strip()
             raw_tags = (request.form.get('tags') or '').strip()
-            tags = split_tags_text(raw_tags) if raw_tags else list(file.get('tags') or [])
+            # רק מה שבטופס. מה שממלא שדה ריק נקבע למטה, אחרי שידוע לאיזה
+            # שם הגרסה נשמרת — ראו ``name_changed``.
+            tags = split_tags_text(raw_tags) if raw_tags else []
             raw_source_url = request.form.get('source_url') or ''
             source_url_value = raw_source_url.strip()
             source_url_state = (request.form.get('source_url_touched') or '').strip().lower()
@@ -16497,6 +16499,21 @@ def edit_file_page(file_id):
                 except Exception:
                     pass
 
+                # **שם אחר הוא קובץ אחר.** השמירה כותבת מסמך תחת השם שבטופס,
+                # והקובץ שנערך נשאר פעיל עם כל הגרסאות שלו. לכן מה שהשמירה
+                # ממלאת בעצמה, מעבר לטופס, נלקח רק מהקובץ ש**אליו** היא
+                # נשמרת. בשם זהה — הגרסה האחרונה ואחריה המסמך שנטען לעמוד,
+                # כמו תמיד. בשם שעדיין לא קיים — כלום: זה קובץ חדש בגרסה 1,
+                # עם תאריך יצירה של עכשיו ובלי מועדף, נעיצה, פתקים או אוספים.
+                # ובשם שכבר תפוס על ידי קובץ אחר — הגרסה האחרונה של הקובץ
+                # ההוא בלבד, כי השמירה נכנסת כגרסה הבאה שלו. מהקובץ שנערך לא
+                # עובר דבר. עד 4.11.2026 כל אלה עברו ממנו, והקובץ החדש קיבל
+                # את תאריך היצירה שלו — ולכן לא הופיע בראש ``/files`` — את
+                # הפתקים שלו ואת השיוך שלו לאוספים.
+                #
+                # נקבע כאן, אחרי ההתאמות של השם למעלה, כי זה השם שנכתב בפועל.
+                name_changed = bool(original_file_name) and file_name != original_file_name
+
                 # קבע גרסה חדשה על סמך שם הקובץ לאחר העדכון
                 try:
                     prev = db.code_snippets.find_one(
@@ -16509,15 +16526,24 @@ def edit_file_page(file_id):
                     )
                 except Exception:
                     prev = None
+                # המסמכים הקודמים של הקובץ שהגרסה הזו נשמרת אליו, לפי הסדר —
+                # כל מה שלמטה ממלא ממנו: תאריך היצירה, חותמת התיאור, תיאור
+                # ותגיות שהשדה שלהם נשאר ריק, וקישור המקור.
+                own_previous_docs = (prev,) if name_changed else (prev, file)
+                own_previous = next((d for d in own_previous_docs if d), None)
                 version = int((prev or {}).get('version', 0) or 0) + 1
                 if not description:
                     try:
-                        description = (prev or file or {}).get('description') or ''
+                        description = (own_previous or {}).get('description') or ''
                     except Exception:
                         description = ''
+                if not tags and not name_changed:
+                    # שדה תגיות ריק בשמירה באותו שם מקבל את התגיות של המסמך
+                    # שנטען לעמוד, כמו לפני ``name_changed``.
+                    tags = list(file.get('tags') or [])
                 if not tags:
                     try:
-                        tags = list((prev or file or {}).get('tags') or [])
+                        tags = list((own_previous or {}).get('tags') or [])
                     except Exception:
                         tags = []
 
@@ -16603,11 +16629,14 @@ def edit_file_page(file_id):
                     pinned_info = None
                     pinned_source_name = None
                     try:
-                        if bool(file.get('is_pinned', False)):
+                        # בשם אחר הנעיצה נשאלת על השם שאליו נשמרים בלבד: הקובץ
+                        # שנערך נשאר נעוץ כמו שהיה, ו-``transfer_pin_to_new_version``
+                        # למטה לא נוגע בו.
+                        if not name_changed and bool(file.get('is_pinned', False)):
                             pinned_info = file
                             pinned_source_name = file.get('file_name') or original_file_name or file_name
                         else:
-                            candidate_name = original_file_name or file.get('file_name') or file_name
+                            candidate_name = file_name if name_changed else (original_file_name or file.get('file_name') or file_name)
                             if candidate_name:
                                 try:
                                     pinned_info = db.code_snippets.find_one(
@@ -16633,10 +16662,9 @@ def edit_file_page(file_id):
                         pinned_source_name = None
                     if pinned_info is None:
                         try:
-                            same_name = True
-                            if original_file_name and file_name and original_file_name != file_name:
-                                same_name = False
-                            if same_name and bool((prev or {}).get('is_pinned', False)):
+                            # ``prev`` הוא תמיד של השם שאליו נשמרים, ולכן גם בשם
+                            # אחר זו הנעיצה של הקובץ שהגרסה נכנסת אליו.
+                            if bool((prev or {}).get('is_pinned', False)):
                                 pinned_info = prev
                                 pinned_source_name = (prev or {}).get('file_name') or original_file_name or file_name
                         except Exception:
@@ -16651,22 +16679,21 @@ def edit_file_page(file_id):
                         'description': description,
                         'tags': tags,
                         'version': version,
-                        'created_at': inherited_created_at(now, prev, file),
+                        'created_at': inherited_created_at(now, *own_previous_docs),
                         'updated_at': now,
                         VERSION_CREATED_AT_FIELD: now,
                         'is_active': True,
                         # עד 23.9.2026 המסלול הזה לא העביר את הסימון, וכל עריכה
-                        # בדפדפן כתבה גרסה לא מסומנת. גם השם שממנו העריכה
-                        # יצאה נשאל, כדי ששינוי שם לא יוציא קובץ מהמועדפים —
-                        # ראו file_favorite.py.
-                        **favorite_fields_for_new_version(
-                            db.code_snippets, user_id, file_name, original_file_name),
+                        # בדפדפן כתבה גרסה לא מסומנת. רק השם שאליו נשמרים
+                        # נשאל: בשם אחר זה קובץ אחר (``name_changed``), והוא
+                        # אינו יורש את הסימון של הקובץ שנערך — ראו file_favorite.py.
+                        **favorite_fields_for_new_version(db.code_snippets, user_id, file_name),
                     }
                     _attach_file_size_and_lines(new_doc, code)
-                    # ``prev`` הוא הגרסה האחרונה של הקובץ, ו-``file`` הוא
-                    # המסמך שנטען לעמוד העריכה. אותו סדר שבו נבחר כאן
-                    # ``created_at`` ממש למעלה.
-                    _attach_description_stamp(new_doc, prev, file)
+                    # אותם מסמכים קודמים, באותו סדר, שמהם נבחר ``created_at``
+                    # ממש למעלה. בקובץ חדש אין כאלה, ולכן התיאור שבטופס נחשב
+                    # "נקבע עכשיו".
+                    _attach_description_stamp(new_doc, *own_previous_docs)
                     if pinned_info:
                         new_doc['is_pinned'] = True
                         try:
@@ -16680,7 +16707,7 @@ def edit_file_page(file_id):
                             new_doc['pin_order'] = 0
                     prev_source = None
                     try:
-                        prev_source = (prev or file or {}).get('source_url')
+                        prev_source = (own_previous or {}).get('source_url')
                     except Exception:
                         prev_source = None
                     if clean_source_url:
@@ -16741,12 +16768,14 @@ def edit_file_page(file_id):
                                     _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
                                 except Exception:
                                     pass
-                            if original_file_name and original_file_name != file_name:
-                                _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
-                                try:
-                                    _sync_sticky_notes_after_rename(db, user_id, original_file_name, file_name, str(res.inserted_id))
-                                except Exception:
-                                    pass
+                            if name_changed:
+                                # בשם אחר נוסף קובץ לרשימות. הפתקים והשיוך
+                                # לאוספים נשארים על הקובץ שנערך, שעדיין קיים,
+                                # ולכן אין כאן העברה — רק ביטול הקאש, כדי שהקובץ
+                                # החדש יופיע ב-``/files`` מיד ולא אחרי
+                                # ``FILES_PAGE_CACHE_TTL``. עד 4.11.2026 הביטול הזה
+                                # הגיע כתופעת לוואי של העברת האוספים.
+                                _invalidate_user_cache_after_write(user_id, "edit_new_name")
                             # קבצי Markdown – מפנים ישירות לתצוגת Markdown במקום תצוגת קוד
                             if _is_markdown_file(language, file_name):
                                 if _log_webapp_user_activity():
@@ -18665,7 +18694,7 @@ def api_toggle_favorite(file_id):
         except Exception:
             return jsonify({'ok': False, 'error': 'לא ניתן לעדכן מועדפים'}), 500
 
-        _invalidate_after_favorite_change(user_id)
+        _invalidate_user_cache_after_write(user_id, "favorite")
         return jsonify({'ok': True, 'state': new_state})
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
@@ -18819,20 +18848,26 @@ def _bulk_set_favorite(state: bool):
             # הקבצים נמחקו בין הספירה לכתיבה. דיווח "N קבצים עודכנו" על
             # כתיבה שלא נגעה בכלום הוא בדיוק K11.
             return jsonify({'success': False, 'error': 'Files changed, refresh and retry'}), 409
-        _invalidate_after_favorite_change(user_id)
+        _invalidate_user_cache_after_write(user_id, "favorite")
     return jsonify({'success': True, 'updated': len(live_names)})
 
 
-def _invalidate_after_favorite_change(user_id: int) -> None:
-    """ביטול הקאש של המשתמש אחרי שסימון מועדף השתנה — רק אחרי כתיבה שנגעה במשהו.
+def _invalidate_user_cache_after_write(user_id: int, what: str) -> None:
+    """ביטול הקאש של המשתמש אחרי כתיבה שמשנה את רשימות הקבצים — רק אחרי כתיבה שנגעה במשהו.
 
-    עמוד המועדפים נשמר כ-HTML בקאש (``files``, המפתח ``web:files:user:<id>:…``),
-    וגם ``Repository.get_latest_version`` שומר את הגרסה האחרונה עם הסימון שלה.
-    בלי הביטול, קובץ שהוסר ממועדפים חזר לרשימה ברענון עד שהקאש פג.
+    ``what`` הוא שם הכתיבה, ונכנס לשורת הלוג בכשל
+    (``files.<what>_cache_invalidation_failed``). שני סוגי כתיבה קוראים לפונקציה:
+
+    - **סימון מועדף** (``"favorite"``). עמוד המועדפים נשמר כ-HTML בקאש (``files``,
+      המפתח ``web:files:user:<id>:…``), וגם ``Repository.get_latest_version`` שומר
+      את הגרסה האחרונה עם הסימון שלה. בלי הביטול, קובץ שהוסר ממועדפים חזר לרשימה
+      ברענון עד שהקאש פג.
+    - **שמירה בשם אחר בעמוד העריכה** (``"edit_new_name"``), שכותבת קובץ חדש. בלי
+      הביטול הוא הופיע ב-``/files`` רק אחרי ``FILES_PAGE_CACHE_TTL``.
 
     **``CacheManager.invalidate_user_cache`` בלבד, ולא ``invalidate_file_related``
     לכל קובץ.** הסימון לא יושב באף קאש של קובץ בודד: ``md_preview.html`` לא
-    מציג אותו, ו-``view_file`` אינו נשמר בקאש. וקריאה לכל קובץ הייתה מכפילה
+    מציג אותו, ו-``view_file`` אינו נשמר בקאש. ולקובץ חדש אין עדיין קאש משלו. וקריאה לכל קובץ הייתה מכפילה
     במספר הקבצים את העלות של ניקוי אחד — סריקה לכל תבנית, ראו
     ``CacheManager.delete_patterns``.
 
@@ -18843,7 +18878,10 @@ def _invalidate_after_favorite_change(user_id: int) -> None:
 
     **כשל בניקוי אינו הופך את הכתיבה לכשל.** הכתיבה כבר הצליחה, ותשובת שגיאה
     הייתה שולחת את המשתמש ללחוץ שוב — ובטוגל, לחיצה נוספת מחזירה את הסימון
-    שהוא הרגע הסיר. לכן חריגה נרשמת ללוג ולא עולה, והקאש פג לבד. זה אותו כלל
+    שהוא הרגע הסיר; ובעריכה, "שמירת הקובץ נכשלה" על שמירה שנכתבה הייתה שולחת
+    לשמור שוב, כלומר גרסה כפולה. לכן חריגה נרשמת ללוג ולא עולה, והקאש פג לבד.
+    ה-``except`` רחב בכוונה: המצב שאחריו — "הקאש לא נוקה, והוא יפוג" — נכון
+    לכל כשל של הניקוי, גם לבאג בו, והשורה נושאת את ה-traceback. זה אותו כלל
     שכבר כתוב בטסטים של שכבת המסד: "הקאש הוא ניקוי אופורטוניסטי"
     (``tests/test_repository_invalidation_and_list_branch.py``).
     """
@@ -18851,7 +18889,8 @@ def _invalidate_after_favorite_change(user_id: int) -> None:
         cache.invalidate_user_cache(int(user_id))
     except Exception:
         logger.warning(
-            "files.favorite_cache_invalidation_failed request_id=%s",
+            "files.%s_cache_invalidation_failed request_id=%s",
+            what,
             getattr(g, "request_id", None),
             exc_info=True,
         )
