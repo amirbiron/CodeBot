@@ -684,6 +684,29 @@ def test_on_a_phone_the_switch_and_history_come_first_and_the_copy_buttons_below
             page.close()
 
 
+def test_in_the_simple_editor_the_label_goes_to_the_first_row_with_room(edit_page):
+    """בעורך הפשוט יש בקצה השורה תווית, "עורך טקסט בסיסי", והיא תופסת רוחב. ``layoutSwitcherRow`` מציב אותה בשורה
+    הראשונה שיש בה מקום — כאן ליד "עורך פשוט" ו-MD — ורק כשאין, בשורה משלה. עד התיקון היא תמיד הייתה אחרונה, ולכן
+    ירדה לשורה שלישית גם כשהיה לה מקום למעלה (נמדד, עם אייקונים, ברוחב 460 עד 500: 130px במקום 99px). הרוחב כאן
+    אחר, כי בבדיקה האייקונים לא נטענים. בדף נפרד, כדי שהמעבר לעורך הפשוט לא יגיע לבדיקות אחרות בקובץ.
+    """
+    page = _page_at(edit_page, 420)
+    try:
+        page.click(".btn-switch-editor")
+        page.wait_for_function("window.editorManager.currentEditor === 'simple'", timeout=10000)
+        page.wait_for_function("() => !document.querySelector('.editor-info-primary').hidden")
+        assert _row(page)["lines"] == [["switch", "MD"], ["select", "copy", "paste"]]
+        beside_switch = page.evaluate(
+            """() => { const label = document.querySelector('.editor-info-primary').getBoundingClientRect();
+              const switchBtn = document.querySelector('.btn-switch-editor').getBoundingClientRect();
+              return label.top < switchBtn.bottom && label.bottom > switchBtn.top; }"""
+        )
+        assert beside_switch
+    finally:
+        _forget_editor_choice(page)
+        page.close()
+
+
 DIVIDER = """(selector) => {
   const g = document.querySelector(selector);
   const box = g.getBoundingClientRect();

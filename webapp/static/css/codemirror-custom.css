@@ -79,7 +79,8 @@ html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
    נמדד באוקטובר 2026). התא (``.editor-info-slot``) הוא הפריט האחרון בשורה (``order`` אחרי כל השורות), בלי קו,
    וממלא את מה שנשאר בשורה האחרונה; ההודעה צפה בקצה שלו. בשורה צרה הרווח קטן מההודעה, והיא מכסה לכמה שניות חלק
    מהכפתורים שלפניה, ולכן יש לה רקע; ``pointer-events: none`` משאיר אותם לחיצים. התווית "עורך טקסט בסיסי" של
-   העורך הפשוט יושבת באותו תא, בקצה שלו: כשהיא מוצגת התא לפחות ברוחב שלה, כדי שלא תיחתך; בזמן הודעה היא נעלמת
+   העורך הפשוט יושבת באותו תא, בקצה שלו: כשהיא מוצגת התא לפחות ברוחב שלה, כדי שלא תיחתך, ו-``layoutSwitcherRow``
+   מציב אותו בשורה הראשונה שיש בה מקום (``data-row``, שגובר על ה-``order`` כאן); בזמן הודעה היא נעלמת
    (visibility). */
 .editor-info-slot { position:relative; display:grid; align-items:center; justify-items:end; flex:1 1 0; min-width:0; align-self:stretch; order:6; }
 .editor-info-slot:has(> .editor-info-primary:not([hidden])) { min-width:max-content; }

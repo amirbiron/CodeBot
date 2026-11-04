@@ -543,13 +543,24 @@
 
     /**
      * מסדר את שורת הכפתורים בשורות, ומחליט לפני מי יש קו הפרדה (``codemirror-custom.css``, ההערה מעל
-     * ``.editor-switcher-actions``). מנסה סידורים לפי הסדר, ובוחר את הראשון שבו כל שורה נכנסת בשורה אחת על המסך:
-     * הכול בשורה אחת; אחרת "עורך פשוט / מתקדם", "בטל / בצע שוב" ו-MD (או כלי הקוד) בשורה הראשונה ו"בחר הכל / העתק /
-     * הדבק" בשנייה; ואחרת MD בשורה משלו, בין השתיים. בלי מתג עורך (העורך הציבורי) הסדר נשאר: "בחר הכל / העתק /
-     * הדבק" ראשונים. כשאף סידור לא נכנס — האחרון. הראשון בכל שורה מסומן ``data-line-start`` ולו אין קו, ולכן קו לא
-     * מופיע בתחילת שורה. ההחלטה לפי מה שבאמת נכנס ולא לפי רוחב מסך: כך היא נכונה גם בשורה צרה במחשב, כשהתצוגה
-     * החיה דלוקה, וגם כשהגופן במכשיר רחב מזה של מכונת הבדיקה. הבדיקה היא חפיפה בציר האנכי בלבד — הכיוון של
-     * הדף לא משנה אותה.
+     * ``.editor-switcher-actions``). מנסה סידורים לפי הסדר, ובוחר את הראשון שבו הפריטים של כל שורה נשארים באותה שורה
+     * על המסך: הכול בשורה אחת; אחרת "עורך פשוט / מתקדם", "בטל / בצע שוב" ו-MD (או כלי הקוד) בשורה הראשונה ו"בחר
+     * הכל / העתק / הדבק" בשנייה; ואחרת MD בשורה משלו, בין השתיים. בלי מתג עורך (העורך הציבורי) הסדר נשאר: "בחר הכל
+     * / העתק / הדבק" ראשונים. כשאף סידור לא נכנס — האחרון. הראשון בכל שורה מסומן ``data-line-start`` ולו אין קו,
+     * ולכן קו לא מופיע בתחילת שורה. ההחלטה לפי מה שבאמת נכנס ולא לפי רוחב מסך: כך היא נכונה גם בשורה צרה במחשב,
+     * כשהתצוגה החיה דלוקה, וגם כשהגופן במכשיר רחב מזה של מכונת הבדיקה. הבדיקה היא חפיפה בציר האנכי בלבד — הכיוון
+     * של הדף לא משנה אותה.
+     *
+     * **מה הבדיקה לא שופטת, בכוונה: קבוצה שלבד בשורה ונשברת בתוך עצמה.** קבוצה שלא נכנסת ליד פריטים אחרים יורדת
+     * לשורה הבאה כולה (כך flexbox שובר שורות, נמדד) — וזה נתפס. רק קבוצה שלבד בשורה, ורחבה ממנה, מתכווצת ונשברת
+     * בתוך עצמה; ואף סידור לא היה נותן לה שורה רחבה יותר. לו נחשב הדבר כ"לא נכנס", בעורך הפשוט, כש"בחר הכל / העתק
+     * / הדבק" רחבים מהשורה, הם היו נשברים בכל סידור, ו-MD היה יורד לשורה משלו בלי שום תועלת (נמדד בעמוד העריכה
+     * ברוחב 300 וב-340: חמש שורות ו-207px, במקום ארבע ו-168px).
+     *
+     * **התווית "עורך טקסט בסיסי"** (העורך הפשוט, בתא שבסוף — ``updateInfoBanner``) תופסת רוחב, ולכן אחרי שהסידור
+     * נבחר היא נכנסת לשורה הראשונה שיש בה מקום בשבילה, ורק כשאין — לשורה משלה, בסוף. בלי זה היא ירדה לשורה משלה גם
+     * כשהיה לה מקום ליד "עורך פשוט" ו-MD (נמדד בעמוד העריכה ברוחב 460 עד 500: שלוש שורות ו-130px, במקום שתיים
+     * ו-99px).
      */
     layoutSwitcherRow() {
       const actions = this._switcherActions;
@@ -568,8 +579,17 @@
         layouts.push([clip, [...history, ...tools]]);
         layouts.push([clip, history, tools]);
       }
+      // כל הפריטים של השורה חופפים לראשון שבה בציר האנכי — כלומר יושבים באותה שורה על המסך
+      const rowFits = (row) => {
+        const first = row[0].getBoundingClientRect();
+        return row.every((el) => {
+          const box = el.getBoundingClientRect();
+          return box.top < first.bottom && box.bottom > first.top;
+        });
+      };
+      let rows = [];
       for (const layout of layouts) {
-        const rows = layout.filter((row) => row.length);
+        rows = layout.filter((row) => row.length);
         children.forEach((el) => {
           el.removeAttribute('data-row');
           el.removeAttribute('data-line-start');
@@ -581,15 +601,16 @@
             if (position === 0) el.dataset.lineStart = '';
           });
         });
-        const fits = rows.every((row) => {
-          const first = row[0].getBoundingClientRect();
-          return row.every((el) => {
-            const box = el.getBoundingClientRect();
-            return box.top < first.bottom && box.bottom > first.top;
-          });
-        });
-        if (fits) return;
+        if (rows.every(rowFits)) break;
       }
+      const slot = children.find((el) => el.classList.contains('editor-info-slot'));
+      const label = slot ? slot.querySelector('.editor-info-primary:not([hidden])') : null;
+      if (!label || rows.length < 2) return;
+      for (let index = 0; index < rows.length; index += 1) {
+        slot.dataset.row = String(index + 1);
+        if (rowFits([...rows[index], slot])) return;
+      }
+      slot.removeAttribute('data-row');
     }
 
     /**
