@@ -67,6 +67,13 @@ class _Dbm:
             return None
         return self._doc(self._code, 2)
 
+    def get_latest_version_ids_fresh(self, user_id, file_name):
+        """ראש הסדר של הקריאה לפי שם, כמו ``Repository._fetch_latest_version_ids`` — בשביל
+        ``file.is_latest`` בקריאה לפי מזהה. הגרסה האחרונה בלבד: הדמה אינה מחזיקה תיקו."""
+        if file_name != _FILE:
+            return []
+        return [{"_id": _DOC_ID, "version": 2}]
+
     def get_file_by_id(self, file_id):
         if file_id != _DOC_ID:
             return None

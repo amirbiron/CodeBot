@@ -56,7 +56,7 @@ from .manager import (
 # תאריכי קובץ — מודול שורש טהור, ראו file_dates.py
 from file_dates import VERSION_CREATED_AT_FIELD, inherited_created_at
 # הגרסה האחרונה של קובץ — מודול שורש טהור, אותו כלל שרשימת הקבצים בוובאפ בוחרת בו. ראו file_versions.py
-from file_versions import LATEST_VERSION_SORT_BY
+from file_versions import ACTIVE_VERSION_FILTER, LATEST_VERSION_SORT_BY, is_active_version
 # גיל התיאור ותקרת האורך שלו — מודול שורש טהור, ראו file_description.py
 from file_description import (
     DESCRIPTION_SET_AT_VERSION_FIELD,
@@ -89,6 +89,13 @@ except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields):
         return None
 from .models import CodeSnippet, LargeFile
+
+#: המיון של "הגרסה האחרונה" בקריאה לפי שם (``Repository._fetch_latest_version`` ו-
+#: ``Repository._fetch_latest_version_ids``): ``version`` בלבד, **בלי שובר שוויון** — האינדקס
+#: ``idx_snippets_latest_version`` משרת אותו בלי מיון בזיכרון. מי שצריך לדעת שיש תיקו קורא
+#: שני מסמכים (``_fetch_latest_version_ids``). זה **לא** ``LATEST_VERSION_SORT_BY`` של
+#: הוובאפ והגיבוי — ההבדל מתועד בראש ``file_versions.py``.
+_LATEST_BY_NAME_SORT: List[Tuple[str, int]] = [("version", -1)]
 
 logger = logging.getLogger(__name__)
 
@@ -1425,6 +1432,72 @@ class Repository:
             emit_event("db_max_version_error", severity="error", error=str(e))
             return None
 
+    @staticmethod
+    def _latest_by_name_filter(user_id: int, file_name: str) -> Dict[str, Any]:
+        """מי מועמד להיות "הגרסה האחרונה" של שם — המסנן של :meth:`_fetch_latest_version`
+        ושל :meth:`_fetch_latest_version_ids`, במקום אחד, כדי ששתי השאילתות יענו על אותה שאלה."""
+        return {"user_id": user_id, "file_name": file_name, **ACTIVE_VERSION_FILTER}
+
+    @staticmethod
+    def _in_memory_latest_order(docs_list: List[Any], user_id: int, file_name: str) -> List[Dict]:
+        """הסדר של :data:`_LATEST_BY_NAME_SORT` על אוסף בזיכרון (טסטים) — אותו מסנן ואותו מיון.
+
+        ``sorted`` יציב גם עם ``reverse=True``, ולכן בין מסמכים עם אותו ``version`` נשמר סדר
+        ההכנסה, והראשון הוא בדיוק מה ש-``max`` החזיר כאן עד היום.
+        """
+        candidates = [
+            d for d in docs_list
+            if isinstance(d, dict)
+            and d.get('user_id') == user_id
+            and d.get('file_name') == file_name
+            and is_active_version(d)
+        ]
+        return sorted(candidates, key=lambda d: int(d.get('version', 0) or 0), reverse=True)
+
+    def _fetch_latest_version_ids(self, user_id: int, file_name: str) -> Optional[List[Dict]]:
+        """ראש הסדר של הקריאה לפי שם — עד **שני** מסמכים, ``_id`` ו-``version`` בלבד — מה-primary ובלי קאש.
+
+        **בשביל מה:** ``file.is_latest`` ב-MCP (``_is_latest_field`` ב-``mcp_server/backend.py``)
+        צריך לדעת איזה מסמך הקריאה לפי השם מחזירה, ולא את התוכן שלו. :meth:`_fetch_latest_version`
+        מושך את המסמך כולו — עד ``MAX_CODE_SIZE`` תווים — רק כדי שישוו לו ``_id``.
+
+        - **אותו מסנן ואותו מיון של** :meth:`_fetch_latest_version`: :meth:`_latest_by_name_filter`
+          ו-:data:`_LATEST_BY_NAME_SORT`, ובאוסף בזיכרון :meth:`_in_memory_latest_order`.
+        - **שניים ולא אחד:** המיון הוא לפי ``version`` בלבד, ובשני מסמכים פעילים עם אותו מספר
+          עליון לא מוגדר איזה מהם הקריאה לפי שם מחזירה. השני הוא מה שמראה לקורא שיש תיקו.
+          שובר שוויון בשאילתה עצמה (``LATEST_VERSION_SORT_BY``) אינו נתמך באינדקס
+          ``idx_snippets_latest_version``, שאין בו ``_id``: כל קריאה לפי שם הייתה שולפת את כל
+          הגרסאות של הקובץ כדי למיין אותן.
+        - **מה-primary, במפורש** (``ReadPreference.PRIMARY``, pymongo 4.15.3,
+          ``Collection.with_options``), כמו :meth:`find_version_by_id`: ``readPreference`` בכתובת
+          החיבור היה יכול להפנות את השאלה "מי האחרונה" למשני שעוד לא ראה את השמירה האחרונה.
+        - ``find(filter, projection, sort=..., limit=2)`` — הפרמטרים של ``Cursor`` ב-pymongo 4.15.3.
+
+        **ערוץ הכשל:** ``[]`` — אין גרסה פעילה בשם הזה. ``None`` — השאילתה נכשלה בשגיאת מסד
+        (``PyMongoError``), ונרשם ``db_get_latest_version_error`` עם ``stage="latest_ids"``.
+        חריגה אחרת היא באג, ועולה הלאה.
+        """
+        docs_list = getattr(self.manager.collection, 'docs', None)
+        if isinstance(docs_list, list):
+            ordered = self._in_memory_latest_order(docs_list, user_id, file_name)
+            return [{"_id": d.get("_id"), "version": d.get("version")} for d in ordered[:2]]
+        # ייבוא עצל, כמו ב-``find_version_by_id``: המודול נשאר ניתן לייבוא בלי pymongo.
+        from pymongo import ReadPreference
+        from pymongo.errors import PyMongoError
+
+        try:
+            return list(
+                self.manager.collection.with_options(read_preference=ReadPreference.PRIMARY).find(
+                    self._latest_by_name_filter(user_id, file_name),
+                    {"_id": 1, "version": 1},
+                    sort=_LATEST_BY_NAME_SORT,
+                    limit=2,
+                )
+            )
+        except PyMongoError as e:
+            emit_event("db_get_latest_version_error", severity="error", error=str(e), stage="latest_ids")
+            return None
+
     def _fetch_latest_version(
         self, user_id: int, file_name: str, *, raise_on_error: bool = False
     ) -> Optional[Dict]:
@@ -1446,15 +1519,12 @@ class Repository:
             docs_list = getattr(self.manager.collection, 'docs', None)
             if isinstance(docs_list, list):
                 try:
-                    candidates = [
-                        d for d in docs_list
-                        if isinstance(d, dict)
-                        and d.get('user_id') == user_id
-                        and d.get('file_name') == file_name
-                    ]
-                    if candidates:
-                        latest = max(candidates, key=lambda d: int(d.get('version', 0) or 0))
-                        return dict(latest)
+                    # אותו מסנן ואותו מיון כמו השאילתה למטה (``_in_memory_latest_order``). עד
+                    # #3649 המסלול הזה לא סינן ``is_active``, והחזיר גרסה שבסל כ"אחרונה" —
+                    # הטסטים ראו קובץ אחר מהייצור.
+                    ordered = self._in_memory_latest_order(docs_list, user_id, file_name)
+                    if ordered:
+                        return dict(ordered[0])
                 except Exception as e:
                     # Emit and proceed to DB fallback to keep behavior consistent
                     emit_event("db_get_latest_version_error", severity="error", error=str(e), stage="fast_path")
@@ -1462,8 +1532,8 @@ class Repository:
             # DB fallback
             try:
                 return self.manager.collection.find_one(
-                    {"user_id": user_id, "file_name": file_name, "is_active": True},
-                    sort=[("version", -1)],
+                    self._latest_by_name_filter(user_id, file_name),
+                    sort=_LATEST_BY_NAME_SORT,
                 )
             except Exception as e:
                 emit_event("db_get_latest_version_error", severity="error", error=str(e), stage="db_fallback")

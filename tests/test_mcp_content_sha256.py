@@ -37,7 +37,13 @@ from types import SimpleNamespace
 import pytest
 
 # ‏``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _save_layer_harness import clear_local_cache, install_fake_collections, latest, load_production_config
+from _save_layer_harness import (
+    StableKeyCollection,
+    clear_local_cache,
+    install_fake_collections,
+    latest,
+    load_production_config,
+)
 
 pytest.importorskip("mcp")
 
@@ -500,36 +506,10 @@ def test_the_read_back_is_this_writes_document_even_when_another_version_lands_f
     assert latest(store.code_snippets, USER, NAME)["code"] == "הגרסה של הבוט\n", "הנחת המקרה"
 
 
-class _StableKeyCollection:
-    """הדמה המשותפת, מאחורי טביעת קאש יציבה — כמו ``Collection`` של pymongo.
-
-    ``@cached`` בונה את המפתח מטביעה של ``__dict__`` של ה-``Repository``, והטביעה
-    יורדת עד האוסף. בדמה המשותפת ``docs`` נכנס אליה כ-``[len=N]``, ולכן **כל insert
-    מחליף את המפתח**, והגטר המקוּש מחטיא אחרי כל כתיבה — נמדד: אחרי insert ישיר הוא
-    החזיר את הערך החדש, כלומר בדמה הקאש אינו יכול להיות ישן. באוסף אמיתי הטביעה
-    אינה תלויה בתוכן. לאובייקט בלי ``__dict__`` הטביעה היא שם המחלקה ו-``repr``, ולכן
-    היא יציבה; שמות dunder לא מועברים, אחרת ``__dict__`` של הדמה דולף דרך ``__getattr__``.
-    כל השאר עובר לדמה כמו שהוא.
-    """
-
-    __slots__ = ("_inner",)
-
-    def __init__(self, inner):
-        object.__setattr__(self, "_inner", inner)
-
-    def __getattr__(self, name):
-        if name.startswith("__"):
-            raise AttributeError(name)
-        return getattr(object.__getattribute__(self, "_inner"), name)
-
-    def __repr__(self):
-        return "StableKeyCollection(code_snippets)"
-
-
 def test_the_read_back_does_not_come_from_a_stale_cache(mcp, store, monkeypatch):
     """לפי ``write-from-cached-read``, סעיף 4 בתיקון: מחממים, משנים ישירות, מוודאים שהקאש
     **עדיין** ישן — ורק אז כותבים. ביטול הקאש מדומה ככושל, אחרת הכתיבה עצמה הייתה
-    מנקה אותו והבדיקה לא הייתה בודקת כלום. והאוסף עטוף ב-:class:`_StableKeyCollection`,
+    מנקה אותו והבדיקה לא הייתה בודקת כלום. והאוסף עטוף ב-``StableKeyCollection`` (``tests/_save_layer_harness.py``),
     אחרת הקאש לא היה ישן גם בלי שום ביטול (ראו שם).
 
     מוטציה שמפילה: קריאה חוזרת דרך הגטר המקוּש (``dbm.get_latest_version``).
@@ -537,7 +517,7 @@ def test_the_read_back_does_not_come_from_a_stale_cache(mcp, store, monkeypatch)
     import database.repository as repository_module
 
     dbm = store.dbm
-    monkeypatch.setattr(dbm, "collection", _StableKeyCollection(store.code_snippets))
+    monkeypatch.setattr(dbm, "collection", StableKeyCollection(store.code_snippets))
     old = "גרסה ישנה\n"
     assert _call(mcp, "codekeeper_save_file", file_name=NAME, code=old)["ok"] is True
     assert dbm.get_latest_version(USER, NAME)["code"] == old  # מחממים את הגטר המקוּש

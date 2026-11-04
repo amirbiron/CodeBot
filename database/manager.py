@@ -3069,6 +3069,14 @@ class DatabaseManager:
             user_id, file_name, raise_on_error=raise_on_error
         )
 
+    def get_latest_version_ids_fresh(self, user_id: int, file_name: str) -> Optional[List[Dict]]:
+        """ראש הסדר של הקריאה לפי שם — עד שני מסמכים, ``_id`` ו-``version`` בלבד — מה-primary ובלי קאש.
+
+        ``[]`` כשאין גרסה פעילה, ``None`` בשגיאת מסד. ראו ``Repository._fetch_latest_version_ids``;
+        הקורא היחיד הוא ``_is_latest_field`` ב-``mcp_server/backend.py``.
+        """
+        return self._get_repo()._fetch_latest_version_ids(user_id, file_name)
+
     def get_file(self, user_id: int, file_name: str) -> Optional[Dict]:
         return self._get_repo().get_file(user_id, file_name)
 
