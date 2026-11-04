@@ -70,9 +70,9 @@
    * @param {{setext?: boolean, maxHeadingLevel?: number}} [options] setext=false אם ה-renderer מנטרל כותרות Setext
    *   (md.disable('lheading')). ברירת מחדל true — כמו ההתנהגות הרגילה של markdown-it.
    *   maxHeadingLevel — הרמה העמוקה ביותר שה-renderer מרנדר ככותרת; כותרת ATX עמוקה ממנה היא שורה רגילה, ולא
-   *   נספרת. ברירת מחדל 6. התצוגה החיה מעבירה את ``maxHeadingLevel`` של הווריאנט שלה (``RENDERER_VARIANTS`` ב-
-   *   ``live-preview.js``), שבו H5 ו-H6 נשארות פסקאות — בלי זה הן היו נספרות, ועוגן של כותרת שאחריהן היה מוחל על
-   *   הכותרת שאחרי הכותרת שלו.
+   *   נספרת. ברירת מחדל 6. תצוגת המסמך והתצוגה החיה מעבירות את הרמה שהותקנה בפועל ב-renderer שלהן
+   *   (``md-heading-level-plugin.js``), שבו H5 ו-H6 נשארות פסקאות — בלי זה הן היו נספרות, ועוגן של כותרת שאחריהן
+   *   היה מוחל על הכותרת שאחרי הכותרת שלו.
    * @returns {{source: string, anchors: Array<{headingIndex: number, ids: string[]}>, lineMap: (number[]|null)}}
    *   source — המקור אחרי ניקוי תגיות העוגן
    *   anchors — לכל כותרת (לפי סדר הופעתה, 0-based) רשימת המזהים שהוגדרו לה.

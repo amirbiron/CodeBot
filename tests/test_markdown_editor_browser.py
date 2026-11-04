@@ -192,7 +192,8 @@ def test_the_page_runs_the_editor_and_preview_without_the_server(session):
         canvasId: canvas.id,
         headings: canvas.querySelectorAll('h1').length,
         switchButton: !!document.querySelector('.btn-switch-editor'),
-        clipboardButtons: document.querySelectorAll('.btn-editor-clip').length,
+        clipboardButtons: document.querySelectorAll('.btn-editor-clip:not(.btn-editor-history)').length,
+        historyButtons: document.querySelectorAll('.btn-editor-history').length,
         preference: localStorage.getItem('preferredEditor'),
         editorX: box('.split-panel--editor').x,
         previewX: box('.split-panel--preview').x,
@@ -208,6 +209,7 @@ def test_the_page_runs_the_editor_and_preview_without_the_server(session):
     assert state["matchesDemo"], "בכניסה הראשונה העורך אמור להציג את טקסט ההדגמה"
     assert not state["switchButton"], "בעורך הציבורי אין מתג עורך"
     assert state["clipboardButtons"] == 3, "בחר הכל / העתק / הדבק נשארים"
+    assert state["historyButtons"] == 2, "ולפניהם בטל / בצע שוב"
     assert state["preference"] == "simple", "העמוד שינה את העדפת העורך של המבקר"
     # בעברית העורך מימין והתצוגה משמאל
     assert state["editorX"] > state["previewX"], state
@@ -468,34 +470,52 @@ def test_the_editor_and_preview_have_no_dead_rows(session):
     assert not state["card"]
 
 
-def test_a_notice_in_the_editor_row_does_not_move_the_editor(session):
-    session.open()
-    page = session.page
-    before = page.evaluate(
-        "() => ({row: document.querySelector('.editor-switcher-row').getBoundingClientRect().height,"
-        " cm: document.querySelector('.codemirror-container').getBoundingClientRect().top})"
-    )
-    page.click(".btn-editor-select")
-    page.wait_for_function(
-        "document.querySelector('.editor-info-status').textContent.trim() !== ''"
-    )
-    after = page.evaluate(
-        """() => {
-      const status = document.querySelector('.editor-info-status').getBoundingClientRect();
-      const hint = document.querySelector('.editor-info-primary');
-      const h = hint.getBoundingClientRect();
-      return {
-        row: document.querySelector('.editor-switcher-row').getBoundingClientRect().height,
-        cm: document.querySelector('.codemirror-container').getBoundingClientRect().top,
-        inRow: !!document.querySelector('.editor-switcher-row .editor-info-status'),
-        hintHidden: getComputedStyle(hint).visibility === 'hidden',
-        // ההודעה יושבת במקום התווית "קיצורי מקלדת זמינים", לא לצידה ולא מתחתיה
-        overlaps: status.top < h.bottom && status.bottom > h.top && status.left < h.right && status.right > h.left,
-      };
-    }"""
-    )
-    assert after["inRow"] and after["hintHidden"] and after["overlaps"], after
-    assert after["row"] == before["row"] and after["cm"] == before["cm"], (before, after)
+#: גובה שורת הכפתורים ומיקום העורך — מה שהודעה זמנית אסור לה להזיז.
+ROW_AND_EDITOR = (
+    "() => ({row: document.querySelector('.editor-switcher-row').getBoundingClientRect().height,"
+    " cm: document.querySelector('.codemirror-container').getBoundingClientRect().top})"
+)
+
+#: ההודעה הארוכה ביותר של סרגל ה-MD — הארוכה מבין אלה ששורת העורך מציגה.
+LONG_NOTICE = "הוזרק: התראה - הערה"
+
+
+def test_a_notice_in_the_editor_row_does_not_move_the_editor(browser):
+    """ההודעה הזמנית ("כל הקוד סומן") צפה בקצה שורת הכפתורים, ואינה תופסת בה מקום. ברוחב 1024 בדיוק זה מה שנבדק:
+    עד נובמבר 2026 היא ישבה במקום התווית "קיצורי מקלדת זמינים", שהחזיקה לה את המקום. התווית הוסרה מכל עמודי
+    העורך, ובלי ההודעה הצפה — נמדד — הודעה ארוכה הורידה את העורך 17px ברוחב הזה."""
+    b, client = browser
+    s = Session(b, client, width=1024, height=900)
+    try:
+        s.open()
+        page = s.page
+        assert page.evaluate(
+            "() => !document.querySelector('.editor-switcher').textContent.includes('קיצורי מקלדת')"
+        ), 'התווית "קיצורי מקלדת זמינים" הוסרה'
+        before = page.evaluate(ROW_AND_EDITOR)
+        page.click(".btn-editor-select")
+        page.wait_for_function(
+            "document.querySelector('.editor-info-status').textContent.trim() !== ''"
+        )
+        assert page.evaluate(ROW_AND_EDITOR) == before
+        page.evaluate(
+            "(m) => { document.querySelector('.editor-info-status').textContent = m; }", LONG_NOTICE
+        )
+        after = page.evaluate(
+            """() => {
+          const status = document.querySelector('.editor-info-status').getBoundingClientRect();
+          const row = document.querySelector('.editor-switcher-row').getBoundingClientRect();
+          return {
+            row: row.height,
+            cm: document.querySelector('.codemirror-container').getBoundingClientRect().top,
+            insideRow: status.top >= row.top && status.bottom <= row.bottom && status.left >= row.left - 1,
+          };
+        }"""
+        )
+        assert after["insideRow"], after
+        assert {"row": after["row"], "cm": after["cm"]} == before, (before, after)
+    finally:
+        s.close()
 
 
 TASK_DOC = '# משימות\n\n<a id="top"></a>\n\n- [ ] ראשונה\n- [x] שנייה\n\n> - [ ] בציטוט\n\n1. [ ] ממוספרת\n'
@@ -867,3 +887,114 @@ def test_inserting_an_alert_names_it_in_hebrew(session):
     status = page.evaluate("() => document.querySelector('.editor-info-status').textContent.trim()")
     assert status == "הוזרק: התראה - הערה", status
     assert "::: note" in session.editor_text()
+
+
+#: הכפתורים "בטל" ו"בצע שוב" בשורת העורך — הסדר בקבוצה, המצב, השם, וכיוון האייקון.
+HISTORY_BUTTONS = """() => {
+  const group = document.querySelector('.editor-clipboard-actions');
+  const undo = group.querySelector('.btn-editor-undo');
+  const redo = group.querySelector('.btn-editor-redo');
+  const kind = (b) => ['undo', 'redo', 'select'].find((k) => b.classList.contains('btn-editor-' + k)) || b.className;
+  const view = window.editorManager.cmInstance;
+  const active = document.activeElement;
+  return {
+    order: [...group.children].slice(0, 3).map(kind),
+    undoDisabled: undo.disabled, redoDisabled: redo.disabled,
+    text: undo.textContent.trim() + redo.textContent.trim(),
+    names: [undo.getAttribute('aria-label'), redo.getAttribute('aria-label')],
+    titles: [undo.title, redo.title],
+    icons: [undo, redo].map((b) => getComputedStyle(b.querySelector('i')).transform),
+    undoIsRightOfRedo: undo.getBoundingClientRect().left > redo.getBoundingClientRect().left,
+    editorFocused: view.hasFocus,
+    focused: active === document.body ? 'body' : (active.className || active.tagName),
+  };
+}"""
+
+#: ``scaleX(-1)`` — תמונת ראי.
+MIRRORED = "matrix(-1, 0, 0, 1, 0, 0)"
+
+
+def test_undo_and_redo_buttons_walk_the_editor_history(session):
+    """הכפתורים "בטל" ו"בצע שוב" — אייקון בלי טקסט, בתחילת השורה של "בחר הכל", והחצים בתמונת ראי: בעמוד מימין
+    לשמאל "אחורה" הוא ימינה. הם עובדים על ההיסטוריה של העורך עצמו, אותה ש-Ctrl+Z מפעיל: הכפתור מבטל הקלדה
+    מהמקלדת, ו-Ctrl+Z מבטל את מה שהכפתור ביצע שוב. וכל כפתור מושבת כשאין לו מה לעשות."""
+    session.open()
+    page = session.page
+    state = page.evaluate(HISTORY_BUTTONS)
+    assert state["order"] == ["undo", "redo", "select"], state
+    assert state["text"] == "" and state["names"] == ["בטל", "בצע שוב"], state
+    assert state["titles"] == ["בטל (Ctrl+Z)", "בצע שוב (Ctrl+Y)"], state
+    assert state["icons"] == [MIRRORED, MIRRORED] and state["undoIsRightOfRedo"], state
+    assert state["undoDisabled"] and state["redoDisabled"], "בעורך שרק נטען אין מה לבטל"
+
+    before = session.editor_text()
+    page.evaluate(
+        "() => { const v = window.editorManager.cmInstance; v.focus();"
+        " v.dispatch({selection: {anchor: v.state.doc.length}}); }"
+    )
+    page.keyboard.type(" הוקלד")
+    typed = session.editor_text()
+    assert typed == before + " הוקלד"
+    state = page.evaluate(HISTORY_BUTTONS)
+    assert not state["undoDisabled"] and state["redoDisabled"], state
+
+    page.click(".btn-editor-undo")
+    assert session.editor_text() == before
+    state = page.evaluate(HISTORY_BUTTONS)
+    assert state["undoDisabled"] and not state["redoDisabled"], state
+
+    page.click(".btn-editor-redo")
+    assert session.editor_text() == typed
+    state = page.evaluate(HISTORY_BUTTONS)
+    assert not state["undoDisabled"] and state["redoDisabled"], state
+
+    page.evaluate("() => window.editorManager.cmInstance.focus()")
+    page.keyboard.press("Control+Z")
+    assert session.editor_text() == before, "Ctrl+Z ביטל את מה שהכפתור ביצע שוב — אותה היסטוריה"
+    assert not session.errors, session.errors
+
+
+def test_tapping_undo_leaves_the_focus_where_it_was(browser):
+    """בטאבלט: נגיעה ב"בטל" לא מכניסה את הסמן לעורך (זה היה פותח מקלדת), ואם הסמן כבר בעורך — הוא נשאר שם,
+    והמקלדת לא נסגרת. גם הכפתור עצמו לא לוקח את הפוקוס."""
+    b, client = browser
+    s = Session(b, client, width=1000, height=700, mobile=True)
+    try:
+        s.open()
+        page = s.page
+        before = s.editor_text()
+        s.append("\nנוסף")
+        page.tap(".btn-editor-undo")
+        state = page.evaluate(HISTORY_BUTTONS)
+        assert s.editor_text() == before
+        assert state["focused"] == "body" and not state["editorFocused"], state
+
+        page.evaluate("() => window.editorManager.cmInstance.focus()")
+        s.append("\nשוב")
+        page.tap(".btn-editor-undo")
+        state = page.evaluate(HISTORY_BUTTONS)
+        assert s.editor_text() == before
+        assert state["editorFocused"], state
+    finally:
+        s.close()
+
+
+def test_the_editor_buttons_stay_on_one_line_on_a_tablet(browser):
+    """הכפתורים "בטל" ו"בצע שוב" לא שוברים את שורת הכפתורים לשתי שורות ברוחב של טאבלט. כשנוספו, לצד התווית
+    "קיצורי מקלדת זמינים", "הדבק" ירד לשורה שנייה ברוחב 1024 עד 1180, והעורך התקצר ב-16px (נמדד). התווית
+    הוסרה."""
+    b, client = browser
+    s = Session(b, client, width=1024, height=900)
+    try:
+        s.open()
+        page = s.page
+        lines = (
+            "() => new Set([...document.querySelectorAll('.editor-clipboard-actions > *')]"
+            ".map((b) => Math.round(b.getBoundingClientRect().top))).size"
+        )
+        for width in (1024, 1180):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.wait_for_timeout(100)
+            assert page.evaluate(lines) == 1, width
+    finally:
+        s.close()

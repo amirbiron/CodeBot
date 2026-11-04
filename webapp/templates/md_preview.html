@@ -1431,6 +1431,7 @@
 <script src="{{ url_for('static', filename='js/md-anchors.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-math-plugin.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/md-heading-level-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-code-blocks.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
@@ -1727,6 +1728,17 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     // התוסף חי ב-webapp/static/js/md-math-plugin.js, ומשותף עם live-preview.js. הבדיקה על
     // ``md.use`` מאותה סיבה כמו במארקר שמעל.
     if (window.MdMathPlugin && typeof md.use === 'function') md.use(window.MdMathPlugin, { katex: window.katex });
+    // כותרות רק עד H4: ``#####`` / ``######`` נשארות כמו שנכתבו, כפסקה. המגבלה והסיבה לה — ב-
+    // md-heading-level-plugin.js (``DOCUMENT_MAX_LEVEL``), שגם התצוגה החיה בעמודי העורך מתקינה.
+    // ``headingMaxLevel`` הוא הרמה ש**הותקנה** בפועל, והעוגנים המפורשים נספרים לפיה (``renderWithAnchors`` מטה):
+    // אם התוסף לא נטען, H5/H6 מרונדרות ככותרות ונספרות ככותרות, ועוגן לא עובר לכותרת אחרת.
+    let headingMaxLevel = 6;
+    if (window.MdHeadingLevel && typeof md.use === 'function') {
+      md.use(window.MdHeadingLevel.plugin, { maxLevel: window.MdHeadingLevel.DOCUMENT_MAX_LEVEL });
+      headingMaxLevel = window.MdHeadingLevel.DOCUMENT_MAX_LEVEL;
+    } else if (!window.MdHeadingLevel) {
+      console.warn('md-heading-level-plugin.js לא נטען: H5/H6 מרונדרות ככותרות');
+    }
     if (window.markdownitEmoji) md.use(window.markdownitEmoji);
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
     // עוגני כותרות – הגדרה יציבה למניעת רגרסיות בין גרסאות התוסף
@@ -1900,7 +1912,9 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     // ראו webapp/static/js/md-anchors.js.
     const container = document.getElementById('md-content');
     if (window.MdAnchors) {
-      window.MdAnchors.renderWithAnchors(MD_TEXT || '', (src) => md.render(src), container);
+      window.MdAnchors.renderWithAnchors(MD_TEXT || '', (src) => md.render(src), container, {
+        maxHeadingLevel: headingMaxLevel,
+      });
     } else {
       container.innerHTML = md.render(MD_TEXT || '');
     }

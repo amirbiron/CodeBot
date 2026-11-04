@@ -26,7 +26,7 @@
 /* Modified: Default to row layout for tablets/desktop */
 .editor-switcher { display:flex; flex-direction:column; align-items: stretch; gap:.5rem; margin:.5rem 0; padding:.65rem; background: rgba(255,255,255,0.05); border-radius:8px; }
 .editor-switcher-row { display:flex; justify-content:flex-start; align-items:center; gap:clamp(.5rem,1.5vw,1.25rem); flex-wrap:nowrap; width:100%; min-height:48px; }
-.editor-switcher-actions { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; flex:1 1 auto; min-width:0; }
+.editor-switcher-actions { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; flex:0 1 auto; min-width:0; }
 .btn-switch-editor { padding:.5rem 1rem; background: rgba(100,100,255,0.2); border:1px solid rgba(100,100,255,0.5); border-radius:6px; color:#fff; cursor:pointer; }
 .btn-switch-editor i { margin-inline-end:.35rem; }
 .editor-switcher .btn-switch-editor { min-width: fit-content; }
@@ -35,18 +35,32 @@
 .btn-editor-clip { padding:.35rem .75rem; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; font-size:.85rem; display:flex; align-items:center; gap:.35rem; cursor:pointer; transition: background .2s ease, border-color .2s ease; }
 .btn-editor-clip:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); }
 .btn-editor-clip:disabled { opacity:.6; cursor:not-allowed; }
+/* "בטל" ו"בצע שוב" (``.btn-editor-history`` ב-``editor-manager.js``) — אייקון בלי טקסט. בעמוד מימין לשמאל "אחורה"
+   הוא ימינה, ולכן החצים בתמונת ראי: החץ של "בטל" פונה ימינה. ``html[dir="rtl"]`` ולא ``:dir(rtl)`` — התקדים
+   בריפו (ההסבר ב-``toast.css``). */
+html[dir="rtl"] .btn-editor-history > i { transform: scaleX(-1); }
+/* בעורך הפשוט הכפתורים מוסתרים (``hidden``), ו-``display:flex`` של ``.btn-editor-clip`` היה גובר על ``hidden``. */
+.btn-editor-history[hidden] { display: none; }
 .editor-info-primary { display:flex; align-items:center; gap:.4rem; font-size:.85rem; opacity:.9; margin-inline-start:auto; margin-inline-end:0; margin-left:auto; padding:.25rem .85rem; border-radius: 999px; background: rgba(255,255,255,0.04); white-space:nowrap; flex-shrink:0; }
 html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
-/* הודעה זמנית ("כל הקוד סומן", "הוזרק: טבלה") — באותו תא של "קיצורי מקלדת זמינים" ובמקומה, ולא בשורה משלה.
-   עד אוקטובר 2026 היא ישבה בשורה נפרדת עם min-height, שנשארה ריקה כמעט כל הזמן ולקחה גובה מהעורך בכל עמודי
-   העורך. שני הילדים יושבים באותו תא של grid, והתווית רק נעלמת (visibility) בזמן ההודעה — כך השורה לא משנה
-   גובה כשההודעה מופיעה, והעורך לא קופץ. */
-.editor-info-slot { display:grid; align-items:center; margin-inline-start:auto; flex-shrink:0; }
+/* הודעה זמנית ("כל הקוד סומן", "הוזרק: טבלה") — צפה בקצה הרווח שאחרי הכפתורים, ואינה תופסת מקום, ולכן השורה לא
+   משנה גובה כשהיא מופיעה, והעורך לא קופץ. עד נובמבר 2026 היא ישבה באותו תא של grid עם התווית "קיצורי מקלדת
+   זמינים", שהחזיקה לה את המקום; התווית הוסרה (``updateInfoBanner`` ב-``editor-manager.js``), ובלעדיה הודעה הזיזה
+   את העורך — נמדד 17px בעורך הציבורי ברוחב 1024 ו-31px בעמוד העריכה ברוחב 820.
+   השורה (``.editor-switcher-row``) לא נשברת: הכפתורים (``.editor-switcher-actions``, בגודל התוכן שלהם), התא
+   (``.editor-info-slot``), וסרגל ה-MD של עמודי העריכה וההעלאה, אחרון בשורה (``moveToEditorRow`` ב-
+   ``markdown-toolbar.js``). התא ממלא את הרווח שבין הכפתורים לסרגל, וההודעה צפה בקצה שלו — ולכן היא לא מכסה את
+   כפתור ה-MD. כשאין רווח התא מתכווץ לאפס, ולא יורד לשורה משלו. בשורה צרה הרווח קטן מההודעה, והיא מכסה לכמה
+   שניות חלק מהכפתור שלפניה, ולכן יש לה רקע; ``pointer-events: none`` משאיר את הכפתור לחיץ. התווית "עורך טקסט
+   בסיסי" של העורך הפשוט נשארה, בקצה התא, ונעלמת (visibility) בזמן ההודעה. בטלפון (עד 768px) השורה היא עמודה,
+   וההודעה בתוכה, כמו קודם. */
+.editor-info-slot { position:relative; display:grid; align-items:center; justify-items:end; flex:1 1 0; min-width:0; align-self:stretch; }
 .editor-info-slot > .editor-info-status,
 .editor-info-slot > .editor-info-primary { grid-area: 1 / 1; }
-.editor-info-slot > .editor-info-status { justify-self:center; }
 .editor-info-slot:has(> .editor-info-status:not(:empty)) > .editor-info-primary { visibility:hidden; }
-.editor-info-status { font-size:.8rem; color: var(--text-secondary, var(--primary, #8ec5ff)); white-space:nowrap; }
+.editor-info-primary[hidden] { display:none; }
+.editor-info-status { position:absolute; inset-inline-end:0; top:50%; transform:translateY(-50%); z-index:1; padding:.25rem .85rem; border-radius:999px; background: var(--bg-secondary); border:1px solid var(--glass-border, transparent); font-size:.8rem; color: var(--text-secondary, var(--primary, #8ec5ff)); white-space:nowrap; pointer-events:none; }
+.editor-info-status:empty { display:none; }
 .editor-loading { position: relative; min-height: 48px; display:flex; align-items:center; gap:.5rem; color:#fff; }
 .editor-transitioning { opacity: .7; }
 /* בזמן טעינה – ננעל רק את אזור העורך, לא את כפתור ההחלפה */
@@ -77,6 +91,7 @@ body.telegram-mini-app #codeMirrorContainer .cm-editor {
   .btn-editor-clip { flex: 1 1 auto; justify-content: center; }
   .editor-info-primary { margin-left: 0; width: 100%; justify-content: center; text-align: center; }
   .editor-info-slot { width: 100%; }
+  .editor-info-status { position: static; transform: none; justify-self: center; }
 }
 
 /* Upload/Edit pages: Larger code editor on mobile */
@@ -89,11 +104,6 @@ body.telegram-mini-app #codeMirrorContainer .cm-editor {
     min-height: max(320px, 55vh);
     max-height: max(320px, 65vh);
   }
-}
-
-/* Hide keyboard shortcuts hint on small mobile devices only */
-@media (max-width: 767px) {
-  .editor-info-primary.is-keyboard-hint { display: none; }
 }
 
 :root[data-theme="rose-pine-dawn"] .btn-switch-editor {
