@@ -114,13 +114,14 @@
     // שני מופעים של markdown-it, באותם תוספים, ששונים בשני דברים בלבד:
     // - ``default`` — דפדפן הריפו וכרטיסי החיפוש בתיעוד: קישור ``¶`` ליד כל כותרת, וכל שש רמות הכותרות.
     // - ``livePreview`` — התצוגה החיה בעמודי העורך (``LivePreviewController``): בלי ``¶`` (אין לתצוגה כתובת
-    //   לשתף, והסמן הופיע בנגיעה), ובלי כותרות H5/H6. כותרת כזו נשארת כמו שנכתבה, ``##### טקסט``, כפסקה: גודל
-    //   הגופן של H5 ו-H6 קטן מטקסט רגיל, ואין לו מקום בין H4 לטקסט (החלטת המשתמש, אוקטובר 2026).
+    //   לשתף, והסמן הופיע בנגיעה), ועם רמות הכותרות של תצוגת המסמך — בלי H5/H6. כותרת כזו נשארת כמו שנכתבה,
+    //   ``##### טקסט``, כפסקה. המגבלה והסיבה לה — ב-``md-heading-level-plugin.js`` (``DOCUMENT_MAX_LEVEL``), שגם
+    //   ``md_preview.html`` מתקין.
     // כל מופע נבנה פעם אחת, בבקשה הראשונה שלו, ונשמר רק אחרי שכל התוספים הותקנו בו: תוסף שזורק באמצע לא
     // משאיר מופע חלקי במטמון, והבקשה הבאה בונה אותו שוב.
     const RENDERER_VARIANTS = {
-      default: { headingPermalinks: true, maxHeadingLevel: 6 },
-      livePreview: { headingPermalinks: false, maxHeadingLevel: 4 },
+      default: { headingPermalinks: true, documentHeadingLevels: false },
+      livePreview: { headingPermalinks: false, documentHeadingLevels: true },
     };
     const renderers = new Map();
     const containerTypes = [
@@ -215,28 +216,14 @@
           });
         });
       }
-      if (config.maxHeadingLevel < 6) {
-        // כותרת עמוקה מ-``maxHeadingLevel`` חוזרת להיות פסקה עם הטקסט כמו שנכתב (``##### טקסט``). הכלל רץ
-        // אחרי פענוח הבלוקים ולפני פענוח השורה, ולכן הטקסט עם הסולמיות מפוענח כטקסט רגיל, ותוספי הכותרות
-        // שרצים אחריו (העוגנים, תוכן העניינים) לא רואים אותה ככותרת. ``heading_open`` / ``inline`` /
-        // ``heading_close`` הם תמיד שלישייה רצופה בכלל ``heading`` של markdown-it (נבדק בגרסה 14.1.0).
-        md.core.ruler.after('block', 'heading-max-level', (state) => {
-          const tokens = state.tokens;
-          for (let i = 0; i + 2 < tokens.length; i += 1) {
-            const open = tokens[i];
-            if (open.type !== 'heading_open' || Number(open.tag.slice(1)) <= config.maxHeadingLevel) continue;
-            const inline = tokens[i + 1];
-            const close = tokens[i + 2];
-            if (inline.type !== 'inline' || close.type !== 'heading_close') continue;
-            inline.content = inline.content ? `${open.markup} ${inline.content}` : open.markup;
-            open.type = 'paragraph_open';
-            open.tag = 'p';
-            open.markup = '';
-            close.type = 'paragraph_close';
-            close.tag = 'p';
-            close.markup = '';
-          }
-        });
+      // הפסקה שכותרת כזו הופכת אליה מסומנת, ונשארת יעד לעוגן מפורש (``ANCHOR_TARGETS`` ב-``md-anchors.js``) — ולכן
+      // החילוץ לא צריך לדעת אם התוסף הותקן.
+      if (config.documentHeadingLevels) {
+        if (window.MdHeadingLevel) {
+          md.use(window.MdHeadingLevel.plugin, { maxLevel: window.MdHeadingLevel.DOCUMENT_MAX_LEVEL });
+        } else {
+          console.warn('md-heading-level-plugin.js לא נטען: H5/H6 מרונדרות ככותרות בתצוגה החיה');
+        }
       }
       if (window.markdownitAnchor) {
         const anchorOptions = config.headingPermalinks
@@ -519,11 +506,7 @@
       let sourceLineMap = null;
       try {
         if (typeof window !== 'undefined' && window.MdAnchors) {
-          // העוגנים משויכים לכותרת לפי המספר הסידורי שלה, ולכן החילוץ סופר כותרות בדיוק כמו ה-renderer: כותרת
-          // עמוקה מ-``maxHeadingLevel`` של הווריאנט היא פסקה (הכלל ``heading-max-level``), ואינה נספרת.
-          const extracted = window.MdAnchors.extractExplicitAnchors(source, {
-            maxHeadingLevel: RENDERER_VARIANTS[variant].maxHeadingLevel,
-          });
+          const extracted = window.MdAnchors.extractExplicitAnchors(source);
           source = extracted.source;
           anchors = extracted.anchors;
           sourceLineMap = extracted.lineMap || null;

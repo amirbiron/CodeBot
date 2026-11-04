@@ -3277,6 +3277,11 @@ check('חיווט: כל תבנית שטוענת live-preview.js מספקת גם 
       eq(blocks !== -1, true, name + ' טוען את md-code-blocks.js');
       eq(blocks < live, true, name + ' טוען אותו לפני live-preview.js');
       eq(cacheBusted(src, 'js/md-code-blocks.js'), true, name + ' טוען אותו עם ?v=static_version');
+      // **ובלי תוסף רמות הכותרות, H5/H6 חוזרות להיות כותרות בתצוגה החיה** — ``ensureRenderer`` רק מתריע בקונסול.
+      const levels = src.indexOf("filename='js/md-heading-level-plugin.js'");
+      eq(levels !== -1, true, name + ' טוען את md-heading-level-plugin.js');
+      eq(levels < live, true, name + ' טוען אותו לפני live-preview.js');
+      eq(cacheBusted(src, 'js/md-heading-level-plugin.js'), true, name + ' טוען אותו עם ?v=static_version');
     } else {
       eq(/<link\b[^>]*\bhref="[^"]*\/bootstrap-icons(?:\.min)?\.css"/.test(src), true,
          name + ' טוען את האייקונים של Bootstrap');
@@ -3291,6 +3296,20 @@ check('חיווט: בלוק הקוד של תצוגת המסמך נבנה מ-md-c
   eq(cacheBusted(src, 'js/md-code-blocks.js'), true, 'md_preview.html טוען את md-code-blocks.js עם ?v=static_version');
   eq(src.includes('window.MdCodeBlocks.enhance('), true, 'md_preview.html קורא ל-MdCodeBlocks.enhance');
   eq(/function\s+addCopyButtons\b/.test(src), false, 'md_preview.html אינו מגדיר addCopyButtons משלו');
+});
+
+check('חיווט: תצוגת המסמך מגבילה את רמות הכותרות מאותו תוסף כמו התצוגה החיה', () => {
+  // **עותק אחד.** הכלל שהופך H5/H6 לפסקה היה כתוב רק ב-``live-preview.js``, ולכן תצוגת המסמך המשיכה לרנדר אותן.
+  // העוגנים המפורשים לא צריכים כאן כלום: הפסקה מסומנת ונשארת יעד (``tests/md-heading-level-plugin.test.js``).
+  // ההתנהגות עצמה נבדקת בדפדפן (``test_md_preview_heading_level_browser.py``).
+  const src = readTemplate(path.join(TEMPLATES_DIR, 'md_preview.html'));
+  eq(cacheBusted(src, 'js/md-heading-level-plugin.js'), true,
+     'md_preview.html טוען את md-heading-level-plugin.js עם ?v=static_version');
+  eq(src.includes('md.use(window.MdHeadingLevel.plugin, { maxLevel: window.MdHeadingLevel.DOCUMENT_MAX_LEVEL })'), true,
+     'md_preview.html מתקין את התוסף עם DOCUMENT_MAX_LEVEL');
+  eq(/heading-max-level/.test(src), false, 'md_preview.html אינו מגדיר עותק משלו של הכלל');
+  const live = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', 'live-preview.js'), 'utf8');
+  eq(/heading-max-level/.test(live), false, 'live-preview.js אינו מגדיר עותק משלו של הכלל');
 });
 
 check('חיווט: כל עמוד עם Split View מקבל את התלויות של התצוגה החיה מה-partials, ולא מרשימה משלו', () => {

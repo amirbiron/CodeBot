@@ -1,6 +1,6 @@
 import { EditorState, Compartment, RangeSetBuilder } from '@codemirror/state';
 import { EditorView, keymap, drawSelection, dropCursor, highlightSpecialChars, highlightActiveLine, highlightActiveLineGutter, rectangularSelection, crosshairCursor, lineNumbers, Decoration, ViewPlugin } from '@codemirror/view';
-import { history, defaultKeymap, historyKeymap } from '@codemirror/commands';
+import { history, defaultKeymap, historyKeymap, undo, redo, undoDepth, redoDepth } from '@codemirror/commands';
 import { foldGutter, foldKeymap, bracketMatching, syntaxHighlighting, HighlightStyle, syntaxTree } from '@codemirror/language';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
@@ -498,7 +498,13 @@ const api = {
   MergeView,
   syntaxHighlighting,
   HighlightStyle,
-  tags
+  tags,
+  // ההיסטוריה של העורך — אותן פקודות ש-``historyKeymap`` מפעיל ב-Ctrl+Z / Ctrl+Y. כפתורי "בטל" ו"בצע שוב"
+  // ב-``editor-manager.js`` מפעילים אותן, ונעזרים ב-``undoDepth`` / ``redoDepth`` כדי לדעת מתי אין מה לבטל.
+  undo,
+  redo,
+  undoDepth,
+  redoDepth
 };
 
 if (typeof window !== 'undefined') {

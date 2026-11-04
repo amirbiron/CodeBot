@@ -155,25 +155,78 @@ def test_tapping_the_frame_beside_the_editor_does_not_put_the_caret_in_it(edit_p
     assert page.evaluate("() => document.activeElement.isContentEditable")
 
 
-def test_a_notice_does_not_move_the_editor(edit_page):
-    """ההודעה מופיעה במקום התווית "קיצורי מקלדת זמינים", ולכן העורך לא זז. עד התיקון היא ישבה בשורה משלה,
-    שגדלה כשהטקסט הופיע (נמדד כאן: כפיקסל אחד), וכששורת הכפתורים נשברת לכמה שורות — שורה שלמה."""
-    page = edit_page
-    before = page.evaluate(
-        "() => ({row: document.querySelector('.editor-switcher-row').getBoundingClientRect().height,"
-        " cm: document.querySelector('.codemirror-container').getBoundingClientRect().top"
-        " - document.querySelector('.editor-switcher').getBoundingClientRect().top})"
-    )
+#: גובה שורת הכפתורים, ומיקום העורך יחסית לשורה — מה שהודעה זמנית אסור לה להזיז.
+ROW_AND_EDITOR = (
+    "() => ({row: document.querySelector('.editor-switcher-row').getBoundingClientRect().height,"
+    " cm: document.querySelector('.codemirror-container').getBoundingClientRect().top"
+    " - document.querySelector('.editor-switcher').getBoundingClientRect().top})"
+)
+
+#: הכפתורים בשורה שההודעה חופפת להם — לפי ה-``class`` של הראשון בכל כפתור. ``selector`` מצמצם את הבדיקה.
+NOTICE_COVERS = """(selector) => {
+  const s = document.querySelector('.editor-info-status').getBoundingClientRect();
+  return [...document.querySelectorAll(selector)].filter((b) => b.offsetParent).filter((b) => {
+    const m = b.getBoundingClientRect();
+    const across = Math.min(s.right, m.right) > Math.max(s.left, m.left);
+    return across && Math.min(s.bottom, m.bottom) > Math.max(s.top, m.top);
+  }).map((b) => b.className.split(' ')[0]);
+}"""
+
+
+#: כפתור ה-MD אחרון בשורה: הקצה שלו הוא הקצה של השורה, בצד שבו השורה נגמרת (בעמוד מימין לשמאל — השמאלי).
+MD_AT_ROW_END = """() => {
+  const row = document.querySelector('.editor-switcher-row');
+  const md = document.querySelector('.md-toolbar-trigger').getBoundingClientRect();
+  const r = row.getBoundingClientRect();
+  return getComputedStyle(row).direction === 'rtl' ? Math.abs(md.left - r.left) < 2 : Math.abs(md.right - r.right) < 2;
+}"""
+
+
+def _set_preview(page, on: bool) -> None:
+    """מדליק או מכבה את התצוגה החיה. כשהיא דלוקה, שורת הכפתורים יושבת בחצי של העורך, ולכן היא צרה."""
+    state = "() => document.getElementById('livePreviewRoot').classList.contains('is-active')"
+    if page.evaluate(state) != on:
+        page.click('[data-action="toggle-live-preview"]')
+        page.wait_for_function(f"({state})() === {'true' if on else 'false'}", timeout=10000)
+
+
+def _notice(page) -> None:
     page.click(".btn-editor-select")
     page.wait_for_function(
         "document.querySelector('.editor-info-status').textContent.trim() !== ''"
     )
-    after = page.evaluate(
-        "() => ({row: document.querySelector('.editor-switcher-row').getBoundingClientRect().height,"
-        " cm: document.querySelector('.codemirror-container').getBoundingClientRect().top"
-        " - document.querySelector('.editor-switcher').getBoundingClientRect().top})"
-    )
-    assert after == before, (before, after)
+
+
+def test_a_notice_does_not_move_the_editor(edit_page):
+    """ההודעה הזמנית צפה ברווח שבין הכפתורים לסרגל ה-MD, ולכן העורך לא זז והיא לא מכסה את כפתור ה-MD. עד התיקון
+    הראשון היא ישבה בשורה משלה, שגדלה כשהטקסט הופיע (נמדד כאן: כפיקסל אחד); אחריו — במקום התווית "קיצורי מקלדת
+    זמינים", שהוסרה בנובמבר 2026. בלי ההודעה הצפה, ברוחב 820 הודעה הורידה את העורך 31px; ובקצה השורה, היכן שהתווית
+    הייתה, היא כיסתה את כפתור ה-MD בכל רוחב (נמדד). כל מצב נקבע כאן במפורש: שורה רחבה (התצוגה החיה כבויה), שורה
+    צרה (התצוגה דלוקה, והשורה בחצי של העורך), ודף ברוחב 820. בשורה צרה ההודעה מכסה חלק מהכפתור שלפניה — זו
+    ההחלטה של המשתמש — אבל לא את כפתור ה-MD."""
+    page = edit_page
+    assert page.evaluate(
+        "() => !document.querySelector('.editor-switcher').textContent.includes('קיצורי מקלדת')"
+    ), 'התווית "קיצורי מקלדת זמינים" הוסרה'
+    for preview_on, covered in ((False, ".editor-switcher button"), (True, ".md-toolbar-trigger")):
+        _set_preview(page, preview_on)
+        assert page.evaluate(MD_AT_ROW_END), preview_on
+        before = page.evaluate(ROW_AND_EDITOR)
+        _notice(page)
+        assert page.evaluate(ROW_AND_EDITOR) == before, preview_on
+        assert page.evaluate(NOTICE_COVERS, covered) == [], preview_on
+
+    narrow = edit_page.context.new_page()
+    try:
+        narrow.set_viewport_size({"width": 820, "height": 620})
+        narrow.goto(f"{ORIGIN}/edit")
+        narrow.wait_for_selector(".cm-editor", timeout=30000)
+        before = narrow.evaluate(ROW_AND_EDITOR)
+        _notice(narrow)
+        assert narrow.evaluate(ROW_AND_EDITOR) == before
+        assert narrow.evaluate(NOTICE_COVERS, ".md-toolbar-trigger") == []
+    finally:
+        narrow.close()
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +334,13 @@ def test_the_paste_button_over_the_whole_document_shows_its_start(edit_page):
     assert head == 0 and state["editorTop"] == 0 and state["previewTop"] == 0, (head, state)
 
 
+def _forget_editor_choice(page) -> None:
+    """מוחק את בחירת העורך שהחלפת עורך שמרה. ``savePreference`` ב-``editor-manager.js`` כותב אותה ל-``localStorage``,
+    שמשותף לכל הדפים בהקשר של ה-fixture — ודף חדש שנפתח אחרי טסט שעבר לעורך הפשוט עלה בעורך הפשוט, בלי
+    ``.cm-editor``. כל טסט שמחליף עורך קורא לזה בסיום."""
+    page.evaluate("() => localStorage.removeItem('preferredEditor')")
+
+
 def test_a_paste_over_the_whole_simple_editor_shows_its_start(edit_page):
     """אותו דבר בעורך הפשוט (textarea), בהדבקה אמיתית מהלוח — Ctrl+A ואז Ctrl+V. בדף נפרד באותו הקשר, כדי שהמעבר
     לעורך הפשוט לא יגיע לבדיקות אחרות בקובץ."""
@@ -313,6 +373,7 @@ def test_a_paste_over_the_whole_simple_editor_shows_its_start(edit_page):
         assert state["start"] == 0 and state["end"] == 0 and state["top"] == 0, state
         assert state["previewTop"] == 0, state
     finally:
+        _forget_editor_choice(page)
         page.close()
 
 
@@ -353,3 +414,71 @@ def test_a_swipe_after_dragging_the_seam_does_not_resize_the_panels(edit_page):
         assert page.evaluate(width) == before
     finally:
         cdp.detach()
+
+
+#: הכפתורים "בטל" ו"בצע שוב": המקום בשורה, המצב, אם הם מוצגים, וכיוון האייקון.
+HISTORY_BUTTONS = """() => {
+  const group = document.querySelector('.editor-clipboard-actions');
+  const undo = group.querySelector('.btn-editor-undo');
+  const redo = group.querySelector('.btn-editor-redo');
+  return {
+    first: [...group.children].indexOf(undo) === 0 && [...group.children].indexOf(redo) === 1,
+    shown: [undo, redo].map((b) => getComputedStyle(b).display !== 'none'),
+    disabled: [undo.disabled, redo.disabled],
+    icon: getComputedStyle(undo.querySelector('i')).transform,
+  };
+}"""
+
+
+def test_undo_and_redo_on_the_edit_page_and_none_in_the_simple_editor(edit_page):
+    """בעמוד העריכה הכפתורים עובדים על ההיסטוריה של CodeMirror, כמו בעורך הציבורי, והחץ בתמונת ראי גם כאן — השורה
+    מימין לשמאל, גם כשהעורך עצמו משמאל לימין. **בעורך הפשוט הם מוסתרים:** ה"בטל" של הדפדפן הוא מחסנית אחת לכל
+    העמוד, ונמדד שהוא ביטל הקלדה בשדה שם הקובץ במקום בעורך (ההסבר ב-``runHistoryCommand`` ב-``editor-manager.js``).
+    בחזרה לעורך המתקדם הם שוב מוצגים, ומושבתים — לעורך החדש עוד אין היסטוריה. בדף נפרד באותו הקשר, כדי שהמעבר
+    לעורך הפשוט לא יגיע לבדיקות אחרות בקובץ."""
+    page = edit_page.context.new_page()
+    try:
+        page.goto(f"{ORIGIN}/edit")
+        page.wait_for_selector(".cm-editor", timeout=30000)
+        state = page.evaluate(HISTORY_BUTTONS)
+        assert state == {
+            "first": True,
+            "shown": [True, True],
+            "disabled": [True, True],
+            "icon": "matrix(-1, 0, 0, 1, 0, 0)",
+        }, state
+
+        text = "() => window.editorManager.cmInstance.state.doc.toString()"
+        before = page.evaluate(text)
+        page.evaluate(
+            "() => { const v = window.editorManager.cmInstance;"
+            " v.dispatch({changes: {from: v.state.doc.length, insert: '\\nנוסף'}}); }"
+        )
+        assert page.evaluate(HISTORY_BUTTONS)["disabled"] == [False, True]
+        page.click(".btn-editor-undo")
+        assert page.evaluate(text) == before
+        assert page.evaluate(HISTORY_BUTTONS)["disabled"] == [True, False]
+        page.click(".btn-editor-redo")
+        assert page.evaluate(text) == before + "\nנוסף"
+
+        page.click(".btn-switch-editor")
+        page.wait_for_function("window.editorManager.currentEditor === 'simple'", timeout=10000)
+        assert page.evaluate(HISTORY_BUTTONS)["shown"] == [False, False]
+        # התווית של העורך הפשוט נשארה; רק "קיצורי מקלדת זמינים" של העורך המתקדם הוסרה
+        label = (
+            "() => { const l = document.querySelector('.editor-info-primary');"
+            " return l.hidden ? null : l.textContent.trim(); }"
+        )
+        assert page.evaluate(label) == "עורך טקסט בסיסי"
+
+        page.click(".btn-switch-editor")
+        page.wait_for_function(
+            "window.editorManager.currentEditor === 'codemirror' && !!window.editorManager.cmInstance",
+            timeout=30000,
+        )
+        state = page.evaluate(HISTORY_BUTTONS)
+        assert state["shown"] == [True, True] and state["disabled"] == [True, True], state
+        assert page.evaluate(label) is None
+    finally:
+        _forget_editor_choice(page)
+        page.close()

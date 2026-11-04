@@ -622,7 +622,8 @@ const CodeToolsIntegration = {
   },
 
   /**
-   * הודעת סטטוס קצרה בשורת הכפתורים שמעל העורך, במקום התווית "קיצורי מקלדת זמינים" (כמו "כל הקוד סומן")
+   * הודעת סטטוס קצרה בשורת הכפתורים שמעל העורך (כמו "כל הקוד סומן"). היא צפה ברווח שאחרי הכפתורים, בלי לתפוס
+   * מקום — ``.editor-info-status`` ב-``codemirror-custom.css``
    */
   showInlineStatus(message, type) {
     const msg = typeof message === 'string' ? message : '';

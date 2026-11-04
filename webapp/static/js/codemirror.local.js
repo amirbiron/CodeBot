@@ -14666,7 +14666,7 @@
     get node() {
       if (!this.buffer)
         return this._tree;
-      let cache3 = this.bufferNode, result = null, depth = 0;
+      let cache3 = this.bufferNode, result = null, depth2 = 0;
       if (cache3 && cache3.context == this.buffer) {
         scan: for (let index = this.index, d = this.stack.length; d >= 0; ) {
           for (let c = cache3; c; c = c._parent)
@@ -14674,13 +14674,13 @@
               if (index == this.index)
                 return c;
               result = c;
-              depth = d + 1;
+              depth2 = d + 1;
               break scan;
             }
           index = this.stack[--d];
         }
       }
-      for (let i = depth; i < this.stack.length; i++)
+      for (let i = depth2; i < this.stack.length; i++)
         result = new BufferNode(this.buffer, result, this.stack[i]);
       return this.bufferNode = new BufferNode(this.buffer, result, this.index);
     }
@@ -14699,11 +14699,11 @@
     skipped, and `leave` isn't called for it.
     */
     iterate(enter, leave) {
-      for (let depth = 0; ; ) {
+      for (let depth2 = 0; ; ) {
         let mustLeave = false;
         if (this.type.isAnonymous || enter(this) !== false) {
           if (this.firstChild()) {
-            depth++;
+            depth2++;
             continue;
           }
           if (!this.type.isAnonymous)
@@ -14713,12 +14713,12 @@
           if (mustLeave && leave)
             leave(this);
           mustLeave = this.type.isAnonymous;
-          if (!depth)
+          if (!depth2)
             return;
           if (this.nextSibling())
             break;
           this.parent();
-          depth--;
+          depth2--;
           mustLeave = true;
         }
       }
@@ -14754,7 +14754,7 @@
     let cursor2 = Array.isArray(buffer) ? new FlatBufferCursor(buffer, buffer.length) : buffer;
     let types2 = nodeSet.types;
     let contextHash = 0, lookAhead = 0;
-    function takeNode(parentStart, minPos, children2, positions2, inRepeat, depth) {
+    function takeNode(parentStart, minPos, children2, positions2, inRepeat, depth2) {
       let { id: id2, start, end, size } = cursor2;
       let lookAheadAtStart = lookAhead, contextAtStart = contextHash;
       if (size < 0) {
@@ -14797,10 +14797,10 @@
               lastEnd = cursor2.end;
             }
             cursor2.next();
-          } else if (depth > 2500) {
+          } else if (depth2 > 2500) {
             takeFlatNode(start, endPos, localChildren, localPositions);
           } else {
-            takeNode(start, endPos, localChildren, localPositions, localInRepeat, depth + 1);
+            takeNode(start, endPos, localChildren, localPositions, localInRepeat, depth2 + 1);
           }
         }
         if (localInRepeat >= 0 && lastGroup > 0 && lastGroup < localChildren.length)
@@ -17746,17 +17746,17 @@
   }
   function matchMarkedBrackets(_state, _pos, dir, token, handle, matching, brackets) {
     let parent = token.parent, firstToken = { from: handle.from, to: handle.to };
-    let depth = 0, cursor2 = parent === null || parent === void 0 ? void 0 : parent.cursor();
+    let depth2 = 0, cursor2 = parent === null || parent === void 0 ? void 0 : parent.cursor();
     if (cursor2 && (dir < 0 ? cursor2.childBefore(token.from) : cursor2.childAfter(token.to)))
       do {
         if (dir < 0 ? cursor2.to <= token.from : cursor2.from >= token.to) {
-          if (depth == 0 && matching.indexOf(cursor2.type.name) > -1 && cursor2.from < cursor2.to) {
+          if (depth2 == 0 && matching.indexOf(cursor2.type.name) > -1 && cursor2.from < cursor2.to) {
             let endHandle = findHandle(cursor2);
             return { start: firstToken, end: endHandle ? { from: endHandle.from, to: endHandle.to } : void 0, matched: true };
           } else if (matchingNodes(cursor2.type, dir, brackets)) {
-            depth++;
+            depth2++;
           } else if (matchingNodes(cursor2.type, -dir, brackets)) {
-            if (depth == 0) {
+            if (depth2 == 0) {
               let endHandle = findHandle(cursor2);
               return {
                 start: firstToken,
@@ -17764,7 +17764,7 @@
                 matched: false
               };
             }
-            depth--;
+            depth2--;
           }
         }
       } while (dir < 0 ? cursor2.prevSibling() : cursor2.nextSibling());
@@ -17776,7 +17776,7 @@
     if (bracket2 < 0 || bracket2 % 2 == 0 != dir > 0)
       return null;
     let startToken = { from: dir < 0 ? pos - 1 : pos, to: dir > 0 ? pos + 1 : pos };
-    let iter = state.doc.iterRange(pos, dir > 0 ? state.doc.length : 0), depth = 0;
+    let iter = state.doc.iterRange(pos, dir > 0 ? state.doc.length : 0), depth2 = 0;
     for (let distance = 0; !iter.next().done && distance <= maxScanDistance; ) {
       let text = iter.value;
       if (dir < 0)
@@ -17787,11 +17787,11 @@
         if (found < 0 || tree.resolveInner(basePos + pos2, 1).type != tokenType)
           continue;
         if (found % 2 == 0 == dir > 0) {
-          depth++;
-        } else if (depth == 1) {
+          depth2++;
+        } else if (depth2 == 1) {
           return { start: startToken, end: { from: basePos + pos2, to: basePos + pos2 + 1 }, matched: found >> 1 == bracket2 >> 1 };
         } else {
-          depth--;
+          depth2--;
         }
       }
       if (dir > 0)
@@ -18111,6 +18111,23 @@
   var redo = /* @__PURE__ */ cmd(1, false);
   var undoSelection = /* @__PURE__ */ cmd(0, true);
   var redoSelection = /* @__PURE__ */ cmd(1, true);
+  function depth(side) {
+    return function(state) {
+      let histState = state.field(historyField_, false);
+      if (!histState)
+        return 0;
+      let branch = side == 0 ? histState.done : histState.undone;
+      return branch.length - (branch.length && !branch[0].changes ? 1 : 0);
+    };
+  }
+  var undoDepth = /* @__PURE__ */ depth(
+    0
+    /* BranchName.Done */
+  );
+  var redoDepth = /* @__PURE__ */ depth(
+    1
+    /* BranchName.Undone */
+  );
   var HistEvent = class _HistEvent {
     constructor(changes, effects, mapped, startSelection, selectionsAfter) {
       this.changes = changes;
@@ -21931,10 +21948,10 @@
     let match1 = (x, y) => a.charCodeAt(fromA + x) == b.charCodeAt(fromB + y);
     let match2 = (x, y) => a.charCodeAt(toA - x - 1) == b.charCodeAt(toB - y - 1);
     let test1 = (lenA - lenB) % 2 != 0 ? frontier2 : null, test2 = test1 ? null : frontier1;
-    for (let depth = 0; depth < off; depth++) {
-      if (depth > scanLimit || timeout > 0 && !(depth & 63) && Date.now() > timeout)
+    for (let depth2 = 0; depth2 < off; depth2++) {
+      if (depth2 > scanLimit || timeout > 0 && !(depth2 & 63) && Date.now() > timeout)
         return crudeMatch(a, fromA, toA, b, fromB, toB);
-      let done = frontier1.advance(depth, lenA, lenB, off, test1, false, match1) || frontier2.advance(depth, lenA, lenB, off, test2, true, match2);
+      let done = frontier1.advance(depth2, lenA, lenB, off, test1, false, match1) || frontier2.advance(depth2, lenA, lenB, off, test2, true, match2);
       if (done)
         return bisect(a, fromA, toA, fromA + done[0], b, fromB, toB, fromB + done[1]);
     }
@@ -21951,10 +21968,10 @@
       this.vec[off + 1] = 0;
       this.start = this.end = 0;
     }
-    advance(depth, lenX, lenY, vOff, other, fromBack, match) {
-      for (let k = -depth + this.start; k <= depth - this.end; k += 2) {
+    advance(depth2, lenX, lenY, vOff, other, fromBack, match) {
+      for (let k = -depth2 + this.start; k <= depth2 - this.end; k += 2) {
         let off = vOff + k;
-        let x = k == -depth || k != depth && this.vec[off - 1] < this.vec[off + 1] ? this.vec[off + 1] : this.vec[off - 1] + 1;
+        let x = k == -depth2 || k != depth2 && this.vec[off - 1] < this.vec[off + 1] ? this.vec[off + 1] : this.vec[off - 1] + 1;
         let y = x - k;
         while (x < lenX && y < lenY && match(x, y)) {
           x++;
@@ -23151,7 +23168,7 @@
     */
     reduce(action) {
       var _a2;
-      let depth = action >> 19, type = action & 65535;
+      let depth2 = action >> 19, type = action & 65535;
       let { parser: parser9 } = this.p;
       let lookaheadRecord = this.reducePos < this.pos - 25;
       if (lookaheadRecord)
@@ -23159,14 +23176,14 @@
       let dPrec = parser9.dynamicPrecedence(type);
       if (dPrec)
         this.score += dPrec;
-      if (depth == 0) {
+      if (depth2 == 0) {
         this.pushState(parser9.getGoto(this.state, type, true), this.reducePos);
         if (type < parser9.minRepeatTerm)
           this.storeNode(type, this.reducePos, this.reducePos, lookaheadRecord ? 8 : 4, true);
         this.reduceContext(type, this.reducePos);
         return;
       }
-      let base2 = this.stack.length - (depth - 1) * 3 - (action & 262144 ? 6 : 0);
+      let base2 = this.stack.length - (depth2 - 1) * 3 - (action & 262144 ? 6 : 0);
       let start = base2 ? this.stack[base2 - 2] : this.p.ranges[0].from, size = this.reducePos - start;
       if (size >= 2e3 && !((_a2 = this.p.parser.nodeSet.types[type]) === null || _a2 === void 0 ? void 0 : _a2.isAnonymous)) {
         if (start == this.p.lastBigReductionStart) {
@@ -23409,8 +23426,8 @@
       if ((reduce & 65536) == 0)
         return false;
       if (!parser9.validAction(this.state, reduce)) {
-        let depth = reduce >> 19, term = reduce & 65535;
-        let target = this.stack.length - depth * 3;
+        let depth2 = reduce >> 19, term = reduce & 65535;
+        let target = this.stack.length - depth2 * 3;
         if (target < 0 || parser9.getGoto(this.stack[target], term, false) < 0) {
           let backup = this.findForcedReduction();
           if (backup == null)
@@ -23431,21 +23448,21 @@
     */
     findForcedReduction() {
       let { parser: parser9 } = this.p, seen = [];
-      let explore = (state, depth) => {
+      let explore = (state, depth2) => {
         if (seen.includes(state))
           return;
         seen.push(state);
         return parser9.allActions(state, (action) => {
           if (action & (262144 | 131072)) ;
           else if (action & 65536) {
-            let rDepth = (action >> 19) - depth;
+            let rDepth = (action >> 19) - depth2;
             if (rDepth > 1) {
               let term = action & 65535, target = this.stack.length - rDepth * 3;
               if (target >= 0 && parser9.getGoto(this.stack[target], term, false) >= 0)
                 return rDepth << 19 | 65536 | term;
             }
           } else {
-            let found = explore(action, depth + 1);
+            let found = explore(action, depth2 + 1);
             if (found != null)
               return found;
           }
@@ -23588,14 +23605,14 @@
       this.base = this.stack.length;
     }
     reduce(action) {
-      let term = action & 65535, depth = action >> 19;
-      if (depth == 0) {
+      let term = action & 65535, depth2 = action >> 19;
+      if (depth2 == 0) {
         if (this.stack == this.start.stack)
           this.stack = this.stack.slice();
         this.stack.push(this.state, 0, 0);
         this.base += 3;
       } else {
-        this.base -= (depth - 1) * 3;
+        this.base -= (depth2 - 1) * 3;
       }
       let goto = this.start.p.parser.getGoto(this.stack[this.base - 3], term, true);
       this.state = goto;
@@ -24974,16 +24991,16 @@
     if (context.flags) return;
     let prev = input.peek(-1);
     if (prev == newline || prev == carriageReturn) {
-      let depth = 0, chars = 0;
+      let depth2 = 0, chars = 0;
       for (; ; ) {
-        if (input.next == space) depth++;
-        else if (input.next == tab) depth += 8 - depth % 8;
+        if (input.next == space) depth2++;
+        else if (input.next == tab) depth2 += 8 - depth2 % 8;
         else break;
         input.advance();
         chars++;
       }
-      if (depth != context.indent && input.next != newline && input.next != carriageReturn && input.next != hash) {
-        if (depth < context.indent) input.acceptToken(dedent, -chars);
+      if (depth2 != context.indent && input.next != newline && input.next != carriageReturn && input.next != hash) {
+        if (depth2 < context.indent) input.acceptToken(dedent, -chars);
         else input.acceptToken(indent);
       }
     }
@@ -25002,10 +25019,10 @@
   }
   var topIndent2 = new Context(null, 0, 0);
   function countIndent(space5) {
-    let depth = 0;
+    let depth2 = 0;
     for (let i = 0; i < space5.length; i++)
-      depth += space5.charCodeAt(i) == tab ? 8 - depth % 8 : 1;
-    return depth;
+      depth2 += space5.charCodeAt(i) == tab ? 8 - depth2 % 8 : 1;
+    return depth2;
   }
   var stringFlags = new Map([
     [stringStart, 0],
@@ -28427,18 +28444,18 @@
         input.acceptToken(LineComment2);
       } else if (next == 47 && input.next == 42) {
         input.advance();
-        for (let depth = 1; ; ) {
+        for (let depth2 = 1; ; ) {
           let cur2 = input.next;
           if (input.next < 0)
             break;
           input.advance();
           if (cur2 == 42 && input.next == 47) {
-            depth--;
+            depth2--;
             input.advance();
-            if (!depth)
+            if (!depth2)
               break;
           } else if (cur2 == 47 && input.next == 42) {
-            depth++;
+            depth2++;
             input.advance();
           }
         }
@@ -29735,8 +29752,8 @@
     Get the type of the parent block at the given depth. When no
     depth is passed, return the type of the innermost parent.
     */
-    parentType(depth = this.depth - 1) {
-      return this.parser.nodeSet.types[this.stack[depth].type];
+    parentType(depth2 = this.depth - 1) {
+      return this.parser.nodeSet.types[this.stack[depth2].type];
     }
     /**
     Move to the next input line. This should only be called by
@@ -30384,7 +30401,7 @@
       }
       return null;
     } else {
-      let depth = 0, pos = start;
+      let depth2 = 0, pos = start;
       for (let escaped = false; pos < text.length; pos++) {
         let ch = text.charCodeAt(pos);
         if (space4(ch)) {
@@ -30392,11 +30409,11 @@
         } else if (escaped) {
           escaped = false;
         } else if (ch == 40) {
-          depth++;
+          depth2++;
         } else if (ch == 41) {
-          if (!depth)
+          if (!depth2)
             break;
-          depth--;
+          depth2--;
         } else if (ch == 92) {
           escaped = true;
         }
@@ -32388,7 +32405,13 @@
     MergeView,
     syntaxHighlighting,
     HighlightStyle,
-    tags
+    tags,
+    // ההיסטוריה של העורך — אותן פקודות ש-``historyKeymap`` מפעיל ב-Ctrl+Z / Ctrl+Y. כפתורי "בטל" ו"בצע שוב"
+    // ב-``editor-manager.js`` מפעילים אותן, ונעזרים ב-``undoDepth`` / ``redoDepth`` כדי לדעת מתי אין מה לבטל.
+    undo,
+    redo,
+    undoDepth,
+    redoDepth
   };
   if (typeof window !== "undefined") {
     console.log("[CM Bundle] Assigning CodeMirror6 to window");

@@ -222,25 +222,34 @@ console.log('מפת השורות — מהמקור אחרי הניקוי לשור
   check('מסמך בלי עוגנים — lineMap null (המספרים זהים)', extractExplicitAnchors('- [ ] א').lineMap === null);
 }
 
-console.log('maxHeadingLevel — כותרת עמוקה ממנה אינה נספרת (התצוגה החיה, שבה H5/H6 נשארות פסקאות)');
+console.log('כל רמה של כותרת ATX נספרת — גם H5/H6, שתצוגת המסמך והתצוגה החיה מרנדרות כפסקה מסומנת');
 {
-  // העוגנים מוחלים לפי המספר הסידורי של הכותרת ב-DOM. בתצוגה החיה ``#####`` הוא פסקה, ולכן אם החילוץ סופר
-  // אותו ככותרת, העוגן של "יעד" מוחל על הכותרת שאחריה.
-  const src = '# ראשית\n\n##### עמוקה\n\n## יעד <a id="target"></a>\n\n## הבאה';
-  const shallow = extractExplicitAnchors(src, { maxHeadingLevel: 4 });
-  check('עם maxHeadingLevel 4: "יעד" היא הכותרת השנייה (אינדקס 1)',
-    shallow.anchors.length === 1 && shallow.anchors[0].headingIndex === 1, shallow.anchors);
-  const all = extractExplicitAnchors(src);
-  check('בלי האפשרות: כל שש הרמות נספרות, "יעד" באינדקס 2',
-    all.anchors.length === 1 && all.anchors[0].headingIndex === 2, all.anchors);
-  check('השורה העמוקה נשארת בטקסט כמו שנכתבה', shallow.source.split('\n').includes('##### עמוקה'), shallow.source);
-  check('תגית העוגן הוסרה משורת הכותרת', shallow.source.indexOf('<a') === -1, shallow.source);
+  // הפסקה המסומנת נשארת יעד לעוגן (``ANCHOR_TARGETS``), ולכן החילוץ סופר אותה כמו כותרת. עד נובמבר 2026 הוא דילג
+  // עליה: עוגן בשורה שלפניה עבר לכותרת הבאה, ותגית בתוכה נשארה בטקסט.
+  const src = '# ראשית\n\n<a id="before5"></a>\n##### עמוקה\n\n###### שישית <a id="inline6"></a>\n\n## יעד <a id="target"></a>';
+  const r = extractExplicitAnchors(src);
+  const at = (id) => (r.anchors.find((a) => a.ids.includes(id)) || {}).headingIndex;
+  check('עוגן בשורה שלפני H5 משויך ל-H5 (אינדקס 1)', at('before5') === 1, r.anchors);
+  check('עוגן בתוך שורת H6 משויך ל-H6 (אינדקס 2)', at('inline6') === 2, r.anchors);
+  check('עוגן של הכותרת שאחריהן משויך אליה (אינדקס 3)', at('target') === 3, r.anchors);
+  check('התגית הוסרה משורת H6', r.source.split('\n').includes('###### שישית'), r.source);
 }
 {
-  // כותרת עמוקה ואחריה "---": עדיין לא כותרת Setext (markdown-it מפענח את השורה ככותרת ATX)
+  // כותרת עמוקה ואחריה "---": כותרת ATX אחת, ולא גם טקסט של כותרת Setext (canBeSetextText פוסל שורת ATX)
   const src = '##### עמוקה\n---\n\n## יעד <a id="t"></a>';
-  const r = extractExplicitAnchors(src, { maxHeadingLevel: 4 });
-  check('כותרת עמוקה מעל "---" אינה נספרת כ-Setext', r.anchors.length === 1 && r.anchors[0].headingIndex === 0, r.anchors);
+  const r = extractExplicitAnchors(src);
+  check('כותרת עמוקה מעל "---" נספרת פעם אחת', r.anchors.length === 1 && r.anchors[0].headingIndex === 1, r.anchors);
+}
+
+console.log('applyExplicitAnchors — מחפש יעדים ב-ANCHOR_TARGETS');
+{
+  const MdAnchors = loadMdAnchors();
+  const { container } = makeFakeDom(1);
+  let asked = null;
+  const inner = container.querySelectorAll;
+  container.querySelectorAll = (selector) => { asked = selector; return inner(selector); };
+  MdAnchors.applyExplicitAnchors(container, [{ headingIndex: 0, ids: ['x'] }]);
+  check('הבורר הוא ANCHOR_TARGETS', asked === MdAnchors.ANCHOR_TARGETS, asked);
 }
 
 console.log('\nסה"כ: ' + passed + ' עברו, ' + failed + ' נכשלו');

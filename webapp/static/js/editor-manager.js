@@ -237,6 +237,7 @@
           this.textarea.value = value;
         }
       } catch(_) {}
+      this.syncHistoryButtons();
     }
 
     async initCodeMirror(container, { language, value, theme }) {
@@ -253,6 +254,8 @@
         try {
           this.isLoading = true;
           this.showLoading(container);
+          // עד שהעורך עולה אין לו היסטוריה, ו"בטל" / "בצע שוב" מושבתים (בהחלפה מהעורך הפשוט הם היו פעילים)
+          this.syncHistoryButtons();
           try { console.log('[EditorManager] initCodeMirror called'); } catch(_) {}
           try { console.log('[EditorManager] Loading indicator shown'); } catch(_) {}
           // הסתרת textarea
@@ -313,6 +316,7 @@
               ...(customSyntaxHighlighter ? [customSyntaxHighlighter] : []),
               ...directionExt,
               ...this.getFullPasteExtension(EditorState, EditorView),
+              ...this.getHistoryButtonsExtension(EditorView),
               EditorView.lineWrapping,
               EditorView.updateListener.of((update) => {
                 if (update.docChanged) {
@@ -325,6 +329,7 @@
           this.cmInstance = new EditorView({ state, parent: cmWrapper });
           try { console.log('[EditorManager] CodeMirror editor instance created'); } catch(_) {}
           this.registerSelectionFix();
+          this.syncHistoryButtons();
         } catch (e) {
           console.error('CodeMirror init failed', e);
           this.currentEditor = 'simple';
@@ -447,6 +452,12 @@
               <span>${this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'}</span>
             </button>`}
             <div class="editor-clipboard-actions" role="group" aria-label="פעולות עריכה">
+              <button type="button" class="btn-editor-clip btn-editor-history btn-editor-undo" title="בטל (Ctrl+Z)" aria-label="בטל" aria-keyshortcuts="Control+Z">
+                <i class="fas fa-arrow-rotate-left" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="btn-editor-clip btn-editor-history btn-editor-redo" title="בצע שוב (Ctrl+Y)" aria-label="בצע שוב" aria-keyshortcuts="Control+Y">
+                <i class="fas fa-arrow-rotate-right" aria-hidden="true"></i>
+              </button>
               <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
                 <i class="fas fa-arrows-alt"></i>
                 <span>בחר הכל</span>
@@ -463,12 +474,13 @@
           </div>
           <span class="editor-info-slot">
             <span class="editor-info-status" aria-live="polite"></span>
-            <span class="editor-info-primary${this.currentEditor === 'codemirror' ? ' is-keyboard-hint' : ''}">${this.currentEditor === 'codemirror' ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים' : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי'}</span>
+            <span class="editor-info-primary"></span>
           </span>
         </div>
       `;
       const codeLabel = container.querySelector('label') || container;
       codeLabel.parentNode.insertBefore(switcher, codeLabel.nextSibling);
+      this.updateInfoBanner(switcher);
 
       const toggleBtn = switcher.querySelector('.btn-switch-editor');
       if (toggleBtn) toggleBtn.addEventListener('click', async () => {
@@ -513,6 +525,72 @@
       if (pasteBtn) {
         pasteBtn.addEventListener('click', () => this.handleClipboardPaste(switcher));
       }
+      switcher.querySelectorAll('.btn-editor-history').forEach((btn) => {
+        // הכפתור לא לוקח את הפוקוס: אם הסמן בעורך הוא נשאר שם (והמקלדת בטאבלט נשארת פתוחה), ואם לא — שום דבר
+        // לא מקבל פוקוס, ובטאבלט לא נפתחת מקלדת. ``mousedown`` הוא האירוע שהפוקוס עובר בו, גם בנגיעה.
+        btn.addEventListener('mousedown', (event) => event.preventDefault());
+      });
+      const undoBtn = switcher.querySelector('.btn-editor-undo');
+      if (undoBtn) undoBtn.addEventListener('click', () => this.runHistoryCommand('undo'));
+      const redoBtn = switcher.querySelector('.btn-editor-redo');
+      if (redoBtn) redoBtn.addEventListener('click', () => this.runHistoryCommand('redo'));
+      this._historySwitcher = switcher;
+      this.syncHistoryButtons();
+    }
+
+    /**
+     * "בטל" / "בצע שוב" מהכפתורים: הפקודות ``undo`` / ``redo`` של ההיסטוריה של CodeMirror, אותן ש-``historyKeymap``
+     * של ``@codemirror/commands`` מפעיל ב-Ctrl+Z / Ctrl+Y (נבדק בגרסה 6.10.0), ולכן הכפתור והמקלדת עובדים על אותה
+     * היסטוריה. הפוקוס לא עובר לעורך (בטאבלט זה היה פותח מקלדת).
+     *
+     * **בעורך הפשוט אין כפתורים** (``syncHistoryButtons`` מסתיר אותם). ל-textarea אין היסטוריה משלו: ה"בטל" של
+     * הדפדפן (``document.execCommand('undo')``) הוא מחסנית אחת לכל העמוד. נמדד בכרומיום בעמוד העריכה: הקלדה בעורך,
+     * ואחריה בשדה שם הקובץ — הכפתור ביטל את מה שהוקלד בשם הקובץ, גם כשהפוקוס הועבר קודם ל-textarea; והפעולה
+     * העבירה את הפוקוס ל-textarea, כלומר בטאבלט הייתה פותחת מקלדת.
+     */
+    runHistoryCommand(direction) {
+      if (this.currentEditor !== 'codemirror' || !this.cmInstance) return false;
+      const command = window.CodeMirror6 && window.CodeMirror6[direction];
+      if (typeof command !== 'function') {
+        console.warn(`[EditorManager] ${direction} is missing from the loaded CodeMirror bundle`);
+        return false;
+      }
+      return command(this.cmInstance);
+    }
+
+    /**
+     * מצב הכפתורים: "בטל" מושבת כשאין מה לבטל, ו"בצע שוב" כשאין מה לבצע שוב (``undoDepth`` / ``redoDepth``), והם
+     * מתעדכנים אחרי כל שינוי (``getHistoryButtonsExtension``) ובכל החלפת עורך. בזמן שהעורך המתקדם עוד נטען —
+     * מושבתים. בעורך הפשוט — מוסתרים (הסיבה ב-``runHistoryCommand``).
+     */
+    syncHistoryButtons(state) {
+      const switcher = this._historySwitcher;
+      if (!switcher) return;
+      const undoBtn = switcher.querySelector('.btn-editor-undo');
+      const redoBtn = switcher.querySelector('.btn-editor-redo');
+      if (!undoBtn || !redoBtn) return;
+      const simple = this.currentEditor === 'simple';
+      undoBtn.hidden = simple;
+      redoBtn.hidden = simple;
+      if (simple) return;
+      const editorState = state || (this.cmInstance && this.cmInstance.state);
+      const cm = window.CodeMirror6;
+      if (!editorState || !cm || typeof cm.undoDepth !== 'function' || typeof cm.redoDepth !== 'function') {
+        undoBtn.disabled = true;
+        redoBtn.disabled = true;
+        return;
+      }
+      undoBtn.disabled = cm.undoDepth(editorState) === 0;
+      redoBtn.disabled = cm.redoDepth(editorState) === 0;
+    }
+
+    /** מעדכן את כפתורי "בטל" / "בצע שוב" אחרי כל עדכון של העורך שיש בו טרנזקציה (``syncHistoryButtons``). */
+    getHistoryButtonsExtension(EditorView) {
+      return [
+        EditorView.updateListener.of((update) => {
+          if (update.transactions.length) this.syncHistoryButtons(update.state);
+        }),
+      ];
     }
 
     getSelectedLanguage() {
@@ -554,21 +632,17 @@
       }
     }
 
+    /**
+     * התווית שבקצה שורת הכפתורים — רק בעורך הפשוט ("עורך טקסט בסיסי"). בעורך המתקדם אין תווית: עד נובמבר 2026
+     * היא אמרה "קיצורי מקלדת זמינים", ותפסה רוחב שכפתורי "בטל" / "בצע שוב" צריכים (החלטת המשתמש: מי שרגיל לקיצורים
+     * ינסה אותם גם כאן).
+     */
     updateInfoBanner(switcher) {
-      try {
-        const target = switcher ? switcher.querySelector('.editor-info-primary') : null;
-        if (!target) return;
-        const isCodeMirror = this.currentEditor === 'codemirror';
-        target.innerHTML = isCodeMirror
-          ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים'
-          : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי';
-          
-        if (isCodeMirror) {
-          target.classList.add('is-keyboard-hint');
-        } else {
-          target.classList.remove('is-keyboard-hint');
-        }
-      } catch(_) {}
+      const target = switcher ? switcher.querySelector('.editor-info-primary') : null;
+      if (!target) return;
+      const simple = this.currentEditor === 'simple';
+      target.hidden = !simple;
+      target.innerHTML = simple ? '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי' : '';
     }
 
     // --- Shared position (line) handling between editors ---
@@ -1295,6 +1369,11 @@
         Compartment: stateMod.Compartment,
         languageCompartment: new stateMod.Compartment(),
         themeCompartment: new stateMod.Compartment(),
+        // ההיסטוריה — כמו בחבילה המקומית (codemirror.bundle.entry.mjs), לכפתורי "בטל" ו"בצע שוב"
+        undo: cmdMod.undo,
+        redo: cmdMod.redo,
+        undoDepth: cmdMod.undoDepth,
+        redoDepth: cmdMod.redoDepth,
         _cdnUrl: this._cdnUrl,
         // Expose modules for diagnostics
         _mods: { stateMod, viewMod, cmdMod, langMod, searchMod, acMod, gutterMod, cbMod, mbMod, foldMod }
