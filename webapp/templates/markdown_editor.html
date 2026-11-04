@@ -102,13 +102,6 @@
     border-radius: 0;
 }
 
-/* הגלילה בעורך ובתצוגה לא עוברת לעמוד: בלי זה, גלילה שהגיעה לסוף המסמך המשיכה לגלול את העמוד עצמו, עד
-   לאזור שמתחת לעורך. */
-.md-editor-page .cm-scroller,
-.md-editor-page .split-preview-canvas {
-    overscroll-behavior: contain;
-}
-
 /* שורת המידע (שפה, גודל, זמן) וסטטוס "התצוגה מעודכנת" הם רעש בעמוד שכל מטרתו התצוגה. הסטטוס מוצג רק
    בשגיאה — למשל כשספריית ה-Markdown לא נטענה. מכל התצוגה כולו aria-live, ולכן גם הסטטוס שמופיע מוכרז. */
 .md-editor-page .split-preview-meta,
@@ -184,7 +177,7 @@
       </div>
       <div class="split-tabs" role="tablist" aria-label="חלונות תצוגה">
         <button type="button" role="tab" aria-selected="true" data-panel-target="editor">עורך</button>
-        <button type="button" role="tab" aria-selected="false" data-panel-target="preview">תצוגה</button>
+        <button type="button" role="tab" aria-selected="false" data-panel-target="preview">תצוגה חיה</button>
       </div>
     </div>
     <div class="split-panels">

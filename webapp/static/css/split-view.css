@@ -18,8 +18,6 @@
 
   /* Tabs */
   --split-tabs-bg: rgba(0, 0, 0, 0.04);
-  --split-tabs-selected-bg: rgba(0, 0, 0, 0.08);
-  --split-tabs-selected-color: var(--split-preview-text);
 
   /* Panels */
   --split-preview-panel-bg: rgba(0, 0, 0, 0.02);
@@ -61,8 +59,6 @@
   --split-toggle-active-bg: rgba(56, 176, 0, 0.25);
   --split-toggle-active-border: rgba(74, 193, 23, 0.6);
   --split-tabs-bg: rgba(255, 255, 255, 0.08);
-  --split-tabs-selected-bg: rgba(255, 255, 255, 0.15);
-  --split-tabs-selected-color: var(--split-preview-text);
   --split-preview-panel-bg: rgba(255, 255, 255, 0.02);
   --split-preview-panel-border: rgba(255, 255, 255, 0.08);
   --split-preview-bg: var(--md-surface);
@@ -87,8 +83,6 @@
   --split-toggle-active-bg: rgba(104, 211, 145, 0.25);
   --split-toggle-active-border: rgba(104, 211, 145, 0.5);
   --split-tabs-bg: rgba(49, 130, 206, 0.15);
-  --split-tabs-selected-bg: rgba(49, 130, 206, 0.3);
-  --split-tabs-selected-color: var(--split-preview-text);
   --split-preview-panel-bg: rgba(26, 54, 93, 0.4);
   --split-preview-panel-border: rgba(49, 130, 206, 0.25);
   --split-preview-bg: var(--md-surface);
@@ -112,8 +106,6 @@
   --split-toggle-active-bg: rgba(56, 189, 248, 0.25);
   --split-toggle-active-border: rgba(56, 189, 248, 0.5);
   --split-tabs-bg: rgba(72, 187, 120, 0.15);
-  --split-tabs-selected-bg: rgba(72, 187, 120, 0.3);
-  --split-tabs-selected-color: var(--split-preview-text);
   --split-preview-panel-bg: rgba(20, 83, 45, 0.4);
   --split-preview-panel-border: rgba(72, 187, 120, 0.25);
   --split-preview-bg: var(--md-surface);
@@ -137,8 +129,6 @@
   --split-toggle-active-bg: rgba(40, 105, 131, 0.2);
   --split-toggle-active-border: rgba(40, 105, 131, 0.4);
   --split-tabs-bg: rgba(87, 82, 121, 0.08);
-  --split-tabs-selected-bg: rgba(87, 82, 121, 0.15);
-  --split-tabs-selected-color: var(--split-preview-text);
   --split-preview-panel-bg: rgba(242, 233, 225, 0.5);
   --split-preview-panel-border: rgba(87, 82, 121, 0.15);
   --split-preview-bg: var(--md-surface);
@@ -193,7 +183,6 @@
   --split-toggle-active-bg: rgba(34, 197, 94, 0.2);
   --split-toggle-active-border: rgba(34, 197, 94, 0.5);
   --split-tabs-bg: rgba(0, 0, 0, 0.04);
-  --split-tabs-selected-bg: rgba(0, 0, 0, 0.08);
   --split-preview-panel-bg: rgba(0, 0, 0, 0.02);
   --split-preview-panel-border: rgba(0, 0, 0, 0.08);
   --split-preview-bg: var(--md-surface);
@@ -213,8 +202,6 @@
   --split-toggle-active-bg: color-mix(in srgb, var(--success, #22c55e) 25%, transparent);
   --split-toggle-active-border: color-mix(in srgb, var(--success, #22c55e) 50%, transparent);
   --split-tabs-bg: color-mix(in srgb, var(--bg-tertiary, #2a2d40) 60%, transparent);
-  --split-tabs-selected-bg: color-mix(in srgb, var(--bg-tertiary, #2a2d40) 90%, transparent);
-  --split-tabs-selected-color: var(--text-primary, #f0f0f0);
   --split-preview-panel-bg: color-mix(in srgb, var(--bg-secondary, #1f2937) 60%, transparent);
   --split-preview-panel-border: var(--glass-border, rgba(255, 255, 255, 0.1));
   --split-preview-bg: var(--bg-primary, var(--md-surface, #1b1e24));
@@ -331,6 +318,15 @@
   padding: 0.2rem;
 }
 
+/* הלשוניות "עורך" / "תצוגה חיה" (בנייד, רק כשהתצוגה החיה דלוקה). הסימון של הנבחרת לא בוחר צבע, ולכן הוא עובד בכל
+   ערכה, גם מיובאת: הטקסט בצבע של שורת הכלים (``inherit``), שכל ערכה כבר קבעה כקריא על הרקע שלה; הקו התחתון באותו
+   צבע, ולכן הוא נראה בכל מקום שבו הטקסט נקרא; הטקסט מודגש; והרקע הוא אותו צבע בעוצמה נמוכה — בהיר בערכה כהה, כהה
+   בערכה בהירה. הלא נבחרת באותו צבע, בלי קו ובלי רקע. עד נובמבר 2026 הנבחרת קיבלה בכל ערכה את צבע הטקסט של התצוגה
+   החיה (``--split-preview-text``), כמעט לבן, ובערכה בהירה כמעט נעלמה (ניגודיות 1.42 ב-Rose Pine Dawn).
+   נמדד בדגימת פיקסלים, וכך נבחרו הערכים: קו ב-``--primary`` נבלע ב-Classic וב-Forest (ניגודיות 1.0 מול הרקע של
+   הלשונית); לא נבחרת דהויה (``opacity``) ירדה מתחת ל-4.5 בארבע ערכות שהיו מעליו; ורקע של 16% הוריד את הטקסט של
+   הנבחרת ל-3.6 ב-Classic וב-Dim — ב-10% הוא 3.98 לפחות. ערכה יכולה עדיין לקבוע ``--split-tabs-selected-bg`` /
+   ``--split-tabs-selected-color`` — ניגודיות גבוהה קובעת, והכלל שלה בהמשך. */
 .split-tabs button {
   border: none;
   background: transparent;
@@ -343,9 +339,17 @@
 }
 
 .split-tabs button[aria-selected="true"] {
-  background: var(--split-tabs-selected-bg);
+  background: var(--split-tabs-selected-bg, color-mix(in srgb, currentColor 10%, transparent));
   color: var(--split-tabs-selected-color, inherit);
-  font-weight: 600;
+  box-shadow: inset 0 -3px 0 currentColor;
+  font-weight: 700;
+}
+
+/* בניגודיות גבוהה ``high-contrast.css`` צובע כל ``button`` בשחור עם מסגרת לבנה, ב-``!important`` — ולכן עד נובמבר 2026
+   הלשונית הנבחרת נראתה שם בדיוק כמו השנייה. כאן היא הפוכה: הצבעים מהבלוק של הערכה למעלה (לבן, ושחור עליו). */
+:root[data-theme="high-contrast"] .split-tabs button[aria-selected="true"] {
+  background-color: var(--split-tabs-selected-bg) !important;
+  color: var(--split-tabs-selected-color) !important;
 }
 
 .split-panels {
@@ -582,7 +586,8 @@ html[dir="rtl"] .split-preview-content:not([data-mode="markdown"]) pre.rtl-code 
     justify-content: space-between;
   }
 
-  .split-tabs {
+  /* רק כשהתצוגה החיה דלוקה: כשהיא כבויה יש רק עורך, ו"תצוגה חיה" הייתה פותחת פאנל ריק. */
+  .split-view.is-active .split-tabs {
     display: flex;
   }
 

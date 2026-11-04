@@ -357,6 +357,24 @@ def test_on_a_phone_nothing_overflows_and_the_alerts_menu_stays_on_screen(browse
         )
         assert geo["docW"] <= geo["vw"], geo
         assert geo["left"] >= 0 and geo["right"] <= geo["vw"], geo
+
+        # הכפתורים בגודל התוכן שלהם, באותו גובה כמו במחשב: בטלפון שורת הכפתורים היא עמודה, ו-``flex-grow`` שם
+        # הוא לגובה — בגרסה מוקדמת של התיקון הוא מתח אותם ל-48px, גובה השורה (נמדד, נובמבר 2026)
+        heights = (
+            "() => [...new Set([...document.querySelectorAll('.btn-editor-clip')]"
+            ".map((b) => Math.round(b.getBoundingClientRect().height)))]"
+        )
+        on_phone = s.page.evaluate(heights)
+        # והקבוצה בגובה הכפתורים (שורה אחת בעורך הציבורי): בלי זה הם יושבים באמצע קבוצה גבוהה יותר
+        group = s.page.evaluate(
+            "() => { const g = document.querySelector('.editor-clipboard-actions').getBoundingClientRect();"
+            " const b = document.querySelector('.btn-editor-select').getBoundingClientRect();"
+            " return [Math.round(g.top), Math.round(b.top), Math.round(g.height), Math.round(b.height)]; }"
+        )
+        assert group[0] == group[1] and group[2] == group[3], group
+        s.page.set_viewport_size({"width": 1280, "height": 900})
+        s.page.wait_for_timeout(100)
+        assert on_phone == s.page.evaluate(heights) and len(on_phone) == 1, on_phone
     finally:
         s.close()
 
@@ -735,22 +753,35 @@ def test_the_toggle_says_what_it_does(session):
     assert off["pressed"] is None, off
 
 
-def test_the_area_below_the_editor_is_folded_and_scrolling_stays_inside(session):
-    """מה שמתחת לעורך בבלוק מתקפל, סגור כברירת מחדל; והגלילה בעורך ובתצוגה לא עוברת לעמוד כשמגיעים לסוף."""
+def test_the_area_below_the_editor_is_folded_and_scrolling_past_the_end_moves_the_page(session):
+    """מה שמתחת לעורך בבלוק מתקפל, סגור כברירת מחדל. וגלילה בעורך או בתצוגה, כשהם כבר בסוף, ממשיכה לגלול את
+    העמוד — כמו בעמודי העריכה וההעלאה. מאוקטובר 2026 עד נובמבר 2026 היה כאן ``overscroll-behavior: contain``, שעצר
+    את הגלילה בסוף, ובקשת המשתמש הייתה לבטל אותו. הבדיקה גוללת בגלגלת אמיתית, ולא בודקת את ה-CSS: מי שנגלל באתר
+    הוא ה-``body`` (``overflow-y: auto`` שם), ולא החלון."""
     session.open()
-    state = session.page.evaluate(
+    page = session.page
+    state = page.evaluate(
         """() => {
       const d = document.querySelector('details.md-editor-page__about');
-      return {
-        open: d ? d.open : null,
-        inside: d ? !!d.querySelector('#mdEditorAboutTitle') : false,
-        editor: getComputedStyle(document.querySelector('.cm-scroller')).overscrollBehaviorY,
-        preview: getComputedStyle(document.querySelector('.split-preview-canvas')).overscrollBehaviorY,
-      };
+      return {open: d ? d.open : null, inside: d ? !!d.querySelector('#mdEditorAboutTitle') : false};
     }"""
     )
     assert state["open"] is False and state["inside"], state
-    assert state["editor"] == "contain" and state["preview"] == "contain", state
+
+    for selector in (".split-preview-canvas", ".cm-scroller"):
+        page.evaluate("() => { document.body.scrollTop = 0; }")
+        at_end = page.evaluate(
+            "(s) => { const e = document.querySelector(s); e.scrollTop = e.scrollHeight;"
+            " return e.scrollHeight > e.clientHeight && e.scrollTop + e.clientHeight >= e.scrollHeight - 1; }",
+            selector,
+        )
+        assert at_end, f"התנאי של הבדיקה: {selector} נגלל, ועומד בסוף"
+        box = page.locator(selector).bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        for _ in range(5):
+            page.mouse.wheel(0, 300)
+            page.wait_for_timeout(50)
+        page.wait_for_function("() => document.body.scrollTop > 0", timeout=5000)
 
 
 PANEL_HEIGHTS = """() => {
@@ -915,7 +946,7 @@ HISTORY_BUTTONS = """() => {
   const view = window.editorManager.cmInstance;
   const active = document.activeElement;
   return {
-    order: [...group.children].slice(0, 3).map(kind),
+    order: [...group.querySelectorAll('button')].slice(0, 3).map(kind),
     undoDisabled: undo.disabled, redoDisabled: redo.disabled,
     text: undo.textContent.trim() + redo.textContent.trim(),
     names: [undo.getAttribute('aria-label'), redo.getAttribute('aria-label')],
@@ -1005,13 +1036,57 @@ def test_the_editor_buttons_stay_on_one_line_on_a_tablet(browser):
     try:
         s.open()
         page = s.page
+        # לפי המרכז האנכי של הכפתורים, ולא לפי הילדים של הקבוצה: הכפתורים יושבים בשתי יחידות
+        # (``.editor-clip-head``, ``.editor-clip-tail``), והן מיושרות לאמצע השורה
         lines = (
-            "() => new Set([...document.querySelectorAll('.editor-clipboard-actions > *')]"
-            ".map((b) => Math.round(b.getBoundingClientRect().top))).size"
+            "() => new Set([...document.querySelectorAll('.editor-clipboard-actions button')]"
+            ".map((b) => { const r = b.getBoundingClientRect(); return Math.round(r.top + r.height / 2); })).size"
         )
         for width in (1024, 1180):
             page.set_viewport_size({"width": width, "height": 900})
             page.wait_for_timeout(100)
             assert page.evaluate(lines) == 1, width
+    finally:
+        s.close()
+
+
+#: הלשוניות "עורך" / "תצוגה חיה": הכיתוב, אם הן מוצגות, ואיך כל אחת מסומנת.
+PHONE_TABS = """() => [...document.querySelectorAll('.split-tabs [role=tab]')].map((t) => {
+  const s = getComputedStyle(t);
+  return {text: t.textContent.trim(), shown: !!t.offsetParent, selected: t.getAttribute('aria-selected') === 'true',
+          weight: s.fontWeight, underline: s.boxShadow.includes('inset') && s.boxShadow.startsWith(s.color)};
+})"""
+
+
+def test_on_a_phone_the_tabs_come_only_with_the_preview(browser):
+    """בטלפון יש לשוניות "עורך" / "תצוגה חיה" (עד נובמבר 2026: "תצוגה"), והן מוצגות רק כשהתצוגה החיה דלוקה —
+    כשהיא כבויה יש רק עורך, ו"תצוגה" פתחה פאנל ריק. הנבחרת מודגשת, עם קו תחתון בצבע הטקסט שלה. הניגודיות בכל
+    ערכה נמדדת ב-``tests/test_edit_page_frame_browser.py``, שם אפשר להחליף ערכה; כאן העמוד בערכה הציבורית.
+    """
+    b, client = browser
+    s = Session(b, client, width=390, height=844, mobile=True)
+    try:
+        s.open()
+        page = s.page
+        tabs = page.evaluate(PHONE_TABS)
+        assert [t["text"] for t in tabs] == ["עורך", "תצוגה חיה"], tabs
+        assert [t["shown"] for t in tabs] == [True, True], tabs
+        assert [(t["selected"], t["weight"], t["underline"]) for t in tabs] == [
+            (True, "700", True),
+            (False, "400", False),
+        ], tabs
+
+        page.tap('.split-tabs [data-panel-target="preview"]')
+        tabs = page.evaluate(PHONE_TABS)
+        assert [(t["selected"], t["underline"]) for t in tabs] == [
+            (False, False),
+            (True, True),
+        ], tabs
+
+        page.click('[data-action="toggle-live-preview"]')
+        page.wait_for_function(
+            "() => !document.getElementById('livePreviewRoot').classList.contains('is-active')"
+        )
+        assert [t["shown"] for t in page.evaluate(PHONE_TABS)] == [False, False]
     finally:
         s.close()

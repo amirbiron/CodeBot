@@ -176,13 +176,13 @@ const MarkdownToolbar = {
 
     if (toolbar && editorActions) {
       // בדוק אם כבר הועבר
-      if (toolbar.parentElement === editorActions || toolbar.parentElement === editorActions.parentElement) return;
+      if (editorActions.contains(toolbar)) return;
 
-      // אחרי התא של ההודעות (``.editor-info-slot``), בשורה עצמה: הסרגל אחרון בשורה, והתא ממלא את הרווח שבין הכפתורים
-      // לסרגל — שם ההודעה הזמנית צפה (``codemirror-custom.css``), ולכן היא לא מכסה את כפתור ה-MD. בלי התא — אחרי
-      // code-tools-group או editor-clipboard-actions.
-      const row = editorActions.parentElement;
-      const infoSlot = row ? row.querySelector(':scope > .editor-info-slot') : null;
+      // אחרי התא של ההודעות (``.editor-info-slot``), ביחידה האחרונה של קבוצת הכפתורים (``.editor-clip-tail``, עם
+      // "הדבק"): הסרגל אחרון בשורה, והתא ממלא את הרווח שבין "הדבק" לסרגל — שם ההודעה הזמנית צפה
+      // (``codemirror-custom.css``), ולכן היא לא מכסה את כפתור ה-MD. היחידה לא נשברת, ולכן כשהקבוצה נשברת לשתי
+      // שורות (בטלפון) הסרגל נשאר באותה שורה עם "הדבק". בלי התא — אחרי code-tools-group או editor-clipboard-actions.
+      const infoSlot = editorActions.querySelector('.editor-info-slot');
       const codeTools = editorActions.querySelector('.code-tools-group');
       const clipboardActions = editorActions.querySelector('.editor-clipboard-actions');
 
