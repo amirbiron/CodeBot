@@ -3323,7 +3323,11 @@ check('חיווט: שורות המקור בשתי התצוגות מאותו תו
   eq(/sourceMapPlugin|BLOCK_OPEN_TYPES/.test(preview), false, 'md_preview.html אינו מחזיק עותק של התוסף');
   const live = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', 'live-preview.js'), 'utf8');
   eq(/task-source-lines/.test(live), false, 'live-preview.js אינו מחזיק כלל משלו לשורות של פריטי משימה');
-  eq(live.includes('md.use(window.MdSourceLines.plugin)'), true, 'live-preview.js מתקין את התוסף');
+  // והתצוגה החיה מסמנת גם קונטיינרים ואלרטים (``extraBlockTypes``), ותצוגת המסמך לא — שם "העתק כמארקדאון" והעיגון של
+  // הפתקים נבנו על הסימונים הקיימים (ההסבר בראש ``md-source-lines-plugin.js``).
+  eq(/md\.use\(window\.MdSourceLines\.plugin, \{\s*extraBlockTypes: \['admonition_open'\]\.concat\(containerTypes\.map\(/.test(live), true,
+     'live-preview.js מתקין את התוסף עם הקונטיינרים והאלרטים');
+  eq(preview.includes('extraBlockTypes'), false, 'md_preview.html מתקין את התוסף בלי סוגים נוספים');
 
   // **ובכל עמוד עם Split View — שני הקבצים, לפני live-preview.js.** בלי התוסף לחיצה על צ'קבוקס לא משנה את העורך
   // ואין גלילה מסונכרנת; בלי ``live-preview-scroll-sync.js`` אין גלילה מסונכרנת. ``live-preview.js`` רק מתריע בקונסול.

@@ -245,7 +245,9 @@
             validate(params) {
               return /^details\b/i.test((params || '').trim());
             },
-            render(tokens, idx) {
+            // ``slf.renderAttrs`` — המאפיינים של הטוקן: בתצוגה החיה ``data-source-line`` של הקונטיינר
+            // (``extraBlockTypes`` למטה). בווריאנט ``default`` אין לו מאפיינים, וה-HTML לא משתנה.
+            render(tokens, idx, _options, _env, slf) {
               const info = (tokens[idx].info || '').trim();
               // ``\b\s*`` ולא ``\s+`` — **אותה צורה בדיוק** שכל שאר הסוגים
               // משתמשים בה מטה, וזו התאמה שנמדדה: עם ``\s+`` הכותרת של
@@ -255,7 +257,7 @@
               const match = info.match(/^details\b\s*(.*)$/i);
               const title = (match && match[1] && match[1].trim()) || DETAILS_DEFAULT_TITLE;
               if (tokens[idx].nesting === 1) {
-                return `<details class="markdown-details"><summary class="markdown-summary">${md.utils.escapeHtml(
+                return `<details class="markdown-details"${slf.renderAttrs(tokens[idx])}><summary class="markdown-summary">${md.utils.escapeHtml(
                   title
                 )}</summary><div class="details-content">`;
               }
@@ -270,13 +272,13 @@
                 validate(params) {
                   return rxOpen.test((params || '').trim());
                 },
-                render(tokens, idx) {
+                render(tokens, idx, _options, _env, slf) {
                   const info = (tokens[idx].info || '').trim();
                   const match = info.match(rxOpen);
                   const title = (match && match[1] && match[1].trim()) || MARKDOWN_DEFAULT_TITLES[type] || type;
                   if (tokens[idx].nesting === 1) {
                     const icon = ADMONITION_ICONS[type] || '';
-                    return `<div class="admonition admonition-${type}"><div class="admonition-title">${icon}${md.utils.escapeHtml(
+                    return `<div class="admonition admonition-${type}"${slf.renderAttrs(tokens[idx])}><div class="admonition-title">${icon}${md.utils.escapeHtml(
                       title
                     )}</div><div class="admonition-content">`;
                   }
@@ -297,10 +299,13 @@
       }
       // אחרון, כי התוסף עוטף כללי רינדור: תוסף שיותקן אחריו ויחליף כלל של אחד מסוגי הבלוקים ידרוס את העטיפה
       // (ההסבר בראש ``md-source-lines-plugin.js``). השורות מתורגמות לשורות בעורך דרך ``env.sourceLineMap``, שמגיע
-      // מ-``renderMarkdownSource``.
+      // מ-``renderMarkdownSource``. ``extraBlockTypes`` — גם הקונטיינרים (``::: note``, ``::: details``) והאלרטים
+      // (``!!! note``) מסומנים, כדי שהגלילה המסונכרנת תדע איפה הכותרת שלהם; ``md_preview.html`` לא מסמן אותם.
       if (config.sourceLines) {
         if (window.MdSourceLines) {
-          md.use(window.MdSourceLines.plugin);
+          md.use(window.MdSourceLines.plugin, {
+            extraBlockTypes: ['admonition_open'].concat(containerTypes.map((type) => `container_${type}_open`)),
+          });
         } else {
           console.warn('md-source-lines-plugin.js לא נטען: בלי שורות מקור — לחיצה על צ\'קבוקס לא תשנה את העורך, ואין גלילה מסונכרנת');
         }
@@ -817,6 +822,10 @@
       try {
         const rendered = await MarkdownLiveRenderer.renderWithAnchors(content, { variant: 'livePreview' });
         const html = rendered.html;
+        // לפני שהתוכן מוחלף: עד ``contentRendered`` שלמטה הבלוקים בתצוגה אינם של הרינדור שהגלילה המסונכרנת מכירה
+        // (ההסבר ב-``attach`` שב-``live-preview-scroll-sync.js``). אם הרינדור נכשל באמצע, הסנכרון נשאר כבוי עד
+        // הרינדור הבא שמצליח.
+        if (this.scrollSync) this.scrollSync.contentCleared();
         this.setMarkdownContext(true);
         this.previewCanvas.innerHTML = html || '<p>אין תוכן להצגה.</p>';
         if (this.styleEl) {

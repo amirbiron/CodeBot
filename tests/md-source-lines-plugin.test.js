@@ -17,6 +17,8 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 import MarkdownIt from 'markdown-it';
 import markdownItTaskLists from 'markdown-it-task-lists';
+import markdownItContainer from 'markdown-it-container';
+import markdownItAdmonition from 'markdown-it-admonition';
 import katex from 'katex';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -126,6 +128,54 @@ console.log('בלוק שנגמר בסוף הטקסט, עם מפה: הקצה הו
   const extracted = MdAnchors.extractExplicitAnchors('<a id="top"></a>\n# כותרת\nפסקה אחרונה');
   const html = renderer().render(extracted.source, { sourceLineMap: extracted.lineMap });
   check('הפסקה האחרונה: [2, 3]', JSON.stringify(linesOf(html, 'p')) === '[2,3]', html);
+}
+
+console.log('קונטיינרים ואלרטים מסומנים רק כשמבקשים (extraBlockTypes) — כמו בתצוגה החיה, ולא בתצוגת המסמך');
+{
+  const src = '::: note כותרת\nפסקה\n:::\n\n!!! tip כותרת\n    תוכן\n!!!\n';
+  const build = (options) => new MarkdownIt()
+    .use(markdownItContainer, 'note')
+    .use(markdownItAdmonition, { types: ['tip'] })
+    .use(MdSourceLines.plugin, options);
+  const extra = { extraBlockTypes: ['admonition_open', 'container_note_open'] };
+  const marked = build(extra).render(src);
+  // ב-markdown-it-container ‏(4.0.0) ה-map של הפתיחה מסתיים בשורת הסגירה (``:::``); וכלל ברירת המחדל של שני התוספים
+  // מרנדר את מאפייני הטוקן (``renderToken``).
+  check('הקונטיינר מסומן משורת הפתיחה ועד שורת הסגירה', /<div data-source-line="0" data-source-line-end="2" class="note">/.test(marked), marked);
+  check('האלרט מסומן', /<div data-source-line="4" data-source-line-end="6" class="admonition tip">/.test(marked), marked);
+  check('הכותרת של האלרט לא מסומנת — ה-map שלה הוא של כל הבלוק', /<p class="admonition-title">/.test(marked), marked);
+  const plain = build().render(src);
+  check('בלי האפשרות — הקונטיינר והאלרט בלי סימון', /<div class="note">/.test(plain) && /<div class="admonition tip">/.test(plain), plain);
+  check('בלי האפשרות — הבלוקים שבתוכם כן מסומנים', /<p data-source-line="1" data-source-line-end="2">/.test(plain), plain);
+}
+
+console.log('תאי טבלה: השורה והעמודה במעבר אחד — העבודה גדלה לפי מספר העמודות, ולא בריבוע שלו');
+{
+  const table = (cols, rows) => '| ' + Array.from({ length: cols }, (_, c) => `h${c}`).join(' | ') + ' |\n|'
+    + ' --- |'.repeat(cols) + '\n'
+    + Array.from({ length: rows }, (_, r) => '| ' + Array.from({ length: cols }, () => `${r}`).join(' | ') + ' |').join('\n') + '\n';
+  // סופרים קריאות לטוקנים בזמן הרינדור בלבד, ולא זמן — כדי שהבדיקה לא תלויה במהירות המכונה. עד נובמבר 2026 כל תא
+  // סרק לאחור את התאים שלפניו בשורה, ופי 4 עמודות נתנו פי 15.5 קריאות.
+  const reads = (cols) => {
+    const md = new MarkdownIt().use(MdSourceLines.plugin);
+    const tokens = md.parse(table(cols, 10), {});
+    let count = 0;
+    const counted = new Proxy(tokens, {
+      get(target, key) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) count += 1;
+        return target[key];
+      },
+    });
+    const html = md.renderer.render(counted, md.options, {});
+    return { count, html };
+  };
+  const narrow = reads(50);
+  const wide = reads(200);
+  check('פי 4 עמודות — פחות מפי 6 קריאות', wide.count / narrow.count < 6, { narrow: narrow.count, wide: wide.count });
+  check('העמודה האחרונה מקבלת את המספר שלה', /<td data-row-line="11" data-col="199">9<\/td>/.test(wide.html), wide.html.slice(-200));
+  const missing = new MarkdownIt().use(MdSourceLines.plugin).render('| א | ב | ג |\n|---|---|---|\n| 1 |\n');
+  check('שורה עם תאים חסרים — העמודות נספרות מחדש בכל שורה',
+    /<td data-row-line="2" data-col="0">1<\/td>\n<td data-row-line="2" data-col="1"><\/td>/.test(missing), missing);
 }
 
 console.log('התוסף עוטף את כלל הרינדור שכבר קיים — ולא מחליף אותו');

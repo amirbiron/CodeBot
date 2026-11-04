@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit
 
 import pytest
@@ -1222,3 +1223,77 @@ def test_the_side_being_scrolled_is_not_pulled_back(session):
     sync.settle(page, 400)
     second = page.evaluate("() => window.editorManager.cmInstance.scrollDOM.scrollTop")
     assert first == second and abs(first - target) <= 1, (target, first, second)
+
+
+#: הקונטיינרים בתצוגה (``::: note`` וכו', ו-``::: details``), לפי הסדר במסמך.
+CONTAINERS = "[data-preview-canvas] :is(.admonition, details.markdown-details)"
+
+
+def test_scrolling_the_editor_brings_the_preview_to_each_container(session):
+    """שורת הפתיחה של כל קונטיינר (``::: note``, ``::: details``) בנקודת הקריאה של העורך — הכותרת שלו בתצוגה בנקודת
+    הקריאה של התצוגה. עד שהקונטיינרים סומנו (``extraBlockTypes`` ב-``md-source-lines-plugin.js``) רק הבלוקים שבתוכם
+    היו מסומנים, והכותרת הייתה 14 עד 33px מהמקום (נמדד ב-4.11.2026 על טקסט ההדגמה). כולל ``::: details`` סגור, שנמדד
+    בגובה ה-``summary`` שלו."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    opens = [i for i, text in enumerate(session.editor_text().split("\n")) if re.match(r"^:::\s*\w", text)]
+    assert page.evaluate("(s) => document.querySelectorAll(s).length", CONTAINERS) == len(opens) >= 10, opens
+    assert page.evaluate("() => !!document.querySelector('[data-preview-canvas] details.markdown-details:not([open])')"), (
+        "התנאי של הבדיקה: בהדגמה יש קיפול סגור"
+    )
+    sync.lead(page, ".cm-scroller")
+    off = {}
+    for index, line in enumerate(opens):
+        sync.place_editor(page, line)
+        r = sync.element_state(page, CONTAINERS, index, line)
+        if abs(r["previewDelta"]) > SYNC_TOLERANCE_PX or abs(r["editorDelta"]) > SYNC_TOLERANCE_PX:
+            off[line] = (round(r["editorDelta"], 1), round(r["previewDelta"], 1))
+    assert off == {}, off
+    assert session.errors == []
+
+
+#: מעכב את ``mermaid.render`` עד ``window.__releaseMermaid()``: כך הרינדור של התצוגה נעצר אחרי שהתוכן הוחלף, ב-
+#: ``await`` של ``enhance`` — החלון שבו הגלילה המסונכרנת חייבת לחכות.
+HOLD_MERMAID = """() => {
+  const original = window.mermaid.render.bind(window.mermaid);
+  const pending = [];
+  let hold = true;
+  window.mermaid.render = (...args) => (hold
+    ? new Promise((resolve, reject) => pending.push(() => original(...args).then(resolve, reject)))
+    : original(...args));
+  window.__mermaidPending = () => pending.length;
+  window.__releaseMermaid = () => { hold = false; pending.splice(0).forEach((run) => run()); };
+}"""
+
+
+def test_a_scroll_while_the_preview_renders_waits_for_the_render(session):
+    """גלילה בעורך בזמן שהתצוגה באמצע רינדור — התוכן כבר הוחלף, והתרשימים עוד לא — לא מזיזה את התצוגה: נקודות ההתאמה
+    של הרינדור הקודם כבר לא תואמות למה שמוצג, ושל החדש עוד לא סופיות. כשהרינדור מסתיים, התצוגה מגיעה למקום שהעורך
+    עומד בו. עד התיקון התצוגה זזה באמצע לפי מה שנמדד ברגע הזה."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    lines = sync.headings(page)
+    first, second = lines[5], lines[18]
+    sync.lead(page, ".cm-scroller")
+    sync.place_editor(page, first)
+    page.evaluate(HOLD_MERMAID)
+    session.append("\n")
+    page.wait_for_function("() => window.__mermaidPending() > 0", timeout=10000)
+    before = page.evaluate("() => document.querySelector('[data-preview-canvas]').scrollTop")
+
+    sync.place_editor(page, second)
+    sync.settle(page, 400)
+    during = page.evaluate("() => document.querySelector('[data-preview-canvas]').scrollTop")
+    assert page.evaluate("() => window.__mermaidPending() > 0"), "התנאי של הבדיקה: הרינדור עדיין מחכה לתרשים"
+    assert during == before, (before, during)
+
+    page.evaluate("() => window.__releaseMermaid()")
+    page.wait_for_function(
+        "document.querySelector('[data-preview-status]').dataset.state === 'ready'", timeout=30000
+    )
+    sync.settle(page, 500)
+    r = sync.state(page, second)
+    assert abs(r["previewDelta"]) <= SYNC_TOLERANCE_PX, r
+    assert session.errors == []

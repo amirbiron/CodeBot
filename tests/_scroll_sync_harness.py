@@ -48,6 +48,14 @@ window.__syncProbe = {
     return Array.from(this.canvas().querySelectorAll(':is(h1,h2,h3)[data-source-line]'))
       .map((h) => Number(h.getAttribute('data-source-line')));
   },
+  // האלמנט ה-``index`` שמתאים ל-``selector`` בתצוגה — לפי הסדר, ולא לפי הסימון שלו, כדי שהמדידה תעבוד גם כשאין לו
+  // סימון (זה בדיוק מה שנבדק אצל הקונטיינרים) — מול השורה ``line`` בעורך.
+  elementState(selector, index, line) {
+    const cv = this.canvas(), sc = this.view().scrollDOM;
+    const el = cv.querySelectorAll(selector)[index];
+    const y = el.getBoundingClientRect().top - cv.getBoundingClientRect().top - cv.clientTop + cv.scrollTop;
+    return {editorDelta: this.editorLineY(line) - this.reading(sc), previewDelta: y - this.reading(cv)};
+  },
 };
 """
 
@@ -98,3 +106,9 @@ def state(page, line: int) -> dict:
 
 def headings(page) -> list[int]:
     return page.evaluate("() => window.__syncProbe.headings()")
+
+
+def element_state(page, selector: str, index: int, line: int) -> dict:
+    return page.evaluate(
+        "([s, i, line]) => window.__syncProbe.elementState(s, i, line)", [selector, index, line]
+    )

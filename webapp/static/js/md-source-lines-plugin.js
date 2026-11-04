@@ -27,14 +27,26 @@
  * (למשל ``math_block`` של ``md-math-plugin.js``): תוסף שיותקן אחריו ויחליף כלל, ידרוס את העטיפה. ומאפיין מגיע
  * ל-HTML רק כשהכלל המקורי מרנדר את מאפייני הטוקן (``renderAttrs``) — הכללים של markdown-it עצמו עושים זאת, וגם
  * ``math_block``. ב-``fence`` של markdown-it (נבדק בגרסה 14.1.0) הם נכתבים על ה-``<code>`` שבתוך ה-``<pre>``.
- * הקונטיינרים (``::: note``, ``::: details``) מרונדרים בפונקציות משלהם ולא מקבלים סימון; הבלוקים שבתוכם כן.
+ *
+ * **קונטיינרים ואלרטים — רק כשמבקשים (``extraBlockTypes``).** ``::: note`` / ``::: details`` (markdown-it-container)
+ * ו-``!!! note`` (markdown-it-admonition) הם בלוק עם כותרת שתופסת גובה, ובלי סימון הגלילה המסונכרנת לא ידעה איפה
+ * הם מתחילים: כשהעורך עמד על שורת הפתיחה, הכותרת בתצוגה הייתה 14 עד 33px מהמקום (נמדד ב-4.11.2026 על טקסט
+ * ההדגמה, ``test_scrolling_the_editor_brings_the_preview_to_each_container``). התצוגה החיה מעבירה את סוגי הטוקנים
+ * שלהם (``container_<סוג>_open``, ``admonition_open``) ב-``extraBlockTypes``, והכותרת שהיא מרנדרת לקונטיינר כותבת את
+ * המאפיינים (``renderAttrs``). ``md_preview.html`` לא מעביר אותם: "העתק כמארקדאון" והעיגון של הפתקים שם נבנו על
+ * הסימונים הקיימים, וסימון חדש היה משנה את מה שהם נצמדים אליו. ב-markdown-it-admonition ‏(1.0.4) הכלל של
+ * ``admonition_open`` מרנדר את מאפייני הטוקן בעצמו (``renderToken``), ולכן שם אין צורך בשינוי.
  *
  * **טבלאות.** ב-markdown-it ‏(14.x) ל-``th_open`` / ``td_open`` אין ``map`` (``null``). לכן תא יורש את השורה של
- * ה-``tr_open`` שלפניו, ומקבל את מספר העמודה, כדי ש"העתק כמארקדאון" יוכל לחלץ תא בודד מהמקור.
+ * ה-``tr_open`` שלפניו, ומקבל את מספר העמודה, כדי ש"העתק כמארקדאון" יוכל לחלץ תא בודד מהמקור. השורה והעמודה של
+ * כל התאים מחושבות במעבר אחד על הטוקנים, בפעם הראשונה שתא מרונדר (``cellPositions``). עד נובמבר 2026 כל תא סרק
+ * לאחור את התאים שלפניו בשורה שלו, ולכן העבודה על שורה גדלה בריבוע של מספר העמודות — ואחרי שהתוסף נכנס לתצוגה
+ * החיה, זה רץ בכל רינדור.
  *
  * שימוש:
- *     md.use(window.MdSourceLines.plugin);                        // דפדפן
- *     md.use(require('.../md-source-lines-plugin').plugin);       // Node
+ *     md.use(window.MdSourceLines.plugin);                                          // דפדפן
+ *     md.use(window.MdSourceLines.plugin, { extraBlockTypes: ['admonition_open'] }); // עם סוגים נוספים
+ *     md.use(require('.../md-source-lines-plugin').plugin);                         // Node
  */
 (function (root) {
   'use strict';
@@ -85,8 +97,45 @@
     };
   }
 
-  function sourceLinesPlugin(md) {
-    BLOCK_OPEN_TYPES.forEach(function (type) {
+  /**
+   * השורה בטבלה והעמודה של כל תא, לפי האינדקס של ה-``th_open`` / ``td_open`` שלו — במעבר אחד על הטוקנים.
+   *
+   * השורה היא של ה-``tr_open`` האחרון שלפני התא (``null`` כשאין לו ``map``, או כשאין ``tr_open`` לפניו), והעמודה
+   * היא כמה תאים מאותו סוג היו מאז ה-``tr_open`` הזה — או מתחילת הטוקנים, כשאין כזה.
+   */
+  function cellPositions(tokens, lineMap) {
+    var positions = {};
+    var rowLine = null;
+    var thCount = 0;
+    var tdCount = 0;
+    for (var i = 0; i < tokens.length; i += 1) {
+      var type = tokens[i].type;
+      if (type === 'tr_open') {
+        var map = tokens[i].map;
+        rowLine = map && map.length >= 2 ? sourceLine(map[0], lineMap) : null;
+        thCount = 0;
+        tdCount = 0;
+      } else if (type === 'th_open') {
+        positions[i] = { rowLine: rowLine, col: thCount };
+        thCount += 1;
+      } else if (type === 'td_open') {
+        positions[i] = { rowLine: rowLine, col: tdCount };
+        tdCount += 1;
+      }
+    }
+    return positions;
+  }
+
+  /**
+   * ``options.extraBlockTypes`` — סוגי טוקנים נוספים שמקבלים ``data-source-line`` / ``data-source-line-end``, מעבר
+   * ל-``BLOCK_OPEN_TYPES`` (ההסבר בראש הקובץ, בפסקה על קונטיינרים ואלרטים).
+   */
+  function sourceLinesPlugin(md, options) {
+    var extra = options && Array.isArray(options.extraBlockTypes) ? options.extraBlockTypes : [];
+    var blockTypes = BLOCK_OPEN_TYPES.concat(extra.filter(function (type, i) {
+      return BLOCK_OPEN_TYPES.indexOf(type) === -1 && extra.indexOf(type) === i;
+    }));
+    blockTypes.forEach(function (type) {
       wrapRule(md, type, function (tokens, idx, lineMap) {
         var token = tokens[idx];
         if (!token.map || token.map.length < 2) return;
@@ -97,27 +146,19 @@
       });
     });
 
+    // המיקומים של התאים נשמרים לכל מערך טוקנים — כל רינדור מפענח מערך חדש — ולמפת השורות שאיתה חושבו.
+    var cellCache = new WeakMap();
     CELL_OPEN_TYPES.forEach(function (type) {
       wrapRule(md, type, function (tokens, idx, lineMap) {
-        var token = tokens[idx];
-        // השורה בטבלה: מה-``tr_open`` הקרוב שלפני התא.
-        var rowLine = null;
-        for (var i = idx - 1; i >= 0; i -= 1) {
-          if (tokens[i].type === 'tr_open') {
-            if (tokens[i].map && tokens[i].map.length >= 2) {
-              rowLine = sourceLine(tokens[i].map[0], lineMap);
-            }
-            break;
-          }
+        var cached = cellCache.get(tokens);
+        if (!cached || cached.lineMap !== lineMap) {
+          cached = { lineMap: lineMap, positions: cellPositions(tokens, lineMap) };
+          cellCache.set(tokens, cached);
         }
-        // העמודה: כמה תאים מאותו סוג יש מאז ה-``tr_open``.
-        var colIndex = 0;
-        for (var j = idx - 1; j >= 0; j -= 1) {
-          if (tokens[j].type === 'tr_open') break;
-          if (tokens[j].type === type) colIndex += 1;
-        }
-        if (Number.isInteger(rowLine)) token.attrSet('data-row-line', String(rowLine));
-        token.attrSet('data-col', String(colIndex));
+        var position = cached.positions[idx];
+        if (!position) return;
+        if (Number.isInteger(position.rowLine)) tokens[idx].attrSet('data-row-line', String(position.rowLine));
+        tokens[idx].attrSet('data-col', String(position.col));
       });
     });
   }
