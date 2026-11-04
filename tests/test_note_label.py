@@ -63,6 +63,18 @@ def test_one_long_word_is_cut_to_the_name_ceiling():
     assert label == "א" * NOTE_LABEL_MAX_CHARS + "…"
 
 
+def test_a_name_longer_than_the_ceiling_is_cut_with_an_ellipsis():
+    """שם ארוך מהתקרה מקבל "…" כמו תוכן — ולא נחתך בשקט. החלונית כבר אינה מוסיפה "..." משלה,
+    ולכן בלי זה שם חתוך היה נראה שלם."""
+    title = "ש" * (NOTE_LABEL_MAX_CHARS + 20)
+    assert note_label({"title": title, "content": "x"}) == "ש" * NOTE_LABEL_MAX_CHARS + "…"
+
+
+def test_a_name_exactly_at_the_ceiling_is_shown_whole():
+    title = "ש" * NOTE_LABEL_MAX_CHARS
+    assert note_label({"title": title}) == title
+
+
 def test_the_ceiling_is_the_name_ceiling():
     """מה שעומד במקום השם מקבל את הגבול של שם — מספר אחד, לא שניים שמסונכרנים בתקווה."""
     assert NOTE_LABEL_MAX_CHARS == MAX_NOTE_TITLE

@@ -1699,9 +1699,15 @@ def _reminder_label(db, reminder_doc: dict) -> str:
     (``sticky_notes_api.reminders_list``), כך שהפוש והפעמון מציגים את הפתק באותו שם.
 
     מחרוזת ריקה כשהפתק לא נמצא: ההתראה עדיין נשלחת, עם הכותרת בלבד.
+
+    **הפתק נשלף רק מבין הפתקים של בעל התזכורת** (K12), כמו ב-``reminders_list``: תזכורת
+    פגומה שמצביעה על פתק של משתמש אחר הייתה מציגה את שמו או את תחילתו לנמען. תזכורת בלי
+    ``user_id`` אינה מציגה כלום — fail-closed, ולא "כל פתק עם המזהה הזה". הצורות של המזהה
+    (מספר ומחרוזת) מ-:func:`_user_id_variants`, כמו בשאר המודול.
     """
     note_id = str(reminder_doc.get("note_id") or "")
-    if not note_id:
+    owner = reminder_doc.get("user_id")
+    if not note_id or owner is None:
         return ""
     try:
         from bson import ObjectId  # type: ignore
@@ -1716,8 +1722,9 @@ def _reminder_label(db, reminder_doc: dict) -> str:
         except InvalidId:
             pass
         ids.append(note_id)
+        owner_ids = _user_id_variants(owner)
         for candidate in ids:
-            note = db.sticky_notes.find_one({"_id": candidate}, NOTE_LABEL_FIELDS)
+            note = db.sticky_notes.find_one({"_id": candidate, "user_id": {"$in": owner_ids}}, NOTE_LABEL_FIELDS)
             if isinstance(note, dict):
                 return note_label(note)
     except Exception:

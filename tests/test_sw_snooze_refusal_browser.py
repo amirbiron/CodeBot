@@ -49,16 +49,32 @@ window.clients = {
       return Promise.resolve({ focus: () => Promise.resolve() });
     },
   }))),
-  openWindow: (u) => { window.__opened = String(u); return Promise.resolve(null); },
+  // ``__openRejectOnce`` — הפתיחה הראשונה נדחית, כמו ``openWindow`` אחרי שחלון האינטראקציה נסגר.
+  openWindow: (u) => {
+    if (window.__openRejectOnce) {
+      window.__openRejectOnce = false;
+      return Promise.reject(new DOMException('Not allowed to open a window.', 'InvalidAccessError'));
+    }
+    window.__opened = String(u); return Promise.resolve(null);
+  },
   claim: () => Promise.resolve(),
 };
 self.skipWaiting = () => Promise.resolve();
 window.fetch = async (url, opts) => {
   const u = String(url);
   window.__fetches.push({ url: u, body: (opts && opts.body) ? String(opts.body) : '' });
+  // דיווח ל-``sw-report``: ``__reportHangs`` — השרת לא עונה לעולם (רשת תקועה); ``__reportDelayMs`` —
+  // הדיווח נרשם רק כשהבקשה מסתיימת, כדי לראות אם ה-SW חי מספיק זמן כדי לשלוח אותו.
   if (u.indexOf('/api/push/sw-report') !== -1) {
-    try { window.__reports.push(JSON.parse(opts.body)); } catch (_) {}
-    return { ok: true, status: 200 };
+    if (window.__reportHangs) { return new Promise(() => {}); }
+    const record = () => {
+      try { window.__reports.push(JSON.parse(opts.body)); } catch (_) {}
+      return { ok: true, status: 200 };
+    };
+    if (window.__reportDelayMs) {
+      return new Promise((resolve) => setTimeout(() => resolve(record()), window.__reportDelayMs));
+    }
+    return record();
   }
   if (u.indexOf('/snooze') !== -1) {
     if (window.__snoozeMode === 'reject') { throw new TypeError('Failed to fetch'); }
@@ -79,6 +95,18 @@ CLICK = """
   ev.waitUntil = (p) => { window.__done = Promise.resolve(p).catch(() => {}); };
   window.dispatchEvent(ev);
   return window.__done;
+}
+"""
+
+
+#: כמו ``CLICK``, בלי לחכות ל-``waitUntil`` — לטסטים שבהם דיווח לשרת לא נגמר לעולם.
+DISPATCH = """
+() => {
+  const ev = new Event('notificationclick');
+  ev.notification = { data: window.__notifData || { note_id: 'n1', file_id: 'f1' }, close: () => {} };
+  ev.action = ('__action' in window) ? window.__action : 'snooze_60';
+  ev.waitUntil = (p) => { window.__done = Promise.resolve(p).catch(() => {}); };
+  window.dispatchEvent(ev);
 }
 """
 
@@ -324,3 +352,70 @@ def test_taking_over_the_last_focused_tab_breaks_the_test(chromium_executable):
         opened, navigated = _opened_and_navigated(page)
     assert opened is None, opened
     assert len(navigated) == 1 and navigated[0].endswith("/note/n1"), navigated
+
+
+# -- דיווח לשרת אינו עומד בין הלחיצה לפתיחה ----------------------------------------------
+#
+# ב-Chromium חלון חייב להיפתח תוך ``kWindowInteractionTimeout`` (עשר שניות) מהלחיצה
+# (``wait_until_observer.cc``). דיווח שממתינים לו לפני ``openWindow`` — ``fetch`` בלי תקרת
+# זמן — יכול ברשת איטית לאכול את החלון, ואז הפתק לא נפתח. כאן השרת לא עונה בכלל.
+
+#: הדיווח על שגיאת פתיחה; המוטציה מחזירה את ההמתנה לו לפני פתיחת ברירת המחדל.
+ERROR_REPORT = "      report('notification_click', 'error', { action: action || '', error: String(e) });\n"
+#: ההמתנה לדיווחים בסוף; המוטציה מסירה אותה, וה-SW יכול להסתיים לפני שהם נשלחו.
+REPORTS_KEEP_THE_WORKER_ALIVE = "  event.waitUntil(handled.finally(() => Promise.all(reports)));\n"
+
+REMINDER = {"note_id": "n1", "file_id": "", "board_id": "b1", "remind_at": OCCURRENCE}
+
+
+def _opened_without_waiting_for_reports(page, timeout_ms=3000):
+    page.evaluate(DISPATCH)
+    page.wait_for_function("window.__opened !== null", timeout=timeout_ms)
+    return page.evaluate("window.__opened")
+
+
+def test_a_report_that_never_answers_does_not_stop_the_note_from_opening(chromium_executable):
+    """הדיווח הראשון (``started``) תקוע — והפתק נפתח בכל זאת, בלי לחכות לו."""
+    with _worker(chromium_executable, _sw_source(), __action="open_note", __notifData=REMINDER,
+                 __reportHangs=True) as page:
+        opened = _opened_without_waiting_for_reports(page)
+    assert opened.endswith("/note/n1"), opened
+
+
+def test_when_opening_fails_the_fallback_does_not_wait_for_the_error_report(chromium_executable):
+    """הפתיחה נדחתה, והדיווח על השגיאה תקוע — ופתיחת ברירת המחדל קורית בכל זאת."""
+    with _worker(chromium_executable, _sw_source(), __action="open_note", __notifData=REMINDER,
+                 __reportHangs=True, __openRejectOnce=True) as page:
+        opened = _opened_without_waiting_for_reports(page)
+    assert opened == "/", opened
+
+
+def test_waiting_for_the_error_report_breaks_the_fallback_test(chromium_executable):
+    """ריצת בקרה: ממתינים לדיווח השגיאה לפני פתיחת ברירת המחדל — והיא לא קורית."""
+    source = _mutate(
+        _sw_source(), ERROR_REPORT,
+        "      await reportToServer('notification_click', 'error', { action: action || '', error: String(e) });\n",
+    )
+    with _worker(chromium_executable, source, __action="open_note", __notifData=REMINDER,
+                 __reportHangs=True, __openRejectOnce=True) as page:
+        with pytest.raises(Exception, match="Timeout"):
+            _opened_without_waiting_for_reports(page, timeout_ms=1500)
+
+
+def test_the_reports_are_sent_before_the_click_is_done(chromium_executable):
+    """הדיווחים יוצאים בלי שממתינים להם — ובכל זאת ``waitUntil`` מחזיק את ה-SW עד שנשלחו."""
+    with _worker(chromium_executable, _sw_source(), __action="open_note", __notifData=REMINDER,
+                 __reportDelayMs=300) as page:
+        page.evaluate(CLICK)
+        statuses = [r["status"] for r in page.evaluate("window.__reports") if r.get("event") == "notification_click"]
+    assert sorted(statuses) == ["opened", "started"], statuses
+
+
+def test_without_waiting_for_the_reports_at_the_end_they_are_lost(chromium_executable):
+    """ריצת בקרה: ``waitUntil`` על הלחיצה בלבד — כשהיא נגמרת, הדיווחים עוד לא נשלחו."""
+    source = _mutate(_sw_source(), REPORTS_KEEP_THE_WORKER_ALIVE, "  event.waitUntil(handled);\n")
+    with _worker(chromium_executable, source, __action="open_note", __notifData=REMINDER,
+                 __reportDelayMs=300) as page:
+        page.evaluate(CLICK)
+        statuses = [r["status"] for r in page.evaluate("window.__reports") if r.get("event") == "notification_click"]
+    assert statuses == [], statuses

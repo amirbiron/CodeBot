@@ -185,8 +185,8 @@ NOTE_LABEL_FIELDS: Dict[str, int] = {"title": 1, "content": 1, "anchor_text": 1}
 def note_label(note: Mapping[str, Any]) -> str:
     """השם שבו פתק מוצג בשורה אחת קצרה — בהתראת הפוש של תזכורת ובחלונית הפעמון.
 
-    **שם הפתק, אם יש לו** (דרך :func:`normalize_note_title`, כך שערך שאינו מחרוזת
-    נחשב "אין שם"). בלי שם — עד :data:`NOTE_LABEL_WORDS` מילים מתחילת התוכן, ובלי
+    **שם הפתק, אם יש לו** (אותה קנוניזציה של השמירה, ולכן ערך שאינו מחרוזת נחשב
+    "אין שם"). בלי שם — עד :data:`NOTE_LABEL_WORDS` מילים מתחילת התוכן, ובלי
     תוכן (פתק שנוצר ונשאר ריק) — מטקסט העוגן, הכותרת בקובץ שהפתק נצמד אליה. בלי
     כל אלה — מחרוזת ריקה, והצרכן מחליט מה להציג.
 
@@ -195,20 +195,22 @@ def note_label(note: Mapping[str, Any]) -> str:
     היו שמות, ולכן אף אחד מהם לא הכיר אותם.
 
     "…" נוסף כשמשהו לא נכנס: יותר מילים, או יותר מ-:data:`NOTE_LABEL_MAX_CHARS`
-    תווים. שם אינו מקבל אותו — :func:`normalize_note_title` כבר קוצצת לאותה תקרה.
+    תווים — **גם בשם.** השם נקרא ב-:func:`canonical_title_text`, בלי הקיצוץ של
+    :func:`normalize_note_title`: קיצוץ שקט היה מציג שם חתוך בלי שום סימן, והחלונית
+    כבר אינה מוסיפה "..." משלה לכל שורה.
     """
-    title = normalize_note_title(note.get("title"))
+    title = canonical_title_text(note.get("title"))
     if title:
-        return title
-    # טקסט העוגן רק כשהתוכן ריק — כמו בשני העותקים שהפונקציה החליפה (``content or
-    # anchor_text``). תוכן של רווחים בלבד אינו ריק, ולכן גם כאן הוא לא נופל לעוגן.
-    content = note.get("content")
-    source = content if isinstance(content, str) and content else note.get("anchor_text")
-    words: List[str] = source.split() if isinstance(source, str) else []
-    if not words:
-        return ""
-    label = " ".join(words[:NOTE_LABEL_WORDS])
-    cut = len(words) > NOTE_LABEL_WORDS
+        label, cut = title, False
+    else:
+        # טקסט העוגן רק כשהתוכן ריק — כמו בשני העותקים שהפונקציה החליפה (``content or
+        # anchor_text``). תוכן של רווחים בלבד אינו ריק, ולכן גם כאן הוא לא נופל לעוגן.
+        content = note.get("content")
+        source = content if isinstance(content, str) and content else note.get("anchor_text")
+        words: List[str] = source.split() if isinstance(source, str) else []
+        if not words:
+            return ""
+        label, cut = " ".join(words[:NOTE_LABEL_WORDS]), len(words) > NOTE_LABEL_WORDS
     if len(label) > NOTE_LABEL_MAX_CHARS:
         label = label[:NOTE_LABEL_MAX_CHARS].rstrip()
         cut = True

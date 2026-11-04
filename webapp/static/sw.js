@@ -324,7 +324,19 @@ self.addEventListener('notificationclick', (event) => {
   const d = (event.notification && event.notification.data) || {};
   event.notification && event.notification.close && event.notification.close();
 
-  event.waitUntil((async () => {
+  // דיווחים לשרת אינם חוסמים את מה שהמשתמש מחכה לו. ב-Chromium חלון חייב להיפתח תוך
+  // ``kWindowInteractionTimeout`` — עשר שניות מהלחיצה, "otherwise the calls will fail"
+  // (third_party/blink/renderer/modules/service_worker/wait_until_observer.cc). דיווח
+  // שממתינים לו לפני ``openWindow`` — ``fetch`` בלי תקרת זמן, אחרי ``getSubscription``
+  // ו-digest — יכול ברשת איטית לאכול את החלון כולו, ואז הפתק פשוט לא נפתח. לכן כל דיווח
+  // יוצא מיד ונאסף כאן, ו-``waitUntil`` ממתין לכולם **בסוף**: ה-SW נשאר חי עד שהם נשלחו,
+  // בלי שאף אחד מהם עומד בדרך.
+  const reports = [];
+  const report = (eventType, status, extra) => {
+    reports.push(Promise.resolve().then(() => reportToServer(eventType, status, extra)).catch(() => {}));
+  };
+
+  const handled = (async () => {
     const fileId = (d && d.file_id != null) ? String(d.file_id) : '';
     const noteId = (d && d.note_id != null) ? String(d.note_id) : '';
     const remindAt = (d && d.remind_at != null) ? String(d.remind_at) : '';
@@ -337,13 +349,11 @@ self.addEventListener('notificationclick', (event) => {
     const threadId = (isComment && d.thread_id != null) ? String(d.thread_id) : '';
 
     // Report click (no PII: only presence + action)
-    try {
-      await reportToServer('notification_click', 'started', {
-        action: action || '',
-        has_file_id: !!fileId,
-        has_note_id: !!noteId,
-      });
-    } catch (_) {}
+    report('notification_click', 'started', {
+      action: action || '',
+      has_file_id: !!fileId,
+      has_note_id: !!noteId,
+    });
 
     // דחייה: קובעים את הדחייה, ובזה הלחיצה נגמרת — ההתראה כבר נסגרה בראש ה-handler.
     //
@@ -374,7 +384,7 @@ self.addEventListener('notificationclick', (event) => {
       } catch (e) {
         detail.error = String(e);
       }
-      try { await reportToServer('snooze', outcome, detail); } catch (_) {}
+      report('snooze', outcome, detail);
       if (outcome !== 'success') {
         try {
           await self.registration.showNotification('הדחייה לא התקבלה', {
@@ -393,7 +403,7 @@ self.addEventListener('notificationclick', (event) => {
     // פתיחה: רק "פתח פתק", או לחיצה על גוף ההתראה (בלי action).
     const shouldOpen = !action || action === 'open_note';
     if (!shouldOpen) {
-      try { await reportToServer('notification_click', 'skipped_open', { action: action || '' }); } catch (_) {}
+      report('notification_click', 'skipped_open', { action: action || '' });
       return;
     }
     // הפרמלינק /note/<id> הוא הבונה היחיד של יעד הפתק. השרת יודע אם הפתק
@@ -459,10 +469,12 @@ self.addEventListener('notificationclick', (event) => {
     // האתר במקום את הפתק.
     try {
       await clients.openWindow(urlToOpen);
-      try { await reportToServer('notification_click', 'opened', { action: action || '', opened: true }); } catch (_) {}
+      report('notification_click', 'opened', { action: action || '', opened: true });
     } catch (e) {
-      try { await reportToServer('notification_click', 'error', { action: action || '', error: String(e) }); } catch (_) {}
+      report('notification_click', 'error', { action: action || '', error: String(e) });
       try { await clients.openWindow('/'); } catch (_) {}
     }
-  })());
+  })();
+
+  event.waitUntil(handled.finally(() => Promise.all(reports)));
 });

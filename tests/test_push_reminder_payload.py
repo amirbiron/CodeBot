@@ -38,17 +38,27 @@ def test_a_reminder_without_a_time_carries_an_empty_occurrence():
 
 
 class _Notes:
-    """``sticky_notes`` שמכבד את ההיטלה — כמו המסד. דמה שמחזירה את כל המסמך הייתה מעבירה
-    את הטסט גם כש-``title`` חסר בהיטלה, ובמסד האמיתי השם לא היה מגיע."""
+    """``sticky_notes`` שמכבד את ההיטלה ואת ``user_id`` — כמו המסד. דמה שמחזירה את כל המסמך
+    הייתה מעבירה את הטסט גם כש-``title`` חסר בהיטלה, ובמסד האמיתי השם לא היה מגיע; ודמה
+    שמתעלמת מ-``user_id`` לא הייתה יכולה לתפוס שאילתה שאינה תחומה לבעל התזכורת."""
 
     def __init__(self, docs):
         self.docs = docs
         self.projections = []
 
+    @staticmethod
+    def _owner_matches(doc, filt):
+        if 'user_id' not in filt:
+            return True
+        cond = filt['user_id']
+        if isinstance(cond, dict) and '$in' in cond:
+            return doc.get('user_id') in cond['$in']
+        return doc.get('user_id') == cond
+
     def find_one(self, filt, projection=None, *args, **kwargs):
         self.projections.append(projection)
         for doc in self.docs:
-            if doc.get('_id') == filt.get('_id'):
+            if doc.get('_id') == filt.get('_id') and self._owner_matches(doc, filt):
                 if projection is None:
                     return dict(doc)
                 return {k: v for k, v in doc.items() if k == '_id' or projection.get(k)}
@@ -69,8 +79,9 @@ def _note(**fields):
     return dict({'_id': ObjectId(NOTE_OID), 'user_id': 1, 'content': 'אחת שתיים שלוש'}, **fields)
 
 
-def _body(db):
-    payload = push_mod._build_reminder_payload(db, {'note_id': NOTE_OID, 'file_id': '', 'board_id': 'b1'})
+def _body(db, owner=1):
+    reminder = {'note_id': NOTE_OID, 'file_id': '', 'board_id': 'b1', 'user_id': owner}
+    payload = push_mod._build_reminder_payload(db, reminder)
     assert payload['notification']['body'] == payload['data']['body']
     return payload['notification']['body']
 
@@ -85,8 +96,8 @@ def test_without_a_name_the_body_is_the_start_of_the_note():
 
 def test_a_note_whose_id_is_a_plain_string_is_still_found():
     """תזכורות ישנות: מזהה שאינו ObjectId — מחפשים אותו כמחרוזת, כמו קודם."""
-    db = _NotesDB([{'_id': 'legacy-1', 'title': 'ישן'}])
-    payload = push_mod._build_reminder_payload(db, {'note_id': 'legacy-1'})
+    db = _NotesDB([{'_id': 'legacy-1', 'user_id': 1, 'title': 'ישן'}])
+    payload = push_mod._build_reminder_payload(db, {'note_id': 'legacy-1', 'user_id': 1})
     assert payload['notification']['body'] == 'ישן'
 
 
@@ -107,3 +118,24 @@ def test_a_failing_read_still_builds_the_notification_and_is_logged(caplog):
     with caplog.at_level('ERROR', logger=push_mod.logger.name):
         assert _body(_DB()) == ''
     assert any(r.getMessage() == 'push_reminder_label_failed' and r.exc_info for r in caplog.records)
+
+
+# -- הפתק נשלף רק מבין הפתקים של בעל התזכורת (K12) --------------------------------------
+
+
+def test_a_note_of_another_user_is_not_shown():
+    """תזכורת פגומה שמצביעה על פתק של משתמש אחר — ההתראה אינה מציגה את שמו."""
+    assert _body(_NotesDB([_note(user_id=2, title='פתק זר')]), owner=1) == ''
+
+
+def test_an_owner_stored_as_a_string_still_finds_the_note():
+    """``user_id`` נשמר בתזכורות כמספר, אבל המודול כולו מקבל גם מחרוזת (``_user_id_variants``)."""
+    assert _body(_NotesDB([_note(title='שם הפתק')]), owner='1') == 'שם הפתק'
+
+
+def test_a_reminder_without_an_owner_shows_nothing():
+    """fail-closed: בלי ``user_id`` אין במה לתחום את השאילתה, ולכן לא שואלים בכלל."""
+    db = _NotesDB([_note(title='שם הפתק')])
+    payload = push_mod._build_reminder_payload(db, {'note_id': NOTE_OID})
+    assert payload['notification']['body'] == ''
+    assert db.sticky_notes.projections == []
