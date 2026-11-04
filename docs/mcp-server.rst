@@ -272,7 +272,9 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
        אחד עם ניווט — אותן פונקציות של ``codekeeper_docs_get_section``, ראו
        :ref:`mcp-file-sections`. את הבתים עצמם, לדיסק של הסוכן בלי לעבור
        בהקשר — ``GET /api/agent/download`` לפי ``file_id``; הפקודה בתיאור
-       הפרמטר, ראו :ref:`mcp-downloads`
+       הפרמטר, ראו :ref:`mcp-downloads`. בקריאה לפי ``file_id``,
+       ``file.is_latest`` אומר אם זו עדיין הגרסה שקריאה לפי השם מחזירה —
+       ראו :ref:`mcp-is-latest`
    * - ``codekeeper_save_file``
      - **כתיבה:** יצירת קובץ **חדש**. שם שכבר תפוס נדחה ב-``file_exists``,
        ולעדכון קובץ קיים יש ``codekeeper_edit_file``, ``codekeeper_multi_edit_file``
@@ -625,7 +627,7 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
 
 **``unread_reason`` אינו ``truncation_reason``, ובכוונה.** תשובה של ``codekeeper_read_batch`` אינה חתוכה: כל פריט בה שלם, ומה שחסר בה הוא פריטים שלמים שלא נכנסו או שלא הגיעו אליהם בזמן. לכן אין בה ``truncated``, והסיבה נקראת בשם אחר — ``unread_reason``, שמופיע רק לצד ``unread`` (האינדקסים שלא נקראו) ולעולם לא בלעדיו. שני הערכים שלו לקוחים מאותו אוצר מילים: ``byte_budget`` ו-``timeout``. ראו :ref:`mcp-read-batch`.
 
-``content_sha256`` ו-``content_changed`` **אינם** ``status`` **ואינם** ``error``. ``content_sha256`` הוא שדה של ``file``, בכל תשובה של ``codekeeper_get_file``, ובתשובה של כלי כתיבה — רק כשהקריאה החוזרת הצליחה; ובפתקים הוא שדה של ``note`` (:ref:`mcp-note-content-sha256`). גם הסירוב ``conflict`` של כלי העריכה נושא אותו, של הגרסה הנוכחית (:ref:`mcp-expected-content-sha256`). ``content_changed`` מופיע רק בתשובת כתיבה מוצלחת, ויש לו שלושה ערכים: ``false``; ``true``, ואז לצידו ``content_diff``; ו-``null``, כשהקריאה החוזרת לא הצליחה — הכתיבה עצמה כן קרתה, אבל ``file`` מינימלי ובלי ``content_sha256``, ובפתק ``note`` נושא רק ``id`` (וזה קורה רק ביצירה). ראו :ref:`mcp-content-sha256`.
+``content_sha256`` ו-``content_changed`` **אינם** ``status`` **ואינם** ``error``. ``content_sha256`` הוא שדה של ``file``, בכל תשובה של ``codekeeper_get_file``, ובתשובה של כלי כתיבה — רק כשהקריאה החוזרת הצליחה; ובפתקים הוא שדה של ``note`` (:ref:`mcp-note-content-sha256`). גם הסירוב ``conflict`` של כלי העריכה נושא אותו, של הגרסה הנוכחית (:ref:`mcp-expected-content-sha256`). ``content_changed`` מופיע רק בתשובת כתיבה מוצלחת, ויש לו שלושה ערכים: ``false``; ``true``, ואז לצידו ``content_diff``; ו-``null``, כשהקריאה החוזרת לא הצליחה — הכתיבה עצמה כן קרתה, אבל ``file`` מינימלי ובלי ``content_sha256``, ובפתק ``note`` נושא רק ``id`` (וזה קורה רק ביצירה). ראו :ref:`mcp-content-sha256`. מאותה משפחה ``file.is_latest``: שדה של ``file``, רק בקריאה לפי ``file_id`` ב-``codekeeper_get_file`` — בכל מצבי הקריאה ובסירובים שנושאים ``file`` — עם ``true``, ``false``, ``null`` כשאי אפשר לקבוע (השאילתה נכשלה, או תיקו על המספר העליון), ובלי השדה כשהגרסה בסל. ראו :ref:`mcp-is-latest`.
 
 ``description_saved`` גם הוא לא זה ולא זה: שדה של תשובת ``codekeeper_save_file`` מוצלחת שנשלח אליה תיאור, באותם שלושה ערכים: ``true``, ``false`` ו-``null``. מה מגיע לצד כל ערך — ובפרט מתי ``false`` נושא את שדות התקרה ומתי לא — בטבלה ב-:ref:`mcp-description-saved`.
 
@@ -1127,7 +1129,7 @@ WARNING אחד לזהות לחלון, כדי שסוכן שממשיך לדפוק 
 
 ב-``mcp_server/downloads.py``, התאום של הפריימר ושל ההעלאה. **הסדר:** אימות ← מגבלת הקצב ← צורת הבקשה ← השליפה ← התשובה. אין גוף בבקשה, ולכן אין דדליין לגוף.
 
-- **הזיהוי הוא של ``codekeeper_get_file``, דרך אותה שליפה** (``handlers.get_file``): ``file_id``, או ``file_name`` ו-``version`` אופציונלי, לפי ה-``user_id`` של הטוקן. השליפה רצה ב-``asyncio.to_thread``, כמו גוף הכלי — במאגר הקריאה שגודלו נגזר ממכסת הזיכרון, ולא במאגר של anyio.
+- **הזיהוי הוא של ``codekeeper_get_file``, דרך אותה שליפה** (``handlers.get_file``): ``file_id``, או ``file_name`` ו-``version`` אופציונלי, לפי ה-``user_id`` של הטוקן. השליפה רצה ב-``asyncio.to_thread``, כמו גוף הכלי — במאגר הקריאה שגודלו נגזר ממכסת הזיכרון, ולא במאגר של anyio. ולכן הורדה לפי ``file_id`` משלמת גם את השאילתה של ``file.is_latest`` (:ref:`mcp-is-latest`), אף שהשדה לא מגיע לכותרות.
 - **הגוף הוא ``code.encode("utf-8")`` ותו לא:** BOM, ‏CRLF וירידת שורה בסוף נשארים. הכותרות: ``Content-Type: text/plain; charset=utf-8``, ``Content-Length``, ``X-Content-SHA256`` (מ-``_full`` ב-``mcp_server/backend.py`` — אותו ערך של ``file.content_sha256``) ו-``X-File-Version``. שם הקובץ אינו בכותרת: הסוכן בוחר את שם היעד ב-``-o``.
 - **אין תקרה חדשה:** קובץ שמור חסום ב-``max_code_size()`` כבר בשמירה, ומוחזר שלם. ``large_files`` מחוץ להישג, כמו בכל ה-MCP, וקבצים מהמראות אינם בראוט הזה.
 - **``HEAD``** — Starlette מוסיף אותה לכל ראוט ``GET``: היא עוברת את כל הראוט ונספרת במכסה, ו-uvicorn שולח לה את הכותרות בלי הגוף.
