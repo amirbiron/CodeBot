@@ -14606,13 +14606,21 @@ def _get_user_file_by_id(db_ref, user_id: int, file_id: str) -> Optional[Dict[st
         return None
 
 
+#: הסדר שקובע מהי "הגרסה האחרונה" של קובץ — **אובייקט מיון אחד**, ולא העתקים עם הערה.
+#: ``version`` לבדו אינו מכריע: אין אינדקס ייחודי על ``(user_id, file_name, version)``, ושתי
+#: שמירות מקבילות יכולות לקבל אותו מספר — ואז ``find_one`` היה מחזיר אחת מהן בלי שמישהו
+#: קבע איזו. ``updated_at`` ואז ``_id`` מכריעים, כמו ב-``database/manager.py`` (בדיקת
+#: "האם זו הגרסה האחרונה" של מסלול האינדוקס).
+_LATEST_VERSION_SORT = [('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)]
+
+
 def _latest_active_version_doc(
     db_ref,
     user_id: int,
     file_name: str,
     projection: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """הגרסה הפעילה האחרונה של קובץ — הגדרה אחת לכל הריפו.
+    """הגרסה הפעילה האחרונה של קובץ — הגדרה אחת לכל הריפו, במיון :data:`_LATEST_VERSION_SORT`.
 
     הכלל הזה היה כתוב פה פעמיים (``api_file_history`` ו-
     ``api_restore_file_version``), ועמוד הקובץ היה מוסיף עותק שלישי.
@@ -14632,8 +14640,53 @@ def _latest_active_version_doc(
         'is_active': True,
     }
     if projection is None:
-        return db_ref.code_snippets.find_one(query, sort=[('version', DESCENDING)])
-    return db_ref.code_snippets.find_one(query, projection, sort=[('version', DESCENDING)])
+        return db_ref.code_snippets.find_one(query, sort=_LATEST_VERSION_SORT)
+    return db_ref.code_snippets.find_one(query, projection, sort=_LATEST_VERSION_SORT)
+
+
+def _note_file_target_id(db_ref, user_id: int, note: Dict[str, Any]) -> str:
+    """המזהה שהקישור הקבוע של פתק על קובץ (``/note/<id>``) מפנה אליו: הגרסה הפעילה
+    האחרונה של **הקובץ**, ולא הגרסה שעליה הפתק נוצר.
+
+    פתק על קובץ מזוהה עם הקובץ לפי השם (``file_name`` ו-``scope_id``, ששינוי שם מעדכן —
+    ``sync_sticky_notes_on_rename``), ואילו ``file_id`` שבפתק הוא רק הגרסה שהייתה האחרונה
+    כשהפתק נוצר: כל שמירה יוצרת מסמך חדש עם מזהה חדש. הפניה לפי ``file_id`` הובילה,
+    מהתראה ומהפעמון, לגרסה ישנה של הקובץ.
+
+    **בזמן הקריאה, ולא בכתיבה.** הפתקים אינם מתעדכנים בכל שמירה: קבצים נשמרים מכמה מסלולים,
+    ומסלול אחד ששוכח לעדכן היה מחזיר את הבאג בשקט — וזו גם כתיבה למסד על כל שמירה, בשביל
+    פתקים שרובם לא ייפתחו.
+
+    * יש ``file_name`` — הגרסה האחרונה לפי השם (:func:`_latest_active_version_doc`).
+    * אין (פתק ישן) — השם נגזר מהמסמך שב-``file_id``, תחום ל-``user_id``.
+    * אין גרסה פעילה (הקובץ בסל, קובץ גדול שאין לו גרסאות ב-``code_snippets``, מזהה פגום)
+      — ה-``file_id`` השמור, כמו קודם, כדי שהקישור לא יישבר.
+
+    כשל של המסד (``PyMongoError``) מחזיר גם הוא את ה-``file_id`` השמור, עם אזהרה בלוג:
+    קישור לגרסה ישנה, עם הבאנר שלה, עדיף על קישור שבור. חריגה אחרת עולה.
+    """
+    stored = str(note.get('file_id') or '')
+    raw_name = note.get('file_name')
+    name = raw_name.strip() if isinstance(raw_name, str) else ''
+    try:
+        if not name and stored:
+            try:
+                stored_oid = ObjectId(stored)
+            except (InvalidId, TypeError):
+                stored_oid = None
+            if stored_oid is not None:
+                stored_doc = db_ref.code_snippets.find_one(
+                    {'_id': stored_oid, 'user_id': user_id}, {'file_name': 1}
+                )
+                stored_name = (stored_doc or {}).get('file_name')
+                name = stored_name.strip() if isinstance(stored_name, str) else ''
+        latest = _latest_active_version_doc(db_ref, user_id, name, {'_id': 1}) if name else None
+    except PyMongoError:
+        logger.warning("note permalink: latest file version lookup failed", exc_info=True)
+        return stored
+    if isinstance(latest, dict) and latest.get('_id') is not None:
+        return str(latest['_id'])
+    return stored
 
 
 def _reject_when_not_latest_version(db_ref, user_id: int, file_id: str):
@@ -16136,15 +16189,8 @@ def api_resolve_file_by_name():
             return jsonify({'ok': False, 'error': 'missing name'}), 400
 
         try:
-            # Prefer the latest version for this user and file name
-            doc = db.code_snippets.find_one(
-                {
-                    'user_id': user_id,
-                    'file_name': name,
-'is_active': True,
-                },
-                sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)],
-            )
+            # הגרסה הפעילה האחרונה — אותה הגדרה של עמוד הקובץ ושל הקישור הקבוע של פתק.
+            doc = _latest_active_version_doc(db, user_id, name)
         except Exception:
             doc = None
 
@@ -16161,7 +16207,7 @@ def api_resolve_file_by_name():
                             {'deleted_expires_at': {'$exists': True}},
                         ],
                     },
-                    sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)],
+                    sort=_LATEST_VERSION_SORT,
                 )
             except Exception:
                 trashed_doc = None
