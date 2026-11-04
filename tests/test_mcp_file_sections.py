@@ -784,9 +784,11 @@ async def test_version_and_file_id_choose_the_version_the_section_is_read_from(m
 
     by_old_id = await _call(mcp, file_id=_OLD_DOC_ID, version=2, section="K11")
     assert by_old_id["content"] == old_k11 and by_old_id["file"]["version"] == 1
+    # קריאה לפי איידי בלבד נושאת ``is_latest`` (``tests/test_mcp_is_latest.py``); לפי שם — לא.
+    assert by_old_id["file"]["is_latest"] is False
 
     by_id = await _call(mcp, file_id=_DOC_ID, toc=True)
-    assert by_id["file"] == _meta() and by_id["section_count"] == 5
+    assert by_id["file"] == {**_meta(), "is_latest": True} and by_id["section_count"] == 5
 
 
 async def test_a_file_of_another_user_is_not_found_in_either_mode(monkeypatch):

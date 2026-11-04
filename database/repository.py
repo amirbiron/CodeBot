@@ -56,7 +56,7 @@ from .manager import (
 # תאריכי קובץ — מודול שורש טהור, ראו file_dates.py
 from file_dates import VERSION_CREATED_AT_FIELD, inherited_created_at
 # הגרסה האחרונה של קובץ — מודול שורש טהור, אותו כלל שרשימת הקבצים בוובאפ בוחרת בו. ראו file_versions.py
-from file_versions import LATEST_VERSION_SORT_BY
+from file_versions import ACTIVE_VERSION_FILTER, LATEST_VERSION_SORT_BY, is_active_version
 # גיל התיאור ותקרת האורך שלו — מודול שורש טהור, ראו file_description.py
 from file_description import (
     DESCRIPTION_SET_AT_VERSION_FIELD,
@@ -1446,11 +1446,14 @@ class Repository:
             docs_list = getattr(self.manager.collection, 'docs', None)
             if isinstance(docs_list, list):
                 try:
+                    # אותו מסנן "לא בסל" כמו השאילתה למטה (``is_active_version``). בלעדיו
+                    # המסלול הזה החזיר גרסה שבסל כ"אחרונה", והטסטים ראו קובץ אחר מהייצור.
                     candidates = [
                         d for d in docs_list
                         if isinstance(d, dict)
                         and d.get('user_id') == user_id
                         and d.get('file_name') == file_name
+                        and is_active_version(d)
                     ]
                     if candidates:
                         latest = max(candidates, key=lambda d: int(d.get('version', 0) or 0))
@@ -1462,7 +1465,7 @@ class Repository:
             # DB fallback
             try:
                 return self.manager.collection.find_one(
-                    {"user_id": user_id, "file_name": file_name, "is_active": True},
+                    {"user_id": user_id, "file_name": file_name, **ACTIVE_VERSION_FILTER},
                     sort=[("version", -1)],
                 )
             except Exception as e:

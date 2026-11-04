@@ -76,6 +76,7 @@ from mcp_uploads import (
 
 # גיל התיאור — אותו סוג מודול שורש טהור בדיוק, ולכן אותו ייבוא ישיר.
 from file_description import DESCRIPTION_SET_AT_VERSION_FIELD, description_age_field
+from file_versions import is_active_version
 
 # שרשורי התגובות על פתקים — המודל והכללים, אותו סוג מודול שורש טהור (משותף עם הוובאפ).
 import note_threads
@@ -1173,15 +1174,50 @@ def _latest_fresh(dbm: Any, user_id: int, file_name: str) -> dict[str, Any] | No
 
     A failed query does not raise here: this calls the door with its default,
     and ``Repository._fetch_latest_version`` then returns ``None`` both for a
-    missing file and for a query that failed. Each of the four callers reads
-    that ``None`` as a missing file — ``create_note`` and
-    ``add_to_collection`` answer ``file_not_found``, ``get_file`` finds nothing,
-    and ``save_file`` reports ``created`` for a file that exists. The bot's
-    facade passes ``raise_on_error=True``. Doing the same here needs an MCP
-    error code of its own and a refusal that does not carry pymongo's message,
-    which names the database hosts.
+    missing file and for a query that failed. The callers that look a name up
+    read that ``None`` as a missing file — ``create_note`` and
+    ``add_to_collection`` answer ``file_not_found``, ``get_file`` by name finds
+    nothing, and ``save_file`` reports ``created`` for a file that exists. The
+    one caller that already holds an active version of the name,
+    :func:`_is_latest_field`, reads it as a check that failed and answers
+    ``null``. The bot's facade passes ``raise_on_error=True``. Doing the same
+    here needs an MCP error code of its own and a refusal that does not carry
+    pymongo's message, which names the database hosts.
     """
     return dbm.get_latest_version_fresh(user_id, file_name)
+
+
+def _is_latest_field(dbm: Any, user_id: int, doc: dict[str, Any]) -> dict[str, Any]:
+    """``file.is_latest`` של קריאה לפי ``file_id`` — כמילון למיזוג, או ``{}`` כשהשדה נעדר.
+
+    ``file_id`` מזהה מסמך גרסה אחד ולא קובץ, ולכן "האם זו הגרסה האחרונה" היא שאלה על
+    **זהות המסמך**: האם זה המסמך שקריאה לפי השם הייתה מחזירה ברגע זה. הקריאה לפי השם
+    היא :func:`_latest_fresh`, וכאן נקראת **אותה** פונקציה, כך שאין כלל שני ל"מי
+    האחרונה" — רק השוואה של ``_id`` לתוצאה שלה. ארבעה מצבים:
+
+    * ``True`` — ``_id`` שווה: זו הגרסה שקריאה לפי השם מחזירה.
+    * ``False`` — ``_id`` שונה: יש גרסה פעילה אחרת שקריאה לפי השם מחזירה במקומה.
+    * ``None`` (``null``) — :func:`_latest_fresh` החזירה ``None``. על גרסה פעילה "אין
+      קובץ כזה" אינו אפשרי, ולכן זו שאילתה שנכשלה (או הקובץ עבר לסל בין שתי
+      הקריאות): לא ידוע. לא ``False``, שהיה שולח את הסוכן לקרוא שוב לפי שם בלי סיבה,
+      ולא ``{}``, שנראה כמו גרסה בסל. הקריאה עצמה אינה נכשלת — המסמך כבר בידינו.
+    * ``{}`` — הגרסה שנקראה בסל (``is_active`` כבר אומר את זה בתשובה). ``False`` היה
+      מטעה: גם לקובץ שבסל יש גרסה אחרונה. "בסל" הוא :func:`file_versions.is_active_version`,
+      אותו מסנן ש-``Repository._fetch_latest_version`` מוציא בו גרסאות — ולכן גם אין
+      בשבילה שאילתה.
+
+    **``_id`` ולא מספר הגרסה.** מספר גרסה אינו מזהה: שני מסמכים פעילים יכולים לחלוק
+    מספר, והשוואת מספרים הייתה מחזירה ``True`` לשניהם. כשזה קורה, הקריאה לפי השם ממיינת
+    לפי ``version`` בלבד, ו-``True`` הולך לזה שהיא בחרה.
+
+    **טרי ולא מהקאש:** גרסה שנדרסה לפני רגע הייתה מסומנת "אחרונה" מקאש שעוד זוכר אותה.
+    """
+    if not is_active_version(doc):
+        return {}
+    latest = _latest_fresh(dbm, user_id, doc.get("file_name"))
+    if latest is None:
+        return {"is_latest": None}
+    return {"is_latest": latest.get("_id") == doc.get("_id")}
 
 
 class ProductionBackend:
@@ -1321,11 +1357,17 @@ class ProductionBackend:
         if request_error:
             return file_read_refusal(request_error)
         dbm = self._require_dbm()
+        # ``file.is_latest`` — רק בקריאה לפי ``file_id``: מי שמעביר ``file_name`` (עם
+        # ``version`` או בלעדיו) יודע איזו גרסה ביקש, ואילו איידי נגרר לפעמים מסשן
+        # קודם. נוסף פעם אחת על הפלט של ``_full``, ומשם עובר לכל מצבי הקריאה ולסירובים
+        # שנושאים ``file`` (``_file_meta`` שומר כל שדה שאינו תוכן).
+        is_latest: dict[str, Any] = {}
         if file_id:
             doc = dbm.get_file_by_id(file_id)
             # get_file_by_id is NOT user-scoped -> enforce ownership explicitly.
             if not doc or int(doc.get("user_id", -1)) != int(user_id):
                 return None
+            is_latest = _is_latest_field(dbm, user_id, doc)
         elif file_name and version is not None:
             doc = dbm.get_version(user_id, file_name, int(version))
         elif file_name:
@@ -1337,6 +1379,7 @@ class ProductionBackend:
         if not doc:
             return None
         out = _full(doc)
+        out.update(is_latest)
         if query is not None:
             return _fit_with_file_meta(out, lambda doc, note: _apply_query_to_file(
                 doc,

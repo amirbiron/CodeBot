@@ -12,6 +12,8 @@
 2. **האוספים של ``database.db``** מוחלפים בדמה המשותפת (``_fake_mongo.py``),
    וה-``Repository`` נבנה מחדש מעליהם. ``DatabaseManager`` ו-``Repository``
    עצמם אמיתיים.
+
+ולצידם :class:`StableKeyCollection`, לטסטים שצריכים קאש שבאמת זוכר ערך ישן.
 """
 
 from __future__ import annotations
@@ -75,3 +77,33 @@ def latest(collection: FakeCollection, user_id: int, file_name: str) -> Dict[str
     docs = [d for d in collection.docs if d.get("user_id") == user_id and d.get("file_name") == file_name]
     assert docs, f"{file_name} לא נשמר כלל"
     return max(docs, key=lambda d: int(d.get("version", 0) or 0))
+
+
+class StableKeyCollection:
+    """הדמה המשותפת, מאחורי טביעת קאש יציבה — כמו ``Collection`` של pymongo.
+
+    ``@cached`` בונה את המפתח מטביעה של ``__dict__`` של ה-``Repository``, והטביעה
+    יורדת עד האוסף. בדמה המשותפת ``docs`` נכנס אליה כ-``[len=N]``, ולכן **כל insert
+    מחליף את המפתח**, והגטר המקוּש מחטיא אחרי כל כתיבה — נמדד: אחרי insert ישיר הוא
+    החזיר את הערך החדש, כלומר בדמה הקאש אינו יכול להיות ישן. באוסף אמיתי הטביעה
+    אינה תלויה בתוכן. לאובייקט בלי ``__dict__`` הטביעה היא שם המחלקה ו-``repr``, ולכן
+    היא יציבה; שמות dunder לא מועברים, אחרת ``__dict__`` של הדמה דולף דרך ``__getattr__``.
+    כל השאר עובר לדמה כמו שהוא.
+
+    משותפת לכל טסט שצריך גטר מקוּש שבאמת זוכר ערך ישן (``tests/test_mcp_content_sha256.py``,
+    ``tests/test_mcp_is_latest.py``) — שם מחממים את הקאש, כותבים בלי לבטל אותו, ובודקים
+    שהקוד קרא טרי.
+    """
+
+    __slots__ = ("_inner",)
+
+    def __init__(self, inner):
+        object.__setattr__(self, "_inner", inner)
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return getattr(object.__getattribute__(self, "_inner"), name)
+
+    def __repr__(self):
+        return "StableKeyCollection(code_snippets)"
