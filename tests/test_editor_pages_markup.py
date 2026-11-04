@@ -1,9 +1,7 @@
 """שלושת עמודי העורך — העורך הציבורי, העריכה וההעלאה — בצד השרת: הכיתוב של הלשונית, והתווית של שדה הקוד.
 
-- **"תצוגה מקדימה" / "תצוגה חיה".** בטלפון יש מעל העורך לשוניות "עורך" ולשונית לתצוגה. בעורך הציבורי, שתמיד
-  Markdown, היא "תצוגה מקדימה". בעמודי העריכה וההעלאה הכיתוב שבתבנית הוא "תצוגה חיה", ו-``data-label-markdown`` שלה
-  הוא "תצוגה מקדימה" — מה ש-``syncPreviewTabLabel`` ב-``live-preview.js`` מציב בקובץ Markdown. עד נובמבר 2026
-  השנייה נקראה "תצוגה", ואחר כך "תצוגה חיה" בכל קובץ.
+- **"תצוגה חיה".** בטלפון יש מעל העורך לשוניות "עורך" / "תצוגה חיה". עד נובמבר 2026 השנייה נקראה "תצוגה", בשלוש
+  התבניות.
 - **"קוד".** בעמודי העריכה וההעלאה הייתה מעל העורך שורה שכתוב בה "קוד" — התווית של ה-textarea. היא נשארה, ומוסתרת
   מהעין (``sr-only``), כמו התווית "Markdown" בעורך הציבורי: קורא מסך עדיין מקריא את שם השדה, ו-
   ``addSwitcherButton`` ב-``editor-manager.js`` מציב את שורת הכפתורים מיד אחריה.
@@ -42,7 +40,6 @@ class _Markup(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.tabs: dict[str, str] = {}
-        self.markdown_label: str | None = None
         self.label: tuple[str, str] | None = None
         self._in: tuple[str, str] | None = None
         self._buf: list[str] = []
@@ -51,8 +48,6 @@ class _Markup(HTMLParser):
         a = dict(attrs)
         if tag == "button" and a.get("data-panel-target"):
             self._in, self._buf = ("tab", a["data-panel-target"]), []
-            if a["data-panel-target"] == "preview":
-                self.markdown_label = a.get("data-label-markdown")
         elif tag == "label" and a.get("for") == "codeTextarea":
             self._in, self._buf = ("label", a.get("class") or ""), []
 
@@ -135,24 +130,13 @@ def _public_page(wa, monkeypatch) -> str:
     return response.get_data(as_text=True)
 
 
-@pytest.mark.parametrize(
-    "page, preview, markdown_label",
-    [
-        ("edit", "תצוגה חיה", "תצוגה מקדימה"),
-        ("upload", "תצוגה חיה", "תצוגה מקדימה"),
-        ("public", "תצוגה מקדימה", None),
-    ],
-)
-def test_the_preview_tab_is_called_preview_in_markdown(
-    wa, monkeypatch, page, preview, markdown_label
-):
+@pytest.mark.parametrize("page", ["edit", "upload", "public"])
+def test_the_preview_tab_is_called_live_preview(wa, monkeypatch, page):
     if page == "public":
         html = _public_page(wa, monkeypatch)
     else:
         html = {"edit": _edit_page, "upload": _upload_page}[page](wa)
-    markup = _parse(html)
-    assert markup.tabs == {"editor": "עורך", "preview": preview}
-    assert markup.markdown_label == markdown_label
+    assert _parse(html).tabs == {"editor": "עורך", "preview": "תצוגה חיה"}
 
 
 @pytest.mark.parametrize("page", ["edit", "upload"])
