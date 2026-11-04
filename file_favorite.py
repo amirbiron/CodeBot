@@ -20,12 +20,12 @@ from typing import Any, Dict
 __all__ = ["favorite_fields_for_new_version", "file_is_favorite"]
 
 
-def favorite_fields_for_new_version(collection: Any, user_id: Any, *file_names: Any) -> Dict[str, Any]:
+def favorite_fields_for_new_version(collection: Any, user_id: Any, file_name: Any) -> Dict[str, Any]:
     """השדות שמסמך גרסה חדש כותב — לפי המצב של הקובץ ברגע הכתיבה.
 
     הקובץ מועדף אם איזושהי גרסה **פעילה** שלו מסומנת; גרסה בסל אינה נספרת, כי קובץ חדש שקיבל שם ממוחזר אינו אמור לרשת מקובץ שנמחק. ``favorited_at`` הוא הסימון האחרון בקובץ, כמו בשורה שרשימת המועדפים מציגה (``$max`` שם, מיון יורד כאן).
 
-    ``file_names`` הוא שם הקובץ שהגרסה נכתבת אליו, ובעריכה ששינתה את השם — גם השם שממנו היא יצאה. כך קובץ מועדף שמשנים לו שם לא מאבד את הסימון, וקובץ שמצטרפים אליו בשם קיים לא נשאר עם גרסה אחרונה לא מסומנת.
+    ``file_name`` הוא שם הקובץ שהגרסה נכתבת אליו, ורק הוא נשאל. שמירה בעמוד העריכה בוובאפ עם שם אחר כותבת קובץ אחר (``name_changed`` ב-``edit_file_page``), והוא אינו יורש את הסימון של הקובץ שנערך; וכשהשם כבר תפוס, הגרסה נכנסת לקובץ ההוא ויורשת את הסימון **שלו**. עד 4.11.2026 הפונקציה קיבלה כמה שמות, והעריכה שאלה גם את השם שממנו יצאה — כך קובץ חדש יצא מועדף כשהקובץ שנערך היה מועדף.
 
     השאילתה נקראת **לפני** שהגרסה החדשה נכתבת, ולכן היא רואה רק את הגרסאות הקיימות. היטלה על שני השדות בלבד — אין סיבה למשוך את גוף הקובץ בשביל בוליאני.
 
@@ -33,11 +33,10 @@ def favorite_fields_for_new_version(collection: Any, user_id: Any, *file_names: 
 
     כשאין גרסה מסומנת, מוחזר סימון שלילי **מפורש** ולא מילון ריק: הגרסה החדשה מחליטה על המצב שלה בזמן הכתיבה, ולא משאירה אותו לפרשנות של שדה חסר. זו גם הצורה ש-``scripts/cleanup_repo_tags.py`` משלים למסמכים בלי השדה.
     """
-    names = [name for name in dict.fromkeys(file_names) if name]
-    if not names:
+    if not file_name:
         raise ValueError("favorite_fields_for_new_version: file name is required")
     marked = collection.find_one(
-        {"user_id": user_id, "file_name": {"$in": names}, "is_active": True, "is_favorite": True},
+        {"user_id": user_id, "file_name": file_name, "is_active": True, "is_favorite": True},
         {"_id": 0, "is_favorite": 1, "favorited_at": 1},
         sort=[("favorited_at", -1)],
     )
@@ -46,11 +45,11 @@ def favorite_fields_for_new_version(collection: Any, user_id: Any, *file_names: 
     return {"is_favorite": False, "favorited_at": None}
 
 
-def file_is_favorite(collection: Any, user_id: Any, *file_names: Any) -> bool:
+def file_is_favorite(collection: Any, user_id: Any, file_name: Any) -> bool:
     """האם הקובץ מועדף עכשיו — אותה שאלה, ולכן אותה שאילתה, של :func:`favorite_fields_for_new_version`.
 
     לעמוד הקובץ ולכוכב שבו. שניהם הציגו וחישבו את הסימון של **הגרסה שנפתחה**: בקובץ שרק גרסה ישנה שלו מסומנת הכפתור אמר "הוסף למועדפים" על קובץ שכבר ברשימה, והלחיצה סימנה את כל הגרסאות במקום להסיר — כלומר מעמוד הקובץ לא הייתה דרך להוציא אותו מהמועדפים.
 
     ערוץ הכשל זהה: חריגת מסד עולה לקורא.
     """
-    return favorite_fields_for_new_version(collection, user_id, *file_names)["is_favorite"] is True
+    return favorite_fields_for_new_version(collection, user_id, file_name)["is_favorite"] is True

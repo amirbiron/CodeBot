@@ -212,8 +212,12 @@ def test_edit_route_keeps_the_original_created_at(monkeypatch):
     assert latest["updated_at"] > ORIGINAL_CREATED_AT
 
 
-def test_edit_route_keeps_created_at_when_the_file_is_renamed(monkeypatch):
-    """שינוי שם תוך כדי עריכה: prev ריק תחת השם החדש, והתאריך בא מ-file."""
+def test_edit_route_gives_a_file_saved_under_a_new_name_its_own_created_at(monkeypatch):
+    """שמירה בשם אחר כותבת קובץ אחר, והקובץ שנערך נשאר — לכן התאריך הוא זמן השמירה ולא של ``file``.
+
+    עד 4.11.2026 הטסט הזה קיבע את ההפך: התאריך בא מ-``file``. ההתנהגות המלאה של
+    שמירה בשם אחר — ``tests/test_webapp_edit_new_name_is_a_new_file.py``.
+    """
     snippets = FakeCollection([_existing_doc()])
     db = FakeDB(snippets)
     monkeypatch.setattr(
@@ -232,7 +236,8 @@ def test_edit_route_keeps_created_at_when_the_file_is_renamed(monkeypatch):
 
     created = [d for d in snippets.docs if d.get("file_name") == "renamed.py"]
     assert created, "ציפינו לגרסה חדשה תחת השם החדש"
-    assert created[-1]["created_at"] == ORIGINAL_CREATED_AT
+    assert created[-1]["created_at"] != ORIGINAL_CREATED_AT
+    assert created[-1]["created_at"] == created[-1]["version_created_at"]
 
 
 def test_restore_route_keeps_the_original_created_at(monkeypatch):
