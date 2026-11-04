@@ -150,8 +150,9 @@ def test_a_needle_with_a_nul_or_over_the_ceiling_is_refused_not_cut(web, db, boa
 
 
 def test_the_reminder_preview_is_the_text_as_stored(web, db, board):
-    """התצוגה המקדימה בחלונית התזכורות — שש המילים הראשונות, בלי פענוח. עד אוקטובר 2026
-    היא פענחה פעמיים (``_coerce_content_from_doc`` ואז ``_first_n_words``)."""
+    """התצוגה המקדימה בחלונית התזכורות — השורה הראשונה של פתק בלי שם (``note_label``), בלי
+    פענוח. עד אוקטובר 2026 היא פענחה פעמיים (``_coerce_content_from_doc`` ואז
+    ``_first_n_words``)."""
     from note_reminder_state import armed_fields
 
     note_id = _create(web, board, TYPED)
@@ -163,8 +164,7 @@ def test_the_reminder_preview_is_the_text_as_stored(web, db, board):
 
     items = web.get("/api/sticky-notes/reminders/list").get_json()["items"]
 
-    words = TYPED.split()
-    assert [i["preview"] for i in items] == [" ".join(words[:6]) + "…"]
+    assert [i["preview"] for i in items] == [TYPED.splitlines()[0]]
 
 
 def test_the_mcp_lists_and_content_search_return_the_text_as_typed(web, db, board, mcp):

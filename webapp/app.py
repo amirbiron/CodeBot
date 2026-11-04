@@ -200,6 +200,8 @@ from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES  
 # ותקרת אורך תגובה בשרשור על פתק — מאותה סיבה, למונה התווים של החלונית.
 from note_threads import MAX_COMMENT_CHARS as MAX_THREAD_COMMENT_CHARS_FOR_TEMPLATES  # noqa: E402
 from note_reminder_state import active_reminder_filter  # noqa: E402
+# השם שבו פתק מוצג בשורה אחת — אותה פונקציה של התראת הפוש וחלונית הפעמון.
+from sticky_notes_target import NOTE_LABEL_FIELDS, note_label  # noqa: E402
 
 from utils import TimeUtils, detect_language_from_filename  # noqa: E402
 # פענוח ה-CRLF ששליחת טופס HTML מוסיפה לערך של textarea. זה לא ניקוי של תוכן:
@@ -12200,14 +12202,15 @@ def _summarize_group(title: str, total_count: int, recent_count: int) -> str:
     return f"{total_count} פעולות אחרונות"
 
 
-def _extract_note_preview(note_content: str, limit: int = 80) -> str:
-    text = (note_content or "").strip()
-    if not text:
-        return "פתק ללא תוכן"
-    preview = text.splitlines()[0].strip()
-    if len(preview) > limit:
-        return preview[:limit - 1].rstrip() + "…"
-    return preview
+def _dashboard_note_title(note: Dict[str, Any]) -> str:
+    """השם שבו הדשבורד מציג פתק — בכרטיס הפוש, בציר הזמן וב"פתקים אחרונים".
+
+    ``sticky_notes_target.note_label``, אותה פונקציה של התראת הפוש וחלונית הפעמון: שם
+    הפתק, ובלעדיו השורה הראשונה שלו. עד נובמבר 2026 כאן היה עותק משלו
+    (``_extract_note_preview``) שלקח תמיד את השורה הראשונה, גם כשלפתק יש שם. מה שנשאר
+    לדשבורד הוא רק הטקסט לפתק שאין בו כלום להציג.
+    """
+    return note_label(note) or "פתק ללא תוכן"
 
 
 def _lookup_notes_map(db, user_id: int, note_ids: List[Any]) -> Dict[str, Dict[str, Any]]:
@@ -12221,7 +12224,9 @@ def _lookup_notes_map(db, user_id: int, note_ids: List[Any]) -> Dict[str, Dict[s
             object_ids.append(ObjectId(note_id))
         except Exception:
             plain_ids.append(note_id)
-    projection = {'content': 1, 'file_id': 1, 'updated_at': 1, 'color': 1}
+    # ``NOTE_LABEL_FIELDS`` — השדות ש-``_dashboard_note_title`` קורא. עד נובמבר 2026 ההיטלה
+    # לא כללה את ``title``, ולכן גם פונקציה שמכירה שמות לא הייתה מקבלת אותו מכאן.
+    projection = {**NOTE_LABEL_FIELDS, 'file_id': 1, 'updated_at': 1, 'color': 1}
     results: Dict[str, Dict[str, Any]] = {}
     try:
         if object_ids:
@@ -12229,14 +12234,17 @@ def _lookup_notes_map(db, user_id: int, note_ids: List[Any]) -> Dict[str, Dict[s
             for doc in cursor or []:
                 results[str(doc.get('_id'))] = doc
     except Exception:
-        pass
+        # הפתקים חסרים במפה: ציר הזמן מציג "פתק ללא שם", וכרטיס הפוש מציג כאילו אין שליחה
+        # אחרונה או תזכורת הבאה (``_note_summary`` מחזיר ``None`` לפתק שלא נמצא). עקבה
+        # בלוג, כדי שכשל קריאה לא ייראה רק כמו פתק שנמחק.
+        logger.warning("dashboard: notes lookup failed", exc_info=True)
     try:
         if plain_ids:
             cursor = db.sticky_notes.find({'_id': {'$in': plain_ids}, 'user_id': int(user_id)}, projection)
             for doc in cursor or []:
                 results[str(doc.get('_id'))] = doc
     except Exception:
-        pass
+        logger.warning("dashboard: notes lookup by legacy id failed", exc_info=True)
     return results
 
 
@@ -12529,7 +12537,7 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
     for doc in push_docs:
         note_id = str(doc.get('note_id', ''))
         note_doc = notes_map.get(note_id)
-        note_preview = _extract_note_preview(note_doc.get('content', '')) if note_doc else "פתק ללא שם"
+        note_preview = _dashboard_note_title(note_doc) if note_doc else "פתק ללא שם"
         remind_at = _normalize_dt(doc.get('remind_at'))
         last_push = _normalize_dt(doc.get('last_push_success_at'))
         ack_at = _normalize_dt(doc.get('ack_at'))
@@ -12958,7 +12966,7 @@ def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dic
             timestamp = push_dt or remind_dt
             relative = _format_relative(timestamp) if timestamp else "לא ידוע"
         return {
-            'title': _extract_note_preview(note.get('content', '')),
+            'title': _dashboard_note_title(note),
             'relative_time': relative,
             'timestamp': timestamp.isoformat() if timestamp else None,
         }
@@ -13004,7 +13012,7 @@ def _build_notes_snapshot(db, user_id: int, limit: int = 10) -> Dict[str, Any]:
         file_name = files_map.get(str(file_id), 'ללא קובץ') if file_id else 'ללא קובץ'
         notes_payload.append({
             'id': str(note.get('_id')),
-            'title': _extract_note_preview(note.get('content', '')),
+            'title': _dashboard_note_title(note),
             'file_name': file_name,
             'file_url': f"/file/{file_id}" if file_id else None,
             'color': note.get('color'),
