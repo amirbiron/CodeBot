@@ -1174,15 +1174,13 @@ def _latest_fresh(dbm: Any, user_id: int, file_name: str) -> dict[str, Any] | No
 
     A failed query does not raise here: this calls the door with its default,
     and ``Repository._fetch_latest_version`` then returns ``None`` both for a
-    missing file and for a query that failed. The callers that look a name up
-    read that ``None`` as a missing file — ``create_note`` and
-    ``add_to_collection`` answer ``file_not_found``, ``get_file`` by name finds
-    nothing, and ``save_file`` reports ``created`` for a file that exists. The
-    one caller that already holds an active version of the name,
-    :func:`_is_latest_field`, reads it as a check that failed and answers
-    ``null``. The bot's facade passes ``raise_on_error=True``. Doing the same
-    here needs an MCP error code of its own and a refusal that does not carry
-    pymongo's message, which names the database hosts.
+    missing file and for a query that failed. Each of the four callers reads
+    that ``None`` as a missing file — ``create_note`` and
+    ``add_to_collection`` answer ``file_not_found``, ``get_file`` finds nothing,
+    and ``save_file`` reports ``created`` for a file that exists. The bot's
+    facade passes ``raise_on_error=True``. Doing the same here needs an MCP
+    error code of its own and a refusal that does not carry pymongo's message,
+    which names the database hosts.
     """
     return dbm.get_latest_version_fresh(user_id, file_name)
 
@@ -1191,31 +1189,37 @@ def _is_latest_field(dbm: Any, user_id: int, doc: dict[str, Any]) -> dict[str, A
     """``file.is_latest`` של קריאה לפי ``file_id`` — כמילון למיזוג, או ``{}`` כשהשדה נעדר.
 
     ``file_id`` מזהה מסמך גרסה אחד ולא קובץ, ולכן "האם זו הגרסה האחרונה" היא שאלה על
-    **זהות המסמך**: האם זה המסמך שקריאה לפי השם הייתה מחזירה ברגע זה. הקריאה לפי השם
-    היא :func:`_latest_fresh`, וכאן נקראת **אותה** פונקציה, כך שאין כלל שני ל"מי
-    האחרונה" — רק השוואה של ``_id`` לתוצאה שלה. ארבעה מצבים:
+    **זהות המסמך**: האם זה המסמך שקריאה לפי השם הייתה מחזירה ברגע זה. התשובה באה מ-
+    ``get_latest_version_ids_fresh`` (``Repository._fetch_latest_version_ids``): ראש הסדר של
+    הקריאה לפי שם — אותו מסנן ואותו מיון — עד שני מסמכים, ``_id`` ו-``version`` בלבד, מה-primary
+    ובלי קאש. בלי התוכן: :func:`_latest_fresh` מושכת את המסמך כולו, וכאן צריך רק מזהה.
 
-    * ``True`` — ``_id`` שווה: זו הגרסה שקריאה לפי השם מחזירה.
-    * ``False`` — ``_id`` שונה: יש גרסה פעילה אחרת שקריאה לפי השם מחזירה במקומה.
-    * ``None`` (``null``) — :func:`_latest_fresh` החזירה ``None``. על גרסה פעילה "אין
-      קובץ כזה" אינו אפשרי, ולכן זו שאילתה שנכשלה (או הקובץ עבר לסל בין שתי
-      הקריאות): לא ידוע. לא ``False``, שהיה שולח את הסוכן לקרוא שוב לפי שם בלי סיבה,
-      ולא ``{}``, שנראה כמו גרסה בסל. הקריאה עצמה אינה נכשלת — המסמך כבר בידינו.
-    * ``{}`` — הגרסה שנקראה בסל (``is_active`` כבר אומר את זה בתשובה). ``False`` היה
-      מטעה: גם לקובץ שבסל יש גרסה אחרונה. "בסל" הוא :func:`file_versions.is_active_version`,
-      אותו מסנן ש-``Repository._fetch_latest_version`` מוציא בו גרסאות — ולכן גם אין
-      בשבילה שאילתה.
+    * ``True`` — ``_id`` שווה לראשון: זו הגרסה שקריאה לפי השם מחזירה.
+    * ``False`` — ``_id`` שונה: קריאה לפי השם מחזירה גרסה פעילה אחרת.
+    * ``None`` (``null``) — אי אפשר לקבוע. שלושה מקרים: השאילתה נכשלה (``None``); אין גרסה
+      פעילה בשם (``[]``) — על גרסה פעילה זה קורה רק כשהקובץ עבר לסל בין שתי הקריאות; ו**תיקו**:
+      שני מסמכים פעילים עם המספר העליון, והגרסה שנקראה היא אחד מהם. הקריאה לפי השם ממיינת לפי
+      ``version`` בלבד, ולכן בתיקו לא מוגדר איזה מהם היא מחזירה, ו-``True`` לאחד מהם היה ניחוש.
+      לא ``False``, שהיה שולח את הסוכן לקרוא שוב לפי שם בלי סיבה, ולא ``{}``, שנראה כמו גרסה
+      בסל. הקריאה עצמה אינה נכשלת — המסמך כבר בידינו.
+    * ``{}`` — הגרסה שנקראה בסל (``is_active`` כבר אומר את זה בתשובה). ``False`` היה מטעה: גם
+      לקובץ שבסל יש גרסה אחרונה. "בסל" הוא :func:`file_versions.is_active_version`, אותו מסנן
+      שהקריאה לפי השם מוציאה בו גרסאות — ולכן גם אין בשבילה שאילתה.
 
-    **``_id`` ולא מספר הגרסה.** מספר גרסה אינו מזהה: שני מסמכים פעילים יכולים לחלוק
-    מספר, והשוואת מספרים הייתה מחזירה ``True`` לשניהם. כשזה קורה, הקריאה לפי השם ממיינת
-    לפי ``version`` בלבד, ו-``True`` הולך לזה שהיא בחרה.
+    **``_id`` ולא מספר הגרסה.** מספר גרסה אינו מזהה: שני מסמכים פעילים יכולים לחלוק מספר,
+    והשוואת מספרים הייתה מחזירה ``True`` לשניהם. המספר משמש כאן רק לזיהוי תיקו.
 
-    **טרי ולא מהקאש:** גרסה שנדרסה לפני רגע הייתה מסומנת "אחרונה" מקאש שעוד זוכר אותה.
+    **מה-primary ולא מהקאש:** גרסה שנדרסה לפני רגע הייתה מסומנת "אחרונה" מקאש, או ממשני, שעוד
+    זוכרים אותה. המסמך שנקרא לפי איידי עצמו יכול לבוא מכל שרת — הזהות שלו לא משתנה.
     """
     if not is_active_version(doc):
         return {}
-    latest = _latest_fresh(dbm, user_id, doc.get("file_name"))
-    if latest is None:
+    heads = dbm.get_latest_version_ids_fresh(user_id, doc.get("file_name"))
+    if not heads:
+        return {"is_latest": None}
+    latest = heads[0]
+    tied = len(heads) > 1 and heads[1].get("version") == latest.get("version")
+    if tied and doc.get("version") == latest.get("version"):
         return {"is_latest": None}
     return {"is_latest": latest.get("_id") == doc.get("_id")}
 

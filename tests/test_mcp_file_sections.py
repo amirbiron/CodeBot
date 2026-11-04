@@ -118,6 +118,17 @@ class _Dbm:
             return None
         return self._doc(self._code, 2, _DOC_ID)
 
+    def get_latest_version_ids_fresh(self, user_id: int, file_name: str):
+        """ראש הסדר של הקריאה לפי שם, כמו ``Repository._fetch_latest_version_ids`` — בשביל
+        ``file.is_latest`` בקריאה לפי מזהה: גרסה 2, ואחריה גרסה 1 כשהיא קיימת."""
+        self.calls.append("get_latest_version_ids_fresh")
+        if user_id != self._owner or file_name != self._file_name:
+            return []
+        heads = [{"_id": _DOC_ID, "version": 2}]
+        if self._old_code is not None:
+            heads.append({"_id": _OLD_DOC_ID, "version": 1})
+        return heads
+
     def get_version(self, user_id: int, file_name: str, version: int):
         self.calls.append("get_version")
         if user_id != self._owner or file_name != self._file_name:

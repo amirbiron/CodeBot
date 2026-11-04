@@ -774,8 +774,9 @@ def _file_id_param_doc(download_url: str) -> str:
         # כי לקוח שמקצר תיאור פרמטר רואה רק אותו. ההגדרה: ``_is_latest_field`` ב-``backend.py``.
         "Reading by id returns this version even when a newer one exists, so file.is_latest "
         "says whether it is still the version a read by file_name returns: false means another "
-        "version is, so read by file_name for the current content; null means this could not be "
-        "checked; absent for a version in the recycle bin. "
+        "version is, so read by file_name for the current content; null means it could not be "
+        "determined (the check failed, or two versions share the top number); absent for a "
+        "version in the recycle bin. "
         "That version's exact bytes can go straight to a file in your environment, without "
         f"passing through your context: {_download_command(download_url, 'script.py')} — the "
         "hash is the version's file.content_sha256. Without bash, network access or "
