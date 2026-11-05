@@ -58,6 +58,16 @@
 
 ---
 
+### 📖 תיעוד
+
+8. **[DOCUMENTATION_GAPS.md](DOCUMENTATION_GAPS.md)** 🆕
+   - סריקת פערי תיעוד (דצמבר 2025)
+   - ~42 פריטים שחסרים באתר התיעוד
+   - המלצות לפי עדיפות
+   - מודולים, שירותים וסקריפטים לא מתועדים
+
+---
+
 ## 🚀 Quick Start
 
 ### אם יש לך רק 5 דקות
