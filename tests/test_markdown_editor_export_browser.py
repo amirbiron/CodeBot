@@ -552,16 +552,23 @@ def test_a_replaced_render_stops_drawing_its_diagrams(session):
     s = session()
     r = s.page.evaluate(
         """async () => {
-          const html = '<pre><code class="language-mermaid">graph TD\\n  A --> B</code></pre>';
-          const stale = document.createElement('div'); stale.innerHTML = html;
-          const current = document.createElement('div'); current.innerHTML = html;
+          const one = '<pre><code class="language-mermaid">graph TD\\n  A --> B</code></pre>';
+          const stale = document.createElement('div'); stale.innerHTML = one;
+          const current = document.createElement('div'); current.innerHTML = one;
+          // הוחלף באמצע: אחרי התרשים הראשון רינדור חדש מתחיל, והשני כבר לא מצויר
+          const midway = document.createElement('div'); midway.innerHTML = one + one;
           await window.MarkdownLiveRenderer.enhance(stale, [], { isCurrent: () => false });
           await window.MarkdownLiveRenderer.enhance(current, [], { isCurrent: () => true });
+          await window.MarkdownLiveRenderer.enhance(midway, [], {
+            isCurrent: () => midway.querySelectorAll('.mermaid-diagram svg').length === 0,
+          });
           return { stale: stale.querySelectorAll('svg').length, staleCode: stale.querySelectorAll('code.language-mermaid').length,
-                   current: current.querySelectorAll('.mermaid-diagram svg').length };
+                   current: current.querySelectorAll('.mermaid-diagram svg').length,
+                   midwaySvgs: midway.querySelectorAll('.mermaid-diagram svg').length,
+                   midwayCode: midway.querySelectorAll('code.language-mermaid').length };
         }"""
     )
-    assert r == {"stale": 0, "staleCode": 1, "current": 1}, r
+    assert r == {"stale": 0, "staleCode": 1, "current": 1, "midwaySvgs": 1, "midwayCode": 1}, r
 
 
 def test_two_exports_at_once_keep_their_mermaid_theme_and_their_own_ids(session):
