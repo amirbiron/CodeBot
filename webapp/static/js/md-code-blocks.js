@@ -118,7 +118,8 @@
   }
 
   // עוטף כל ``pre`` שתחת ``container`` ב-``div.code-block``, ומוסיף לפניו פס כותרת עם שם השפה
-  // וכפתור העתקה.
+  // וכפתור העתקה. ``options.copyButton: false`` — בלי הכפתור: הייצוא ל-HTML מהעורך הציבורי, שבו כפתור
+  // ההעתקה הוא של הקובץ שיורד (``COPY_CODE_SCRIPT``), ומאזין שנרשם כאן ממילא לא היה עובר לקובץ.
   function enhance(container, options) {
     if (!container) return;
     var opts = options || {};
@@ -144,7 +145,7 @@
         header.insertBefore(langEl, header.firstChild || null);
       }
       langEl.textContent = detectLanguage(pre);
-      if (!header.querySelector('.md-copy-btn')) {
+      if (opts.copyButton !== false && !header.querySelector('.md-copy-btn')) {
         header.appendChild(buildCopyButton(doc, pre, opts));
       }
     });

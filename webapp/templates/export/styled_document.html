@@ -2,6 +2,11 @@
 <html dir="rtl" lang="he">
 <head>
     <meta charset="UTF-8">
+    {#- CSP בתוך הקובץ — רק בייצוא מהעורך הציבורי (``meta_csp`` מ-``render_editor_export_skeleton``), כי הקובץ נפתח אצל
+        הגולש בלי שום כותרת מהשרת. ה-"-" שומר על ה-HTML של הייצוא הקיים זהה כשהוא ריק. #}
+    {%- if meta_csp %}
+    <meta http-equiv="Content-Security-Policy" content="{{ meta_csp }}">
+    {%- endif %}
     <title>{{ title }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="Code Keeper Bot">
@@ -466,6 +471,29 @@
 {{ syntax_css | safe }}
     </style>
     {% endif %}
+    {#- הייצוא מהעורך הציבורי (``editor_export``): המסמך מרונדר בדפדפן ב-markdown-it ולא ב-Python-Markdown,
+        ולכן יש לו עיצוב משלו לסימון של markdown-it, הדגשת תחביר של highlight.js, ו-KaTeX כשיש במסמך נוסחה.
+        לפני ``extra_css``, שנשאר הבלוק האחרון. #}
+    {%- if editor_export %}
+    <style>
+        /* הסימון של markdown-it בייצוא מהעורך הציבורי */
+{% include "export/_editor_export_styles.css" %}
+    </style>
+    {%- if hljs_css %}
+    <style>
+        /* Syntax Highlighting של highlight.js (מערכת הנושא) — במסך בלבד, כמו extra_css, כדי שבהדפסה הקוד יישאר בצבע אחד */
+        @media screen {
+{{ hljs_css | safe }}
+        }
+    </style>
+    {%- endif %}
+    {%- if katex_css %}
+    <style>
+        /* KaTeX — ה-CSS והגופנים בתוך הקובץ, כדי שהנוסחאות יוצגו גם בלי רשת */
+{{ katex_css | safe }}
+    </style>
+    {%- endif %}
+    {%- endif %}
     {#- ה-"-" מוריד את השורה הריקה שהבלוק היה משאיר, כך שבערכה בלי extra_css ה-HTML זהה לזה שלפני הבלוק -#}
     {%- if extra_css %}
     <style>
@@ -478,10 +506,13 @@
     {%- endif %}
 </head>
 <body>
+    {#- בייצוא מהעורך הציבורי אין באנר עליון: אין לקובץ שם, והכיתוב נשאר רק בתחתית. #}
+    {%- if not editor_export %}
     <header>
         <h1>{{ title }}</h1>
         <p class="subtitle">{{ footer_text }}</p>
     </header>
+    {%- endif %}
 
     <main class="container">
         {% if toc_html %}

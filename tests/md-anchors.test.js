@@ -193,6 +193,35 @@ console.log('applyExplicitAnchors — לא דורס מזהה תפוס');
   check('מזהה קיים לא נדרס', count === 0 && inserted.length === 0, inserted);
 }
 
+console.log('applyExplicitAnchors — במכל מנותק, "תפוס" הוא בתוך התוכן ולא בעמוד');
+{
+  // הייצוא ל-HTML מהעורך הציבורי מרנדר לתוך div שאינו בעמוד, והתצוגה החיה בעמוד כבר מחזיקה את אותם עוגנים
+  const { applyExplicitAnchors } = loadMdAnchors();
+  const { container, inserted, doc } = makeFakeDom(2);
+  doc.getElementById = (id) => (id === 'in-page' ? {} : null);  // העמוד מחזיק את המזהה
+  const allTargets = container.querySelectorAll;
+  const inContent = [{ id: 'in-content' }];
+  container.querySelectorAll = (selector) => (selector === '[id]' ? inContent : allTargets(selector));
+  container.getRootNode = () => container;  // מנותק: השורש הוא המכל עצמו, בלי getElementById
+  const count = applyExplicitAnchors(container, [
+    { headingIndex: 0, ids: ['in-page', 'in-content'] },
+    { headingIndex: 1, ids: ['in-page'] },
+  ]);
+  check('מזהה שתפוס רק בעמוד מוחל בתוכן', inserted.some((x) => x.id === 'in-page' && x.beforeIndex === 0), inserted);
+  check('מזהה שתפוס בתוכן לא נדרס', !inserted.some((x) => x.id === 'in-content'), inserted);
+  check('אותו מזהה לא מוחל פעמיים', count === 1 && inserted.length === 1, inserted);
+}
+
+console.log('applyExplicitAnchors — במכל שבעמוד, מזהה של העמוד תפוס (כמו קודם)');
+{
+  const { applyExplicitAnchors } = loadMdAnchors();
+  const { container, inserted, doc } = makeFakeDom(1);
+  doc.getElementById = (id) => (id === 'in-page' ? {} : null);
+  container.getRootNode = () => doc;  // השורש הוא המסמך
+  const count = applyExplicitAnchors(container, [{ headingIndex: 0, ids: ['in-page'] }]);
+  check('מזהה של העמוד לא נדרס', count === 0 && inserted.length === 0, inserted);
+}
+
 console.log('applyExplicitAnchors — קלט ריק לא מפיל');
 {
   const { applyExplicitAnchors } = loadMdAnchors();
