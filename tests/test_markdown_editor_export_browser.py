@@ -9,7 +9,7 @@
 צריכים לעבוד תחת המדיניות האמיתית. לכל הקשר דפדפן כתובת IP משלו (``X-Forwarded-For``), כי השלד כפוף למגבלת הקצב
 הגורפת, והאחסון שלה משותף לכל הטסטים בתהליך.
 
-**מה נבדק כאן ולא נראה בקוד:** שהטקסט לא יוצא מהדפדפן; שהקובץ עובד בלי רשת, בשתי הערכות, רכיב-רכיב; שהייצוא
+**מה נבדק כאן ולא נראה בקוד:** שהטקסט לא יוצא מהדפדפן; שהקובץ עובד בלי רשת, בכל ערכה, רכיב-רכיב; שהייצוא
 עובד גם כשהתצוגה החיה כבויה ועל תוכן בקיפול סגור; שאף ניסיון הזרקה לא מריץ קוד בקובץ; שכפתור ההעתקה מעתיק בלוק
 קוד בעברית בלי שורות שלא היו בו; ושני רינדורים במקביל לא מערבבים ערכות Mermaid ולא חולקים מזהים.
 
@@ -275,8 +275,20 @@ def session(browser):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("theme_id, light", [("pen-paper-coffee", True), ("morass", False)])
-def test_the_downloaded_file_works_on_its_own_without_network(browser, session, tmp_path, theme_id, light):
+@pytest.mark.parametrize(
+    "theme_id, light, min_colored_pct",
+    [
+        ("pen-paper-coffee", True, 90),
+        ("morass", False, 90),
+        # 76 נמדד ב-5.11.2026, בטסט הזה. הפער הוא במחוללים של ``services/theme_parser_service.py``, שלא מפצלים
+        # ``scope`` עם פסיקים — כמחצית מהרשומות של הערכה הזו, ובהן ההערות. כרטיס "מחוללי צבעי התחביר — scope עם
+        # פסיקים וכיוון ההתאמה" בלוח ה-issues ב-CodeKeeper. כשהמחוללים יתוקנו, הסף חוזר ל-90.
+        ("everforest-dark", False, 76),
+    ],
+)
+def test_the_downloaded_file_works_on_its_own_without_network(
+    browser, session, tmp_path, theme_id, light, min_colored_pct
+):
     s = session()
     download, path = s.download(theme_id, tmp_path)
     assert download.suggested_filename == "document.html"
@@ -293,7 +305,7 @@ def test_the_downloaded_file_works_on_its_own_without_network(browser, session, 
     assert r["header"] is False
     assert "Code Keeper" in r["footer"] and "Bot" not in r["footer"]
     assert r["alerts"]["count"] == 15 and r["alerts"]["styled"] == 15, r["alerts"]
-    assert r["code"]["tokenChars"] > 300 and r["code"]["coloredPct"] >= 90, r["code"]
+    assert r["code"]["tokenChars"] > 300 and r["code"]["coloredPct"] >= min_colored_pct, r["code"]
     assert r["code"]["copyButtonsPerPre"] == [1] * r["code"]["pres"], r["code"]
     assert r["code"]["themeCopyButtons"] == 0
     assert "Python" in r["code"]["headerLabels"]
@@ -606,4 +618,8 @@ def test_the_theme_choices_come_from_the_server(session):
     )
     assert [c[0] for c in choices] == list(EXPORT_THEME_IDS)
     assert all(url == f"/api/markdown-editor/export-skeleton/{tid}" for tid, url, _m in choices)
-    assert dict((tid, m) for tid, _u, m in choices) == {"morass": "dark", "pen-paper-coffee": "default"}
+    assert dict((tid, m) for tid, _u, m in choices) == {
+        "morass": "dark",
+        "pen-paper-coffee": "default",
+        "everforest-dark": "dark",
+    }

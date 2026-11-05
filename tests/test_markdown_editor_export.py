@@ -1,4 +1,4 @@
-"""הייצוא ל-HTML מעוצב מהעורך הציבורי — מה שהשרת מגיש: השלד, שתי הערכות, וה-CSS שנכנס לקובץ.
+"""הייצוא ל-HTML מעוצב מהעורך הציבורי — מה שהשרת מגיש: השלד, הערכות, וה-CSS שנכנס לקובץ.
 
 השרת לא רואה את הטקסט של הגולש: הוא מגיש רק את העמוד המעוצב של הערכה, עם הערת HTML במקום התוכן
 (``markdown_editor_export_skeleton`` ב-``webapp/app.py``), והדפדפן מכניס לשם את המסמך. הזרימה בדפדפן — הרינדור,
@@ -30,6 +30,7 @@ from services.styled_export_service import (  # noqa: E402
     EXPORT_HLJS_SELECTOR_PREFIX,
     EXPORT_PRESETS,
     PREVIOUS_COPY_CODE_SCRIPT_CSP_HASHES,
+    _EVERFOREST_DARK_TOKEN_COLORS,
     _MORASS_TOKEN_COLORS,
     _PEN_PAPER_COFFEE_TOKEN_COLORS,
     get_export_theme,
@@ -49,7 +50,9 @@ REPO = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = REPO / "webapp" / "templates"
 JS_DIR = REPO / "webapp" / "static" / "js"
 SKELETON_PATH = "/api/markdown-editor/export-skeleton/{}"
-THEMES = ("morass", "pen-paper-coffee")
+#: עותק מכוון של ``EXPORT_THEME_IDS`` (``webapp/markdown_editor.py``), כדי שהטסטים יקבעו מה הרשימה ולא רק יקראו
+#: אותה. ``test_the_editor_export_themes_are_listed_for_the_logged_in_export_too`` משווה בין השניים.
+THEMES = ("morass", "pen-paper-coffee", "everforest-dark")
 
 
 def _sha256_csp(text: str) -> str:
@@ -365,19 +368,29 @@ def test_the_logged_in_export_keeps_its_banner_and_has_none_of_the_editor_parts(
 
 
 # ---------------------------------------------------------------------------
-# שתי הערכות
+# הערכות של הייצוא מהעורך
 # ---------------------------------------------------------------------------
 
 
-def test_the_two_themes_are_listed_for_the_logged_in_export_too():
+def test_the_editor_export_themes_are_listed_for_the_logged_in_export_too():
+    from webapp.markdown_editor import EXPORT_THEME_IDS
+
+    assert EXPORT_THEME_IDS == THEMES
     listed = {p["id"]: p for p in list_export_presets()}
-    assert listed["morass"]["category"] == "dark"
-    assert listed["pen-paper-coffee"]["category"] == "light"
+    assert {theme_id: listed[theme_id]["category"] for theme_id in THEMES} == {
+        "morass": "dark",
+        "pen-paper-coffee": "light",
+        "everforest-dark": "dark",
+    }
 
 
 @pytest.mark.parametrize(
     "theme_id, tokens",
-    [("morass", _MORASS_TOKEN_COLORS), ("pen-paper-coffee", _PEN_PAPER_COFFEE_TOKEN_COLORS)],
+    [
+        ("morass", _MORASS_TOKEN_COLORS),
+        ("pen-paper-coffee", _PEN_PAPER_COFFEE_TOKEN_COLORS),
+        ("everforest-dark", _EVERFOREST_DARK_TOKEN_COLORS),
+    ],
 )
 def test_both_syntax_styles_come_from_the_theme_token_colors(theme_id, tokens):
     """מקור אחד לצבעי התחביר: Pygments לייצוא של המחוברים, highlight.js לייצוא מהעורך."""
@@ -387,7 +400,7 @@ def test_both_syntax_styles_come_from_the_theme_token_colors(theme_id, tokens):
     assert all(line.startswith("code.hljs .hljs-") for line in theme["hljs_css"].splitlines())
 
 
-def test_the_two_themes_keep_the_template_headings():
+def test_the_editor_export_themes_keep_the_template_headings():
     """החלטה: הקו מתחת ל-H2 וצבעי הכותרות של התבנית נשארים — אין לערכות ``extra_css`` שדורס אותם."""
     for theme_id in THEMES:
         assert not EXPORT_PRESETS[theme_id].get("extra_css")
