@@ -71,7 +71,51 @@
     gap: 0.5rem;
 }
 
-/* הייצוא ל-HTML: שורה מתחת לכפתורים, שנפתחת מ"ייצוא HTML". הצבעים של העמוד — טוקנים; הצבעים של כל ערכת
+/* "HTML מעוצב": כפתור רגיל (``btn-secondary``), ומתחת לטקסט שכבה של שלושה גוונים מהערכה שנעה לאט מצד לצד.
+   כל גוון הוא 30% מטוקן של הערכה — ``--primary``, ‏``--btn-primary-bg`` ו-``--warning``, שמוגדרים ב-``:root`` של
+   ``base.html`` ולכן קיימים בכל ערכה, מובנית, מיובאת או משותפת — והמעבר חוזר לגוון הראשון, כדי שהתנועה תהיה
+   רציפה. השכבה היא ``::before`` עם ``z-index: -1``: ‏``isolation`` על הכפתור משאיר אותה בתוכו, מעל הרקע שלו
+   ומתחת לטקסט ולאייקון, ו-``inset: 0`` משאיר את המסגרת של הכפתור גלויה. מי שביקש במכשיר פחות תנועה רואה את
+   אותו רקע, בלי שהוא זז. */
+.md-editor-export-toggle {
+    position: relative;
+    isolation: isolate;
+}
+
+.md-editor-export-toggle::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background-image: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--primary) 30%, transparent),
+        color-mix(in srgb, var(--btn-primary-bg) 30%, transparent),
+        color-mix(in srgb, var(--warning) 30%, transparent),
+        color-mix(in srgb, var(--primary) 30%, transparent)
+    );
+    background-size: 300% 100%;
+    background-position: 0% 50%;
+    pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .md-editor-export-toggle::before {
+        animation: md-editor-export-toggle-drift 6s ease-in-out infinite alternate;
+    }
+}
+
+@keyframes md-editor-export-toggle-drift {
+    from {
+        background-position: 0% 50%;
+    }
+    to {
+        background-position: 100% 50%;
+    }
+}
+
+/* הייצוא ל-HTML: שורה מתחת לכפתורים, שנפתחת מ"HTML מעוצב". הצבעים של העמוד — טוקנים; הצבעים של כל ערכת
    קובץ מגיעים מהשרת במשתנים על הדוגמית (``--md-export-swatch-*``). */
 .md-editor-export {
     flex-basis: 100%;
@@ -208,9 +252,9 @@
         <i class="fas fa-download" aria-hidden="true"></i>
         הורד ‎.md
       </button>
-      <button type="button" class="btn btn-secondary btn-icon" data-md-editor-export-toggle aria-expanded="false" aria-controls="mdEditorExportPanel">
+      <button type="button" class="btn btn-secondary btn-icon md-editor-export-toggle" data-md-editor-export-toggle aria-expanded="false" aria-controls="mdEditorExportPanel">
         <i class="fas fa-file-export" aria-hidden="true"></i>
-        ייצוא HTML
+        HTML מעוצב
       </button>
       <button type="button" class="btn btn-secondary btn-icon" data-md-editor-action="clear">
         <i class="fas fa-eraser" aria-hidden="true"></i>
