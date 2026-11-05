@@ -337,7 +337,11 @@ def _measure_pages(
                 if markdown is not None:
                     page.fill('textarea[name="code"]', markdown)
                     page.click('[data-action="toggle-live-preview"]')
-                    page.wait_for_selector('[data-preview-status][data-state="ready"]', timeout=15000)
+                    # ``attached`` ולא ברירת המחדל (``visible``): הסטטוס "מעודכנת" מוסתר בכל עמודי העורך, ומוצג רק בשגיאה
+                    # (``split-view.css``). המוכנות היא ה-``data-state``, לא הנראות.
+                    page.wait_for_selector(
+                        '[data-preview-status][data-state="ready"]', state="attached", timeout=15000
+                    )
                 results[name] = page.evaluate(measure_js)
                 page.close()
         finally:

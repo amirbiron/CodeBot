@@ -741,3 +741,44 @@ def test_the_simple_editor_has_no_synced_scrolling(edit_page):
     finally:
         _forget_editor_choice(page)
         page.close()
+
+
+#: מה שמתחת לתצוגה החיה: שורת המידע (שפה, גודל, זמן) והסטטוס — האם הם מוצגים, ומה כתוב בהם.
+PREVIEW_FOOTER = """() => {
+  const shown = (el) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().height > 0;
+  const meta = document.querySelector('[data-preview-meta]');
+  const status = document.querySelector('[data-preview-status]');
+  return {metaShown: shown(meta), metaText: meta.textContent.trim(), statusShown: shown(status),
+          state: status.dataset.state, statusText: status.textContent.trim()};
+}"""
+
+
+def test_under_the_preview_only_an_error_is_shown(edit_page):
+    """מתחת לתצוגה החיה בעמוד העריכה אין שורת מידע (``markdown • 8.6 KB • 207ms``) ואין "התצוגה מעודכנת." — כמו בעורך
+    הציבורי, מאותו כלל ב-``split-view.css``. כשהרינדור נכשל ההודעה כן מוצגת: התצוגה ממשיכה להציג את הרינדור הקודם, ובלי
+    ההודעה הוא היה נראה תקין. השגיאה נגרמת בדף נפרד שבו ספריית ה-Markdown לא נטענת: הבקר פונה ל-``/api/preview/live``,
+    והפנייה נכשלת."""
+    page = edit_page
+    _with_preview(page, "# כותרת\n\nפסקה-לבדיקת-השורה\n")
+    page.wait_for_function(
+        "document.querySelector('[data-preview-canvas]').textContent.includes('פסקה-לבדיקת-השורה')", timeout=30000
+    )
+    s = page.evaluate(PREVIEW_FOOTER)
+    assert s["state"] == "ready" and s["metaText"].startswith("markdown"), "התנאי של הבדיקה: השורה מתעדכנת, רק מוסתרת"
+    assert not s["metaShown"] and not s["statusShown"], s
+
+    broken = edit_page.context.new_page()
+    try:
+        # לפי הנתיב ולא בגלוב: הקובץ נטען עם ``?v=...``, וגלוב בלי ה-query לא תופס אותו.
+        broken.route(lambda url: urlsplit(url).path.endswith("/md_preview.bundle.js"), lambda route: route.abort())
+        broken.goto(f"{ORIGIN}/edit")
+        broken.wait_for_selector(".cm-editor", timeout=30000)
+        broken.click('[data-action="toggle-live-preview"]')
+        broken.wait_for_function(
+            "document.querySelector('[data-preview-status]').dataset.state === 'error'", timeout=30000
+        )
+        s = broken.evaluate(PREVIEW_FOOTER)
+        assert s["statusShown"] and s["statusText"], s
+        assert not s["metaShown"], s
+    finally:
+        broken.close()

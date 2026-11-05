@@ -102,13 +102,6 @@
     border-radius: 0;
 }
 
-/* שורת המידע (שפה, גודל, זמן) וסטטוס "התצוגה מעודכנת" הם רעש בעמוד שכל מטרתו התצוגה. הסטטוס מוצג רק
-   בשגיאה — למשל כשספריית ה-Markdown לא נטענה. מכל התצוגה כולו aria-live, ולכן גם הסטטוס שמופיע מוכרז. */
-.md-editor-page .split-preview-meta,
-.md-editor-page .split-preview-status:not([data-state="error"]) {
-    display: none;
-}
-
 .md-editor-page__about {
     margin-block-start: 2rem;
     color: var(--text-primary, currentColor);
