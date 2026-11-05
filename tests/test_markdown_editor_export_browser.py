@@ -489,11 +489,11 @@ def test_a_failed_export_tells_the_visitor_and_frees_the_buttons(session, status
     s.choose("pen-paper-coffee")
     downloads: list = []
     s.page.on("download", lambda d: downloads.append(d))
+    tab = None
     if mode == "preview":
         with s.ctx.expect_page(timeout=60000) as info:
             s.page.click("[data-md-editor-export-action=preview]")
-        # הטאב שנפתח בלחיצה נסגר, ולא נשאר ריק
-        info.value.wait_for_event("close", timeout=60000)
+        tab = info.value
     else:
         s.page.click("[data-md-editor-export-action=download]")
     s.page.wait_for_function(
@@ -501,6 +501,12 @@ def test_a_failed_export_tells_the_visitor_and_frees_the_buttons(session, status
         " && !document.querySelector('[data-md-editor-export-action=download]').disabled",
         timeout=60000,
     )
+    if tab is not None:
+        # הטאב שנפתח בלחיצה נסגר, ולא נשאר ריק. בכשל מהיר הוא נסגר עוד לפני שהטסט מגיע לכאן, ולכן מחכים לאירוע
+        # הסגירה רק כשהוא עוד פתוח — המתנה לאירוע שכבר עבר הייתה נגמרת רק בתקרת הזמן.
+        if not tab.is_closed():
+            tab.wait_for_event("close", timeout=15000)
+        assert tab.is_closed()
 
     assert message in s.page.inner_text("[data-md-editor-status]")
     assert s.page.get_attribute("[data-md-editor-export]", "aria-busy") == "false"
