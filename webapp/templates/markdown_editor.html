@@ -71,6 +71,76 @@
     gap: 0.5rem;
 }
 
+/* הייצוא ל-HTML: שורה מתחת לכפתורים, שנפתחת מ"ייצוא HTML". הצבעים של העמוד — טוקנים; הצבעים של כל ערכת
+   קובץ מגיעים מהשרת במשתנים על הדוגמית (``--md-export-swatch-*``). */
+.md-editor-export {
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem 1.5rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--glass-border, currentColor);
+    border-radius: 12px;
+    background: var(--glass, transparent);
+}
+
+.md-editor-export[hidden] {
+    display: none;
+}
+
+.md-editor-export__themes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.md-editor-export__legend {
+    margin-block-end: 0.35rem;
+    padding: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary, currentColor);
+}
+
+.md-editor-export__theme {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--glass-border, currentColor);
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.md-editor-export__theme:has(input:checked) {
+    border-color: var(--primary, currentColor);
+    box-shadow: 0 0 0 1px var(--primary, currentColor);
+}
+
+.md-editor-export__swatch {
+    flex-shrink: 0;
+    inline-size: 1.25rem;
+    block-size: 1.25rem;
+    border: 1px solid var(--glass-border, currentColor);
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--md-export-swatch-bg) 50%, var(--md-export-swatch-accent) 50%);
+}
+
+.md-editor-export__description {
+    font-size: 0.8rem;
+    color: var(--text-secondary, currentColor);
+}
+
+.md-editor-export__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
 .md-editor-page__status {
     flex-basis: 100%;
     margin: 0;
@@ -138,6 +208,10 @@
         <i class="fas fa-download" aria-hidden="true"></i>
         הורד ‎.md
       </button>
+      <button type="button" class="btn btn-secondary btn-icon" data-md-editor-export-toggle aria-expanded="false" aria-controls="mdEditorExportPanel">
+        <i class="fas fa-file-export" aria-hidden="true"></i>
+        ייצוא HTML
+      </button>
       <button type="button" class="btn btn-secondary btn-icon" data-md-editor-action="clear">
         <i class="fas fa-eraser" aria-hidden="true"></i>
         ניקוי
@@ -146,6 +220,31 @@
         <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
         טען דוגמה
       </button>
+    </div>
+    {# הייצוא ל-HTML מעוצב (``markdown-editor-export.js``): הערכות מ-``export_themes`` (``webapp/markdown_editor.py``),
+       וכל אחת נושאת את כתובת השלד שלה ואת ערכת ה-Mermaid שלה. הטקסט לא נשלח לשרת — ההסבר ב-``docs/webapp/markdown-editor.rst``. #}
+    <div id="mdEditorExportPanel" class="md-editor-export" data-md-editor-export data-content-marker="{{ export_content_marker }}" hidden>
+      <fieldset class="md-editor-export__themes">
+        <legend class="md-editor-export__legend">ערכה לקובץ</legend>
+        {% for theme in export_themes %}
+        <label class="md-editor-export__theme">
+          <input type="radio" name="mdEditorExportTheme" value="{{ theme.id }}" data-skeleton-url="{{ url_for('markdown_editor_export_skeleton', theme_id=theme.id) }}" data-mermaid-theme="{{ theme.mermaid_theme }}"{% if loop.first %} checked{% endif %}>
+          <span class="md-editor-export__swatch" style="--md-export-swatch-bg: {{ theme.bg }}; --md-export-swatch-accent: {{ theme.accent }};" aria-hidden="true"></span>
+          <span class="md-editor-export__name">{{ theme.name }}</span>
+          <span class="md-editor-export__description">{{ theme.description }}</span>
+        </label>
+        {% endfor %}
+      </fieldset>
+      <div class="md-editor-export__actions" role="group" aria-label="ייצוא HTML">
+        <button type="button" class="btn btn-secondary btn-icon" data-md-editor-export-action="preview">
+          <i class="fas fa-eye" aria-hidden="true"></i>
+          הצג
+        </button>
+        <button type="button" class="btn btn-primary btn-icon" data-md-editor-export-action="download">
+          <i class="fas fa-download" aria-hidden="true"></i>
+          הורד HTML
+        </button>
+      </div>
     </div>
     <p class="md-editor-page__status" data-md-editor-status aria-live="polite"></p>
   </header>
@@ -232,5 +331,6 @@
 <script src="{{ url_for('static', filename='js/markdown-toolbar.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/utils/editor-page-utils.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/markdown-editor.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/markdown-editor-export.js') }}?v={{ static_version }}" defer></script>
 {% include "_live_preview_scripts.html" %}
 {% endblock %}
