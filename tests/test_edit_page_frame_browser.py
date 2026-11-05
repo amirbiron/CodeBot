@@ -25,6 +25,8 @@ pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
 from playwright.sync_api import sync_playwright  # noqa: E402
 
+import _scroll_sync_harness as sync  # noqa: E402
+
 HOST = "ck.test"
 ORIGIN = f"https://{HOST}"
 CODE = "# כותרת\n\n" + "\n\n".join(
@@ -667,4 +669,75 @@ def test_on_a_phone_the_tabs_come_with_the_preview_and_the_selected_one_stands_o
             if theme == "rose-pine-dawn":
                 assert _contrast(_rgb(selected["color"]), bg) >= 4.5, (name, bg, selected)
     finally:
+        page.close()
+
+
+# --- גלילה מסונכרנת בין העורך לתצוגה (``live-preview-scroll-sync.js``) -----------------------------------------
+# בעמוד העריכה העורך משמאל לימין ועם מספרי שורות, בשונה מהעורך הציבורי (``tests/test_markdown_editor_browser.py``,
+# שם רוב הבדיקות של הסנכרון). המדידה ב-``tests/_scroll_sync_harness.py``.
+
+#: מסמך שבו היחס בין הגובה בעורך לגובה בתצוגה משתנה לאורכו: בחצי הראשון טבלאות — שורה קצרה בעורך, ושורה עם ריפוד
+#: וגבול בתצוגה — ובחצי השני בלוקי קוד, שבהם שורה בעורך היא בערך שורה בתצוגה. לכן גלילה לפי אחוזים הייתה מראה
+#: באמצע המסמך חלק אחר.
+SYNC_DOC = "\n\n".join(
+    [f"## חלק {i}\n\n| א | ב |\n|---|---|\n" + "\n".join(f"| {j} | {j * 2} |" for j in range(8)) for i in range(7)]
+    + [f"## חלק {i}\n\n```python\n" + "\n".join(f"x{j} = {j}" for j in range(16)) + "\n```" for i in range(7, 14)]
+) + "\n"
+
+
+def test_on_the_edit_page_the_preview_follows_the_editor_line_by_line(edit_page):
+    page = edit_page
+    _with_preview(page, SYNC_DOC)
+    # ``_with_preview`` מחכה ל"מעודכנת", שיכולה להיות עוד של הטקסט הקודם: CodeMirror מעביר את הטקסט ל-textarea באיחור.
+    page.wait_for_function(
+        "document.querySelector('[data-preview-canvas]').textContent.includes('חלק 13')", timeout=30000
+    )
+    sync.install(page)
+    lines = sync.headings(page)
+    assert len(lines) == 14, lines
+    sync.lead(page, ".cm-scroller")
+    results = {}
+    for line in lines[1::2]:
+        sync.place_editor(page, line)
+        results[line] = sync.state(page, line)
+    off = {line: round(r["previewDelta"], 1) for line, r in results.items() if abs(r["previewDelta"]) > 3}
+    assert off == {}, off
+    # התנאי של הבדיקה: גלילה לפי אחוזים הייתה מראה כאן חלק אחר (נמדד: עד 146px, מול 1.2px של הסנכרון).
+    assert max(abs(r["proportionalDelta"]) for r in results.values()) > 30, results
+
+
+def test_the_simple_editor_has_no_synced_scrolling(edit_page):
+    """בעורך הפשוט (textarea) אין סנכרון — החלטת המשתמש, נובמבר 2026: גלילה בעורך לא מזיזה את התצוגה, וגלילה
+    בתצוגה לא מזיזה את העורך. בדף נפרד באותו הקשר, כדי שהמעבר לעורך הפשוט לא יגיע לבדיקות אחרות בקובץ."""
+    page = edit_page.context.new_page()
+    try:
+        page.goto(f"{ORIGIN}/edit")
+        page.wait_for_selector(".cm-editor", timeout=30000)
+        page.click(".btn-switch-editor")
+        page.wait_for_function("window.editorManager.currentEditor === 'simple'", timeout=10000)
+        page.evaluate(
+            "(t) => { const ta = document.querySelector('textarea[name=\"code\"]'); ta.value = t;"
+            " ta.dispatchEvent(new Event('input', {bubbles: true})); }",
+            SYNC_DOC,
+        )
+        page.click('[data-action="toggle-live-preview"]')
+        page.wait_for_function(
+            "document.querySelector('[data-preview-canvas]').textContent.includes('חלק 13')", timeout=30000
+        )
+        tops = """() => ({editor: document.querySelector('textarea[name="code"]').scrollTop,
+                        preview: document.querySelector('[data-preview-canvas]').scrollTop})"""
+
+        sync.lead(page, 'textarea[name="code"]')
+        page.evaluate("() => { document.querySelector('textarea[name=\"code\"]').scrollTop = 600; }")
+        sync.settle(page, 500)
+        s = page.evaluate(tops)
+        assert s["editor"] > 0 and s["preview"] == 0, s
+
+        sync.lead(page, ".split-preview-canvas")
+        page.evaluate("() => { document.querySelector('[data-preview-canvas]').scrollTop = 900; }")
+        sync.settle(page, 500)
+        after = page.evaluate(tops)
+        assert after["preview"] > 0 and after["editor"] == s["editor"], (s, after)
+    finally:
+        _forget_editor_choice(page)
         page.close()

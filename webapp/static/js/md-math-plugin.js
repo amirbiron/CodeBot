@@ -305,7 +305,8 @@
     };
 
     // ``renderAttrs``: מאפיינים שתוספים אחרים מצמידים לבלוק — ``data-source-line`` של מיפוי
-    // המקור ב-``md_preview.html``, שההעתקה כמארקדאון והעיגון של הפתקים נשענים עליו.
+    // המקור (``md-source-lines-plugin.js``), שההעתקה כמארקדאון והעיגון של הפתקים ב-``md_preview.html``
+    // והגלילה המסונכרנת בתצוגה החיה נשענים עליו.
     md.renderer.rules.math_block = function (tokens, idx, _options, env, self) {
       var token = tokens[idx];
       return '<div class="md-math" dir="ltr"' + self.renderAttrs(token) + '>' +

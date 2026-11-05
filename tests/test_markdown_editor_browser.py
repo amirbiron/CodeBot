@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit
 
 import pytest
@@ -29,6 +30,8 @@ import pytest
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
 from playwright.sync_api import sync_playwright  # noqa: E402
+
+import _scroll_sync_harness as sync  # noqa: E402
 
 HOST = "ck.test"
 URL = f"http://{HOST}/markdown-editor"
@@ -1090,3 +1093,249 @@ def test_on_a_phone_the_tabs_come_only_with_the_preview(browser):
         assert [t["shown"] for t in page.evaluate(PHONE_TABS)] == [False, False]
     finally:
         s.close()
+
+
+# --- גלילה מסונכרנת בין העורך לתצוגה (``live-preview-scroll-sync.js``) -----------------------------------------
+# המדידה ב-``tests/_scroll_sync_harness.py``. טקסט ההדגמה מתאים לבדיקה: יש בו טבלאות, בלוקי קוד, נוסחאות ותרשימי
+# Mermaid, ולכן היחס בין הגובה בעורך לגובה בתצוגה משתנה לאורכו — ובדיקה לפי אחוזים לא הייתה עוברת עליו
+# (``proportionalDelta``).
+
+#: הסטייה המותרת בפיקסלים בין שורה לנקודת הקריאה. נמדד על טקסט ההדגמה בחלון 1280x900: עד 1.5px.
+SYNC_TOLERANCE_PX = 3
+
+
+def test_scrolling_the_editor_brings_the_preview_to_the_same_heading(session):
+    """שורה של כותרת שמוצבת בנקודת הקריאה של העורך — הכותרת שלה בתצוגה נמצאת בנקודת הקריאה של התצוגה. נבדקת כל
+    כותרת שלישית לאורך כל ההדגמה, כולל אחרי בלוקי הקוד, הטבלאות והתרשימים."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    lines = sync.headings(page)[::3]
+    assert len(lines) >= 10, lines
+    sync.lead(page, ".cm-scroller")
+    results = {}
+    for line in lines:
+        sync.place_editor(page, line)
+        results[line] = sync.state(page, line)
+    off = {line: round(r["previewDelta"], 1) for line, r in results.items() if abs(r["previewDelta"]) > SYNC_TOLERANCE_PX}
+    assert off == {}, off
+    assert all(abs(r["editorDelta"]) <= SYNC_TOLERANCE_PX for r in results.values()), results
+    # התנאי של הבדיקה: בטקסט הזה גלילה לפי אחוזים הייתה מראה כותרת אחרת (נמדד: עד 704px, מול 1.5px של הסנכרון).
+    assert max(abs(r["proportionalDelta"]) for r in results.values()) > 60, results
+    assert session.errors == []
+
+
+def test_scrolling_the_preview_brings_the_editor_to_the_same_line(session):
+    """ההפך: כותרת שמוצבת בנקודת הקריאה של התצוגה — השורה שלה בעורך בנקודת הקריאה של העורך."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    lines = sync.headings(page)[1::3]
+    assert len(lines) >= 10, lines
+    sync.lead(page, ".split-preview-canvas")
+    results = {}
+    for line in lines:
+        sync.place_preview(page, line)
+        results[line] = sync.state(page, line)
+    off = {line: round(r["editorDelta"], 1) for line, r in results.items() if abs(r["editorDelta"]) > SYNC_TOLERANCE_PX}
+    assert off == {}, off
+    assert session.errors == []
+
+
+def test_the_editor_and_the_preview_start_and_end_together(session):
+    """בגלגלת אמיתית: כשהעורך מגיע לסוף, גם התצוגה בסוף; וכשהתצוגה חוזרת להתחלה, גם העורך בהתחלה. בהתאמה לפי
+    ראש החלון זה לא היה קורה — הסוף של אחד הצדדים לא היה נראה."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    ends = """() => { const sc = window.editorManager.cmInstance.scrollDOM, cv = document.querySelector('[data-preview-canvas]');
+      return {editorTop: sc.scrollTop, editorMax: sc.scrollHeight - sc.clientHeight,
+              previewTop: cv.scrollTop, previewMax: cv.scrollHeight - cv.clientHeight}; }"""
+    assert page.evaluate(ends)["previewTop"] == 0
+
+    sync.lead(page, ".cm-scroller")
+    for _ in range(40):
+        page.mouse.wheel(0, 1500)
+        page.wait_for_timeout(30)
+    sync.settle(page, 600)
+    s = page.evaluate(ends)
+    assert s["editorMax"] > 1000 and abs(s["editorTop"] - s["editorMax"]) <= 1, s
+    assert abs(s["previewTop"] - s["previewMax"]) <= 1, s
+
+    sync.lead(page, ".split-preview-canvas")
+    for _ in range(40):
+        page.mouse.wheel(0, -1500)
+        page.wait_for_timeout(30)
+    sync.settle(page, 600)
+    s = page.evaluate(ends)
+    assert s["previewTop"] == 0 and s["editorTop"] <= 1, s
+    assert session.errors == []
+
+
+def test_typing_at_the_end_brings_the_preview_to_what_was_written(session):
+    """כותבים בסוף המסמך: אחרי שהתצוגה מתרנדרת, היא בסוף, והטקסט החדש נראה בה. קודם התצוגה נשארה במקום שבו הייתה."""
+    session.open()
+    page = session.page
+    page.click(".cm-content")
+    page.keyboard.press("Control+End")
+    page.keyboard.type("\n\n## כותרת-בסוף-3f9e\n\nפסקה אחרונה\n")
+    _wait_preview_text(page, "כותרת-בסוף-3f9e")
+    sync.settle(page, 600)
+    s = page.evaluate(
+        """() => { const cv = document.querySelector('[data-preview-canvas]');
+      const h = Array.from(cv.querySelectorAll('h2')).find((e) => e.textContent.includes('כותרת-בסוף-3f9e'));
+      const r = h.getBoundingClientRect(), c = cv.getBoundingClientRect();
+      const sc = window.editorManager.cmInstance.scrollDOM;
+      return {previewTop: cv.scrollTop, previewMax: cv.scrollHeight - cv.clientHeight,
+              editorTop: sc.scrollTop, editorMax: sc.scrollHeight - sc.clientHeight,
+              visible: r.top >= c.top && r.bottom <= c.bottom}; }"""
+    )
+    assert s["visible"], s
+    # העורך עומד פיקסל מהסוף (CodeMirror גולל אל הסמן), והתצוגה בהתאמה — כמה פיקסלים מהסוף שלה (נמדד: 1 ו-4).
+    assert s["previewMax"] > 1000 and s["previewMax"] - s["previewTop"] <= 20, s
+
+
+def test_the_side_being_scrolled_is_not_pulled_back(session):
+    """הצד שהמשתמש גולל נשאר במקום שהוא שם אותו: הגלילה שהמנוע עושה בצד השני לא חוזרת אליו כהד. נמדד אחרי שהכול
+    נרגע, פעמיים, כדי לתפוס גם תנודה."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    line = sync.headings(page)[12]
+
+    sync.lead(page, ".split-preview-canvas")
+    target = page.evaluate(
+        "(line) => { const p = window.__syncProbe, cv = p.canvas(); const t = Math.round(p.scrollForReading(cv, p.previewLineY(line)));"
+        " cv.scrollTop = t; return cv.scrollTop; }",
+        line,
+    )
+    sync.settle(page, 700)
+    first = page.evaluate("() => document.querySelector('[data-preview-canvas]').scrollTop")
+    sync.settle(page, 400)
+    second = page.evaluate("() => document.querySelector('[data-preview-canvas]').scrollTop")
+    assert first == target and second == target, (target, first, second)
+    assert page.evaluate("() => window.editorManager.cmInstance.scrollDOM.scrollTop") > 0, "התנאי: העורך זז אחרי התצוגה"
+
+    sync.lead(page, ".cm-scroller")
+    target = page.evaluate("() => { const sc = window.editorManager.cmInstance.scrollDOM; sc.scrollTop = 1500; return sc.scrollTop; }")
+    sync.settle(page, 700)
+    first = page.evaluate("() => window.editorManager.cmInstance.scrollDOM.scrollTop")
+    sync.settle(page, 400)
+    second = page.evaluate("() => window.editorManager.cmInstance.scrollDOM.scrollTop")
+    assert first == second and abs(first - target) <= 1, (target, first, second)
+
+
+#: הקונטיינרים בתצוגה (``::: note`` וכו', ו-``::: details``), לפי הסדר במסמך.
+CONTAINERS = "[data-preview-canvas] :is(.admonition, details.markdown-details)"
+
+
+def test_scrolling_the_editor_brings_the_preview_to_each_container(session):
+    """שורת הפתיחה של כל קונטיינר (``::: note``, ``::: details``) בנקודת הקריאה של העורך — הכותרת שלו בתצוגה בנקודת
+    הקריאה של התצוגה. עד שהקונטיינרים סומנו (``extraBlockTypes`` ב-``md-source-lines-plugin.js``) רק הבלוקים שבתוכם
+    היו מסומנים, והכותרת הייתה 14 עד 33px מהמקום (נמדד ב-4.11.2026 על טקסט ההדגמה). כולל ``::: details`` סגור, שנמדד
+    בגובה ה-``summary`` שלו."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    opens = [i for i, text in enumerate(session.editor_text().split("\n")) if re.match(r"^:::\s*\w", text)]
+    assert page.evaluate("(s) => document.querySelectorAll(s).length", CONTAINERS) == len(opens) >= 10, opens
+    assert page.evaluate("() => !!document.querySelector('[data-preview-canvas] details.markdown-details:not([open])')"), (
+        "התנאי של הבדיקה: בהדגמה יש קיפול סגור"
+    )
+    sync.lead(page, ".cm-scroller")
+    off = {}
+    for index, line in enumerate(opens):
+        sync.place_editor(page, line)
+        r = sync.element_state(page, CONTAINERS, index, line)
+        if abs(r["previewDelta"]) > SYNC_TOLERANCE_PX or abs(r["editorDelta"]) > SYNC_TOLERANCE_PX:
+            off[line] = (round(r["editorDelta"], 1), round(r["previewDelta"], 1))
+    assert off == {}, off
+    assert session.errors == []
+
+
+#: מעכב את ``mermaid.render`` עד ``window.__releaseMermaid()``: כך הרינדור של התצוגה נעצר אחרי שהתוכן הוחלף, ב-
+#: ``await`` של ``enhance`` — החלון שבו הגלילה המסונכרנת חייבת לחכות.
+HOLD_MERMAID = """() => {
+  const original = window.mermaid.render.bind(window.mermaid);
+  const pending = [];
+  let hold = true;
+  window.mermaid.render = (...args) => (hold
+    ? new Promise((resolve, reject) => pending.push(() => original(...args).then(resolve, reject)))
+    : original(...args));
+  window.__mermaidPending = () => pending.length;
+  window.__releaseMermaid = () => { hold = false; pending.splice(0).forEach((run) => run()); };
+}"""
+
+
+def test_a_scroll_while_the_preview_renders_waits_for_the_render(session):
+    """גלילה בעורך בזמן שהתצוגה באמצע רינדור — התוכן כבר הוחלף, והתרשימים עוד לא — לא מזיזה את התצוגה: נקודות ההתאמה
+    של הרינדור הקודם כבר לא תואמות למה שמוצג, ושל החדש עוד לא סופיות. כשהרינדור מסתיים, התצוגה מגיעה למקום שהעורך
+    עומד בו. עד התיקון התצוגה זזה באמצע לפי מה שנמדד ברגע הזה."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    lines = sync.headings(page)
+    first, second = lines[5], lines[18]
+    sync.lead(page, ".cm-scroller")
+    sync.place_editor(page, first)
+    page.evaluate(HOLD_MERMAID)
+    session.append("\n")
+    page.wait_for_function("() => window.__mermaidPending() > 0", timeout=10000)
+    before = page.evaluate("() => document.querySelector('[data-preview-canvas]').scrollTop")
+
+    sync.place_editor(page, second)
+    sync.settle(page, 400)
+    during = page.evaluate("() => document.querySelector('[data-preview-canvas]').scrollTop")
+    assert page.evaluate("() => window.__mermaidPending() > 0"), "התנאי של הבדיקה: הרינדור עדיין מחכה לתרשים"
+    assert during == before, (before, during)
+
+    page.evaluate("() => window.__releaseMermaid()")
+    page.wait_for_function(
+        "document.querySelector('[data-preview-status]').dataset.state === 'ready'", timeout=30000
+    )
+    sync.settle(page, 500)
+    r = sync.state(page, second)
+    assert abs(r["previewDelta"]) <= SYNC_TOLERANCE_PX, r
+    assert session.errors == []
+
+
+def test_a_render_overtaken_by_a_newer_one_does_not_take_over(session):
+    """רינדור שחיכה לתרשים, ובינתיים התחיל ונגמר רינדור חדש — לא שומר את התוצאות שלו כשהוא מסתיים: התוכן בתצוגה כבר
+    של החדש. עד התיקון הרינדור הישן הדליק את הגלילה המסונכרנת עם מספר השורות שלו — ואז התצוגה לא הגיעה לסוף כשהעורך
+    בסוף — והחזיר לצ'קבוקסים את הטקסט הישן."""
+    session.open()
+    page = session.page
+    page.evaluate(HOLD_MERMAID)
+    session.append("\n")
+    page.wait_for_function("() => window.__mermaidPending() > 0", timeout=10000)
+
+    short = "\n".join(session.editor_text().split("\n")[:120]) + "\n"
+    assert "```mermaid" not in short, "התנאי של הבדיקה: בטקסט החדש אין תרשים, ולכן הרינדור שלו לא מחכה"
+    page.evaluate(
+        "(t) => { const v = window.editorManager.cmInstance; v.dispatch({changes: {from: 0, to: v.state.doc.length, insert: t}}); }",
+        short,
+    )
+    # הרינדור של הטקסט החדש הסתיים: אין בתצוגה מקום לתרשים (של הרינדור הישן), והתצוגה מעודכנת.
+    page.wait_for_function(
+        "() => !document.querySelector('[data-preview-canvas] .mermaid-diagram')"
+        " && document.querySelector('[data-preview-status]').dataset.state === 'ready'",
+        timeout=20000,
+    )
+    page.evaluate("() => window.__releaseMermaid()")
+    sync.settle(page, 800)
+
+    assert page.evaluate("() => window.livePreviewController.state.taskSourceContent") == session.editor_text()
+
+    sync.lead(page, ".cm-scroller")
+    for _ in range(20):
+        page.mouse.wheel(0, 1500)
+        page.wait_for_timeout(30)
+    sync.settle(page, 600)
+    s = page.evaluate(
+        """() => { const sc = window.editorManager.cmInstance.scrollDOM, cv = document.querySelector('[data-preview-canvas]');
+      return {editorTop: sc.scrollTop, editorMax: sc.scrollHeight - sc.clientHeight,
+              previewTop: cv.scrollTop, previewMax: cv.scrollHeight - cv.clientHeight}; }"""
+    )
+    assert s["editorMax"] > 500 and abs(s["editorTop"] - s["editorMax"]) <= 1, s
+    assert abs(s["previewTop"] - s["previewMax"]) <= 1, s
+    assert session.errors == []

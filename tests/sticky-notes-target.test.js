@@ -3312,6 +3312,38 @@ check('חיווט: תצוגת המסמך מגבילה את רמות הכותרו
   eq(/heading-max-level/.test(live), false, 'live-preview.js אינו מגדיר עותק משלו של הכלל');
 });
 
+check('חיווט: שורות המקור בשתי התצוגות מאותו תוסף, והגלילה המסונכרנת בכל עמוד עם Split View', () => {
+  // **עותק אחד.** התוסף היה כתוב בתוך ``md_preview.html``, והתצוגה החיה החזיקה כלל משלה (``task-source-lines``)
+  // שסימן רק פריטי משימה. עכשיו שתיהן טוענות את ``md-source-lines-plugin.js`` (ההתנהגות שלו —
+  // ``tests/md-source-lines-plugin.test.js``). עותק שיחזור לאחת מהן היה עובר כל בדיקה אחרת כאן.
+  const preview = readTemplate(path.join(TEMPLATES_DIR, 'md_preview.html'));
+  eq(cacheBusted(preview, 'js/md-source-lines-plugin.js'), true,
+     'md_preview.html טוען את md-source-lines-plugin.js עם ?v=static_version');
+  eq(preview.includes('md.use(window.MdSourceLines.plugin)'), true, 'md_preview.html מתקין את התוסף');
+  eq(/sourceMapPlugin|BLOCK_OPEN_TYPES/.test(preview), false, 'md_preview.html אינו מחזיק עותק של התוסף');
+  const live = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', 'live-preview.js'), 'utf8');
+  eq(/task-source-lines/.test(live), false, 'live-preview.js אינו מחזיק כלל משלו לשורות של פריטי משימה');
+  // והתצוגה החיה מסמנת גם קונטיינרים ואלרטים (``extraBlockTypes``), ותצוגת המסמך לא — שם "העתק כמארקדאון" והעיגון של
+  // הפתקים נבנו על הסימונים הקיימים (ההסבר בראש ``md-source-lines-plugin.js``).
+  eq(/md\.use\(window\.MdSourceLines\.plugin, \{\s*extraBlockTypes: \['admonition_open'\]\.concat\(containerTypes\.map\(/.test(live), true,
+     'live-preview.js מתקין את התוסף עם הקונטיינרים והאלרטים');
+  eq(preview.includes('extraBlockTypes'), false, 'md_preview.html מתקין את התוסף בלי סוגים נוספים');
+
+  // **ובכל עמוד עם Split View — שני הקבצים, לפני live-preview.js.** בלי התוסף לחיצה על צ'קבוקס לא משנה את העורך
+  // ואין גלילה מסונכרנת; בלי ``live-preview-scroll-sync.js`` אין גלילה מסונכרנת. ``live-preview.js`` רק מתריע בקונסול.
+  const pages = liveLoaders().filter(({ src }) => src.includes('id="livePreviewRoot"'));
+  eq(pages.length, 3, 'נמצאו שלושת העמודים עם Split View');
+  pages.forEach(({ name, src }) => {
+    const live = src.indexOf("filename='js/live-preview.js'");
+    ['js/md-source-lines-plugin.js', 'js/live-preview-scroll-sync.js'].forEach((asset) => {
+      const at = src.indexOf("filename='" + asset + "'");
+      eq(at !== -1, true, name + ' טוען את ' + asset);
+      eq(at < live, true, name + ' טוען את ' + asset + ' לפני live-preview.js');
+      eq(cacheBusted(src, asset), true, name + ' טוען את ' + asset + ' עם ?v=static_version');
+    });
+  });
+});
+
 check('חיווט: כל עמוד עם Split View מקבל את התלויות של התצוגה החיה מה-partials, ולא מרשימה משלו', () => {
   // **זה מה שמונע מהעמוד השלישי לחזור לבור.** הבאג היה שתי רשימות שנכתבו ביד וחסרו את אותם
   // דברים. עמוד חדש עם ``#livePreviewRoot`` שיכתוב רשימה משלו היה עובר את שתי הבדיקות שלמעלה
