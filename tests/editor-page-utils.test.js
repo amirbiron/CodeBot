@@ -28,9 +28,9 @@ const TEMPLATES_DIR = path.join(REPO_ROOT, 'webapp', 'templates');
 const MODULE_PATH = path.join(JS_DIR, 'utils', 'editor-page-utils.js');
 
 /** הצרכנים — קבצים שקוראים את ``window.EditorPageUtils`` בזמן הטעינה. */
-const CONSUMERS = ['edit-draft.js', 'upload-page.js', 'file-form-manager.js', 'markdown-editor.js'];
+const CONSUMERS = ['edit-draft.js', 'upload-page.js', 'file-form-manager.js', 'markdown-editor.js', 'markdown-editor-export.js'];
 /** הפונקציות שהיו מועתקות; צרכן שמגדיר אחת מהן מחדש הוא עותק חדש. */
-const SHARED_NAMES = ['sleep', 'waitFor', 'debounce', 'formatTime', 'getEditorContent', 'setEditorContent'];
+const SHARED_NAMES = ['sleep', 'waitFor', 'debounce', 'formatTime', 'getEditorContent', 'setEditorContent', 'downloadBlob'];
 
 class FakeEvent {
   constructor(type, init) { this.type = type; this.bubbles = !!(init && init.bubbles); }

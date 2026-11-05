@@ -1725,10 +1725,15 @@ def _find_hljs_class(scope: str) -> str | None:
     return best_match
 
 
+#: הבורר שכללי ``generate_hljs_css_from_tokens`` נכתבים תחתיו כברירת מחדל: ערכה מותאמת או משותפת באתר.
+HLJS_SITE_THEME_SELECTOR_PREFIX = ':root[data-theme-type="custom"]'
+
+
 def generate_hljs_css_from_tokens(
     token_colors: list[dict],
     default_foreground: str | None = None,
     default_background: str | None = None,
+    selector_prefix: str = HLJS_SITE_THEME_SELECTOR_PREFIX,
 ) -> str:
     """
     ממיר tokenColors של VS Code ל-CSS עבור highlight.js.
@@ -1740,10 +1745,12 @@ def generate_hljs_css_from_tokens(
         token_colors: רשימת tokenColors מערכת VS Code
         default_foreground: צבע ברירת מחדל לטקסט (editor.foreground)
         default_background: צבע רקע לבלוקי קוד (editor.background)
+        selector_prefix: הבורר שכל כלל נכתב תחתיו. ברירת המחדל היא ערכה של האתר; קובץ HTML מעוצב
+            שאין בו את המאפיין הזה (הייצוא מהעורך הציבורי, ``EXPORT_PRESETS``) מעביר בורר משלו.
 
     Returns:
         CSS string עם כללים בפורמט:
-        .hljs-keyword { color: #...; }
+        <selector_prefix> .hljs-keyword { color: #...; }
     """
     if not isinstance(token_colors, list):
         return ""
@@ -1757,7 +1764,7 @@ def generate_hljs_css_from_tokens(
         base_parts = [f"color: {str(default_foreground).strip()} !important"]
         if default_background and is_valid_color(str(default_background)):
             base_parts.append(f"background: {str(default_background).strip()} !important")
-        css_by_selector[".hljs"] = f':root[data-theme-type="custom"] .hljs {{ {"; ".join(base_parts)}; }}'
+        css_by_selector[".hljs"] = f'{selector_prefix} .hljs {{ {"; ".join(base_parts)}; }}'
 
     for token in token_colors:
         if not isinstance(token, dict):
@@ -1802,7 +1809,7 @@ def generate_hljs_css_from_tokens(
             # highlight.js classes need to work inside .hljs container
             # תומך גם ב-custom וגם ב-shared themes
             # הסלקטור צריך לעבוד כשה-theme הוא custom או shared
-            css_by_selector[hljs_class] = f':root[data-theme-type="custom"] {hljs_class} {{ {"; ".join(rule_parts)}; }}'
+            css_by_selector[hljs_class] = f'{selector_prefix} {hljs_class} {{ {"; ".join(rule_parts)}; }}'
 
     return "\n".join(css_by_selector.values())
 

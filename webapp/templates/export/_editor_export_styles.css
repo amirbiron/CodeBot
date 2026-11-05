@@ -1,0 +1,120 @@
+{#-
+  העיצוב של הסימון ש-markdown-it מייצר, בקובץ HTML מעוצב שיוצא מהעורך הציבורי (``/markdown-editor``).
+  נכלל רק מ-``export/styled_document.html`` כש-``editor_export`` דלוק (``render_styled_html``), ולכן הייצוא של
+  המחוברים — Python-Markdown, עם ``.alert`` ו-``.highlight`` — לא מושפע ממנו.
+
+  הסימון עצמו נבנה בדפדפן, באותו מנוע כמו התצוגה החיה (``live-preview.js``, הווריאנט ``export``), ושם הוא
+  מעוצב ב-``markdown-enhanced.css`` וב-``md-content-*.css``, שאינם בקובץ. כאן הוא מקבל את הצבעים של ערכת הייצוא.
+
+  - **התראות** (``div.admonition.admonition-<סוג>``): כל סוג מקבל את קבוצת הצבע שלו מ-``ADMONITION_TYPES``
+    (``admonition_groups``), ולכל קבוצה אותם צבעים כמו ``.alert-<קבוצה>`` בתבנית.
+    ``tests/test_markdown_editor_export.py`` משווה בין השניים.
+  - **בלוק קוד** (``md-code-blocks.js``): פס כותרת עם שם השפה מעל ה-``pre``. כפתור ההעתקה הוא של התבנית
+    (``COPY_CODE_SCRIPT``), כי הכפתור של התצוגה לא נבנה בייצוא.
+-#}
+{%- set alert_colors = {
+    "info": ("var(--alert-info-border, var(--primary))", "var(--alert-info-bg, rgba(0, 136, 204, 0.08))"),
+    "warning": ("var(--alert-warning-border, var(--warning))", "var(--alert-warning-bg, rgba(243, 156, 18, 0.08))"),
+    "success": ("var(--alert-success-border, var(--success))", "var(--alert-success-bg, rgba(46, 204, 113, 0.08))"),
+    "danger": ("var(--alert-danger-border, var(--error))", "var(--alert-danger-bg, rgba(231, 76, 60, 0.08))"),
+    "neutral": ("var(--text-secondary, var(--text-primary))", "var(--bg-secondary, rgba(255, 255, 255, 0.03))"),
+} %}
+        /* בלי הבאנר העליון, שהמרווח שלו (margin-bottom) הרחיק את התוכן מראש העמוד */
+        .container {
+            padding-top: 2.5rem;
+        }
+
+        /* התראות */
+        .admonition {
+            padding: 1rem 1.25rem;
+            border-radius: 10px;
+            margin: 1.5rem 0;
+            border-inline-start: 5px solid;
+        }
+
+        .admonition-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .admonition-title svg {
+            flex-shrink: 0;
+        }
+
+        .admonition-content > :last-child {
+            margin-bottom: 0;
+        }
+{% for css_class, kinds in admonition_groups.items() %}
+        {% for kind in kinds %}.admonition-{{ kind }}{{ ", " if not loop.last }}{% endfor %} {
+            border-color: {{ alert_colors[css_class][0] }};
+            background: {{ alert_colors[css_class][1] }};
+        }
+{% endfor %}
+        /* בלוק קוד: פס הכותרת עם שם השפה, וה-pre מתחתיו */
+        .code-block {
+            margin: 1.5rem 0;
+            direction: ltr;
+        }
+
+        .code-block > pre {
+            margin-top: 0;
+            border-start-start-radius: 0;
+            border-start-end-radius: 0;
+        }
+
+        .md-code-header {
+            display: flex;
+            padding: 0.4rem 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--code-border, var(--border-color));
+            border-bottom: 0;
+            border-radius: 10px 10px 0 0;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        /* בלוק קוד בעברית (``rtl-code.js``) מימין לשמאל, וקטע קוד בתוכו — מהגדר הפותחת עד הסוגרת — משמאל לימין,
+           עם גלילה משלו. אותו כלל כמו ב-``markdown-enhanced.css``, שההסבר המלא שלו שם. */
+        pre.rtl-code {
+            direction: rtl;
+            text-align: start;
+        }
+
+        pre.rtl-code .rtl-code-ltr {
+            display: block;
+            direction: ltr;
+            text-align: start;
+            overflow-x: auto;
+        }
+
+        pre code.hljs {
+            display: block;
+        }
+
+        /* מארקר (==טקסט==) */
+        mark {
+            background: color-mix(in srgb, var(--warning, #FFBF00) 30%, transparent);
+            color: inherit;
+            border-bottom: 1.5px solid var(--warning, #FFBF00);
+            padding: 0 4px;
+            border-radius: 2px;
+        }
+
+        /* צ'קליסט: הצ'קבוקס במקום התבליט */
+        li.task-list-item {
+            list-style: none;
+        }
+
+        .task-list-item-checkbox {
+            margin-inline-end: 0.5rem;
+        }
+
+        /* תרשים Mermaid — SVG מוכן, עם העיצוב שלו בתוכו */
+        .mermaid-diagram {
+            margin: 1.5rem 0;
+            text-align: center;
+            overflow-x: auto;
+        }

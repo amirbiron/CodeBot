@@ -111,7 +111,7 @@
   }
 
   const MarkdownLiveRenderer = (() => {
-    // שני מופעים של markdown-it, באותם תוספים, ששונים בשלושה דברים בלבד:
+    // שלושה מופעים של markdown-it, באותם תוספים, ששונים בשלושה דברים בלבד:
     // - ``default`` — דפדפן הריפו וכרטיסי החיפוש בתיעוד: קישור ``¶`` ליד כל כותרת, וכל שש רמות הכותרות.
     // - ``livePreview`` — התצוגה החיה בעמודי העורך (``LivePreviewController``): בלי ``¶`` (אין לתצוגה כתובת
     //   לשתף, והסמן הופיע בנגיעה), ועם רמות הכותרות של תצוגת המסמך — בלי H5/H6. כותרת כזו נשארת כמו שנכתבה,
@@ -119,11 +119,14 @@
     //   ``md_preview.html`` מתקין. ועם שורות המקור על כל בלוק (``md-source-lines-plugin.js``, שגם ``md_preview.html``
     //   מתקין): לפיהן לחיצה על צ'קבוקס משנה את השורה שלו בעורך, והגלילה בעורך ובתצוגה מסונכרנת
     //   (``live-preview-scroll-sync.js``).
+    // - ``export`` — הייצוא ל-HTML מעוצב מהעורך הציבורי (``renderForExport``): כמו ``livePreview``, אבל בלי שורות
+    //   המקור — אין בקובץ עורך לסנכרן איתו.
     // כל מופע נבנה פעם אחת, בבקשה הראשונה שלו, ונשמר רק אחרי שכל התוספים הותקנו בו: תוסף שזורק באמצע לא
     // משאיר מופע חלקי במטמון, והבקשה הבאה בונה אותו שוב.
     const RENDERER_VARIANTS = {
       default: { headingPermalinks: true, documentHeadingLevels: false, sourceLines: false },
       livePreview: { headingPermalinks: false, documentHeadingLevels: true, sourceLines: true },
+      export: { headingPermalinks: false, documentHeadingLevels: true, sourceLines: false },
     };
     const renderers = new Map();
     const containerTypes = [
@@ -405,39 +408,63 @@
       });
     }
 
-    async function renderMermaid(root) {
+    // ערכת ה-Mermaid לפי הערכה של העמוד (כמו ב-md_preview.html): בהירה בערכות בהירות, ובערכה מותאמת או משותפת —
+    // לפי הבהירות של ``--bg-primary``.
+    function pageMermaidTheme() {
+      const currentTheme = (document.documentElement && document.documentElement.getAttribute('data-theme')) || 'dark';
+      const knownLightThemes = ['light', 'classic', 'rose-pine-dawn'];
+      let mermaidTheme = 'dark';
+      if (knownLightThemes.includes(currentTheme)) {
+        mermaidTheme = 'default';
+      } else if (currentTheme === 'custom' || currentTheme.startsWith('shared:')) {
+        // For custom/shared themes, check actual background color brightness
+        const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim();
+        if (bgColor) {
+          const hex = bgColor.replace('#', '');
+          if (hex.length >= 6) {
+            const r = parseInt(hex.substr(0, 2), 16);
+            const g = parseInt(hex.substr(2, 2), 16);
+            const b = parseInt(hex.substr(4, 2), 16);
+            const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+            mermaidTheme = brightness > 128 ? 'default' : 'dark';
+          }
+        }
+      }
+      return mermaidTheme;
+    }
+
+    // **שני רינדורים יכולים לרוץ יחד** — התצוגה החיה, והייצוא ל-HTML מהעורך הציבורי (``renderForExport``), שמרנדר
+    // לערכה אחרת. לכן שני דברים כאן משותפים לכל המודול ולא לרינדור אחד:
+    // - **התור** (``mermaidQueue``): ``mermaid.initialize`` משנה הגדרה גלובלית, ו-``render`` שאחריו ממתין. בלי
+    //   תור, רינדור שני היה מאתחל ערכה משלו בזמן שהראשון עוד מצייר, והתרשימים של הראשון היו יוצאים בערכה של השני.
+    // - **המונה** (``mermaidPassCount``): עד נובמבר 2026 המזהה של כל SVG נבנה מ-``Date.now()`` וממונה שמתחיל מאפס
+    //   בכל רינדור, ושני רינדורים באותה אלפית שנייה היו מקבלים אותם מזהים. ה-CSS שבתוך כל SVG מכוון למזהה שלו.
+    let mermaidQueue = Promise.resolve();
+    let mermaidPassCount = 0;
+
+    // ``mermaidTheme`` — ערכה מפורשת (הייצוא, לפי ערכת הקובץ); בלעדיה — לפי העמוד.
+    function renderMermaid(root, mermaidTheme) {
       if (!root || typeof window === 'undefined' || typeof window.mermaid === 'undefined') {
-        return;
+        return Promise.resolve();
       }
       const blocks = root.querySelectorAll('code.language-mermaid, pre code.language-mermaid');
       if (!blocks.length) {
-        return;
+        return Promise.resolve();
       }
+      const run = mermaidQueue.then(() => renderMermaidBlocks(blocks, mermaidTheme || pageMermaidTheme()));
+      // התור ממשיך גם אחרי רינדור שנכשל: הכשל עצמו חוזר לקורא דרך ``run``, ורק השרשרת לא נעצרת בגללו.
+      mermaidQueue = run.catch(() => {});
+      return run;
+    }
+
+    async function renderMermaidBlocks(blocks, mermaidTheme) {
       try {
-        // Choose Mermaid theme based on current page theme (like md_preview.html)
-        const currentTheme = (document.documentElement && document.documentElement.getAttribute('data-theme')) || 'dark';
-        const knownLightThemes = ['light', 'classic', 'rose-pine-dawn'];
-        let mermaidTheme = 'dark';
-        if (knownLightThemes.includes(currentTheme)) {
-          mermaidTheme = 'default';
-        } else if (currentTheme === 'custom' || currentTheme.startsWith('shared:')) {
-          // For custom/shared themes, check actual background color brightness
-          const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim();
-          if (bgColor) {
-            const hex = bgColor.replace('#', '');
-            if (hex.length >= 6) {
-              const r = parseInt(hex.substr(0, 2), 16);
-              const g = parseInt(hex.substr(2, 2), 16);
-              const b = parseInt(hex.substr(4, 2), 16);
-              const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-              mermaidTheme = brightness > 128 ? 'default' : 'dark';
-            }
-          }
-        }
         window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: mermaidTheme });
       } catch (err) {
         console.warn('mermaid initialize failed', err);
       }
+      mermaidPassCount += 1;
+      const pass = mermaidPassCount;
       let counter = 0;
       for (const block of blocks) {
         const code = block.textContent || '';
@@ -457,7 +484,7 @@
           block.replaceWith(wrapper);
         }
         try {
-          const { svg } = await window.mermaid.render(`mmd_live_${Date.now()}_${counter++}`, code);
+          const { svg } = await window.mermaid.render(`mmd_live_${pass}_${counter++}`, code);
           wrapper.innerHTML = svg;
         } catch (err) {
           wrapper.innerHTML = '<div class="alert alert-warning">Mermaid render failed</div>';
@@ -470,16 +497,19 @@
     // כותרת עם שם השפה וכפתור העתקה. התצוגה החיה מבקשת אותם; דפדפן הריפו וכרטיסי החיפוש בתיעוד לא,
     // והעיצוב של הכפתור הקטן שלהם ב-``markdown-preview.css``. הבנייה אחרי ה-Mermaid, כמו בתצוגת המסמך:
     // בלוק ```mermaid כבר הוחלף בתרשים ולא נעטף במסגרת.
+    // ``options.copyButtons: false`` — בלי שום כפתור העתקה, לא הקטן ולא זה שבפס הכותרת; ``options.mermaidTheme`` —
+    // ערכת Mermaid מפורשת. שתיהן של הייצוא (``renderForExport``).
     async function enhance(root, anchors, options) {
       const documentCodeBlocks = !!(options && options.documentCodeBlocks);
+      const copyButtons = !(options && options.copyButtons === false);
       applyExplicitAnchors(root, anchors);
-      highlightBlocks(root, { copyButtons: !documentCodeBlocks });
+      highlightBlocks(root, { copyButtons: copyButtons && !documentCodeBlocks });
       enhanceTaskLists(root, !!(options && options.interactiveTasks));
       lazyLoadImages(root);
-      await renderMermaid(root);
+      await renderMermaid(root, options && options.mermaidTheme);
       if (documentCodeBlocks) {
         if (window.MdCodeBlocks) {
-          window.MdCodeBlocks.enhance(root);
+          window.MdCodeBlocks.enhance(root, { copyButton: copyButtons });
         } else {
           console.warn('live-preview: md-code-blocks.js לא נטען — בלוקי הקוד בלי מסגרת וכפתור העתקה');
         }
@@ -545,6 +575,24 @@
       // המפתחות של ``RENDERER_VARIANTS``; בלעדיו ``default``.
       async renderWithAnchors(text, options) {
         return renderMarkdownSource(text, (options && options.variant) || 'default');
+      },
+      // הייצוא ל-HTML מעוצב מהעורך הציבורי (``markdown-editor-export.js``): רינדור נפרד מהתצוגה החיה, באותו מנוע,
+      // לתוך אלמנט שאינו בעמוד. לא העתקה של מה שמוצג — כי התצוגה יכולה להיות כבויה (ואז מוצג בה רק טקסט
+      // הסבר), באמצע רינדור, או עם תרשימים בערכה של העמוד. מחזיר את האלמנט אחרי שכל התרשימים צוירו.
+      // ``options.mermaidTheme`` — ערכת ה-Mermaid של ערכת הקובץ.
+      async renderForExport(text, options) {
+        const rendered = renderMarkdownSource(text, 'export');
+        const box = document.createElement('div');
+        box.innerHTML = rendered.html || '';
+        await enhance(box, rendered.anchors, {
+          documentCodeBlocks: true,
+          copyButtons: false,
+          interactiveTasks: false,
+          mermaidTheme: options && options.mermaidTheme,
+        });
+        // הסימון של highlight.js ש"הבלוק כבר הודגש" — שייך לעמוד שמדגיש, ואין לו משמעות בקובץ.
+        box.querySelectorAll('[data-highlighted]').forEach((el) => el.removeAttribute('data-highlighted'));
+        return box;
       },
       enhance,
     };

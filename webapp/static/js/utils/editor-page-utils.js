@@ -2,8 +2,8 @@
  * עזרים לעמודים שיש בהם עורך קוד וטיוטה מקומית — מקור אחד במקום עותק בכל עמוד.
  *
  * הצרכנים: ``edit-draft.js`` (עמוד העריכה ועמוד הצפייה), ``upload-page.js`` (עמוד ההעלאה),
- * ``file-form-manager.js`` (העריכה וההעלאה) ו-``markdown-editor.js`` (העורך הציבורי,
- * ``/markdown-editor``). עד העורך הציבורי לכל אחד מהם היה עותק משלו: ``edit-draft.js``
+ * ``file-form-manager.js`` (העריכה וההעלאה), ו-``markdown-editor.js`` ו-``markdown-editor-export.js`` (העורך
+ * הציבורי, ``/markdown-editor``). עד העורך הציבורי לכל אחד מהם היה עותק משלו: ``edit-draft.js``
  * ו-``upload-page.js`` החזיקו את אותו בלוק בדיוק, ו-``file-form-manager.js`` את ``sleep`` ואת
  * ``waitFor``.
  *
@@ -108,6 +108,27 @@
     }
   }
 
+  // אחרי כמה זמן משתחררת הכתובת של קובץ שהורד (``downloadBlob``) — כמו ב-FileSaver.js.
+  const DOWNLOAD_REVOKE_DELAY_MS = 40000;
+
+  /**
+   * מוריד ``blob`` כקובץ בשם ``fileName``, בלי שרת: כתובת Blob וקישור ``download`` שנלחץ. משמש את "הורד ‎.md"
+   * ואת הייצוא ל-HTML בעורך הציבורי.
+   *
+   * הכתובת משתחררת אחרי ``DOWNLOAD_REVOKE_DELAY_MS`` ולא מיד אחרי ``click()``: כך ההורדה לא תלויה ברגע המדויק
+   * שבו הדפדפן קורא את הכתובת. עד אז נשאר בזיכרון Blob בגודל הקובץ.
+   */
+  function downloadBlob(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_REVOKE_DELAY_MS);
+  }
+
   if (typeof window !== 'undefined') {
     window.EditorPageUtils = Object.freeze({
       sleep,
@@ -117,6 +138,8 @@
       getEditorContent,
       setEditorContent,
       storageAvailable,
+      downloadBlob,
+      DOWNLOAD_REVOKE_DELAY_MS,
     });
   }
 })();

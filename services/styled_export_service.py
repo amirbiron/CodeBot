@@ -40,6 +40,8 @@ except ImportError:  # pragma: no cover
 from services.theme_parser_service import (
     FALLBACK_DARK,
     FALLBACK_LIGHT,
+    generate_hljs_css_from_tokens,
+    generate_pygments_css_from_tokens,
     parse_vscode_theme,
 )
 from services.theme_presets_service import get_preset_by_id, list_presets
@@ -475,10 +477,260 @@ _VSCODE_DARK_PLUS_SYNTAX_CSS = Template("""
 .highlight .err { color: #f44747; text-decoration: underline; }  /* Errors */
 """)
 
+#: הבורר שכללי highlight.js של ערכת ייצוא נכתבים תחתיו (``hljs_css``). הייצוא מהעורך הציבורי מרנדר את
+#: הקוד בדפדפן, ו-highlight.js נותן ל-``<code>`` את המחלקה ``hljs`` — כך הכללים חלים רק על בלוקי קוד.
+EXPORT_HLJS_SELECTOR_PREFIX = "code.hljs"
+
+# צבעי התחביר של שתי ערכות הייצוא של העורך הציבורי: ``tokenColors`` מקובצי ה-VS Code של הערכות
+# (``morass-Tech-theme.json`` ו-``pen-paper-coffee-ui-v4-color-theme.json`` ב-CodeKeeper), בלי הרשומות שאין
+# להן ``foreground`` — שני המחוללים מדלגים עליהן ממילא. מהרשימה נגזרים גם כללי Pygments (``syntax_css``,
+# לייצוא של המחוברים) וגם כללי highlight.js (``hljs_css``, לייצוא מהעורך הציבורי), כך שלכל ערכה יש מקור
+# אחד לצבעי התחביר.
+_MORASS_TOKEN_COLORS: list[dict] = [
+    {
+        "scope": [
+            "comment",
+            "punctuation.definition.comment",
+        ],
+        "settings": {"foreground": "#6a9955", "fontStyle": "italic"},
+    },
+    {
+        "scope": [
+            "keyword",
+            "keyword.control",
+            "keyword.operator.new",
+            "keyword.operator.expression",
+            "keyword.operator.cast",
+            "keyword.operator.sizeof",
+            "keyword.operator.instanceof",
+        ],
+        "settings": {"foreground": "#c586c0"},
+    },
+    {"scope": ["storage", "storage.type", "storage.modifier"], "settings": {"foreground": "#c586c0"}},
+    {"scope": ["string", "string.quoted", "string.template"], "settings": {"foreground": "#ce9178"}},
+    {
+        "scope": [
+            "constant.numeric",
+            "constant.numeric.integer",
+            "constant.numeric.float",
+            "constant.numeric.hex",
+        ],
+        "settings": {"foreground": "#b5cea8"},
+    },
+    {
+        "scope": [
+            "constant",
+            "constant.language",
+            "constant.character",
+            "constant.other",
+        ],
+        "settings": {"foreground": "#b5cea8"},
+    },
+    {"scope": ["variable", "variable.other", "variable.language"], "settings": {"foreground": "#9cdcfe"}},
+    {
+        "scope": [
+            "variable.parameter",
+            "meta.function.parameters",
+        ],
+        "settings": {"foreground": "#9cdcfe", "fontStyle": "italic"},
+    },
+    {
+        "scope": [
+            "entity.name.function",
+            "meta.function-call",
+            "support.function",
+        ],
+        "settings": {"foreground": "#dcdcaa"},
+    },
+    {"scope": ["entity.name.method", "meta.method-call"], "settings": {"foreground": "#dcdcaa"}},
+    {
+        "scope": [
+            "entity.name.class",
+            "entity.name.type.class",
+            "support.class",
+        ],
+        "settings": {"foreground": "#4ec9b0"},
+    },
+    {"scope": ["entity.name.type", "support.type", "support.type.primitive"], "settings": {"foreground": "#4ec9b0"}},
+    {"scope": ["entity.name.type.interface"], "settings": {"foreground": "#4ec9b0", "fontStyle": "italic"}},
+    {"scope": ["entity.name.namespace", "entity.name.module"], "settings": {"foreground": "#4ec9b0"}},
+    {
+        "scope": [
+            "keyword.operator",
+            "keyword.operator.arithmetic",
+            "keyword.operator.comparison",
+            "keyword.operator.logical",
+        ],
+        "settings": {"foreground": "#d4d4d4"},
+    },
+    {
+        "scope": [
+            "punctuation",
+            "punctuation.definition",
+            "punctuation.separator",
+            "punctuation.terminator",
+        ],
+        "settings": {"foreground": "#d4d4d4"},
+    },
+    {
+        "scope": [
+            "variable.other.property",
+            "variable.other.object.property",
+            "support.variable.property",
+        ],
+        "settings": {"foreground": "#9cdcfe"},
+    },
+    {"scope": ["entity.name.tag", "meta.tag"], "settings": {"foreground": "#569cd6"}},
+    {"scope": ["entity.other.attribute-name"], "settings": {"foreground": "#9cdcfe"}},
+    {"scope": ["string.quoted.double.html", "string.quoted.single.html"], "settings": {"foreground": "#ce9178"}},
+    {"scope": ["string.regexp"], "settings": {"foreground": "#d16969"}},
+    {"scope": ["constant.character.escape"], "settings": {"foreground": "#d7ba7d"}},
+    {"scope": ["meta.embedded", "source.embedded"], "settings": {"foreground": "#c586c0"}},
+    {"scope": ["invalid", "invalid.illegal"], "settings": {"foreground": "#f44747", "fontStyle": "underline"}},
+    {"scope": ["invalid.deprecated"], "settings": {"foreground": "#f44747", "fontStyle": "strikethrough"}},
+    {"scope": ["support.type.property-name.css"], "settings": {"foreground": "#9cdcfe"}},
+    {"scope": ["support.constant.property-value.css"], "settings": {"foreground": "#ce9178"}},
+    {"scope": ["keyword.other.unit.css"], "settings": {"foreground": "#b5cea8"}},
+    {
+        "scope": [
+            "entity.other.attribute-name.class.css",
+            "entity.other.attribute-name.id.css",
+        ],
+        "settings": {"foreground": "#dcdcaa"},
+    },
+    {"scope": ["support.type.property-name.json"], "settings": {"foreground": "#9cdcfe"}},
+    {
+        "scope": [
+            "markup.heading",
+            "entity.name.section.markdown",
+        ],
+        "settings": {"foreground": "#0088cc", "fontStyle": "bold"},
+    },
+    {"scope": ["markup.bold"], "settings": {"foreground": "#dcdcaa", "fontStyle": "bold"}},
+    {"scope": ["markup.underline.link"], "settings": {"foreground": "#0088cc"}},
+    {"scope": ["markup.inline.raw"], "settings": {"foreground": "#7fdbca"}},
+]
+
+_PEN_PAPER_COFFEE_TOKEN_COLORS: list[dict] = [
+    {"scope": ["variable"], "settings": {"foreground": "#2b3f6a"}},
+    {"scope": ["meta.property-name", "support.type.property-name"], "settings": {"foreground": "#2b3f6a"}},
+    {"scope": ["comment"], "settings": {"foreground": "#9ca3b0", "fontStyle": "italic"}},
+    {"scope": ["meta.brace"], "settings": {"foreground": "#5e6fa0"}},
+    {"scope": ["invalid.illegal"], "settings": {"foreground": "#c16161"}},
+    {"scope": ["keyword.operator"], "settings": {"foreground": "#1c4b33", "fontStyle": "bold"}},
+    {"scope": ["keyword", "storage"], "settings": {"foreground": "#5e78e1"}},
+    {"scope": ["keyword.control"], "settings": {"foreground": "#2b3f6a", "fontStyle": "bold"}},
+    {
+        "scope": [
+            "variable.other.object.property.js",
+            "variable.other.property.js",
+            "support.type.property-name",
+            "meta.objectliteral",
+        ],
+        "settings": {"foreground": "#5e78e1"},
+    },
+    {"scope": ["storage.type", "support.type"], "settings": {"foreground": "#5e78e1"}},
+    {"scope": ["constant.language", "support.constant"], "settings": {"foreground": "#c16161"}},
+    {
+        "scope": [
+            "variable.parameter",
+            "support.variable",
+            "variable.other.member",
+        ],
+        "settings": {"foreground": "#5e78e1"},
+    },
+    {"scope": ["support.function", "entity.name.function"], "settings": {"foreground": "#d08e25"}},
+    {"scope": ["entity.name.exception"], "settings": {"foreground": "#660000"}},
+    {"scope": ["keyword.other.unit", "constant.character", "constant"], "settings": {"foreground": "#8f932b"}},
+    {"scope": ["constant.numeric", "constant"], "settings": {"foreground": "#c16161"}},
+    {"scope": ["string", "punctuation.definition.string"], "settings": {"foreground": "#8f6928"}},
+    {"scope": ["constant.character.escape"], "settings": {"foreground": "#777777"}},
+    {"scope": ["string.regexp"], "settings": {"foreground": "#379566"}},
+    {"scope": ["constant.other.symbol", "variable.other.constant"], "settings": {"foreground": "#c16161"}},
+    {"scope": ["punctuation"], "settings": {"foreground": "#777777"}},
+    {"scope": ["punctuation.definition.template-expression"], "settings": {"foreground": "#c16161"}},
+    {
+        "scope": [
+            "meta.tag.sgml.doctype",
+            "meta.tag.sgml.doctype string",
+            "meta.tag.sgml.doctype entity.name.tag",
+            "meta.tag.sgml punctuation.definition.tag.html",
+        ],
+        "settings": {"foreground": "#AAAAAA"},
+    },
+    {
+        "scope": [
+            "meta.tag",
+            "punctuation.definition.tag.html",
+            "punctuation.definition.tag.begin.html",
+            "punctuation.definition.tag.end.html",
+        ],
+        "settings": {"foreground": "#b75c5c"},
+    },
+    {"scope": ["entity.name.tag"], "settings": {"foreground": "#4B83CD"}},
+    {
+        "scope": [
+            "meta.tag entity.other.attribute-name",
+            "entity.other.attribute-name.html",
+        ],
+        "settings": {"foreground": "#d08e25", "fontStyle": "italic"},
+    },
+    {"scope": ["constant.character.entity", "punctuation.definition.entity"], "settings": {"foreground": "#AB6526"}},
+    {
+        "scope": [
+            "meta.selector",
+            "meta.selector entity",
+            "meta.selector entity punctuation",
+            "entity.name.tag.css",
+        ],
+        "settings": {"foreground": "#d08e25"},
+    },
+    {
+        "scope": [
+            "meta.property-value",
+            "meta.property-value constant.other",
+            "support.constant.property-value",
+        ],
+        "settings": {"foreground": "#448C27"},
+    },
+    {"scope": ["markup.changed"], "settings": {"foreground": "#8100c6"}},
+    {"scope": ["markup.deleted"], "settings": {"foreground": "#c16161"}},
+    {"scope": ["markup.italic"], "settings": {"foreground": "#0e72aa", "fontStyle": "italic"}},
+    {"scope": ["markup.error"], "settings": {"foreground": "#660000"}},
+    {"scope": ["markup.inserted"], "settings": {"foreground": "#000000"}},
+    {"scope": ["meta.link"], "settings": {"foreground": "#4B83CD"}},
+    {"scope": ["markup.output", "markup.raw"], "settings": {"foreground": "#777777"}},
+    {"scope": ["markup.prompt"], "settings": {"foreground": "#777777"}},
+    {"scope": ["markup entity.name.section"], "settings": {"foreground": "#2a120a", "fontStyle": "underline"}},
+    {"scope": ["markup.heading"], "settings": {"foreground": "#2a120a"}},
+    {"scope": ["markup.bold"], "settings": {"foreground": "#0a537b", "fontStyle": "bold"}},
+    {"scope": ["markup.traceback"], "settings": {"foreground": "#660000"}},
+    {"scope": ["markup.quote"], "settings": {"foreground": "#7e5121c4"}},
+    {"scope": ["markup.quote markup.bold"], "settings": {"foreground": "#7e5121c4"}},
+    {"scope": ["markup.list"], "settings": {"foreground": "#4B83CD"}},
+    {"scope": ["markup.inline.raw"], "settings": {"foreground": "#8f932b"}},
+    {"scope": ["punctuation.definition.bold.markdown"], "settings": {"foreground": "#0a537b93"}},
+    {"scope": ["punctuation.definition.italic.markdown"], "settings": {"foreground": "#0e71aa9d"}},
+    {"scope": ["string.other.link.title.markdown"], "settings": {"foreground": "#2b3f6a"}},
+    {
+        "scope": [
+            "support.function.text.markdown",
+            "string.other.link.description.markdown.citation",
+        ],
+        "settings": {"foreground": "#aa5c08"},
+    },
+    {"scope": ["meta.diff.range", "meta.diff.index", "meta.separator"], "settings": {"foreground": "#434343"}},
+    {"scope": ["meta.diff.header.from-file"], "settings": {"foreground": "#434343"}},
+    {"scope": ["meta.diff.header.to-file"], "settings": {"foreground": "#434343"}},
+    {"scope": ["invalid.deprecated.line-too-long.git-commit"], "settings": {"foreground": "#c16161"}},
+]
+
 # Presets מיוחדים לייצוא (בנוסף לאלו שבגלריה)
 #
 # מפתחות אופציונליים של ערכה, מעבר למשתנים:
 # - ``syntax_css``: הדגשת תחביר בלבד (כללי ``.highlight``).
+# - ``hljs_css``: הדגשת תחביר לקוד שמרונדר בדפדפן ב-highlight.js — רק בשלד של הייצוא מהעורך הציבורי
+#   (``render_editor_export_skeleton``). הכללים כתובים תחת ``EXPORT_HLJS_SELECTOR_PREFIX``.
 # - ``extra_css``: עיצוב ופריסה שנטענים רק כשהערכה נבחרה — צורה שמשתנים לא מבטאים
 #   (רדיוס, משקל גופן, קו במקום underline). ``export/styled_document.html`` עוטפת אותו
 #   ב-``@media screen``, כך שכללי ה-``@media print`` שלה חלים גם על ערכה שדורסת את
@@ -839,6 +1091,70 @@ hr {
 }
 """,
     },
+    # שתי הערכות של הייצוא מהעורך הציבורי (``webapp/markdown_editor.py``, ``EXPORT_THEME_IDS``). המשתנים הם רק
+    # אלה שהתבנית קוראת, בערכים שייבוא הקובץ כערכה (``parse_vscode_theme``) נותן להם; התראות וכפתור ההעתקה
+    # נשארים בברירות המחדל של התבנית.
+    "morass": {
+        "id": "morass",
+        "name": "morass",
+        "description": "כהה, ירוק-אפור, עם כותרות צהובות",
+        "category": "dark",
+        "variables": {
+            "--bg-primary": "#313a36",
+            "--bg-secondary": "#485650",
+            "--bg-tertiary": "#36403b",
+            "--text-primary": "#e4e3e1",
+            "--text-secondary": "#e4e3e1",
+            "--text-muted": "#6d6d6d",
+            "--primary": "#fdec5a",
+            "--primary-hover": "#6cb6ff",
+            "--border-color": "#607169",
+            "--shadow-color": "rgba(0, 0, 0, 0.4)",
+            "--success": "#4ec9b0",
+            "--warning": "#dcdcaa",
+            "--error": "#f44747",
+            # רקע הקוד אינו מהקובץ (שם ``#252c29``): התיאור של הקובץ ב-CodeKeeper קובע ``#0F0F23``.
+            "--code-bg": "#0F0F23",
+            "--code-text": "#e4e3e1",
+            "--code-border": "#474747",
+            "--link-color": "#569cd6",
+            "--card-bg": "#485650",
+        },
+        "syntax_css": generate_pygments_css_from_tokens(_MORASS_TOKEN_COLORS),
+        "hljs_css": generate_hljs_css_from_tokens(
+            _MORASS_TOKEN_COLORS, selector_prefix=EXPORT_HLJS_SELECTOR_PREFIX
+        ),
+    },
+    "pen-paper-coffee": {
+        "id": "pen-paper-coffee",
+        "name": "Pen Paper Coffee UI",
+        "description": "בהיר, בסגנון מחברת: נייר, עט וקפה",
+        "category": "light",
+        "variables": {
+            "--bg-primary": "#f8f6f1",
+            "--bg-secondary": "#ebe8df",
+            "--bg-tertiary": "#e0dad3",
+            "--text-primary": "#2b3f6a",
+            "--text-secondary": "#616161",
+            "--text-muted": "#9e9e9e",
+            "--primary": "#6e4e44",
+            "--primary-hover": "#6e4e44",
+            "--border-color": "#e0dad3",
+            "--shadow-color": "rgba(0, 0, 0, 0.1)",
+            "--success": "#8f932b",
+            "--warning": "#d08e25",
+            "--error": "#c16161",
+            "--code-bg": "#f3f3f3",
+            "--code-text": "#333333",
+            "--code-border": "#d4d4d4",
+            "--link-color": "#5e78e1",
+            "--card-bg": "#ebe8df",
+        },
+        "syntax_css": generate_pygments_css_from_tokens(_PEN_PAPER_COFFEE_TOKEN_COLORS),
+        "hljs_css": generate_hljs_css_from_tokens(
+            _PEN_PAPER_COFFEE_TOKEN_COLORS, selector_prefix=EXPORT_HLJS_SELECTOR_PREFIX
+        ),
+    },
 }
 
 
@@ -856,6 +1172,7 @@ def _theme_from_export_preset(preset_id: str) -> dict:
         "variables": preset["variables"],
         "syntax_css": preset.get("syntax_css", ""),
         "extra_css": preset.get("extra_css", ""),
+        "hljs_css": preset.get("hljs_css", ""),
     }
 
 
@@ -880,8 +1197,8 @@ def get_export_theme(
         vscode_json: תוכן JSON של ערכת VS Code (אופציונלי)
 
     Returns:
-        dict עם name, variables, ו-syntax_css (אופציונלי). ``extra_css`` מגיע
-        רק מ-Export Presets (ומה-fallback, שהוא אחד מהם).
+        dict עם name, variables, ו-syntax_css (אופציונלי). ``extra_css`` ו-``hljs_css``
+        מגיעים רק מ-Export Presets (ומה-fallback, שהוא אחד מהם).
     """
 
     # 1. VS Code JSON ישיר
@@ -1164,9 +1481,10 @@ COPY_CODE_SCRIPT = """
         button.setAttribute('aria-label', 'העתק קוד ללוח');
 
         button.addEventListener('click', function() {
-            // מציאת הקוד להעתקה
+            // מציאת הקוד להעתקה. textContent ולא innerText: innerText נגזר מהפריסה, ומוסיף שורה ריקה סביב כל
+            // אלמנט בלוק — וקטע קוד בתוך בלוק קוד בעברית עטוף באחד כזה (rtl-code-ltr)
             var codeEl = codeBlock.querySelector('code');
-            var textToCopy = codeEl ? codeEl.innerText : codeBlock.innerText;
+            var textToCopy = codeEl ? codeEl.textContent : codeBlock.textContent;
 
             // ניקוי רווחים מיותרים בסוף
             textToCopy = textToCopy.trim();
@@ -1234,6 +1552,74 @@ def get_copy_script_csp_hash() -> str:
 # מקור CSP מוכן לשימוש (למשל: "sha256-...."), מחושב פעם אחת בטעינת המודול.
 COPY_CODE_SCRIPT_CSP_HASH = get_copy_script_csp_hash()
 
+#: ה-hash של גרסאות קודמות של ``COPY_CODE_SCRIPT``. קישור שיתוף מעוצב (``/shared/styled/<token>``) שומר את ה-HTML
+#: כמו שנוצר, כולל הסקריפט של אז, וה-CSP שלו נבנה בכל בקשה מהרשימה הזו ומה-hash הנוכחי. בלי ה-hash הקודם, כל שינוי
+#: בסקריפט היה חוסם את כפתור ההעתקה בכל קישור שכבר נוצר — וחלקם קבועים, בלי תוקף. לכן גרסה לא יוצאת מכאן.
+PREVIOUS_COPY_CODE_SCRIPT_CSP_HASHES: tuple[str, ...] = (
+    # עד נובמבר 2026: הסקריפט העתיק ב-innerText
+    "sha256-0Wt1VA+WQC23yWC5IwGNSWIqC1UxKDvG1BMM0E4jf1I=",
+)
+
+
+def styled_share_csp() -> str:
+    """ה-CSP של עמוד השיתוף המעוצב: רק סקריפט ההעתקה, בגרסה הנוכחית ובכל גרסה קודמת שנשמרה בקישור."""
+    hashes = (COPY_CODE_SCRIPT_CSP_HASH, *PREVIOUS_COPY_CODE_SCRIPT_CSP_HASHES)
+    return "script-src " + " ".join(f"'{h}'" for h in hashes)
+
+
+# ============================================
+# 📝 השלד של הייצוא מהעורך הציבורי
+# ============================================
+# בעורך הציבורי (``/markdown-editor``) הטקסט לא נשלח לשרת, וגם לא בייצוא: השרת מגיש "שלד" — העמוד המעוצב
+# של הערכה, עם הסמן הזה במקום התוכן — והדפדפן מרנדר את המסמך ומכניס אותו במקום הסמן
+# (``webapp/static/js/markdown-editor-export.js``). הנתיב: ``markdown_editor_export_skeleton`` ב-``webapp/app.py``.
+
+#: מה שבא במקום התוכן בשלד: הערת HTML עם הטקסט הזה. הדפדפן מחפש את ההערה (העמוד מקבל את הטקסט מהראוט)
+#: ומחליף אותה במסמך.
+EDITOR_EXPORT_CONTENT_MARKER_TEXT = "ck-editor-export-content"
+EDITOR_EXPORT_CONTENT_MARKER = f"<!--{EDITOR_EXPORT_CONTENT_MARKER_TEXT}-->"
+
+#: הכיתוב בתחתית הקובץ. בלי באנר עליון ובלי "Bot": לקובץ אין שם, וזה מסמך של הגולש ולא פרסומת.
+EDITOR_EXPORT_FOOTER = 'נוצר אוטומטית ע"י Code Keeper'
+
+#: הכותרת של השלד, עד שהדפדפן מחליף אותה בכותרת של המסמך.
+EDITOR_EXPORT_DEFAULT_TITLE = "מסמך"
+
+
+def editor_export_meta_csp() -> str:
+    """ה-CSP שבתוך הקובץ שיוצא מהעורך הציבורי (``<meta http-equiv>``).
+
+    הקובץ נפתח אצל הגולש מהדיסק, בלי שום כותרת מהשרת, ולכן המדיניות כתובה בו. היא מתירה רק את סקריפט
+    ההעתקה, לפי ה-hash שלו. נמדד ב-Chromium על קובץ שנפתח מהדיסק: עם התגית סקריפט אחר ו-``onerror`` לא רצו,
+    ובלעדיה רצו. ``object-src`` ו-``base-uri`` חסומים כי במסמך אין ולא אמורים להיות ``<object>`` או ``<base>``;
+    אם יידרשו, ההיתר נכתב כאן.
+    """
+    return f"script-src '{COPY_CODE_SCRIPT_CSP_HASH}'; object-src 'none'; base-uri 'none'"
+
+
+def _admonition_groups() -> dict[str, list[str]]:
+    """קבוצת צבע ← סוגי ההתראות שבה, לפי ``ADMONITION_TYPES`` (בסדר שלה)."""
+    groups: dict[str, list[str]] = {}
+    for kind, admonition in ADMONITION_TYPES.items():
+        groups.setdefault(admonition.css_class, []).append(kind)
+    return groups
+
+
+def render_editor_export_skeleton(theme: dict, katex_css: str = "") -> str:
+    """השלד של הייצוא מהעורך הציבורי: העמוד המעוצב של ``theme``, עם ``EDITOR_EXPORT_CONTENT_MARKER`` במקום התוכן.
+
+    שום קלט של הגולש לא מגיע לכאן — רק ערכה מתוך רשימה סגורה (``EXPORT_THEME_IDS`` ב-``webapp/markdown_editor.py``)
+    ו-``katex_css``, שהשרת קורא מהבאנדל של התצוגה כשבמסמך יש נוסחה.
+    """
+    return render_styled_html(
+        content_html=EDITOR_EXPORT_CONTENT_MARKER,
+        title=EDITOR_EXPORT_DEFAULT_TITLE,
+        theme=theme,
+        footer_text=EDITOR_EXPORT_FOOTER,
+        editor_export=True,
+        katex_css=katex_css,
+    )
+
 
 def render_styled_html(
     content_html: str,
@@ -1241,6 +1627,9 @@ def render_styled_html(
     theme: dict,
     toc_html: str = "",
     footer_text: str = 'נוצר אוטומטית ע"י Code Keeper Bot',
+    *,
+    editor_export: bool = False,
+    katex_css: str = "",
 ) -> str:
     """
     מרנדר HTML מעוצב מלא.
@@ -1252,6 +1641,10 @@ def render_styled_html(
             אופציונלי — ראו ``EXPORT_PRESETS``)
         toc_html: HTML של תוכן עניינים (אופציונלי)
         footer_text: טקסט בתחתית המסמך
+        editor_export: השלד של הייצוא מהעורך הציבורי (``render_editor_export_skeleton``): בלי באנר עליון,
+            עם העיצוב של markdown-it, הדגשת highlight.js (``hljs_css`` של הערכה) ו-CSP בתוך הקובץ, ובלי
+            כללי Pygments — הקוד שם מסומן ב-highlight.js.
+        katex_css: ה-CSS של KaTeX, עם הגופנים, כשבמסמך יש נוסחה. רק עם ``editor_export``.
 
     Returns:
         HTML מלא מוכן להורדה
@@ -1289,6 +1682,18 @@ def render_styled_html(
     # ובכל זאת הוא עובר אותה סניטציה כמו syntax_css לפני שהוא נכנס לבלוק <style>
     extra_css = sanitize_css(theme.get("extra_css", ""))
 
+    editor_export_context: dict = {}
+    if editor_export:
+        editor_export_context = {
+            "editor_export": True,
+            "meta_csp": editor_export_meta_csp(),
+            "admonition_groups": _admonition_groups(),
+            "hljs_css": sanitize_css(theme.get("hljs_css", "")),
+            "katex_css": sanitize_css(katex_css),
+        }
+        # הקוד בשלד מסומן ב-highlight.js, ולכללי Pygments אין שם על מה לחול
+        syntax_css = ""
+
     # ייבוא מאוחר כדי לאפשר שימוש בפונקציות אחרות גם בלי Flask (למשל בטסטים)
     from flask import render_template
 
@@ -1303,5 +1708,6 @@ def render_styled_html(
         toc_html=toc_html,
         footer_text=footer_text,
         copy_script=COPY_CODE_SCRIPT,
+        **editor_export_context,
     )
 

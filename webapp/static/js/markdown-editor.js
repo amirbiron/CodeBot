@@ -19,13 +19,12 @@
   'use strict';
 
   const {
-    waitFor, debounce, formatTime, getEditorContent, setEditorContent, storageAvailable,
+    waitFor, debounce, formatTime, getEditorContent, setEditorContent, storageAvailable, downloadBlob,
   } = window.EditorPageUtils;
 
   const STORAGE_KEY = 'markdownEditorDraft.v1';
   const DOWNLOAD_NAME = 'document.md';
   const SAVE_DELAY_MS = 800;
-  const REVOKE_DELAY_MS = 40000;
 
   const textarea = document.getElementById('codeTextarea');
   const container = document.getElementById('editorContainer');
@@ -131,17 +130,7 @@
   }
 
   function downloadText() {
-    const blob = new Blob([getEditorContent(textarea)], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = DOWNLOAD_NAME;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    // משחררים את הכתובת אחרי 40 שניות, כמו FileSaver.js, ולא מיד אחרי click(): כך ההורדה לא
-    // תלויה ברגע המדויק שבו הדפדפן קורא את הכתובת. עד אז נשאר בזיכרון Blob בגודל הטקסט.
-    setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
+    downloadBlob(new Blob([getEditorContent(textarea)], { type: 'text/markdown;charset=utf-8' }), DOWNLOAD_NAME);
   }
 
   const actions = { download: downloadText, clear: clearText, 'load-demo': loadDemo };

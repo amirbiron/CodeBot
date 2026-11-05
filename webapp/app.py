@@ -268,6 +268,11 @@ from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 from webapp import first_steps  # noqa: E402
 from webapp.gallery import GALLERY_SLIDES, share_image as gallery_share_image  # noqa: E402
 from webapp.markdown_editor import THEME_ID as MARKDOWN_EDITOR_THEME_ID, demo_text as markdown_editor_demo_text  # noqa: E402
+from webapp.markdown_editor import (  # noqa: E402
+    EXPORT_THEME_IDS as MARKDOWN_EDITOR_EXPORT_THEME_IDS,
+    export_themes as markdown_editor_export_themes,
+    katex_inline_css as markdown_editor_katex_css,
+)
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
 from services.db_health_service import (  # noqa: E402
@@ -288,10 +293,13 @@ from services.query_profiler_service import (  # noqa: E402
 from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
     COPY_CODE_SCRIPT_CSP_HASH,
+    EDITOR_EXPORT_CONTENT_MARKER_TEXT,
     get_export_theme,
     list_export_presets,
     markdown_to_html,
+    render_editor_export_skeleton,
     render_styled_html,
+    styled_share_csp,
 )
 from services.theme_parser_service import parse_vscode_theme, validate_theme_json  # noqa: E402
 
@@ -11919,8 +11927,60 @@ def markdown_editor():
         'markdown_editor.html',
         demo_text=markdown_editor_demo_text(),
         base_url=_webapp_base_url(),
+        export_themes=markdown_editor_export_themes(),
+        export_content_marker=EDITOR_EXPORT_CONTENT_MARKER_TEXT,
         **theme_context,
     )
+
+
+#: ה-CSP של השלד, כשנכנסים לכתובת שלו ישירות (העמוד עצמו קורא אותו ב-``fetch`` כטקסט, ושם CSP לא חל). מחמיר
+#: מהמדיניות הגורפת של העמודים (``_add_default_csp``, שלא דורסת כותרת קיימת): השלד הוא עמוד סטטי שמריץ רק את סקריפט
+#: ההעתקה, לפי ה-hash שלו. אין בו טפסים, תמונות מבחוץ או תוספים; אם יידרשו — ההיתר נכתב כאן.
+_MARKDOWN_EDITOR_SKELETON_CSP = (
+    "default-src 'none'; "
+    f"script-src '{COPY_CODE_SCRIPT_CSP_HASH}'; "
+    "style-src 'unsafe-inline'; "
+    "font-src data:; "
+    "img-src data:; "
+    "base-uri 'none'; "
+    "form-action 'none'; "
+    "frame-ancestors 'self'"
+)
+
+
+@lru_cache(maxsize=2 * len(MARKDOWN_EDITOR_EXPORT_THEME_IDS))
+def _markdown_editor_export_skeleton_html(theme_id: str, include_math: bool) -> str:
+    """השלד של ערכה אחת, עם KaTeX או בלעדיו. נשמר בזיכרון של התהליך: הוא נגזר רק מקוד (``EXPORT_PRESETS``,
+    התבנית והבאנדל של התצוגה), ולכן משתנה רק בדיפלוי. חריגה (למשל ``katex_inline_css``) אינה נשמרת."""
+    return render_editor_export_skeleton(
+        get_export_theme(theme_id),
+        katex_css=markdown_editor_katex_css() if include_math else "",
+    )
+
+
+@app.route('/api/markdown-editor/export-skeleton/<theme_id>', methods=['GET'])
+def markdown_editor_export_skeleton(theme_id: str):
+    """השלד של הייצוא ל-HTML מעוצב מהעורך הציבורי: העמוד המעוצב של הערכה, בלי תוכן ובלי שום קלט של הגולש.
+
+    ציבורי, בלי התחברות. הדפדפן מרנדר את המסמך ומכניס אותו לשלד, כך שהטקסט לא נשלח לשרת. ``theme_id`` מתוך
+    רשימה סגורה (``EXPORT_THEME_IDS`` ב-``webapp/markdown_editor.py``), ו-``math`` הוא ``1`` או חסר — כל ערך אחר
+    מקבל 404. ``math=1`` מוסיף את ה-CSS והגופנים של KaTeX, כדי שמסמך בלי נוסחה יישאר קטן.
+
+    **קאש:** הכתובת קבועה, אז ``no-cache`` עם ``ETag`` — הדפדפן שומר עותק ובודק מול השרת בכל ייצוא, ומקבל 304
+    כשלא השתנה (``stale-asset-cache-policy``). מגבלת הקצב היא הגורפת: זו פעולה, לא עמוד שסורקים נכנסים אליו.
+    התיעוד: ``docs/webapp/markdown-editor.rst``.
+    """
+    if theme_id not in MARKDOWN_EDITOR_EXPORT_THEME_IDS:
+        abort(404)
+    math = request.args.get('math')
+    if math not in (None, '1'):
+        abort(404)
+    response = make_response(_markdown_editor_export_skeleton_html(theme_id, math == '1'))
+    response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    response.headers['Content-Security-Policy'] = _MARKDOWN_EDITOR_SKELETON_CSP
+    response.headers['Cache-Control'] = 'no-cache'
+    response.add_etag()
+    return response.make_conditional(request)
 
 
 #: הדפים הציבוריים שמופיעים ב-``sitemap.xml``, לפי שם ה-endpoint.
@@ -21906,7 +21966,8 @@ def public_shared_styled(token: str):
     # וחוסמים כל סקריפט אחר. תוכן המשתמש כבר עובר sanitization (bleach + הסרת
     # <script>) בעת יצירת ה-HTML, כך שהסקריפט היחיד שמותר הוא שלנו. כך כפתור
     # ההעתקה בבלוקי הקוד עובד גם בקישור הזמני/הקבוע, בלי לפתוח פרצת XSS.
-    response.headers['Content-Security-Policy'] = f"script-src '{COPY_CODE_SCRIPT_CSP_HASH}'"
+    # ה-HTML נשמר כמו שנוצר, עם הסקריפט של אז — ולכן גם ה-hash של גרסאות קודמות שלו.
+    response.headers['Content-Security-Policy'] = styled_share_csp()
     return response
 
 
