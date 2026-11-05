@@ -30,6 +30,11 @@ on:
         options:
           - 'true'
           - 'false'
+      telegram_test:
+        description: 'Send a test message through the Telegram alert of the sections export'
+        required: false
+        default: false
+        type: boolean
 
 env:
   PYTHON_VERSION: '3.11'
@@ -329,6 +334,31 @@ jobs:
             head -100 _build/linkcheck/output.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
+
+  # ההתראה על ייצוא שנכשל רצה רק בדחיפה ל-main כשהייצוא נכשל, ולכן אין דרך אחרת לראות שהיא מגיעה.
+  # הג'וב שולח דרך אותה פעולה ועם אותם סודות כמו "📨 Alert Telegram about a failed sections export",
+  # ובלי continue-on-error: שליחה שנכשלה (סוד ריק, טוקן שנדחה) צובעת את הריצה באדום.
+  telegram-alert-test:
+    name: 📨 Test the Telegram alert
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.telegram_test }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: 📨 Send a test message
+        uses: ./.github/actions/telegram-message
+        with:
+          bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            🧪 הודעת בדיקה של ההתראה על ייצוא הסעיפים של אתר התיעוד. אם היא הגיעה, גם ההתראה האמיתית תגיע לכאן.
+            ${{ github.repository }} @ ${{ github.ref_name }}
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   notify-failure:
     name: 📢 Notify on Failure
