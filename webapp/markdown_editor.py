@@ -31,7 +31,7 @@ THEME_ID = "everforest_dark"
 DEMO_PATH = Path(__file__).with_name("markdown_editor_demo.md")
 
 #: הערכות שאפשר לייצא בהן מהעורך, לפי הסדר שבו הן מוצגות. כל ערך אחר בנתיב השלד מקבל 404.
-EXPORT_THEME_IDS: tuple[str, ...] = ("morass", "pen-paper-coffee")
+EXPORT_THEME_IDS: tuple[str, ...] = ("morass", "pen-paper-coffee", "everforest-dark")
 
 #: ה-CSS של התצוגה, שבתוכו ה-CSS של KaTeX. esbuild (``webapp/static_build/build-md-preview.mjs``) כותב לפני כל
 #: קובץ מקור הערה עם הנתיב שלו, והקטע של KaTeX הוא מההערה שלו ועד ההערה של הקובץ הבא.
