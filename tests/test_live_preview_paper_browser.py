@@ -22,7 +22,8 @@
 **מה נבדק.** לכל ערכה: הנייר — הרקע והטקסט של אזור התצוגה כולו שווים לאלה של ``#md-content``
 בתצוגת המסמך; הצבעים והפריסה של האלמנטים ש-markdown-it מייצר, ושל בלוק הקוד, שווים בין שתי התצוגות;
 קוד בשורה בתוך טבלה נשאר בשורה אחת; שאין תווית ``data-theme`` על המכל; ושמה שקיים רק בתצוגה החיה —
-שורת המידע — קריא, וגם כפתור ההעתקה.
+הודעת השגיאה מתחת לתצוגה — קריא, וגם כפתור ההעתקה. (עד נובמבר 2026 נבדקה כאן שורת המידע — שפה, גודל, זמן;
+מאז היא מוסתרת בכל עמודי העורך, והסטטוס מוצג רק בשגיאה — ``split-view.css``.)
 
 **איך נבנית תצוגת המסמך (T1).** מאותו מפל שהשרת מרכיב: ה-``<head>`` של ``base.html``, ובמקום
 ``extra_css`` הבלוק של ``md_preview.html`` (``build_head`` של ``test_live_preview_blockquote_browser``).
@@ -202,7 +203,7 @@ LIVE_JS = (
     mode: box.dataset.mode || null,
     boxBg: s.backgroundColor,
     boxColor: s.color,
-    metaColor: getComputedStyle(document.querySelector('[data-preview-meta]')).color,
+    statusColor: getComputedStyle(document.querySelector('[data-preview-status]')).color,
     copyColor: btn ? getComputedStyle(btn).color : null,
     copyBg: btn ? getComputedStyle(btn).backgroundColor : null,
     headerBg: header ? getComputedStyle(header).backgroundColor : null,
@@ -345,11 +346,12 @@ def test_the_preview_does_not_borrow_the_page_theme_label(measured, name):
 
 @pytest.mark.parametrize("name", list(THEMES))
 def test_what_only_the_preview_shows_is_readable(measured, name):
-    """שורת המידע (טקסט קטן — 4.5) ואייקון כפתור ההעתקה (רכיב — 3, WCAG 1.4.11) על הנייר."""
+    """הודעת השגיאה מתחת לתצוגה (טקסט — 4.5) ואייקון כפתור ההעתקה (רכיב — 3, WCAG 1.4.11) על הנייר. הצבע של
+    הסטטוס לא תלוי במצב שלו, ולכן הוא נמדד כמו שהוא; בשגיאה הוא השורה היחידה שמוצגת מתחת לתצוגה."""
     live = measured[name]["live"]
     paper = _over(live["boxBg"], [1.0, 1.0, 1.0])
-    meta = _contrast(_over(live["metaColor"], paper), paper)
-    assert meta >= 4.5, f"{name}: שורת המידע בניגודיות {meta:.2f}"
+    status = _contrast(_over(live["statusColor"], paper), paper)
+    assert status >= 4.5, f"{name}: הודעת השגיאה בניגודיות {status:.2f}"
 
     # הכפתור בפס הכותרת: הרקע שלו מעל הפס, והפס מעל המסגרת של הבלוק.
     shell = _over(live["shellBg"], paper)

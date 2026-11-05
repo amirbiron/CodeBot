@@ -568,6 +568,16 @@ html[dir="rtl"] .split-preview-content:not([data-mode="markdown"]) pre.rtl-code 
   padding: 0 var(--split-preview-pad) var(--split-preview-pad);
 }
 
+/* שורת המידע (שפה, גודל, זמן) וסטטוס "התצוגה מעודכנת" הם רעש מתחת לתצוגה, בכל עמודי העורך — העורך הציבורי, העריכה
+   וההעלאה. הסטטוס מוצג רק בשגיאה: כשהרינדור נכשל, התצוגה ממשיכה להציג את הרינדור הקודם, ובלי ההודעה הוא היה נראה
+   תקין. שאר הסטטוסים כבר נראים במקום אחר — "טוען תצוגה חיה..." בשכבה מעל התצוגה (``.is-loading``), ו"אין תוכן
+   להצגה." בתוך התצוגה. עד נובמבר 2026 הכלל ישב רק בעורך הציבורי (בבלוק ה-``<style>`` של ``markdown_editor.html``).
+   מכל התצוגה כולו aria-live, ולכן גם הסטטוס שמופיע מוכרז. */
+.split-preview-meta,
+.split-preview-status:not([data-state="error"]) {
+  display: none;
+}
+
 .split-view[data-active-panel="preview"] .split-panel--editor {
   display: none;
 }
