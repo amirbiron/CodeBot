@@ -83,7 +83,8 @@ _GUEST_ADDRESSES = itertools.count(1)
 def guest_client(wa):
     """client חדש, בלי session — כמו גולש שהגיע מחיפוש — עם כתובת IP משלו.
 
-    הנתיב כפוף למגבלת הקצב הגורפת (50 בשעה), והמגביל סופר לפי ``X-Forwarded-For`` (``_client_rate_key``). בתהליך
+    הנתיב כפוף למגבלת הקצב הגורפת (``default_limits`` של ה-``Limiter`` ב-``webapp/app.py``), והמגביל סופר לפי
+    ``X-Forwarded-For`` (``_client_rate_key``). בתהליך
     הבדיקה האחסון שלו בזיכרון ומשותף לכל הטסטים, ולכן בלי כתובת לכל client הטסטים היו נחסמים זה בגלל זה — לפי
     הסדר שבו רצו (TESTING-PATTERNS T3). כתובת חדשה במקום איפוס של המגביל: הטסט לא נוגע במצב של אחרים.
     """

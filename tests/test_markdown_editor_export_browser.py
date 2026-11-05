@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import itertools
 import json
-from urllib.parse import urlsplit
+from urllib.parse import unquote_plus, urlsplit
 
 import pytest
 
@@ -344,7 +344,10 @@ def test_exporting_sends_nothing_of_the_text(session, tmp_path, mode):
     assert api, "בקרה: הייצוא לא שלח אפילו את בקשת השלד"
     assert all(target.startswith("/api/markdown-editor/export-skeleton/") for target in api), api
     assert all(method == "GET" for method, _t, _b in during), during
-    assert not any(SECRET_WORD in target or SECRET_WORD.encode() in body for _m, target, body in during)
+    # הכתובת מפוענחת לפני החיפוש: בכתובת שנשלחה עברית מקודדת באחוזים, והמילה כמו שהיא לא הייתה נמצאת בה
+    assert not any(
+        SECRET_WORD in unquote_plus(target) or SECRET_WORD.encode() in body for _m, target, body in during
+    ), during
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +452,8 @@ def test_preview_opens_the_file_in_a_new_tab_with_the_document_title(session):
 
 def test_the_copy_button_copies_a_hebrew_block_without_added_lines(session):
     """הטקסט שסקריפט ההעתקה שולח ללוח. הלוח עצמו מוחלף ברשם: העמוד מוגש ב-http, שאינו הקשר מאובטח, ושם
-    ``navigator.clipboard`` לא קיים. מה שנבדק הוא ההחלטה של הסקריפט איזה טקסט להעתיק — היא אמיתית."""
+    ``navigator.clipboard`` לא קיים (נמדד ב-Chromium 153: ``isSecureContext`` שקר, ו-``navigator.clipboard`` הוא
+    ``undefined``). מה שנבדק הוא ההחלטה של הסקריפט איזה טקסט להעתיק — היא אמיתית."""
     s = session(draft=HEBREW_BLOCK_DOC)
     s.choose("pen-paper-coffee")
     with s.ctx.expect_page(timeout=60000) as info:
@@ -484,7 +488,7 @@ def test_two_exports_at_once_keep_their_mermaid_theme_and_their_own_ids(session)
             window.MarkdownLiveRenderer.renderForExport(text, { mermaidTheme: 'dark' }),
           ]);
           document.body.append(light, dark);
-          // מלבן אחד לכל צומת: ב-Mermaid 11 יש בצומת שני מלבנים, והצבע של הצומת הוא של ``label-container``
+          // מלבן אחד לכל צומת: ב-Mermaid 11.12.0 (הבאנדל) יש בצומת שני מלבנים, והצבע של הצומת הוא של ``label-container``
           const fills = (box) => [...box.querySelectorAll('.node rect.label-container')].map((n) => getComputedStyle(n).fill);
           const ids = [...light.querySelectorAll('svg'), ...dark.querySelectorAll('svg')].map((v) => v.id);
           const out = { light: fills(light), dark: fills(dark), ids };
