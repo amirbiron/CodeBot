@@ -176,9 +176,11 @@ def browser(chromium_executable):
 class Session:
     """הקשר דפדפן אחד מול העמוד: הבקשות שנשלחו (עם הגוף), השגיאות, והדף."""
 
-    def __init__(self, browser, *, draft=None):
+    def __init__(self, browser, *, draft=None, skeleton_status=None):
         b, app = browser
         self.browser = b
+        # קוד תשובה שנכפה על בקשת השלד — כדי לבדוק ייצוא שנכשל
+        self.skeleton_status = skeleton_status
         self.requests: list[tuple[str, str, bytes]] = []
         self.errors: list[str] = []
         self.dialogs: list[str] = []
@@ -195,6 +197,8 @@ class Session:
                 return route.abort()
             target = u.path + (f"?{u.query}" if u.query else "")
             self.requests.append((request.method, target, request.post_data_buffer or b""))
+            if self.skeleton_status and u.path.startswith("/api/markdown-editor/export-skeleton/"):
+                return route.fulfill(status=self.skeleton_status, body="", headers={"Content-Type": "text/plain"})
             headers = {"Content-Type": request.headers.get("content-type", "")}
             if request.headers.get("if-none-match"):
                 headers["If-None-Match"] = request.headers["if-none-match"]
@@ -474,8 +478,84 @@ def test_the_copy_button_copies_a_hebrew_block_without_added_lines(session):
 
 
 # ---------------------------------------------------------------------------
+# ייצוא שנכשל
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status, message", [(429, "יותר מדי ייצואים"), (500, "הייצוא נכשל")])
+@pytest.mark.parametrize("mode", ["download", "preview"])
+def test_a_failed_export_tells_the_visitor_and_frees_the_buttons(session, status, message, mode):
+    s = session(skeleton_status=status)
+    s.choose("pen-paper-coffee")
+    downloads: list = []
+    s.page.on("download", lambda d: downloads.append(d))
+    if mode == "preview":
+        with s.ctx.expect_page(timeout=60000) as info:
+            s.page.click("[data-md-editor-export-action=preview]")
+        # הטאב שנפתח בלחיצה נסגר, ולא נשאר ריק
+        info.value.wait_for_event("close", timeout=60000)
+    else:
+        s.page.click("[data-md-editor-export-action=download]")
+    s.page.wait_for_function(
+        "document.querySelector('[data-md-editor-status]').textContent.trim().length > 0"
+        " && !document.querySelector('[data-md-editor-export-action=download]').disabled",
+        timeout=60000,
+    )
+
+    assert message in s.page.inner_text("[data-md-editor-status]")
+    assert s.page.get_attribute("[data-md-editor-export]", "aria-busy") == "false"
+    assert s.page.evaluate("document.querySelector('[data-md-editor-export-action=preview]').disabled") is False
+    assert downloads == []
+    # בקרה: בקשת השלד באמת נשלחה ונכשלה, ולא הייצוא נעצר לפניה
+    assert any("export-skeleton" in target for _m, target, _b in s.requests)
+
+
+# ---------------------------------------------------------------------------
+# עוגן מפורש, כשהתצוגה החיה כבר מחזיקה אותו
+# ---------------------------------------------------------------------------
+
+ANCHOR_DOC = '# עוגנים\n\n[קפוץ לסעיף](#my-anchor)\n\n## סעיף עם עוגן <a id="my-anchor"></a>\n\nטקסט.\n'
+
+
+def test_an_explicit_anchor_reaches_the_file_while_the_live_preview_shows_it(browser, session, tmp_path):
+    """התצוגה החיה, שבאותו עמוד, כבר מחזיקה את העוגן — והוא עדיין חייב להגיע לקובץ."""
+    s = session(draft=ANCHOR_DOC)
+    # בקרה: התצוגה החיה מחזיקה את המזהה — המצב שבו בדיקה מול כל העמוד הייתה מוותרת עליו
+    assert s.page.evaluate("!!document.querySelector('[data-preview-canvas] #my-anchor')")
+
+    _download, path = s.download("morass", tmp_path)
+    ctx, page, _attempts, _dialogs = open_file(browser, path)
+    try:
+        r = page.evaluate(
+            """() => ({ anchors: document.querySelectorAll('main.container #my-anchor').length,
+                        linkTarget: !!document.getElementById(decodeURIComponent(
+                          document.querySelector('main.container a[href^="#"]').getAttribute('href').slice(1))) })"""
+        )
+    finally:
+        ctx.close()
+    assert r == {"anchors": 1, "linkTarget": True}, r
+
+
+# ---------------------------------------------------------------------------
 # שני רינדורים במקביל
 # ---------------------------------------------------------------------------
+
+
+def test_a_replaced_render_stops_drawing_its_diagrams(session):
+    """``isCurrent`` שחוזר שקר — רינדור שרינדור חדש החליף — לא מצייר תרשימים, ולא מעכב את הבאים בתור."""
+    s = session()
+    r = s.page.evaluate(
+        """async () => {
+          const html = '<pre><code class="language-mermaid">graph TD\\n  A --> B</code></pre>';
+          const stale = document.createElement('div'); stale.innerHTML = html;
+          const current = document.createElement('div'); current.innerHTML = html;
+          await window.MarkdownLiveRenderer.enhance(stale, [], { isCurrent: () => false });
+          await window.MarkdownLiveRenderer.enhance(current, [], { isCurrent: () => true });
+          return { stale: stale.querySelectorAll('svg').length, staleCode: stale.querySelectorAll('code.language-mermaid').length,
+                   current: current.querySelectorAll('.mermaid-diagram svg').length };
+        }"""
+    )
+    assert r == {"stale": 0, "staleCode": 1, "current": 1}, r
 
 
 def test_two_exports_at_once_keep_their_mermaid_theme_and_their_own_ids(session):

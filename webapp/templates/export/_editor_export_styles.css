@@ -1,6 +1,6 @@
 {#-
   העיצוב של הסימון ש-markdown-it מייצר, בקובץ HTML מעוצב שיוצא מהעורך הציבורי (``/markdown-editor``).
-  נכלל רק מ-``export/styled_document.html`` כש-``editor_export`` דלוק (``render_styled_html``), ולכן הייצוא של
+  נכלל רק מ-``export/styled_document.html`` כש-``editor_export`` דלוק (``render_editor_export_skeleton``), ולכן הייצוא של
   המחוברים — Python-Markdown, עם ``.alert`` ו-``.highlight`` — לא מושפע ממנו.
 
   הסימון עצמו נבנה בדפדפן, באותו מנוע כמו התצוגה החיה (``live-preview.js``, הווריאנט ``export``), ושם הוא

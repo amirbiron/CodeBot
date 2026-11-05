@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const { getEditorContent, downloadBlob, DOWNLOAD_REVOKE_DELAY_MS } = window.EditorPageUtils;
+  const { getEditorContent, downloadBlob } = window.EditorPageUtils;
 
   const DOWNLOAD_NAME = 'document.html';
   // השם כשאין במסמך כותרת
@@ -55,14 +55,19 @@
     return panel.querySelector('input[name="mdEditorExportTheme"]:checked');
   }
 
-  // ``AbortSignal.timeout`` כשהדפדפן מכיר אותו; אחרת אותה תקרה מ-``AbortController`` — לפי יכולת, לא אחרי כשל.
+  // ``AbortSignal.timeout`` כשהדפדפן מכיר אותו; אחרת אותה תקרה מ-``AbortController``; ובדפדפן שאין בו אף אחד מהם —
+  // בלי סיגנל, והבקשה נשלחת בלי תקרה. לפי יכולת, לא אחרי כשל. אותו מבנה כמו ``requestDeadline`` ב-``card-preview.js``
+  // (ושם ההסבר למה הוא לא אוחד לקובץ משותף).
   function timeoutSignal(ms) {
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
       return AbortSignal.timeout(ms);
     }
-    const controller = new AbortController();
-    setTimeout(() => controller.abort(), ms);
-    return controller.signal;
+    if (typeof AbortController === 'function') {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), ms);
+      return controller.signal;
+    }
+    return undefined;
   }
 
   async function fetchSkeleton(url, withMath) {
@@ -144,9 +149,9 @@
       const html = await buildDocument(themeInput);
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
       if (previewWindow) {
-        const url = URL.createObjectURL(blob);
-        previewWindow.location.href = url;
-        setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_REVOKE_DELAY_MS);
+        // הכתובת לא משתחררת: רענון של הטאב טוען אותה שוב, וכתובת ששוחררה הייתה מחזירה שגיאה. הדפדפן משחרר
+        // אותה כשהעמוד הזה נסגר.
+        previewWindow.location.href = URL.createObjectURL(blob);
       } else {
         downloadBlob(blob, DOWNLOAD_NAME);
       }

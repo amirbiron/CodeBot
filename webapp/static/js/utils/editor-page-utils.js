@@ -139,7 +139,6 @@
       setEditorContent,
       storageAvailable,
       downloadBlob,
-      DOWNLOAD_REVOKE_DELAY_MS,
     });
   }
 })();

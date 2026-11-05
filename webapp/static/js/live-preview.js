@@ -443,7 +443,9 @@
     let mermaidPassCount = 0;
 
     // ``mermaidTheme`` — ערכה מפורשת (הייצוא, לפי ערכת הקובץ); בלעדיה — לפי העמוד.
-    function renderMermaid(root, mermaidTheme) {
+    // ``isCurrent`` — האם הרינדור עדיין רלוונטי. התצוגה החיה מעבירה אותו: רינדור שרינדור חדש כבר החליף לא מצייר את
+    // התרשימים שנשארו לו, וכך לא מעכב בתור את הרינדור החדש, ואת הייצוא, בעבודה שאיש לא יראה.
+    function renderMermaid(root, mermaidTheme, isCurrent) {
       if (!root || typeof window === 'undefined' || typeof window.mermaid === 'undefined') {
         return Promise.resolve();
       }
@@ -451,13 +453,15 @@
       if (!blocks.length) {
         return Promise.resolve();
       }
-      const run = mermaidQueue.then(() => renderMermaidBlocks(blocks, mermaidTheme || pageMermaidTheme()));
+      const stillCurrent = typeof isCurrent === 'function' ? isCurrent : () => true;
+      const run = mermaidQueue.then(() => renderMermaidBlocks(blocks, mermaidTheme || pageMermaidTheme(), stillCurrent));
       // התור ממשיך גם אחרי רינדור שנכשל: הכשל עצמו חוזר לקורא דרך ``run``, ורק השרשרת לא נעצרת בגללו.
       mermaidQueue = run.catch(() => {});
       return run;
     }
 
-    async function renderMermaidBlocks(blocks, mermaidTheme) {
+    async function renderMermaidBlocks(blocks, mermaidTheme, isCurrent) {
+      if (!isCurrent()) return;
       try {
         window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: mermaidTheme });
       } catch (err) {
@@ -467,6 +471,7 @@
       const pass = mermaidPassCount;
       let counter = 0;
       for (const block of blocks) {
+        if (!isCurrent()) return;
         const code = block.textContent || '';
         const parent = block.closest('pre') || block.parentElement;
         const wrapper = document.createElement('div');
@@ -498,7 +503,8 @@
     // והעיצוב של הכפתור הקטן שלהם ב-``markdown-preview.css``. הבנייה אחרי ה-Mermaid, כמו בתצוגת המסמך:
     // בלוק ```mermaid כבר הוחלף בתרשים ולא נעטף במסגרת.
     // ``options.copyButtons: false`` — בלי שום כפתור העתקה, לא הקטן ולא זה שבפס הכותרת; ``options.mermaidTheme`` —
-    // ערכת Mermaid מפורשת. שתיהן של הייצוא (``renderForExport``).
+    // ערכת Mermaid מפורשת. שתיהן של הייצוא (``renderForExport``). ``options.isCurrent`` — של התצוגה החיה: רינדור שהוחלף
+    // מפסיק לצייר תרשימים (``renderMermaid``).
     async function enhance(root, anchors, options) {
       const documentCodeBlocks = !!(options && options.documentCodeBlocks);
       const copyButtons = !(options && options.copyButtons === false);
@@ -506,7 +512,7 @@
       highlightBlocks(root, { copyButtons: copyButtons && !documentCodeBlocks });
       enhanceTaskLists(root, !!(options && options.interactiveTasks));
       lazyLoadImages(root);
-      await renderMermaid(root, options && options.mermaidTheme);
+      await renderMermaid(root, options && options.mermaidTheme, options && options.isCurrent);
       if (documentCodeBlocks) {
         if (window.MdCodeBlocks) {
           window.MdCodeBlocks.enhance(root, { copyButton: copyButtons });
@@ -879,7 +885,11 @@
         if (this.styleEl) {
           this.styleEl.textContent = '';
         }
-        await MarkdownLiveRenderer.enhance(this.previewCanvas, rendered.anchors, { documentCodeBlocks: true, interactiveTasks: true });
+        await MarkdownLiveRenderer.enhance(this.previewCanvas, rendered.anchors, {
+          documentCodeBlocks: true,
+          interactiveTasks: true,
+          isCurrent: () => generation === this.state.renderGeneration,
+        });
         // בזמן ש-``enhance`` חיכה לתרשימים התחיל רינדור חדש, והתוכן בתצוגה כבר שלו: הוא זה שיודיע כשיסתיים.
         if (generation !== this.state.renderGeneration) return;
         this.state.taskSourceContent = content;

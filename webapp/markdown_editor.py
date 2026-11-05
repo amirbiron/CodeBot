@@ -39,9 +39,11 @@ MD_PREVIEW_BUNDLE_CSS = Path(__file__).with_name("static") / "css" / "md_preview
 KATEX_CSS_START = "/* node_modules/katex/dist/katex.min.css */"
 KATEX_CSS_END = "/* webapp/static_build/md-preview-style.css */"
 
-# גופן בקטע של KaTeX: ``url("./fonts/<שם>") format("<סוג>")``. רק woff2 נכנס לקובץ — כל דפדפן שתומך ב-KaTeX
-# קורא אותו — ו-woff ו-ttf יורדים מרשימת ה-``src``.
-_KATEX_FONT_SRC_RE = re.compile(r',?\s*url\("\./fonts/(?P<name>[^"]+)"\)\s*format\("(?P<format>[^"]+)"\)')
+# הצהרת ``src`` של גופן בקטע של KaTeX, ובתוכה רשומות ``url("./fonts/<שם>") format("<סוג>")``. כל הצהרה נבנית מחדש
+# בשלמותה מרשומת ה-woff2 שלה — כל דפדפן שתומך ב-KaTeX קורא אותו — ולכן הסדר של הרשומות, וה-woff וה-ttf שלצדה, לא
+# משנים את מה שיוצא.
+_KATEX_FONT_SRC_DECL_RE = re.compile(r"src:\s*(?P<entries>[^;]+);")
+_KATEX_FONT_ENTRY_RE = re.compile(r'url\("\./fonts/(?P<name>[^"]+)"\)\s*format\("(?P<format>[^"]+)"\)')
 
 
 def export_themes() -> list[dict]:
@@ -77,13 +79,13 @@ def katex_inline_css() -> str:
     fonts_dir = MD_PREVIEW_BUNDLE_CSS.parent / "fonts"
 
     def embed(match: re.Match) -> str:
-        if match.group("format") != "woff2":
-            return ""
-        data = (fonts_dir / match.group("name")).read_bytes()
-        prefix = "," if match.group(0).startswith(",") else ""
-        return f'{prefix} url(data:font/woff2;base64,{base64.b64encode(data).decode("ascii")}) format("woff2")'
+        woff2 = [m.group("name") for m in _KATEX_FONT_ENTRY_RE.finditer(match.group("entries")) if m.group("format") == "woff2"]
+        if len(woff2) != 1:
+            raise ValueError(f"katex_inline_css: בהצהרת src יש {len(woff2)} גופני woff2 במקום אחד: {match.group(0)[:200]}")
+        data = (fonts_dir / woff2[0]).read_bytes()
+        return f'src: url(data:font/woff2;base64,{base64.b64encode(data).decode("ascii")}) format("woff2");'
 
-    css = _KATEX_FONT_SRC_RE.sub(embed, bundle[start:end])
+    css = _KATEX_FONT_SRC_DECL_RE.sub(embed, bundle[start:end])
     if "./fonts/" in css:
         raise ValueError("katex_inline_css: נשארה הפניה לגופן בקובץ חיצוני")
     return css

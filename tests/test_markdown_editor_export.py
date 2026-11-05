@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import itertools
 import re
 from pathlib import Path
@@ -178,7 +179,17 @@ def test_the_file_carries_a_csp_that_allows_only_the_copy_script(client, theme_i
     body = client.get(SKELETON_PATH.format(theme_id)).get_data(as_text=True)
     meta = re.findall(r'<meta http-equiv="Content-Security-Policy" content="([^"]*)">', body)
 
-    assert meta == [f"script-src &#39;{COPY_CODE_SCRIPT_CSP_HASH}&#39;; object-src &#39;none&#39;; base-uri &#39;none&#39;"]
+    assert len(meta) == 1
+    directives = {d.split()[0]: d.split()[1:] for d in html.unescape(meta[0]).split("; ")}
+    # הכול חסום, חוץ ממה שהקובץ צריך: סקריפט ההעתקה, העיצוב שבתוכו, הגופנים המוטמעים, ותמונות
+    assert directives == {
+        "default-src": ["'none'"],
+        "script-src": [f"'{COPY_CODE_SCRIPT_CSP_HASH}'"],
+        "style-src": ["'unsafe-inline'"],
+        "font-src": ["data:"],
+        "img-src": ["data:", "http:", "https:"],
+        "base-uri": ["'none'"],
+    }
     # התגית לפני הסקריפט (CSP ב-meta חל רק על מה שאחריו), והסקריפט הוא בדיוק מה שה-hash מתיר
     assert body.index('http-equiv="Content-Security-Policy"') < body.index("<script>")
     assert "<script>" + COPY_CODE_SCRIPT + "</script>" in body
@@ -253,6 +264,40 @@ def test_a_missing_katex_font_fails_loudly_and_is_not_remembered(monkeypatch, tm
         assert "url(data:font/woff2;base64,d29mZjI=)" in me.katex_inline_css()
     finally:
         me.katex_inline_css.cache_clear()
+
+
+def _katex_css_from(monkeypatch, tmp_path, src: str, fonts: dict[str, bytes]) -> str:
+    """``katex_inline_css`` על באנדל מדומה, עם הצהרת ``src`` אחת וגופנים בתיקייה."""
+    import webapp.markdown_editor as me
+
+    bundle = tmp_path / "md_preview.bundle.css"
+    bundle.write_text(f"{me.KATEX_CSS_START}\n@font-face {{\n  src: {src};\n}}\n{me.KATEX_CSS_END}", encoding="utf-8")
+    (tmp_path / "fonts").mkdir()
+    for name, data in fonts.items():
+        (tmp_path / "fonts" / name).write_bytes(data)
+    monkeypatch.setattr(me, "MD_PREVIEW_BUNDLE_CSS", bundle)
+    me.katex_inline_css.cache_clear()
+    try:
+        return me.katex_inline_css()
+    finally:
+        me.katex_inline_css.cache_clear()
+
+
+def test_the_katex_src_is_rebuilt_whatever_the_order_of_its_entries(monkeypatch, tmp_path):
+    """ההצהרה נבנית מחדש מרשומת ה-woff2 שלה, ולכן woff2 שאינו ראשון לא משאיר ``src: ,`` שבור."""
+    css = _katex_css_from(
+        monkeypatch,
+        tmp_path,
+        'url("./fonts/a.ttf") format("truetype"), url("./fonts/a.woff2") format("woff2"), url("./fonts/a.woff") format("woff")',
+        {"a.woff2": b"woff2"},
+    )
+    assert 'src: url(data:font/woff2;base64,d29mZjI=) format("woff2");' in css
+    assert "truetype" not in css and ".woff\"" not in css
+
+
+def test_a_katex_src_without_exactly_one_woff2_fails_loudly(monkeypatch, tmp_path):
+    with pytest.raises(ValueError):
+        _katex_css_from(monkeypatch, tmp_path, 'url("./fonts/a.ttf") format("truetype")', {})
 
 
 # ---------------------------------------------------------------------------

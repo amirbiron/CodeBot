@@ -192,6 +192,27 @@
    * @param {Array} anchors הפלט של extractExplicitAnchors
    * @returns {number} כמה עוגנים הוחלו בפועל
    */
+  /**
+   * המזהים שכבר תפוסים בעץ שהתוכן יחיה בו — ``has(id)`` ו-``add(id)``.
+   *
+   * כשהמכל בעמוד, העץ הוא המסמך, ומזהה של כל אלמנט בעמוד תפוס. כשהמכל **מנותק** — הייצוא ל-HTML מהעורך
+   * הציבורי (``renderForExport`` ב-``live-preview.js``) מרנדר לתוך ``div`` שאינו בעמוד — העץ הוא התוכן בלבד:
+   * הוא עובר לקובץ אחר, והמזהים של העמוד לא ייסעו איתו. עד הייצוא הבדיקה הייתה תמיד מול המסמך, ושם התצוגה החיה
+   * כבר מחזיקה את אותם עוגנים — כך שכל עוגן מפורש נעלם מהקובץ.
+   */
+  function takenIds(container, heading) {
+    var root = typeof container.getRootNode === 'function' ? container.getRootNode() : null;
+    if (root && typeof root.getElementById !== 'function' && typeof root.querySelectorAll === 'function') {
+      var ids = new Set();
+      if (root.id) ids.add(root.id);
+      root.querySelectorAll('[id]').forEach(function (el) { ids.add(el.id); });
+      return { has: function (id) { return ids.has(id); }, add: function (id) { ids.add(id); } };
+    }
+    // במסמך (או בעץ צל) אלמנט שהוכנס נמצא מעצמו, ולכן אין מה להוסיף
+    var lookup = root && typeof root.getElementById === 'function' ? root : (heading.ownerDocument || document);
+    return { has: function (id) { return !!lookup.getElementById(id); }, add: function () {} };
+  }
+
   function applyExplicitAnchors(container, anchors) {
     if (!container || !anchors || !anchors.length) return 0;
     var headings;
@@ -201,27 +222,24 @@
       return 0;
     }
     var applied = 0;
+    var taken = null;
     for (var i = 0; i < anchors.length; i++) {
       var entry = anchors[i];
       var heading = headings[entry.headingIndex];
       if (!heading) continue;
+      if (!taken) taken = takenIds(container, heading);
       for (var j = 0; j < entry.ids.length; j++) {
         var id = entry.ids[j];
         if (!id) continue;
         // אם המזהה כבר תפוס (למשל ע"י כותרת אחרת) — לא דורסים
-        var existing = null;
-        try {
-          existing = (heading.ownerDocument || document).getElementById(id);
-        } catch (_) {
-          existing = null;
-        }
-        if (existing) continue;
+        if (taken.has(id)) continue;
         var target = (heading.ownerDocument || document).createElement('span');
         target.className = 'md-explicit-anchor';
         target.id = id;  // DOM property — אין הזרקת HTML
         target.setAttribute('aria-hidden', 'true');
         if (heading.parentNode) {
           heading.parentNode.insertBefore(target, heading);
+          taken.add(id);
           applied += 1;
         }
       }

@@ -1113,8 +1113,7 @@ hr {
             "--success": "#4ec9b0",
             "--warning": "#dcdcaa",
             "--error": "#f44747",
-            # רקע הקוד אינו מהקובץ (שם ``#252c29``): התיאור של הקובץ ב-CodeKeeper קובע ``#0F0F23``.
-            "--code-bg": "#0F0F23",
+            "--code-bg": "#252c29",
             "--code-text": "#e4e3e1",
             "--code-border": "#474747",
             "--link-color": "#569cd6",
@@ -1589,12 +1588,27 @@ EDITOR_EXPORT_DEFAULT_TITLE = "מסמך"
 def editor_export_meta_csp() -> str:
     """ה-CSP שבתוך הקובץ שיוצא מהעורך הציבורי (``<meta http-equiv>``).
 
-    הקובץ נפתח אצל הגולש מהדיסק, בלי שום כותרת מהשרת, ולכן המדיניות כתובה בו. היא מתירה רק את סקריפט
-    ההעתקה, לפי ה-hash שלו. נמדד ב-Chromium על קובץ שנפתח מהדיסק: עם התגית סקריפט אחר ו-``onerror`` לא רצו,
-    ובלעדיה רצו. ``object-src`` ו-``base-uri`` חסומים כי במסמך אין ולא אמורים להיות ``<object>`` או ``<base>``;
-    אם יידרשו, ההיתר נכתב כאן.
+    הקובץ נפתח אצל הגולש מהדיסק, בלי שום כותרת מהשרת, ולכן המדיניות כתובה בו. הכול חסום (``default-src 'none'``),
+    חוץ ממה שהקובץ צריך:
+
+    - ``script-src`` — רק סקריפט ההעתקה, לפי ה-hash שלו.
+    - ``style-src 'unsafe-inline'`` — העיצוב כולו בתוך הקובץ, וגם ה-``style`` של KaTeX, של Mermaid ושל יישור בטבלה.
+    - ``font-src data:`` — הגופנים של KaTeX מוטמעים (``katex_inline_css`` ב-``webapp/markdown_editor.py``).
+    - ``img-src`` — תמונות מ-``data:`` וגם מכתובת ``http``/``https``: תמונה שהגולש שם במסמך היא חלק ממנו, ופתיחת
+      הקובץ טוענת אותה מהשרת שלה, כמו כל עמוד HTML עם תמונה. בלי זה תמונה חיצונית לא הייתה מוצגת בכלל.
+
+    ``base-uri`` חסום בנפרד, כי ``default-src`` אינו חל עליו. נמדד ב-Chromium על קובץ שנפתח מהדיסק: עם התגית סקריפט אחר
+    ו-``onerror`` לא רצו, ובלעדיה רצו; ``tests/test_markdown_editor_export_browser.py`` בודק שסקריפט שנשתל בקובץ חסום,
+    ושהגופנים, התרשימים והעיצוב עובדים תחתיה.
     """
-    return f"script-src '{COPY_CODE_SCRIPT_CSP_HASH}'; object-src 'none'; base-uri 'none'"
+    return (
+        "default-src 'none'; "
+        f"script-src '{COPY_CODE_SCRIPT_CSP_HASH}'; "
+        "style-src 'unsafe-inline'; "
+        "font-src data:; "
+        "img-src data: http: https:; "
+        "base-uri 'none'"
+    )
 
 
 def _admonition_groups() -> dict[str, list[str]]:
@@ -1605,19 +1619,48 @@ def _admonition_groups() -> dict[str, list[str]]:
     return groups
 
 
+def _export_document_context(theme: dict, footer_text: str) -> dict:
+    """מה שמשותף לכל HTML מעוצב, בשני המסלולים: משתני הערכה, ``extra_css``, שם הערכה, הכיתוב בתחתית, וסקריפט ההעתקה."""
+    return {
+        "css_variables": generate_css_variables(theme.get("variables", {})),
+        # עיצוב ופריסה של הערכה. ``get_export_theme`` מחזיר אותו רק מ-EXPORT_PRESETS,
+        # ובכל זאת הוא עובר אותה סניטציה כמו syntax_css לפני שהוא נכנס לבלוק <style>
+        "extra_css": sanitize_css(theme.get("extra_css", "")),
+        "theme_name": theme.get("name", "Custom"),
+        "footer_text": footer_text,
+        "copy_script": COPY_CODE_SCRIPT,
+    }
+
+
+def _render_export_document(**context) -> str:
+    """מרנדר את ``export/styled_document.html`` — התבנית האחת של HTML מעוצב, לשני המסלולים."""
+    # ייבוא מאוחר כדי לאפשר שימוש בפונקציות אחרות גם בלי Flask (למשל בטסטים)
+    from flask import render_template
+
+    return render_template("export/styled_document.html", **context)
+
+
 def render_editor_export_skeleton(theme: dict, katex_css: str = "") -> str:
     """השלד של הייצוא מהעורך הציבורי: העמוד המעוצב של ``theme``, עם ``EDITOR_EXPORT_CONTENT_MARKER`` במקום התוכן.
 
     שום קלט של הגולש לא מגיע לכאן — רק ערכה מתוך רשימה סגורה (``EXPORT_THEME_IDS`` ב-``webapp/markdown_editor.py``)
-    ו-``katex_css``, שהשרת קורא מהבאנדל של התצוגה כשבמסמך יש נוסחה.
+    ו-``katex_css``, ה-CSS של KaTeX עם הגופנים, שהשרת קורא מהבאנדל של התצוגה כשבמסמך יש נוסחה.
+
+    שונה מ-``render_styled_html`` (``editor_export`` בתבנית): בלי באנר עליון, עם העיצוב של markdown-it
+    (``export/_editor_export_styles.css``), הדגשת highlight.js (``hljs_css`` של הערכה) ו-CSP בתוך הקובץ — ובלי כללי
+    Pygments, כי הקוד בשלד מסומן ב-highlight.js.
     """
-    return render_styled_html(
-        content_html=EDITOR_EXPORT_CONTENT_MARKER,
+    return _render_export_document(
+        **_export_document_context(theme, EDITOR_EXPORT_FOOTER),
         title=EDITOR_EXPORT_DEFAULT_TITLE,
-        theme=theme,
-        footer_text=EDITOR_EXPORT_FOOTER,
+        content=EDITOR_EXPORT_CONTENT_MARKER,
+        toc_html="",
+        syntax_css="",
         editor_export=True,
-        katex_css=katex_css,
+        meta_csp=editor_export_meta_csp(),
+        admonition_groups=_admonition_groups(),
+        hljs_css=sanitize_css(theme.get("hljs_css", "")),
+        katex_css=sanitize_css(katex_css),
     )
 
 
@@ -1627,9 +1670,6 @@ def render_styled_html(
     theme: dict,
     toc_html: str = "",
     footer_text: str = 'נוצר אוטומטית ע"י Code Keeper Bot',
-    *,
-    editor_export: bool = False,
-    katex_css: str = "",
 ) -> str:
     """
     מרנדר HTML מעוצב מלא.
@@ -1641,16 +1681,10 @@ def render_styled_html(
             אופציונלי — ראו ``EXPORT_PRESETS``)
         toc_html: HTML של תוכן עניינים (אופציונלי)
         footer_text: טקסט בתחתית המסמך
-        editor_export: השלד של הייצוא מהעורך הציבורי (``render_editor_export_skeleton``): בלי באנר עליון,
-            עם העיצוב של markdown-it, הדגשת highlight.js (``hljs_css`` של הערכה) ו-CSP בתוך הקובץ, ובלי
-            כללי Pygments — הקוד שם מסומן ב-highlight.js.
-        katex_css: ה-CSS של KaTeX, עם הגופנים, כשבמסמך יש נוסחה. רק עם ``editor_export``.
 
     Returns:
         HTML מלא מוכן להורדה
     """
-    css_variables = generate_css_variables(theme.get("variables", {}))
-
     # 🎨 קבלת CSS להדגשת תחביר
     # Pygments CSS נדרש תמיד עבור בלוקי קוד בייצוא HTML
     # CodeMirror CSS (.tok-*) רלוונטי רק לעורך בדפדפן, לא לייצוא
@@ -1678,36 +1712,11 @@ def render_styled_html(
             generate_pygments_css(pygments_style, ".highlight", theme_category)
         )
 
-    # עיצוב ופריסה של הערכה. ``get_export_theme`` מחזיר אותו רק מ-EXPORT_PRESETS,
-    # ובכל זאת הוא עובר אותה סניטציה כמו syntax_css לפני שהוא נכנס לבלוק <style>
-    extra_css = sanitize_css(theme.get("extra_css", ""))
-
-    editor_export_context: dict = {}
-    if editor_export:
-        editor_export_context = {
-            "editor_export": True,
-            "meta_csp": editor_export_meta_csp(),
-            "admonition_groups": _admonition_groups(),
-            "hljs_css": sanitize_css(theme.get("hljs_css", "")),
-            "katex_css": sanitize_css(katex_css),
-        }
-        # הקוד בשלד מסומן ב-highlight.js, ולכללי Pygments אין שם על מה לחול
-        syntax_css = ""
-
-    # ייבוא מאוחר כדי לאפשר שימוש בפונקציות אחרות גם בלי Flask (למשל בטסטים)
-    from flask import render_template
-
-    return render_template(
-        "export/styled_document.html",
+    return _render_export_document(
+        **_export_document_context(theme, footer_text),
         title=title,
         content=content_html,
-        css_variables=css_variables,
         syntax_css=syntax_css,
-        extra_css=extra_css,
-        theme_name=theme.get("name", "Custom"),
         toc_html=toc_html,
-        footer_text=footer_text,
-        copy_script=COPY_CODE_SCRIPT,
-        **editor_export_context,
     )
 

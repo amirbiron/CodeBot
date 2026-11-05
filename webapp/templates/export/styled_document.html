@@ -2,7 +2,7 @@
 <html dir="rtl" lang="he">
 <head>
     <meta charset="UTF-8">
-    {#- CSP בתוך הקובץ — רק בייצוא מהעורך הציבורי (``meta_csp`` מ-``render_styled_html``), כי הקובץ נפתח אצל
+    {#- CSP בתוך הקובץ — רק בייצוא מהעורך הציבורי (``meta_csp`` מ-``render_editor_export_skeleton``), כי הקובץ נפתח אצל
         הגולש בלי שום כותרת מהשרת. ה-"-" שומר על ה-HTML של הייצוא הקיים זהה כשהוא ריק. #}
     {%- if meta_csp %}
     <meta http-equiv="Content-Security-Policy" content="{{ meta_csp }}">
