@@ -216,7 +216,11 @@ from services.markdown_files import (  # noqa: E402
 # אזהרה לצד קוד שמוצג, כשיש בו תווים שמשנים את סדר התצוגה (ראו services/code_service.py).
 from services.code_service import bidi_warning_for_display  # noqa: E402
 # קישורי השיתוף של ייצוא ה-HTML המעוצב — שם האוסף והאינדקסים שלו (מודול שורש טהור, ראו styled_shares.py).
-from styled_shares import STYLED_SHARES_COLLECTION  # noqa: E402
+from styled_shares import (  # noqa: E402
+    STYLED_SHARES_COLLECTION,
+    STYLED_SHARE_FORMAT_MARKDOWN,
+    STYLED_SHARE_MAX_MARKDOWN_BYTES,
+)
 # כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
 # שלמעלה, ראו tests/test_webapp_import_paths.py.
 from file_dates import (  # noqa: E402
@@ -304,9 +308,11 @@ from services.styled_export_service import (  # noqa: E402
     render_editor_export_skeleton,
     render_styled_export_skeleton,
     render_styled_html,
+    render_styled_share_page,
     styled_export_filename,
     styled_export_title,
     styled_share_csp,
+    styled_share_page_csp,
 )
 from services.theme_parser_service import parse_vscode_theme, validate_theme_json  # noqa: E402
 
@@ -17815,15 +17821,29 @@ def api_create_styled_share(file_id):
         if not _is_markdown_file(language, file_name):
             return jsonify({'ok': False, 'error': 'ייצוא HTML מעוצב זמין רק לקבצי Markdown'}), 400
 
-        # פרסור הבקשה
-        data = request.get_json(silent=True) or {}
-        theme_id = data.get('theme', 'tech-guide-dark')
-        vscode_json = data.get('vscode_json')
+        # פרסור הבקשה. גוף שאינו אובייקט, או ``theme`` / ``vscode_json`` שאינם מחרוזת, הם בקשה שגויה (400) — ולא 500:
+        # ``theme`` נבדק מול מילון (``theme_id in EXPORT_PRESETS``), ורשימה שם זורקת ``TypeError``.
+        data = request.get_json(silent=True)
+        if data is None:
+            data = {}
+        theme_id = data.get('theme', 'tech-guide-dark') if isinstance(data, dict) else None
+        vscode_json = data.get('vscode_json') if isinstance(data, dict) else None
+        if not isinstance(theme_id, str) or not isinstance(vscode_json, (str, type(None))):
+            return jsonify({'ok': False, 'error': 'בקשה לא תקינה', 'code': 'invalid_request'}), 400
         is_permanent = bool(data.get('permanent', False))
 
-        # יצירת ה-styled HTML. קובץ גדול (``large_files``) שומר את הטקסט ב-``content`` ולא ב-``code``,
+        # הטקסט של הגרסה ששותפה. קובץ גדול (``large_files``) שומר אותו ב-``content`` ולא ב-``code``,
         # כמו במסלול ההורדה של ``export_styled_html`` — בלי זה שיתוף של קובץ גדול שמר עמוד ריק.
         markdown_content = file.get('code') or file.get('content') or ''
+        # הצורה השנייה (``styled_shares.py``): הטקסט ותמונה של הערכה, והדפדפן של מי שפותח מרנדר — באותו מנוע כמו
+        # ההורדה מעמוד הקובץ. ``STYLED_EXPORT_BROWSER_RENDER`` כבוי מחזיר גם את השיתוף לצורה הראשונה, כמו קודם.
+        browser_share = STYLED_EXPORT_BROWSER_RENDER
+        if browser_share and len(markdown_content.encode('utf-8')) > STYLED_SHARE_MAX_MARKDOWN_BYTES:
+            return jsonify({
+                'ok': False,
+                'error': 'הקובץ גדול מכדי לשתף אותו כקישור מעוצב. אפשר להוריד אותו כ-HTML מעוצב ולשלוח את הקובץ.',
+                'code': 'file_too_large_to_share',
+            }), 413
         try:
             if vscode_json:
                 theme = get_export_theme('vscode-import', vscode_json=vscode_json)
@@ -17833,20 +17853,26 @@ def api_create_styled_share(file_id):
                 user_themes = (user_data.get("custom_themes") or []) if user_data else []
                 theme = get_export_theme(theme_id, user_themes=user_themes)
 
-            # המרת Markdown ל-HTML
-            html_content, toc_html = markdown_to_html(markdown_content, include_toc=False)
-
-            title = styled_export_title(file_name)
-
-            # רינדור HTML מלא
-            styled_html = render_styled_html(
-                content_html=html_content,
-                title=title,
-                theme=theme,
-                toc_html=toc_html,
-            )
+            if browser_share:
+                share_content = {
+                    'format': STYLED_SHARE_FORMAT_MARKDOWN,
+                    'markdown': markdown_content,
+                    # הערכה כמו ש-``get_export_theme`` החזיר אותה, כולה: העמוד נבנה ממנה בכל צפייה, ושינוי מאוחר
+                    # בערכה של המשתמש אינו משנה קישור שכבר נשלח — כמו ב-HTML ששמרה הצורה הראשונה.
+                    'theme': dict(theme),
+                }
+            else:
+                html_content, toc_html = markdown_to_html(markdown_content, include_toc=False)
+                share_content = {
+                    'styled_html': render_styled_html(
+                        content_html=html_content,
+                        title=styled_export_title(file_name),
+                        theme=theme,
+                        toc_html=toc_html,
+                    ),
+                }
         except Exception as e:
-            logger.exception("Failed to render styled HTML for share", extra={"file_id": file_id, "theme_id": theme_id})
+            logger.exception("Failed to build styled share", extra={"file_id": file_id, "theme_id": theme_id})
             return jsonify({'ok': False, 'error': 'שגיאה ביצירת HTML מעוצב'}), 500
 
         # יצירת token ושמירה ב-DB
@@ -17860,7 +17886,7 @@ def api_create_styled_share(file_id):
             'user_id': int(user_id),
             'file_name': file_name,
             'theme_id': theme_id,
-            'styled_html': styled_html,
+            **share_content,
             'created_at': now,
             'expires_at': expires_at,
             'is_permanent': is_permanent,
@@ -17879,6 +17905,95 @@ def api_create_styled_share(file_id):
     except Exception as e:
         logger.exception("Failed to create styled share", extra={"file_id": file_id})
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
+#: כמה קישורים מעוצבים מוצגים לקובץ בחלון הייצוא, מהחדש לישן.
+STYLED_SHARES_LIST_LIMIT = 50
+
+
+@app.route('/api/export/styled/<file_id>/shares')
+@login_required
+@traced("export.styled_share_list")
+def api_list_styled_shares(file_id):
+    """הקישורים המעוצבים שהמשתמש יצר לקובץ — לרשימה בחלון הייצוא, שממנה אפשר להעתיק קישור או לבטל אותו.
+
+    **לפי הישות, ולא לפי הגרסה:** כל הקישורים של המשתמש לאותו שם קובץ, גם אלה שנוצרו מגרסה אחרת שלו — ``file_id``
+    רק מאתר את הקובץ ואת השם שלו. קישור שפג ועוד לא נמחק (ה-TTL רץ פעם בדקה) אינו מוצג. בלי ``premium_or_admin_required``:
+    מי שכבר אינו פרימיום עדיין רואה ומבטל קישורים שיצר.
+    """
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
+    except Exception:
+        logger.exception("DB error fetching file for styled share list", extra={"file_id": file_id})
+        return jsonify({'ok': False, 'error': 'שגיאה בשרת'}), 500
+    if not file:
+        return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+    try:
+        docs = list(
+            db[STYLED_SHARES_COLLECTION]
+            .find(
+                {'user_id': int(user_id), 'file_name': file.get('file_name') or ''},
+                # בלי הטקסט, ה-HTML והערכה: הרשימה צריכה רק את מה שמוצג בה
+                {'_id': 0, 'token': 1, 'created_at': 1, 'expires_at': 1, 'is_permanent': 1, 'view_count': 1},
+            )
+            .sort('created_at', -1)
+            .limit(STYLED_SHARES_LIST_LIMIT)
+        )
+    except Exception:
+        logger.exception("DB error listing styled shares", extra={"file_id": file_id})
+        return jsonify({'ok': False, 'error': 'שגיאה בשרת'}), 500
+
+    now = datetime.now(timezone.utc)
+    base_url = _webapp_base_url()
+    shares = []
+    for doc in docs:
+        token = doc.get('token')
+        if not isinstance(token, str):
+            continue
+        created_at = doc.get('created_at')
+        expires_at = doc.get('expires_at')
+        is_permanent = bool(doc.get('is_permanent'))
+        expires_label = None
+        if not is_permanent:
+            # הלקוח של המסד הוא ``tz_aware``; ערך שאינו תאריך מודע אינו קישור בתוקף (כמו בעמוד הקישור עצמו)
+            if not isinstance(expires_at, datetime) or expires_at.tzinfo is None or expires_at <= now:
+                continue
+            days_left = max(1, math.ceil((expires_at - now).total_seconds() / 86400))
+            expires_label = f"עוד {_hebrew_day_count(days_left)}"
+        shares.append({
+            'token': token,
+            'share_url': f"{base_url}/shared/styled/{token}",
+            'created_at': created_at.isoformat() if isinstance(created_at, datetime) else None,
+            'is_permanent': is_permanent,
+            'expires_label': expires_label,
+            'view_count': doc.get('view_count') if isinstance(doc.get('view_count'), int) else 0,
+        })
+    return jsonify({'ok': True, 'shares': shares})
+
+
+@app.route('/api/export/styled/shares/<token>/revoke', methods=['POST'])
+@login_required
+@traced("export.styled_share_revoke")
+def api_revoke_styled_share(token):
+    """מבטל קישור מעוצב: מוחק את המסמך, ומי שיפתח את הקישור יקבל 404 (העמוד מוגש עם ``no-cache``, ולכן גם עותק שמור).
+
+    רק בעל הקישור — המחיקה מסננת גם לפי ``user_id``, וקישור של משתמש אחר נענה כמו קישור שאינו קיים. ``POST`` ולא
+    ``GET``: פעולה בלתי הפיכה, שאסור שתרוץ מטעינה מוקדמת של קישור או מסורק תצוגה מקדימה.
+    """
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        result = db[STYLED_SHARES_COLLECTION].delete_one({'token': token, 'user_id': int(user_id)})
+    except Exception:
+        logger.exception("DB error revoking styled share")
+        return jsonify({'ok': False, 'error': 'שגיאה בשרת'}), 500
+    # ``delete_one`` אינו זורק כשלא נמצא מסמך — ``deleted_count`` הוא שאומר אם משהו בוטל
+    if result.deleted_count != 1:
+        return jsonify({'ok': False, 'error': 'הקישור לא נמצא', 'code': 'not_found'}), 404
+    return jsonify({'ok': True})
 
 
 @app.route('/api/share/<file_id>', methods=['POST'])
@@ -22019,20 +22134,41 @@ def public_shared_styled(token: str):
     except Exception:
         pass  # לא קריטי
 
-    # החזרת ה-HTML המעוצב
-    styled_html = doc.get('styled_html', '')
-    if not styled_html:
+    # שתי הצורות של מסמך (``styled_shares.py``). המסמך הגיע מהמסד, ולכן הצורה נבדקת לפני שימוש: מסמך שאינו אף
+    # אחת מהשתיים מקבל 404, ונרשם — אין ממנו עמוד להציג.
+    styled_html = doc.get('styled_html')
+    markdown_text = doc.get('markdown')
+    share_theme = doc.get('theme')
+    if isinstance(styled_html, str) and styled_html:
+        response = make_response(styled_html)
+        # CSP מחמיר: מתירים אך ורק את סקריפט כפתור ההעתקה המהימן (לפי hash),
+        # וחוסמים כל סקריפט אחר. תוכן המשתמש כבר עובר sanitization (bleach + הסרת
+        # <script>) בעת יצירת ה-HTML, כך שהסקריפט היחיד שמותר הוא שלנו. כך כפתור
+        # ההעתקה בבלוקי הקוד עובד גם בקישור הזמני/הקבוע, בלי לפתוח פרצת XSS.
+        # ה-HTML נשמר כמו שנוצר, עם הסקריפט של אז — ולכן גם ה-hash של גרסאות קודמות שלו.
+        response.headers['Content-Security-Policy'] = styled_share_csp()
+    elif (
+        doc.get('format') == STYLED_SHARE_FORMAT_MARKDOWN
+        and isinstance(markdown_text, str)
+        and isinstance(share_theme, dict)
+    ):
+        response = make_response(render_styled_share_page(
+            share_theme,
+            styled_export_title(doc.get('file_name') if isinstance(doc.get('file_name'), str) else None),
+            markdown=markdown_text,
+            # נוסחה מתחילה תמיד ב-``$`` (``md-math-plugin.js``), ולכן בלי ``$`` אין נוסחה, וה-CSS של KaTeX לא נשלח
+            katex_css=markdown_editor_katex_css() if '$' in markdown_text else "",
+            hljs_fallback_css=markdown_editor_hljs_fallback_css(),
+        ))
+        response.headers['Content-Security-Policy'] = styled_share_page_csp()
+    else:
+        logger.warning("styled share document has no renderable shape", extra={"format": doc.get('format')})
         return render_template('404.html'), 404
 
-    response = make_response(styled_html)
     response.headers['Content-Type'] = 'text/html; charset=utf-8'
-    response.headers['Cache-Control'] = 'public, max-age=3600'  # cache לשעה
-    # CSP מחמיר: מתירים אך ורק את סקריפט כפתור ההעתקה המהימן (לפי hash),
-    # וחוסמים כל סקריפט אחר. תוכן המשתמש כבר עובר sanitization (bleach + הסרת
-    # <script>) בעת יצירת ה-HTML, כך שהסקריפט היחיד שמותר הוא שלנו. כך כפתור
-    # ההעתקה בבלוקי הקוד עובד גם בקישור הזמני/הקבוע, בלי לפתוח פרצת XSS.
-    # ה-HTML נשמר כמו שנוצר, עם הסקריפט של אז — ולכן גם ה-hash של גרסאות קודמות שלו.
-    response.headers['Content-Security-Policy'] = styled_share_csp()
+    # בלי ``max-age``: קישור שבוטל או שפג מפסיק להיפתח מיד, ולא שעה אחרי מעותק שמור. ``no-cache`` ולא ``no-store`` —
+    # מותר לשמור, ובכל פתיחה בודקים מול השרת.
+    response.headers['Cache-Control'] = 'no-cache'
     return response
 
 

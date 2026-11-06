@@ -29,6 +29,10 @@
                 <i class="fas fa-file-import"></i>
                 ייבוא VS Code
             </button>
+            <button type="button" class="export-tab" data-tab="links">
+                <i class="fas fa-link"></i>
+                קישורים
+            </button>
         </div>
 
         <div class="export-modal__content">
@@ -68,6 +72,12 @@
                         <span id="exportUploadFileName">theme.json</span>
                     </div>
                 </div>
+            </div>
+
+            {# Tab 4: הקישורים המעוצבים של הקובץ — להעתקה או לביטול (``/api/export/styled/<file_id>/shares``) #}
+            <div class="export-tab-content" id="export-links-tab">
+                <p class="text-muted">קישורי השיתוף שיצרת לקובץ הזה, מכל הגרסאות שלו. ביטול מוחק את הקישור, ומי שיפתח אותו יקבל "לא נמצא".</p>
+                <ul class="export-links-list" id="exportLinksList" aria-live="polite"></ul>
             </div>
         </div>
 

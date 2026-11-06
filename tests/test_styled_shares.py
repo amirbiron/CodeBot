@@ -63,7 +63,7 @@ def test_startup_declares_the_styled_share_indexes():
     DatabaseManager._create_indexes(_fake_self(_safe_create_index))
 
     declared = {kwargs["name"]: (keys, kwargs) for coll, keys, kwargs in requested if coll == "styled_shares"}
-    assert set(declared) == {"styled_shares_ttl", "styled_shares_token"}
+    assert set(declared) == {"styled_shares_ttl", "styled_shares_token", "styled_shares_by_file"}
 
     keys, ttl = declared["styled_shares_ttl"]
     assert keys == [("expires_at", 1)]
@@ -75,6 +75,11 @@ def test_startup_declares_the_styled_share_indexes():
     assert keys == [("token", 1)]
     assert token["unique"] is True and token["enforce"] is True and token.get("expire_after_seconds") is None
 
+    # רשימת הקישורים של קובץ: שוויון על המשתמש ושם הקובץ, ואחריו המיון מהחדש לישן (ESR). אינדקס ביצועים, בלי TTL ובלי ייחודיות
+    keys, by_file = declared["styled_shares_by_file"]
+    assert keys == [("user_id", 1), ("file_name", 1), ("created_at", -1)]
+    assert by_file["unique"] is False and by_file.get("expire_after_seconds") is None
+
 
 def test_a_failed_styled_share_index_is_an_error_event(events):
     """``safe_create_index`` אינו זורק; כשל חוזר כ-``False`` (K11). שני האינדקסים הם הבטחה, ולכן כשל של כל
@@ -83,7 +88,8 @@ def test_a_failed_styled_share_index_is_an_error_event(events):
         SimpleNamespace(), lambda coll, keys, **kwargs: coll != "styled_shares"
     )
 
-    assert results == {"styled_shares_ttl": False, "styled_shares_token": False}
+    assert results == {"styled_shares_ttl": False, "styled_shares_token": False, "styled_shares_by_file": False}
+    # אינדקס הביצועים נכשל גם הוא, ואינו אירוע error: בלעדיו הרשימה איטית, לא שבורה
     missing = sorted(f["index_name"] for e, s, f in events if e == "db_styled_shares_index_missing" and s == "error")
     assert missing == ["styled_shares_token", "styled_shares_ttl"]
 
@@ -139,10 +145,13 @@ def _member_client(wa):
     return c
 
 
-def test_sharing_a_large_file_stores_its_text(wa, monkeypatch):
-    """הקובץ מ-``large_files``: הטקסט ב-``content`` ואין ``code``. עד התיקון נשמר עמוד בלי התוכן."""
+@pytest.mark.parametrize("browser_render, field", [(True, "markdown"), (False, "styled_html")])
+def test_sharing_a_large_file_stores_its_text(wa, monkeypatch, browser_render, field):
+    """הקובץ מ-``large_files``: הטקסט ב-``content`` ואין ``code``. עד התיקון נשמר עמוד בלי התוכן — בשתי הצורות של
+    קישור: הטקסט עצמו (ברירת המחדל), וה-HTML שהשרת בונה כש-``STYLED_EXPORT_BROWSER_RENDER`` כבוי."""
     fake_db = _ShareDb()
     large = {"file_name": "big.md", "programming_language": "markdown", "content": "# כותרת\n\nתוכן מהקובץ הגדול"}
+    monkeypatch.setattr(wa, "STYLED_EXPORT_BROWSER_RENDER", browser_render)
     monkeypatch.setattr(wa, "is_admin", lambda uid: True)
     monkeypatch.setattr(wa, "get_db", lambda: fake_db)
     monkeypatch.setattr(wa, "_get_user_any_file_by_id", lambda db, uid, fid: (dict(large), "large"))
@@ -152,4 +161,4 @@ def test_sharing_a_large_file_stores_its_text(wa, monkeypatch):
     assert resp.status_code == 200, resp.get_data(as_text=True)
     assert resp.get_json()["ok"] is True
     [stored] = fake_db.styled_shares.inserted
-    assert "תוכן מהקובץ הגדול" in stored["styled_html"]
+    assert "תוכן מהקובץ הגדול" in stored[field]

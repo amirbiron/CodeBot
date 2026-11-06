@@ -1,8 +1,13 @@
 """קישורי השיתוף של ייצוא ה-HTML המעוצב (``/shared/styled/<token>``) — המפרט שהמסד והוובאפ חולקים.
 
-הוובאפ הוא הכותב היחיד לאוסף (``api_create_styled_share`` ב-``webapp/app.py``) והקורא היחיד שלו
-(``public_shared_styled``). ``DatabaseManager._create_indexes``, שהוובאפ עובר בכל עלייה, מצהיר על
-האינדקסים מכאן.
+הוובאפ הוא הכותב היחיד לאוסף (``api_create_styled_share`` ב-``webapp/app.py``; הביטול,
+``api_revoke_styled_share``, מוחק) והקורא היחיד שלו (``public_shared_styled``, ורשימת הקישורים של קובץ,
+``api_list_styled_shares``). ``DatabaseManager._create_indexes``, שהוובאפ עובר בכל עלייה, מצהיר על האינדקסים מכאן.
+
+**שתי צורות של מסמך.** הראשונה — ``styled_html``, העמוד שהשרת בנה ב-Python-Markdown ברגע השיתוף. השנייה
+(``format`` = :data:`STYLED_SHARE_FORMAT_MARKDOWN`) — הטקסט של הגרסה ששותפה (``markdown``) ותמונה של הערכה ברגע
+השיתוף (``theme``), והדפדפן של מי שפותח את הקישור מרנדר אותם באותו מנוע כמו התצוגה החיה. קישורים מהצורה הראשונה
+נשארים כמו שהם, ומוגשים כמו קודם.
 
 **טהור** — בלי pymongo ובלי מסד, מאותה סיבה של ``mcp_uploads.py``: מודול תחת ``database/`` היה גורר את
 ``database/__init__.py``, שיוצר ``DatabaseManager()`` גלובלי בזמן הייבוא.
@@ -14,7 +19,10 @@ from typing import Any
 
 __all__ = [
     "STYLED_SHARES_COLLECTION",
+    "STYLED_SHARE_BY_FILE_INDEX_NAME",
     "STYLED_SHARE_EXPIRES_FIELD",
+    "STYLED_SHARE_FORMAT_MARKDOWN",
+    "STYLED_SHARE_MAX_MARKDOWN_BYTES",
     "STYLED_SHARE_TOKEN_INDEX_NAME",
     "STYLED_SHARE_TTL_INDEX_NAME",
     "styled_shares_indexes",
@@ -29,6 +37,19 @@ STYLED_SHARE_EXPIRES_FIELD = "expires_at"
 
 STYLED_SHARE_TTL_INDEX_NAME = "styled_shares_ttl"
 STYLED_SHARE_TOKEN_INDEX_NAME = "styled_shares_token"
+STYLED_SHARE_BY_FILE_INDEX_NAME = "styled_shares_by_file"
+
+#: הערך של ``format`` במסמך מהצורה השנייה (הטקסט ותמונה של הערכה). מסמך בלי ``format`` הוא מהצורה הראשונה.
+STYLED_SHARE_FORMAT_MARKDOWN = 2
+
+#: התקרה על הטקסט של שיתוף מהצורה השנייה, בבתים (UTF-8). מעליה השיתוף נדחה (413), ולא נחתך.
+#:
+#: הטקסט מרונדר בדפדפן של מי שפותח את הקישור, ב-thread הראשי, והעמוד קופא בזמן הרינדור. נמדד ב-Chromium ב-6.11.2026
+#: (בדיקת ההיתכנות של ההעברה לדפדפן, על טקסט ההדגמה של העורך ועוד מקרי קצה): 680KB — ‏1.3 שניות, ‏3.5 שניות בהאטה
+#: פי 4 של המעבד ו-5.6 בהאטה פי 6; ‏2.7MB — ‏4.9 שניות, ו-18.7 בהאטה פי 4. מגה אחד הוא גם הסף שמעליו עמוד הקובץ
+#: מפסיק להציג את הטקסט (``MAX_DISPLAY_SIZE`` ב-``view_file``). התקרה היא על הטקסט מהמסד (הקובץ של המשתמש), ולא על
+#: גוף הבקשה; גוף הבקשה והקצב מוגבלים בנפרד.
+STYLED_SHARE_MAX_MARKDOWN_BYTES = 1024 * 1024
 
 
 def styled_shares_indexes() -> list[dict[str, Any]]:
@@ -57,5 +78,13 @@ def styled_shares_indexes() -> list[dict[str, Any]]:
             "unique": True,
             "enforce": True,
             "required": True,
+        },
+        {
+            # רשימת הקישורים של קובץ בחלון הייצוא (``api_list_styled_shares``): כל הקישורים של המשתמש לאותו שם קובץ —
+            # הישות, ולא גרסה אחת שלה — מהחדש לישן. שוויון, ואחריו המיון (ESR). אינדקס ביצועים: בלעדיו הרשימה סורקת,
+            # ולא שבורה, ולכן כשל שלו אינו אירוע error.
+            "keys": [("user_id", 1), ("file_name", 1), ("created_at", -1)],
+            "name": STYLED_SHARE_BY_FILE_INDEX_NAME,
+            "required": False,
         },
     ]

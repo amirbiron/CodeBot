@@ -34,6 +34,26 @@ from _styled_export_harness import PROBE_FILE, open_file  # noqa: E402
 HOST = "ck.test"
 FILE_ID = "c" * 24
 BIG_ID = "d" * 24
+INJECTION_ID = "f" * 24
+
+#: ניסיונות הזרקה במסמך ששותף: HTML גולמי, קישור javascript:, ‏\\href ב-KaTeX, ותווית ו-click ב-Mermaid. כאן הם
+#: מרונדרים בדפדפן של מי שפותח את הקישור, בדומיין שלנו.
+INJECTION_DOC = """# הזרקות
+
+<img src=x onerror="alert(1)"><script>alert(2)</script>
+
+[קישור](javascript:alert(3))
+
+$\\href{javascript:alert(4)}{לחץ}$
+
+```mermaid
+graph TD
+  A["<img src=x onerror=alert(5)>"] --> B
+  click A "javascript:alert(6)"
+```
+
+</script><script>alert(7)</script>
+"""
 FORWARDED_HEADERS = (
     "content-type", "content-security-policy", "etag", "cache-control", "content-disposition", "x-export-filename",
 )
@@ -64,7 +84,9 @@ def _imported_user_theme() -> dict:
 
 
 class _Cursor(list):
-    def sort(self, *a, **k):
+    def sort(self, key=None, direction=None, *a, **k):
+        if isinstance(key, str):
+            super().sort(key=lambda d: d.get(key), reverse=direction == -1)
         return self
 
     def limit(self, *a, **k):
@@ -109,9 +131,40 @@ class _Coll:
         return None
 
 
+class _Shares:
+    """אוסף ``styled_shares`` בזיכרון: היצירה כותבת, העמוד הציבורי קורא, והרשימה והביטול מוצאים ומוחקים."""
+
+    def __init__(self):
+        self.docs: list[dict] = []
+
+    def _match(self, doc, query):
+        return all(doc.get(k) == v for k, v in query.items())
+
+    def insert_one(self, doc):
+        self.docs.append(doc)
+        return SimpleNamespace(inserted_id="x")
+
+    def find_one(self, query, *a, **k):
+        return next((d for d in self.docs if self._match(d, query)), None)
+
+    def update_one(self, *a, **k):
+        return SimpleNamespace(modified_count=0, matched_count=0, upserted_id=None)
+
+    def find(self, query, projection=None):
+        return _Cursor(dict(d) for d in self.docs if self._match(d, query))
+
+    def delete_one(self, query):
+        for d in list(self.docs):
+            if self._match(d, query):
+                self.docs.remove(d)
+                return SimpleNamespace(deleted_count=1)
+        return SimpleNamespace(deleted_count=0)
+
+
 class _Db:
     def __init__(self, user_theme):
         self.users = _Coll({"custom_themes": [user_theme]})
+        self.styled_shares = _Shares()
 
     def __getattr__(self, name):
         return _Coll()
@@ -131,12 +184,14 @@ def browser(chromium_executable):
     docs = {
         FILE_ID: {"_id": FILE_ID, "file_name": "מדריך.md", "programming_language": "markdown", "code": demo_text()},
         BIG_ID: {"_id": BIG_ID, "file_name": "גדול.md", "programming_language": "markdown", "code": big},
+        INJECTION_ID: {"_id": INJECTION_ID, "file_name": "הזרקות.md", "programming_language": "markdown", "code": INJECTION_DOC},
     }
     for doc in docs.values():
         doc.update(version=1, is_active=True)
+    db = _Db(user_theme)  # אחד לכל המודול: קישור שנוצר בהקשר אחד נפתח מהקשר אחר
 
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(wa, "get_db", lambda: _Db(user_theme))
+        patch.setattr(wa, "get_db", lambda: db)
         patch.setattr(wa, "is_admin", lambda uid: False)
         patch.setattr(wa, "is_premium", lambda uid: True)
         patch.setattr(
@@ -175,6 +230,13 @@ class Session:
             sess["user_id"] = uid
             sess["user_data"] = {"id": uid, "first_name": "בדיקה", "is_admin": False, "is_premium": True}
         self.ctx = b.new_context(viewport={"width": 1280, "height": 900}, accept_downloads=True)
+        # העמוד מוגש ב-http, שאינו הקשר מאובטח, ושם ``navigator.clipboard`` לא קיים. רשם במקומו: מה ש"העתק קישור"
+        # שולח ללוח הוא הקישור שנוצר, וממנו הטסט יודע מה לפתוח
+        self.ctx.add_init_script(
+            "Object.defineProperty(navigator, 'clipboard', { configurable: true,"
+            " value: { writeText: (text) => { window.__copied = text; return Promise.resolve(); } } });"
+        )
+        self.dialogs: list[str] = []
 
         def handle(route, request):
             u = urlsplit(request.url)
@@ -197,6 +259,8 @@ class Session:
         self.ctx.route("**/*", handle)
         self.page = self.ctx.new_page()
         self.page.on("pageerror", lambda exc: self.errors.append(str(exc)))
+        # ``confirm`` של ביטול קישור מאושר; כל חלון נרשם
+        self.page.on("dialog", lambda d: (self.dialogs.append(d.message), d.accept()))
         self.page.goto(f"http://{HOST}/file/{file_id}")
         poll(self.page, "typeof window.openExportModal === 'function' && !!window.StyledExportCore", "חלון הייצוא מוכן")
 
@@ -223,8 +287,89 @@ class Session:
     def count(self, path_suffix):
         return sum(1 for t in self.paths() if urlsplit(t).path.endswith(path_suffix))
 
+    def create_link(self, theme_id, *, permanent=False):
+        """"העתק קישור" בחלון הייצוא — המסלול של המשתמש. מחזיר את ה-token מהקישור שנשלח ללוח."""
+        self.page.evaluate("window.__copied = undefined")
+        self.open_modal()
+        self.choose(theme_id)
+        if permanent:
+            self.page.check("#exportPermanentLink")
+        self.page.click('#exportThemeModal [data-action="copy-link"]')
+        poll(self.page, "window.__copied !== undefined", "הקישור נוצר והועתק")
+        url = self.page.evaluate("window.__copied")
+        return urlsplit(url).path.rsplit("/", 1)[-1]
+
     def close(self):
         self.ctx.close()
+
+
+#: מעכב את הרינדור של עמוד הקישור עד אחרי ``load`` — המצב של מסמך ארוך או טלפון איטי. Chromium ממשיך לנסות לגלול
+#: לעוגן שבכתובת עד ``load`` (נמדד: בלי העיכוב, הגלילה קרתה גם בלי ``scrollToHash``), ולכן רק כך נבדק הקוד שגולל אחרי
+#: שהמסמך נכנס. עוטף את ``renderMarkdown`` ברגע ש-``styled-export-core.js`` מציב את ``window.StyledExportCore``.
+RENDER_AFTER_LOAD = """
+(() => {
+  let core;
+  const afterLoad = () => new Promise((resolve) => {
+    const later = () => setTimeout(resolve, 300);
+    if (document.readyState === 'complete') later(); else window.addEventListener('load', later, { once: true });
+  });
+  Object.defineProperty(window, 'StyledExportCore', {
+    configurable: true,
+    get() { return core; },
+    set(value) {
+      const render = value.renderMarkdown;
+      core = Object.assign({}, value, { renderMarkdown: async (...args) => {
+        await afterLoad();
+        window.__renderStartedAfterLoad = document.readyState === 'complete';
+        return render(...args);
+      } });
+    },
+  });
+})();
+"""
+
+
+def open_share(browser, token, *, fragment="", render_after_load=False):
+    """פותח קישור שיתוף כמו מי שקיבל אותו: הקשר חדש, בלי התחברות, תחת הכותרות שהשרת שולח (ה-CSP בראשן).
+
+    מחזיר ``(ctx, page, seen)``: ב-``seen`` הסטטוס של העמוד, הפרות ה-CSP (``securitypolicyviolation``, שנרשמות מסקריפט
+    שהדפדפן מריץ לפני העמוד ולכן אינו כפוף ל-CSP שלו), שגיאות, חלונות, והבקשות שיצאו. ``render_after_load`` —
+    :data:`RENDER_AFTER_LOAD`.
+    """
+    b, wa = browser
+    client = wa.app.test_client()
+    client.environ_base["HTTP_X_FORWARDED_FOR"] = f"198.51.100.{next(_USERS) % 250 + 1}"
+    seen = {"status": None, "csp": [], "errors": [], "dialogs": [], "requests": []}
+    ctx = b.new_context(viewport={"width": 1280, "height": 900})
+    ctx.add_init_script(
+        "window.__csp = []; document.addEventListener('securitypolicyviolation',"
+        " (e) => window.__csp.push(e.violatedDirective + ' ' + e.blockedURI));"
+    )
+    if render_after_load:
+        ctx.add_init_script(RENDER_AFTER_LOAD)
+
+    def handle(route, request):
+        u = urlsplit(request.url)
+        seen["requests"].append(u.path)
+        if u.hostname != HOST:
+            return route.abort()
+        r = client.open(u.path + (f"?{u.query}" if u.query else ""), method=request.method)
+        route.fulfill(status=r.status_code, body=r.data,
+                      headers={k: v for k, v in r.headers.items() if k.lower() in FORWARDED_HEADERS})
+
+    ctx.route("**/*", handle)
+    page = ctx.new_page()
+    page.on("pageerror", lambda exc: seen["errors"].append(str(exc)))
+    page.on("dialog", lambda d: (seen["dialogs"].append(d.message), d.dismiss()))
+    resp = page.goto(f"http://{HOST}/shared/styled/{token}{fragment}")
+    seen["status"] = resp.status if resp else None
+    return ctx, page, seen
+
+
+def wait_rendered(page):
+    poll(page, "document.documentElement.dataset.shareRendered === 'true'"
+               " || document.documentElement.dataset.shareRendered === 'failed'", "עמוד הקישור סיים לרנדר")
+    assert page.evaluate("document.documentElement.dataset.shareRendered") == "true"
 
 
 @pytest.fixture
@@ -449,3 +594,144 @@ def test_the_switch_off_keeps_the_server_export(browser, session, tmp_path, monk
     assert _server_exports(s) == [f"/export/styled/{FILE_ID}?theme=morass"]
     assert _skeleton_requests(s) == []
     assert s.count("/md_preview.bundle.js") == 0
+
+
+
+# ---------------------------------------------------------------------------
+# קישור השיתוף — נבנה בדפדפן של מי שפותח
+# ---------------------------------------------------------------------------
+
+
+def test_a_share_renders_in_the_visitors_browser_under_its_policy(browser, session):
+    token = session().create_link("morass")
+    ctx, page, seen = open_share(browser, token)
+    try:
+        wait_rendered(page)
+        r = page.evaluate(PROBE_FILE)
+        csp = page.evaluate("window.__csp")
+        title = page.title()
+        status_line = page.query_selector("#ckShareStatus")
+        # קריאה נוספת (רינדור חוזר, למשל) לא מוסיפה כפתור שני לבלוק שכבר יש לו
+        page.evaluate("window.ckAttachCopyButtons(document)")
+        again = page.evaluate("[...document.querySelectorAll('main pre')].map((p) => p.querySelectorAll('.copy-btn').length)")
+    finally:
+        ctx.close()
+
+    assert seen["status"] == 200
+    assert csp == [], csp
+    assert seen["errors"] == [] and seen["dialogs"] == []
+    # מה שיצא מהעמוד: העמוד עצמו והסקריפטים מהסטטיקה שלנו, ולא שום דבר אחר
+    assert {p for p in seen["requests"] if p != f"/shared/styled/{token}"} <= {
+        p for p in seen["requests"] if p.startswith("/static/js/")
+    }, seen["requests"]
+    assert title == "מדריך" and status_line is None
+    assert r["header"] is True and "Code Keeper Bot" in r["footer"]
+    assert r["alerts"]["count"] == 15 and r["alerts"]["styled"] == 15, r["alerts"]
+    assert r["code"]["tokenChars"] > 300 and r["code"]["coloredPct"] >= 90, r["code"]
+    # כפתורי ההעתקה נוספו אחרי שהמסמך נכנס לעמוד — אחד לכל בלוק
+    assert r["code"]["pres"] > 0 and r["code"]["copyButtonsPerPre"] == [1] * r["code"]["pres"], r["code"]
+    assert again == [1] * r["code"]["pres"], again
+    assert r["tasks"] == {"count": 11, "checked": 6, "disabled": 11, "bullets": 0}, r["tasks"]
+    assert r["anchors"]["internal"] == 10 and r["anchors"]["broken"] == 0, r["anchors"]
+    assert r["katex"]["count"] == 5 and r["katex"]["font"] == "KaTeX_Math" and r["katex"]["fontsLoaded"] > 0, r["katex"]
+    assert r["mermaid"]["svgs"] == 3 and r["mermaid"]["nodeFill"] != "rgb(236, 236, 255)", r["mermaid"]
+    assert r["internal"] == {"sourceLines": 0, "highlighted": 0}
+
+
+def test_injection_attempts_in_a_shared_file_run_nothing(browser, session):
+    token = session(file_id=INJECTION_ID).create_link("morass")
+    ctx, page, seen = open_share(browser, token)
+    try:
+        wait_rendered(page)
+        found = page.evaluate(
+            """() => ({
+              onAttrs: [...document.querySelectorAll('main *')].filter((e) => [...e.attributes].some((a) => /^on/i.test(a.name))).length,
+              javascriptUrls: [...document.querySelectorAll('main [href], main [src]')].filter((e) =>
+                /^\\s*javascript:/i.test(e.getAttribute('href') || e.getAttribute('src') || '')).length,
+              scriptsInMain: document.querySelectorAll('main script').length,
+              rawShownAsText: document.querySelector('main').innerText.includes('<img src=x onerror'),
+            })"""
+        )
+        # והשכבה השנייה: גם מה שעוקף את המנוע ונכנס לעמוד לא רץ — ה-CSP חוסם handler מוטמע
+        page.evaluate(
+            """() => { const d = document.createElement('div');
+                       d.innerHTML = '<img src="x" onerror="window.__pwned = 1">'; document.body.appendChild(d); }"""
+        )
+        page.wait_for_timeout(500)
+        pwned = page.evaluate("window.__pwned === 1")
+        csp = page.evaluate("window.__csp")
+    finally:
+        ctx.close()
+
+    assert seen["dialogs"] == [], seen["dialogs"]
+    assert found == {"onAttrs": 0, "javascriptUrls": 0, "scriptsInMain": 0, "rawShownAsText": True}, found
+    assert pwned is False
+    assert any(v.startswith("script-src") for v in csp), csp  # הבקרה: ה-handler נחסם, ולא פשוט לא נוסה
+
+
+def test_a_share_opens_at_the_anchor_in_its_address(browser, session):
+    token = session().create_link("pen-paper-coffee")
+    ctx, page, _seen = open_share(browser, token)
+    try:
+        wait_rendered(page)
+        anchor = page.evaluate("[...document.querySelectorAll('main h2[id]')].pop().id")
+    finally:
+        ctx.close()
+
+    ctx, page, _seen = open_share(browser, token, fragment="#" + anchor, render_after_load=True)
+    try:
+        wait_rendered(page)
+        # בקרה: העיכוב הופעל, והרינדור התחיל רק אחרי ``load``
+        assert page.evaluate("window.__renderStartedAfterLoad") is True
+        top = page.evaluate("(id) => document.getElementById(id).getBoundingClientRect().top", anchor)
+        scrolled = page.evaluate("document.scrollingElement.scrollTop")
+    finally:
+        ctx.close()
+    # הכותרת בראש החלון; שבר של פיקסל מעליו הוא עיגול של הדפדפן (נמדד: ‎-0.44)
+    assert scrolled > 500 and -2 <= top < 200, (scrolled, top)
+
+
+def test_a_link_revoked_from_the_modal_stops_opening(browser, session):
+    s = session()
+    token = s.create_link("morass", permanent=True)
+    s.page.click("#exportThemeModal [data-tab=links]")
+    poll(s.page, f"!!document.querySelector('#exportLinksList [data-token=\"{token}\"]')", "הקישור ברשימה")
+    row = s.page.inner_text(f'#exportLinksList [data-token="{token}"]')
+    assert "קבוע" in row and "0 צפיות" in row, row
+
+    s.page.click(f'#exportLinksList [data-token="{token}"] [data-link-action=revoke]')
+    poll(s.page, f"!document.querySelector('#exportLinksList [data-token=\"{token}\"]')", "הקישור ירד מהרשימה")
+
+    assert any("לבטל את הקישור" in m for m in s.dialogs), s.dialogs
+    ctx, _page, seen = open_share(browser, token)
+    ctx.close()
+    assert seen["status"] == 404
+
+
+def test_a_share_from_before_still_opens_with_its_copy_buttons(browser, session, monkeypatch):
+    """הצורה הראשונה — HTML שהשרת בנה — נוצרת כש-``STYLED_EXPORT_BROWSER_RENDER`` כבוי, ומוגשת כמו שנשמרה."""
+    _b, wa = browser
+    monkeypatch.setattr(wa, "STYLED_EXPORT_BROWSER_RENDER", False)
+    token = session().create_link("morass")
+    ctx, page, seen = open_share(browser, token)
+    try:
+        page.wait_for_function("document.readyState === 'complete'")
+        buttons = page.evaluate("document.querySelectorAll('pre .copy-btn').length")
+        pres = page.evaluate("document.querySelectorAll('main pre').length")
+        csp = page.evaluate("window.__csp")
+        engine = page.evaluate("!!document.getElementById('ckShareSource')")
+    finally:
+        ctx.close()
+    assert seen["status"] == 200 and csp == []
+    assert engine is False
+    assert pres > 0 and buttons == pres
+
+
+def test_a_file_too_large_to_share_is_refused_with_a_message(session):
+    s = session(file_id=BIG_ID)
+    s.open_modal()
+    s.choose("morass")
+    s.page.click('#exportThemeModal [data-action="copy-link"]')
+    poll(s.page, "!document.querySelector('.export-error-message').hidden", "הודעת שגיאה")
+    assert "גדול מכדי לשתף" in s.page.inner_text(".export-error-message")
+    assert s.page.evaluate("window.__copied") is None

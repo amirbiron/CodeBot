@@ -12,6 +12,8 @@
  *   יושבים כ-``<script>`` בתוך ``<template>`` (אותו ``_live_preview_scripts.html`` של עמודי העורך, בלי עותק שני של
  *   הרשימה), ושם הם אינם נטענים. בלחיצה הם נבנים מחדש כסקריפטים חיים, לפי הסדר.
  *
+ * גם עמוד קישור השיתוף מרנדר דרך הקובץ הזה (``styled-share-view.js``).
+ *
  * התיעוד: ``docs/webapp/markdown-editor.rst`` ו-``docs/webapp/styled-export.rst``.
  */
 (function () {
@@ -58,6 +60,7 @@
     return !!box.querySelector('.katex');
   }
 
+  // ההערה שהשלד מחזיק במקום התוכן. גם לעמוד של קישור השיתוף, שבו ההערה כבר בעמוד החי (``styled-share-view.js``).
   function findMarker(doc, markerText) {
     const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_COMMENT);
     let node = walker.nextNode();
@@ -178,6 +181,7 @@
     fetchText,
     renderMarkdown,
     hasMath,
+    findMarker,
     firstHeadingTitle,
     assemble,
     describeError,

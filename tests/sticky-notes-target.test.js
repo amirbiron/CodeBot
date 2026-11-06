@@ -3264,8 +3264,9 @@ check('חיווט: כל תבנית שטוענת live-preview.js מספקת גם 
   // מסגרת ובלי כפתור, והתצוגה רק מתריעה בקונסול. דפדפן הריפו וכרטיסי החיפוש בתיעוד שומרים על הכפתור
   // הקטן, שמציב ``<i class="bi bi-clipboard">`` — ובלי האייקונים של Bootstrap הוא ריק.
   //
-  // עמוד הקובץ מחזיק את המנוע רק לייצוא המעוצב (``#styledExportEngine``), ו-``renderForExport`` בונה את הבלוק של
-  // המסמך, כמו ה-Split View — ולכן הוא נבדק כמותם, ולא לפי הכפתור הקטן שאינו מופיע בו.
+  // עמוד הקובץ מחזיק את המנוע רק לייצוא המעוצב (``#styledExportEngine``), ועמוד קישור השיתוף המעוצב
+  // (``export/styled_document.html`` עם ``#ckShareSource``) מרנדר בו את המסמך. בשניהם ``renderForExport`` בונה את
+  // הבלוק של המסמך, כמו ה-Split View — ולכן הם נבדקים כמותם, ולא לפי הכפתור הקטן שאינו מופיע בהם.
   const loaders = liveLoaders();
   eq(loaders.length >= 4, true, 'נמצאו התבניות שטוענות את התצוגה החיה (' + loaders.length + ')');
   loaders.forEach(({ name, src }) => {
@@ -3275,7 +3276,7 @@ check('חיווט: כל תבנית שטוענת live-preview.js מספקת גם 
     eq(safe < live, true, name + ' טוען אותו לפני live-preview.js');
     eq(cacheBusted(src, 'js/utils/safe-highlight.js'), true,
        name + ' טוען אותו עם ?v=static_version');
-    if (src.includes('id="livePreviewRoot"') || src.includes('id="styledExportEngine"')) {
+    if (src.includes('id="livePreviewRoot"') || src.includes('id="styledExportEngine"') || src.includes('id="ckShareSource"')) {
       const blocks = src.indexOf("filename='js/md-code-blocks.js'");
       eq(blocks !== -1, true, name + ' טוען את md-code-blocks.js');
       eq(blocks < live, true, name + ' טוען אותו לפני live-preview.js');
@@ -3381,6 +3382,21 @@ check('חיווט: המנוע של הייצוא המעוצב בעמוד הקוב
   eq(core !== -1 && core < src.indexOf("filename='js/export-modal.js'"), true,
      'styled-export-core.js נטען לפני export-modal.js');
   eq(cacheBusted(src, 'js/utils/styled-export-core.js'), true, 'styled-export-core.js נטען עם ?v=static_version');
+});
+
+check('חיווט: עמוד קישור השיתוף המעוצב טוען את המנוע מה-partial, ואת מה שמרנדר אחריו', () => {
+  // ``styled-share-view.js`` קורא ל-``StyledExportCore`` ול-``MarkdownLiveRenderer`` — כולם ``defer``, ולכן הסדר כאן הוא סדר
+  // הריצה. ו**אותה רשימה** של עמודי העורך, בלי עותק שני.
+  const src = readTemplate(path.join(TEMPLATES_DIR, 'export', 'styled_document.html'));
+  const includes = [...src.matchAll(INCLUDE_TAG)].map((m) => m[2]);
+  eq(includes.includes('_live_preview_scripts.html'), true, 'styled_document.html כולל את _live_preview_scripts.html');
+  eq(src.includes("filename='js/live-preview.js'"), false, 'styled_document.html אינו טוען את live-preview.js בעצמו');
+  const partial = src.indexOf('{% include "_live_preview_scripts.html" %}');
+  const core = src.indexOf("filename='js/utils/styled-export-core.js'");
+  const view = src.indexOf("filename='js/styled-share-view.js'");
+  eq(partial !== -1 && partial < core && core < view, true, 'המנוע, אחריו styled-export-core.js, ואחריו styled-share-view.js');
+  eq(cacheBusted(src, 'js/utils/styled-export-core.js') && cacheBusted(src, 'js/styled-share-view.js'), true,
+     'שניהם נטענים עם ?v=static_version');
 });
 
 check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת גם את מפת האלרטים, ולפניה', () => {

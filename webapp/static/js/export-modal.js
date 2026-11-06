@@ -6,7 +6,10 @@
  * הקובץ (``export_styled_skeleton`` ב-``webapp/app.py``) — והטקסט נלקח מהעמוד (``#rawCode``), או, בקובץ שגדול
  * מכדי שהעמוד יציג אותו, מ-``/download/<id>``, שמחזיר בדיוק את אותה גרסה. המנוע נטען רק בלחיצה
  * (``StyledExportCore.loadEngine``), מתוך ``#styledExportEngine``. בלי ``data-browser-render`` (המתג
- * ``STYLED_EXPORT_BROWSER_RENDER``) — המסלול הקודם, שבו השרת ממיר בעצמו. "העתק קישור" עדיין יוצר את הקישור בשרת.
+ * ``STYLED_EXPORT_BROWSER_RENDER``) — המסלול הקודם, שבו השרת ממיר בעצמו.
+ *
+ * **"העתק קישור"** יוצר קישור בשרת, והשרת שומר בו את הטקסט ותמונה של הערכה; הדפדפן של מי שפותח את הקישור מרנדר
+ * (``styled-share-view.js``). **הלשונית "קישורים"** מציגה את הקישורים של הקובץ, ומשם מעתיקים או מבטלים.
  */
 (function () {
     'use strict';
@@ -102,6 +105,8 @@
 
             tab.classList.add('active');
             document.getElementById(`export-${targetTab}-tab`).classList.add('active');
+            // הרשימה נטענת בכל פתיחה של הלשונית: קישור שנוצר או בוטל מאז מופיע בה כמו שהוא עכשיו
+            if (targetTab === 'links') loadLinks();
         });
     });
 
@@ -515,6 +520,136 @@
         document.body.appendChild(form);
         form.submit();
         document.body.removeChild(form);
+    }
+
+    // ============================================
+    // Links — הקישורים המעוצבים של הקובץ, להעתקה או לביטול
+    // ============================================
+    // השרת מחזיר את כל הקישורים של המשתמש לאותו שם קובץ, מכל הגרסאות (``api_list_styled_shares``), וביטול מוחק את
+    // הקישור (``api_revoke_styled_share``). השורות נבנות ב-``textContent``, בלי HTML מהשרת.
+
+    const linksList = document.getElementById('exportLinksList');
+    const LINKS_TIMEOUT_MS = 15000;
+
+    function linksSignal() {
+        return Core ? Core.timeoutSignal(LINKS_TIMEOUT_MS) : undefined;
+    }
+
+    function linksMessage(text, className) {
+        if (!linksList) return;
+        linksList.replaceChildren();
+        const li = document.createElement('li');
+        li.className = className;
+        li.textContent = text;
+        linksList.appendChild(li);
+    }
+
+    async function readJson(resp) {
+        try {
+            return await resp.json();
+        } catch (_err) {
+            // תשובה שאינה JSON (למשל עמוד 403 מה-decorators) — מטופלת כמו כשל של הבקשה
+            return {};
+        }
+    }
+
+    async function copyShareUrl(url, button) {
+        try {
+            await navigator.clipboard.writeText(url);
+            const original = button.textContent;
+            button.textContent = 'הועתק!';
+            setTimeout(() => { button.textContent = original; }, 2000);
+        } catch (err) {
+            console.warn('Clipboard write failed:', err);
+            prompt('העתק את הקישור ידנית:', url);
+        }
+    }
+
+    async function revokeShare(token, item, button) {
+        if (!window.confirm('לבטל את הקישור? מי שיפתח אותו יקבל "לא נמצא", ואי אפשר להחזיר אותו.')) return;
+        hideError();
+        button.disabled = true;
+        try {
+            const resp = await fetch(`/api/export/styled/shares/${encodeURIComponent(token)}/revoke`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                signal: linksSignal(),
+            });
+            const data = await readJson(resp);
+            if (!resp.ok || !data.ok) throw new Error(data.error || 'ביטול הקישור נכשל');
+            item.remove();
+            if (linksList && !linksList.children.length) linksMessage('אין קישורים לקובץ הזה.', 'export-empty');
+        } catch (err) {
+            console.error('Revoke link error:', err);
+            showError(err && err.name === 'TimeoutError' ? 'השרת לא ענה בזמן. נסו שוב בעוד רגע.' : (err.message || 'ביטול הקישור נכשל'));
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    function renderLinks(shares) {
+        if (!linksList) return;
+        if (!shares.length) {
+            linksMessage('אין קישורים לקובץ הזה.', 'export-empty');
+            return;
+        }
+        linksList.replaceChildren();
+        shares.forEach((share) => {
+            const item = document.createElement('li');
+            item.className = 'export-link-item';
+            item.dataset.token = share.token;
+
+            const meta = document.createElement('div');
+            meta.className = 'export-link-meta';
+            const when = document.createElement('strong');
+            const created = window.RelativeTime && share.created_at ? window.RelativeTime.format(share.created_at) : '';
+            when.textContent = created ? `נוצר ${created}` : 'קישור';
+            const details = document.createElement('small');
+            const validity = share.is_permanent ? 'קבוע' : `בתוקף ${share.expires_label || ''}`.trim();
+            details.textContent = `${validity} · ${share.view_count} צפיות`;
+            meta.append(when, details);
+
+            const actions = document.createElement('div');
+            actions.className = 'export-link-actions';
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'btn btn-secondary';
+            copyBtn.dataset.linkAction = 'copy';
+            copyBtn.textContent = 'העתק';
+            copyBtn.addEventListener('click', () => copyShareUrl(share.share_url, copyBtn));
+            const revokeBtn = document.createElement('button');
+            revokeBtn.type = 'button';
+            // לא ``btn-danger``: הצבעים שלו בעמוד הקובץ קבועים למשטח כהה, ועל שורה בהירה הטקסט כמעט לא נקרא. הפעולה
+            // מסומנת באייקון, ולפניה חלון אישור
+            revokeBtn.className = 'btn btn-secondary';
+            revokeBtn.dataset.linkAction = 'revoke';
+            const trash = document.createElement('i');
+            trash.className = 'fas fa-trash-alt';
+            trash.setAttribute('aria-hidden', 'true');
+            revokeBtn.append(trash, ' בטל');
+            revokeBtn.addEventListener('click', () => revokeShare(share.token, item, revokeBtn));
+            actions.append(copyBtn, revokeBtn);
+
+            item.append(meta, actions);
+            linksList.appendChild(item);
+        });
+    }
+
+    async function loadLinks() {
+        if (!linksList || !fileId) return;
+        linksMessage('טוען קישורים...', 'export-loading');
+        try {
+            const resp = await fetch(`/api/export/styled/${encodeURIComponent(fileId)}/shares`, {
+                credentials: 'same-origin',
+                signal: linksSignal(),
+            });
+            const data = await readJson(resp);
+            if (!resp.ok || !data.ok || !Array.isArray(data.shares)) throw new Error(data.error || 'load_failed');
+            renderLinks(data.shares);
+        } catch (err) {
+            console.error('Load links error:', err);
+            linksMessage('שגיאה בטעינת הקישורים', 'export-error');
+        }
     }
 
     // ============================================

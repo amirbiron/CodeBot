@@ -489,6 +489,79 @@ COPY_CODE_SCRIPT_UNTIL_NOV_2026 = """
 })();
 """
 
+#: ``COPY_CODE_SCRIPT`` עד 6.11.2026, תו בתו: מעתיק ב-``textContent``, אבל מוסיף כפתורים רק לבלוקים שהיו בעמוד
+#: כשהוא רץ. קישורים שנוצרו מאז 5.11.2026 ועד אז שומרים אותו בתוך ה-HTML שלהם.
+COPY_CODE_SCRIPT_UNTIL_NOV_6_2026 = """
+(function() {
+    'use strict';
+
+    // מוסיף כפתור "העתק" לכל בלוק קוד
+    document.querySelectorAll('pre').forEach(function(codeBlock) {
+        // יצירת הכפתור
+        var button = document.createElement('button');
+        button.className = 'copy-btn';
+        button.type = 'button';
+        button.innerHTML = '📋 <span>העתק</span>';
+        button.title = 'העתק קוד ללוח';
+        button.setAttribute('aria-label', 'העתק קוד ללוח');
+
+        button.addEventListener('click', function() {
+            // מציאת הקוד להעתקה. textContent ולא innerText: innerText נגזר מהפריסה, ומוסיף שורה ריקה סביב כל
+            // אלמנט בלוק — וקטע קוד בתוך בלוק קוד בעברית עטוף באחד כזה (rtl-code-ltr)
+            var codeEl = codeBlock.querySelector('code');
+            var textToCopy = codeEl ? codeEl.textContent : codeBlock.textContent;
+
+            // ניקוי רווחים מיותרים בסוף
+            textToCopy = textToCopy.trim();
+
+            // העתקה ללוח
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(textToCopy).then(function() {
+                    showSuccess(button);
+                }).catch(function() {
+                    fallbackCopy(textToCopy, button);
+                });
+            } else {
+                fallbackCopy(textToCopy, button);
+            }
+        });
+
+        codeBlock.appendChild(button);
+    });
+
+    // פידבק ויזואלי להצלחה
+    function showSuccess(button) {
+        var originalHTML = button.innerHTML;
+        button.innerHTML = '✅ <span>הועתק!</span>';
+        button.classList.add('success');
+
+        setTimeout(function() {
+            button.innerHTML = originalHTML;
+            button.classList.remove('success');
+        }, 2000);
+    }
+
+    // fallback לדפדפנים ישנים
+    function fallbackCopy(text, button) {
+        var textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+
+        try {
+            document.execCommand('copy');
+            showSuccess(button);
+        } catch (err) {
+            alert('לא הצלחנו להעתיק את הקוד');
+        }
+
+        document.body.removeChild(textarea);
+    }
+})();
+"""
+
 
 def test_the_copy_script_copies_the_characters_and_not_the_layout():
     """``innerText`` מוסיף שורה ריקה סביב כל אלמנט בלוק — וקטע קוד בתוך בלוק קוד בעברית עטוף באחד כזה.
@@ -503,6 +576,13 @@ def test_shares_created_with_the_previous_copy_script_keep_their_copy_button():
     allowed = re.findall(r"'(sha256-[^']+)'", styled_share_csp())
     assert _sha256_csp(COPY_CODE_SCRIPT_UNTIL_NOV_2026) in allowed
     assert COPY_CODE_SCRIPT_CSP_HASH in allowed
+
+
+def test_shares_created_before_late_content_support_keep_their_copy_button():
+    """הגרסה שלפני ``ckAttachCopyButtons`` שמורה בקישורים שנוצרו בין 5.11.2026 ל-6.11.2026 — וחלקם קבועים."""
+    assert _sha256_csp(COPY_CODE_SCRIPT_UNTIL_NOV_6_2026) in PREVIOUS_COPY_CODE_SCRIPT_CSP_HASHES
+    assert _sha256_csp(COPY_CODE_SCRIPT_UNTIL_NOV_6_2026) in re.findall(r"'(sha256-[^']+)'", styled_share_csp())
+    assert _sha256_csp(COPY_CODE_SCRIPT_UNTIL_NOV_6_2026) != COPY_CODE_SCRIPT_CSP_HASH
 
 
 def test_the_share_route_sends_the_csp_that_allows_both_versions(wa, monkeypatch):
