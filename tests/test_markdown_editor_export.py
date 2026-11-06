@@ -518,7 +518,11 @@ def test_the_share_route_sends_the_csp_that_allows_both_versions(wa, monkeypatch
             return None
 
     class _Db:
+        # כמו ``Database`` של pymongo: האוסף נגיש גם כ-``db[שם]`` (הנתיב קורא ``db[STYLED_SHARES_COLLECTION]``)
         styled_shares = _Shares()
+
+        def __getitem__(self, name):
+            return {"styled_shares": self.styled_shares}[name]
 
     monkeypatch.setattr(wa, "get_db", lambda: _Db())
     resp = guest_client(wa).get("/shared/styled/abc")

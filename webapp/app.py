@@ -215,6 +215,8 @@ from services.markdown_files import (  # noqa: E402
 )
 # אזהרה לצד קוד שמוצג, כשיש בו תווים שמשנים את סדר התצוגה (ראו services/code_service.py).
 from services.code_service import bidi_warning_for_display  # noqa: E402
+# קישורי השיתוף של ייצוא ה-HTML המעוצב — שם האוסף והאינדקסים שלו (מודול שורש טהור, ראו styled_shares.py).
+from styled_shares import STYLED_SHARES_COLLECTION  # noqa: E402
 # כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
 # שלמעלה, ראו tests/test_webapp_import_paths.py.
 from file_dates import (  # noqa: E402
@@ -17755,8 +17757,9 @@ def api_create_styled_share(file_id):
         vscode_json = data.get('vscode_json')
         is_permanent = bool(data.get('permanent', False))
 
-        # יצירת ה-styled HTML
-        markdown_content = file.get('code', '')
+        # יצירת ה-styled HTML. קובץ גדול (``large_files``) שומר את הטקסט ב-``content`` ולא ב-``code``,
+        # כמו במסלול ההורדה של ``export_styled_html`` — בלי זה שיתוף של קובץ גדול שמר עמוד ריק.
+        markdown_content = file.get('code') or file.get('content') or ''
         try:
             if vscode_json:
                 theme = get_export_theme('vscode-import', vscode_json=vscode_json)
@@ -17789,7 +17792,7 @@ def api_create_styled_share(file_id):
         now = datetime.now(timezone.utc)
         expires_at = None if is_permanent else now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
 
-        db.styled_shares.insert_one({
+        db[STYLED_SHARES_COLLECTION].insert_one({
             'token': token,
             'source_file_id': ObjectId(file_id),
             'user_id': int(user_id),
@@ -21918,7 +21921,7 @@ def public_shared_styled(token: str):
     """
     try:
         db = get_db()
-        doc = db.styled_shares.find_one({'token': token})
+        doc = db[STYLED_SHARES_COLLECTION].find_one({'token': token})
     except Exception:
         doc = None
 
@@ -21947,7 +21950,7 @@ def public_shared_styled(token: str):
 
     # עדכון מונה צפיות
     try:
-        db.styled_shares.update_one(
+        db[STYLED_SHARES_COLLECTION].update_one(
             {'token': token},
             {'$inc': {'view_count': 1}}
         )
