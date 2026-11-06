@@ -1,7 +1,12 @@
 {# מודאל בחירת ערכה לייצוא HTML מעוצב #}
 {# Usage: {% include 'export/export_modal.html' %} #}
+{# ``data-browser-render`` — האם "תצוגה מקדימה" ו"הורד HTML" בונים את הקובץ בדפדפן (``STYLED_EXPORT_BROWSER_RENDER``),
+   ו-``data-content-marker`` — טקסט ההערה שהשלד מחזיק במקום התוכן. שניהם מ-``inject_globals``; ``export-modal.js``
+   קורא אותם. #}
 
-<div id="exportThemeModal" class="export-modal" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle" hidden>
+<div id="exportThemeModal" class="export-modal" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle" hidden
+     data-browser-render="{{ '1' if styled_export_browser_render else '0' }}"
+     data-content-marker="{{ styled_export_content_marker }}">
     <div class="export-modal__surface">
         <div class="export-modal__header">
             <h3 id="exportModalTitle">

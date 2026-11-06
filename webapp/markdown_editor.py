@@ -23,7 +23,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from services.styled_export_service import EXPORT_PRESETS
+from services.styled_export_service import EXPORT_PRESETS, export_mermaid_theme
 
 #: הערכה הציבורית (``shared_themes``) שהעמוד מוצג בה.
 THEME_ID = "everforest_dark"
@@ -55,8 +55,8 @@ def export_themes() -> list[dict]:
             "id": theme_id,
             "name": preset["name"],
             "description": preset.get("description", ""),
-            # ``default`` היא הערכה הבהירה של Mermaid, ו-``dark`` הכהה
-            "mermaid_theme": "default" if preset.get("category") == "light" else "dark",
+            # ``default`` היא הערכה הבהירה של Mermaid, ו-``dark`` הכהה — הכרעה אחת עם חלון הייצוא של המחוברים
+            "mermaid_theme": export_mermaid_theme(preset),
             "bg": preset["variables"]["--bg-primary"],
             "accent": preset["variables"]["--primary"],
         })

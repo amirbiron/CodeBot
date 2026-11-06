@@ -1,5 +1,12 @@
 /**
  * Export Modal - לוגיקת מודאל ייצוא HTML מעוצב
+ *
+ * **"תצוגה מקדימה" ו"הורד HTML" מרנדרים את הקובץ בדפדפן** (``data-browser-render="1"`` על המודאל): באותו מנוע כמו
+ * התצוגה החיה והעורך הציבורי, כדי שיהיה מנוע אחד לכל הייצוא. השרת מגיש רק שלד — העמוד המעוצב של הערכה, עם שם
+ * הקובץ (``export_styled_skeleton`` ב-``webapp/app.py``) — והטקסט נלקח מהעמוד (``#rawCode``), או, בקובץ שגדול
+ * מכדי שהעמוד יציג אותו, מ-``/download/<id>``, שמחזיר בדיוק את אותה גרסה. המנוע נטען רק בלחיצה
+ * (``StyledExportCore.loadEngine``), מתוך ``#styledExportEngine``. בלי ``data-browser-render`` (המתג
+ * ``STYLED_EXPORT_BROWSER_RENDER``) — המסלול הקודם, שבו השרת ממיר בעצמו. "העתק קישור" עדיין יוצר את הקישור בשרת.
  */
 (function () {
     'use strict';
@@ -27,6 +34,7 @@
         name: 'Tech Guide Dark',
         source: 'preset', // 'preset' | 'user' | 'vscode'
         vscodeJson: null,  // תוכן JSON אם מקור הוא VS Code
+        mermaidTheme: 'dark', // ערכת ה-Mermaid של הקובץ — התרשימים מצוירים לפני שהשלד מגיע
     };
     let fileId = null;
     let presetsLoaded = false;
@@ -132,6 +140,7 @@
                     class="export-theme-card ${p.id === selectedTheme.id ? 'selected' : ''}"
                     data-theme-id="${escapeHtml(p.id)}"
                     data-theme-name="${escapeHtml(p.name)}"
+                    data-mermaid-theme="${escapeHtml(p.mermaid_theme || 'dark')}"
                     data-source="preset">
                 <div class="export-theme-preview">
                     ${(p.preview_colors || []).map(c => `<span style="background:${sanitizeColor(c)}"></span>`).join('')}
@@ -142,6 +151,13 @@
                 </div>
             </button>
         `).join('');
+
+        // ערכת ה-Mermaid של הערכה שנבחרה מראש מגיעה מהשרת, כמו של כל השאר — ה-``'dark'`` שבמצב ההתחלתי הוא רק למי
+        // שמייצא לפני שהרשימה נטענה
+        const preselected = presets.find((p) => p.id === selectedTheme.id);
+        if (selectedTheme.source === 'preset' && preselected && preselected.mermaid_theme) {
+            selectedTheme.mermaidTheme = preselected.mermaid_theme;
+        }
 
         bindThemeCards(presetsGrid);
     }
@@ -164,6 +180,7 @@
                     class="export-theme-card"
                     data-theme-id="${escapeHtml(t.id)}"
                     data-theme-name="${escapeHtml(t.name)}"
+                    data-mermaid-theme="${escapeHtml(t.mermaid_theme || 'dark')}"
                     data-source="user">
                 <div class="export-theme-info">
                     <strong>${escapeHtml(t.name)}</strong>
@@ -195,6 +212,7 @@
             name: card.dataset.themeName,
             source: card.dataset.source,
             vscodeJson: null,
+            mermaidTheme: card.dataset.mermaidTheme || 'dark',
         };
 
         if (selectedNameEl) {
@@ -312,6 +330,7 @@
                 name: displayName,
                 source: 'vscode',
                 vscodeJson: content,
+                mermaidTheme: data.mermaid_theme || 'dark',
             };
 
             if (selectedNameEl) {
@@ -342,6 +361,10 @@
 
     if (previewBtn) {
         previewBtn.addEventListener('click', async () => {
+            if (browserRender) {
+                await browserExport('preview');
+                return;
+            }
             // מקרה מיוחד: תצוגה מקדימה של VS Code JSON (צריך POST עם Blob)
             if (selectedTheme.source === 'vscode' && selectedTheme.vscodeJson) {
                 try {
@@ -380,6 +403,10 @@
 
     if (downloadBtn) {
         downloadBtn.addEventListener('click', async () => {
+            if (browserRender) {
+                if (await browserExport('download')) closeModal();
+                return;
+            }
             if (selectedTheme.source === 'vscode' && selectedTheme.vscodeJson) {
                 // VS Code theme - need to POST the JSON
                 await downloadWithVscodeTheme();
@@ -391,6 +418,78 @@
 
             closeModal();
         });
+    }
+
+    // ============================================
+    // Browser Render — הייצוא בדפדפן
+    // ============================================
+
+    const Core = window.StyledExportCore;
+    const browserRender = modal.dataset.browserRender === '1' && !!Core;
+    const markerText = modal.dataset.contentMarker || '';
+    const engineTemplate = document.getElementById('styledExportEngine');
+    // תקרות זמן: לטעינת המנוע כולה (כ-1.4MB דחוס בטעינה הראשונה), לבקשת הטקסט ולבקשת השלד. הכפתורים מושבתים בזמן
+    // הבנייה, ולכן המתנה שלא נגמרת לא יכולה להשאיר אותם מושבתים.
+    const ENGINE_TIMEOUT_MS = 60000;
+    const TEXT_TIMEOUT_MS = 30000;
+    const SKELETON_TIMEOUT_MS = 15000;
+
+    function setBusy(busy) {
+        [previewBtn, downloadBtn, copyLinkBtn].forEach((btn) => { if (btn) btn.disabled = busy; });
+        modal.setAttribute('aria-busy', busy ? 'true' : 'false');
+    }
+
+    // הטקסט של הקובץ: מהעמוד, או — בקובץ שגדול מכדי שהעמוד יציג אותו — מ-``/download/<id>``. שניהם מחזירים בדיוק
+    // את הגרסה שבתצוגה (``/api/file/<id>/content`` היה מחזיר את האחרונה, גם כשמייצאים גרסה ישנה).
+    async function markdownText() {
+        const raw = document.getElementById('rawCode');
+        if (raw) return raw.value;
+        const resp = await Core.fetchText(`/download/${encodeURIComponent(fileId)}`, { timeoutMs: TEXT_TIMEOUT_MS });
+        return resp.text;
+    }
+
+    async function fetchSkeleton(withMath) {
+        const base = `/export/styled/${encodeURIComponent(fileId)}/skeleton`;
+        if (selectedTheme.source === 'vscode' && selectedTheme.vscodeJson) {
+            const form = new FormData();
+            form.append('vscode_json', selectedTheme.vscodeJson);
+            if (withMath) form.append('math', '1');
+            return Core.fetchText(base, { method: 'POST', body: form, timeoutMs: SKELETON_TIMEOUT_MS });
+        }
+        const params = new URLSearchParams({ theme: selectedTheme.id });
+        if (withMath) params.set('math', '1');
+        return Core.fetchText(`${base}?${params}`, { timeoutMs: SKELETON_TIMEOUT_MS });
+    }
+
+    // מחזיר ``true`` כשהקובץ נמסר. "תצוגה מקדימה" פותחת את הטאב כבר עכשיו, בתוך הלחיצה (``openPreviewTab``).
+    async function browserExport(mode) {
+        hideError();
+        let previewWindow = null;
+        if (mode === 'preview') {
+            previewWindow = Core.openPreviewTab();
+            if (!previewWindow) {
+                showError('הדפדפן חסם את הטאב החדש. אפשר להתיר חלונות קופצים לאתר, או להוריד את הקובץ.');
+                return false;
+            }
+        }
+        setBusy(true);
+        try {
+            await Core.loadEngine(engineTemplate, ENGINE_TIMEOUT_MS);
+            const box = await Core.renderMarkdown(await markdownText(), selectedTheme.mermaidTheme);
+            const skeleton = await fetchSkeleton(Core.hasMath(box));
+            // שם המסמך הוא שם הקובץ, והוא כבר בשלד — לא הכותרת הראשונה, כמו בעורך הציבורי
+            const html = Core.assemble(skeleton.text, box, markerText, null);
+            const filename = decodeURIComponent(skeleton.headers.get('X-Export-Filename') || 'document.html');
+            Core.deliver(html, previewWindow, filename);
+            return true;
+        } catch (err) {
+            console.error('[export-modal] browser export failed', err);
+            if (previewWindow) previewWindow.close();
+            showError(Core.describeError(err));
+            return false;
+        } finally {
+            setBusy(false);
+        }
     }
 
     function buildExportUrl(isPreview) {

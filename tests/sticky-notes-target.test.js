@@ -3263,6 +3263,9 @@ check('חיווט: כל תבנית שטוענת live-preview.js מספקת גם 
   // המסמך דרך ``md-code-blocks.js`` (``enhance`` עם ``documentCodeBlocks``) — בלעדיו הבלוק נשאר בלי
   // מסגרת ובלי כפתור, והתצוגה רק מתריעה בקונסול. דפדפן הריפו וכרטיסי החיפוש בתיעוד שומרים על הכפתור
   // הקטן, שמציב ``<i class="bi bi-clipboard">`` — ובלי האייקונים של Bootstrap הוא ריק.
+  //
+  // עמוד הקובץ מחזיק את המנוע רק לייצוא המעוצב (``#styledExportEngine``), ו-``renderForExport`` בונה את הבלוק של
+  // המסמך, כמו ה-Split View — ולכן הוא נבדק כמותם, ולא לפי הכפתור הקטן שאינו מופיע בו.
   const loaders = liveLoaders();
   eq(loaders.length >= 4, true, 'נמצאו התבניות שטוענות את התצוגה החיה (' + loaders.length + ')');
   loaders.forEach(({ name, src }) => {
@@ -3272,7 +3275,7 @@ check('חיווט: כל תבנית שטוענת live-preview.js מספקת גם 
     eq(safe < live, true, name + ' טוען אותו לפני live-preview.js');
     eq(cacheBusted(src, 'js/utils/safe-highlight.js'), true,
        name + ' טוען אותו עם ?v=static_version');
-    if (src.includes('id="livePreviewRoot"')) {
+    if (src.includes('id="livePreviewRoot"') || src.includes('id="styledExportEngine"')) {
       const blocks = src.indexOf("filename='js/md-code-blocks.js'");
       eq(blocks !== -1, true, name + ' טוען את md-code-blocks.js');
       eq(blocks < live, true, name + ' טוען אותו לפני live-preview.js');
@@ -3360,6 +3363,24 @@ check('חיווט: כל עמוד עם Split View מקבל את התלויות ש
     eq(includes.includes('_live_preview_scripts.html'), true, name + ' כולל את _live_preview_scripts.html');
     eq(src.includes("filename='js/live-preview.js'"), false, name + ' אינו טוען את live-preview.js בעצמו');
   });
+});
+
+check('חיווט: המנוע של הייצוא המעוצב בעמוד הקובץ הוא ה-partial של התצוגה החיה, בתוך <template>', () => {
+  // **אותה רשימה, ולא עותק.** ``StyledExportCore.loadEngine`` טוען את מה שב-``#styledExportEngine``, לפי הסדר. רשימה
+  // שנכתבה ביד הייתה נסחפת מה-partial כמו שתי הרשימות של עמודי העריכה. ו-**בתוך** ``<template>``: שם הסקריפטים אינם
+  // רצים, והעמוד לא מוריד את הבאנדל של התצוגה עד שמייצאים.
+  const src = readTemplate(path.join(TEMPLATES_DIR, 'view_file.html'));
+  const engine = src.match(/<template id="styledExportEngine">([\s\S]*?)<\/template>/);
+  eq(!!engine, true, 'view_file.html מחזיק את #styledExportEngine');
+  eq([...engine[1].matchAll(INCLUDE_TAG)].map((m) => m[2]).join(','), '_live_preview_scripts.html',
+     'התוכן של #styledExportEngine הוא ה-partial בלבד');
+  eq(engine[1].replace(INCLUDE_TAG, '').trim(), '', 'ואין בו סקריפט משלו');
+  eq(src.replace(engine[0], '').includes('_live_preview_scripts.html'), false,
+     'ה-partial אינו נכלל בעמוד גם מחוץ ל-<template>');
+  const core = src.indexOf("filename='js/utils/styled-export-core.js'");
+  eq(core !== -1 && core < src.indexOf("filename='js/export-modal.js'"), true,
+     'styled-export-core.js נטען לפני export-modal.js');
+  eq(cacheBusted(src, 'js/utils/styled-export-core.js'), true, 'styled-export-core.js נטען עם ?v=static_version');
 });
 
 check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת גם את מפת האלרטים, ולפניה', () => {

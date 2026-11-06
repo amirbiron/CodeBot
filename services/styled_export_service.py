@@ -2616,6 +2616,46 @@ EDITOR_EXPORT_DEFAULT_TITLE = "מסמך"
 #: (השרת) ו-``render_styled_export_skeleton`` (הדפדפן).
 STYLED_EXPORT_FOOTER = 'נוצר אוטומטית ע"י Code Keeper Bot'
 
+#: סף הבהירות (0–255) של ``--bg-primary`` שמעליו ערכה נחשבת בהירה — אותו סף ואותה נוסחה של ``pageMermaidTheme``
+#: ב-``webapp/static/js/live-preview.js``, שבוחר כך את ערכת ה-Mermaid של התצוגה בערכה מותאמת. שני עותקים בשתי שפות,
+#: ו-``test_the_threshold_and_formula_are_those_of_the_live_preview`` קורא את שניהם ומשווה.
+_LIGHT_BACKGROUND_BRIGHTNESS = 128
+_HEX_COLOR_RE = re.compile(r"^#([0-9a-fA-F]{6})")
+
+
+def export_mermaid_theme(theme: dict) -> str:
+    """ערכת ה-Mermaid שהתרשימים בקובץ המיוצא מצוירים בה: ``default`` (הבהירה) או ``dark``.
+
+    לפי ``category`` של הערכה כשיש לה. לערכת משתמש אין (``import_theme`` לא שומר אותה), ולכן אצלה ההכרעה לפי הבהירות
+    של ``--bg-primary``, כמו בתצוגה. ``webapp/markdown_editor.py`` (העורך הציבורי) ו-``/api/export/themes`` (חלון
+    הייצוא של המחוברים) קוראים לפונקציה הזו, כדי שתהיה הכרעה אחת.
+    """
+    category = theme.get("category")
+    if category in ("light", "dark"):
+        return "default" if category == "light" else "dark"
+    # ערכת משתמש מגיעה מהמסד, ו-``variables`` שאינו מילון (רשומה פגומה) נחשב כאילו אין משתנים
+    variables = theme.get("variables")
+    if not isinstance(variables, dict):
+        variables = {}
+    match = _HEX_COLOR_RE.match(str(variables.get("--bg-primary", "")).strip())
+    if not match:
+        return "dark"
+    r, g, b = (int(match.group(1)[i:i + 2], 16) for i in (0, 2, 4))
+    brightness = (r * 299 + g * 587 + b * 114) / 1000
+    return "default" if brightness > _LIGHT_BACKGROUND_BRIGHTNESS else "dark"
+
+
+def styled_export_title(file_name: str) -> str:
+    """הכותרת של הייצוא של המחוברים — בבאנר, ב-``<title>`` ובשם הקובץ שיורד: שם הקובץ בלי ``.md`` / ``.markdown``."""
+    return re.sub(r"\.(md|markdown)$", "", file_name or "Untitled", flags=re.IGNORECASE)
+
+
+def styled_export_filename(title: str) -> str:
+    """שם הקובץ שיורד בייצוא של המחוברים: הכותרת (שם הקובץ בלי הסיומת) בלי תווים שאינם אותיות, ספרות, רווח, מקף
+    או נקודה, עד 50 תווים, ו-``.html``. כותרת שלא נשאר ממנה כלום — ``document.html``."""
+    safe = re.sub(r"[^\w \-.]", "", title or "").strip()[:50] or "document"
+    return f"{safe}.html"
+
 
 def editor_export_meta_csp() -> str:
     """ה-CSP שבתוך הקובץ שיוצא מהעורך הציבורי (``<meta http-equiv>``).
