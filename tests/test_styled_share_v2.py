@@ -322,8 +322,8 @@ def test_revoking_deletes_only_the_owners_link(wa):
     owner = next(_USER_IDS)
     _seed(wa, owner, token="mine")
 
-    assert _client(wa).post("/api/export/styled/shares/mine/revoke").status_code == 404  # משתמש אחר
-    resp = _client(wa, owner).post("/api/export/styled/shares/mine/revoke")
+    assert _client(wa).post("/api/export/styled/shares/mine/revoke", json={}).status_code == 404  # משתמש אחר
+    resp = _client(wa, owner).post("/api/export/styled/shares/mine/revoke", json={})
     assert resp.status_code == 200 and resp.get_json()["ok"] is True
     assert wa._test_db.styled_shares.docs == []
     assert wa._test_db.styled_shares.delete_calls[-1] == {"token": "mine", "user_id": owner}
@@ -332,7 +332,7 @@ def test_revoking_deletes_only_the_owners_link(wa):
 
 
 def test_revoking_a_missing_link_is_404(wa):
-    resp = _client(wa).post("/api/export/styled/shares/nothing/revoke")
+    resp = _client(wa).post("/api/export/styled/shares/nothing/revoke", json={})
     assert resp.status_code == 404 and resp.get_json()["code"] == "not_found"
 
 
@@ -341,3 +341,14 @@ def test_revoke_is_not_a_get(wa):
     _seed(wa, owner, token="safe")
     assert _client(wa, owner).get("/api/export/styled/shares/safe/revoke").status_code == 405
     assert [d["token"] for d in wa._test_db.styled_shares.docs] == ["safe"]
+
+
+@pytest.mark.parametrize("form", [None, {"x": "1"}])
+def test_revoke_requires_json_so_a_form_from_another_site_cannot_send_it(wa, form):
+    """הקישור ציבורי. טופס מאתר אחר (``application/x-www-form-urlencoded``, או בלי גוף) שנשלח בזמן שבעליו מחובר — 415,
+    והקישור נשאר."""
+    owner = next(_USER_IDS)
+    _seed(wa, owner, token="kept")
+    resp = _client(wa, owner).post("/api/export/styled/shares/kept/revoke", data=form)
+    assert resp.status_code == 415 and resp.get_json()["error"] == "json_required"
+    assert [d["token"] for d in wa._test_db.styled_shares.docs] == ["kept"]

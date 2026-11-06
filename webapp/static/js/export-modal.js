@@ -542,8 +542,12 @@
     const linksList = document.getElementById('exportLinksList');
     const LINKS_TIMEOUT_MS = 15000;
 
+    // תקרת זמן גם כשה-Core לא נטען: בלי תקרה, בקשה תקועה הייתה משאירה את הרשימה ב"טוען" ואת "העתק קישור" מושבת
     function linksSignal() {
-        return Core ? Core.timeoutSignal(LINKS_TIMEOUT_MS) : undefined;
+        if (Core) return Core.timeoutSignal(LINKS_TIMEOUT_MS);
+        return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+            ? AbortSignal.timeout(LINKS_TIMEOUT_MS)
+            : undefined;
     }
 
     function linksMessage(text, className) {
@@ -581,9 +585,12 @@
         hideError();
         button.disabled = true;
         try {
+            // JSON: השרת דוחה ביטול בלי ``Content-Type`` של JSON (הגנה מטופס שנשלח מאתר אחר)
             const resp = await fetch(`/api/export/styled/shares/${encodeURIComponent(token)}/revoke`, {
                 method: 'POST',
                 credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}',
                 signal: linksSignal(),
             });
             const data = await readJson(resp);
@@ -747,6 +754,9 @@
                 if (!response.ok || !data.ok) {
                     throw new Error(data.error || 'שגיאה ביצירת קישור');
                 }
+
+                // הקישור נוצר כשהלשונית "קישורים" פתוחה — הרשימה שבה מתעדכנת
+                if (modal.querySelector('.export-tab.active[data-tab="links"]')) loadLinks();
 
                 // ניסיון העתקה ללוח
                 let clipboardSuccess = false;

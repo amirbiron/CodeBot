@@ -850,7 +850,11 @@ def test_a_stale_links_response_is_not_shown(session):
         s.page.wait_for_timeout(50)
     assert len(s.held) == 1  # התשובה הישנה, עם הקישור, מוחזקת
 
-    s.page.evaluate("(t) => fetch(`/api/export/styled/shares/${t}/revoke`, { method: 'POST' })", token)
+    s.page.evaluate(
+        "(t) => fetch(`/api/export/styled/shares/${t}/revoke`,"
+        " { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })",
+        token,
+    )
     s.page.click("#exportThemeModal [data-tab=links]")
     poll(s.page, "document.querySelector('#exportLinksList').innerText.includes('אין קישורים')", "הרשימה הריקה")
     s.release()
@@ -878,3 +882,33 @@ def test_a_refresh_during_revoke_does_not_leave_the_revoked_link(session):
     s.release()
     poll(s.page, "document.querySelector('#exportLinksList').innerText.includes('אין קישורים')", "הרשימה אחרי הביטול")
     assert s.page.query_selector(f'#exportLinksList [data-token="{token}"]') is None
+
+
+def test_a_link_created_while_the_links_tab_is_open_appears_in_it(session):
+    s = session()
+    s.open_modal()
+    s.page.click("#exportThemeModal [data-tab=links]")
+    poll(s.page, "document.querySelector('#exportLinksList').innerText.includes('אין קישורים')", "רשימה ריקה")
+    s.page.evaluate("window.__copied = undefined")
+    s.page.click('#exportThemeModal [data-action="copy-link"]')
+    poll(s.page, "window.__copied !== undefined", "הקישור נוצר")
+    token = urlsplit(s.page.evaluate("window.__copied")).path.rsplit("/", 1)[-1]
+    poll(s.page, f"!!document.querySelector('#exportLinksList [data-token=\"{token}\"]')", "הקישור החדש ברשימה")
+
+
+def test_links_requests_keep_a_deadline_without_the_export_core(session):
+    """בלי ``StyledExportCore`` לבקשות של הקישורים עדיין יש תקרת זמן: בקשה תקועה לרשימה מסתיימת בהודעה, ולא ב"טוען"
+    לתמיד. ``LINKS_TIMEOUT_MS`` הוא 15 שניות, ולכן הטסט מחכה לו."""
+    s = session(blocked=("/utils/styled-export-core.js",))
+    assert s.page.evaluate("typeof window.StyledExportCore") == "undefined"  # בקרה: באמת חסר
+    s.open_modal()
+    s.hold = f"/api/export/styled/{FILE_ID}/shares"
+    s.page.click("#exportThemeModal [data-tab=links]")
+    # ``poll`` מוגבל ל-15 שניות — בדיוק התקרה שמחכים לה — ולכן דגימה עם תקרה משלה
+    deadline = time.monotonic() + 30
+    text = ""
+    while time.monotonic() < deadline and "שגיאה בטעינת הקישורים" not in text:
+        s.page.wait_for_timeout(250)
+        text = s.page.inner_text("#exportLinksList")
+    assert "שגיאה בטעינת הקישורים" in text, text
+    assert len(s.held) == 1  # הבקשה באמת לא קיבלה תשובה — מה שסיים אותה הוא התקרה
