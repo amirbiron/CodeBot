@@ -3433,6 +3433,13 @@ class ConfigService:
             description="מתג כללי להצגת רכיב ההכרזות (on/off)",
             category="features",
         ),
+        "STYLED_EXPORT_BROWSER_RENDER": ConfigDefinition(
+            key="STYLED_EXPORT_BROWSER_RENDER",
+            services=("webapp",),
+            default="true",
+            description="ייצוא HTML מעוצב מעמוד הקובץ נבנה בדפדפן (true) או בשרת, כמו לפני (false) — דרך חזרה בלי דיפלוי של קוד",
+            category="features",
+        ),
         "FEATURE_CODE_EXECUTION": ConfigDefinition(
             key="FEATURE_CODE_EXECUTION",
             services=("webapp", "bot"),

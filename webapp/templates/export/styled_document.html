@@ -369,6 +369,15 @@
         /* ============================================
          * Footer
          * ============================================ */
+        {% if share_source -%}
+        {#- שורת המצב של עמוד קישור השיתוף. רק שם — וה-"-" בתגיות שומר על כל שאר ה-HTML המעוצב בדיוק כמו שהיה #}
+        .ck-share-status {
+            text-align: center;
+            color: var(--text-muted);
+            margin: 2rem 0;
+        }
+
+        {% endif -%}
         footer {
             text-align: center;
             padding: 2rem;
@@ -479,6 +488,16 @@
         /* הסימון של markdown-it בייצוא מהעורך הציבורי */
 {% include "export/_editor_export_styles.css" %}
     </style>
+    {#- ערכה בלי צבעי highlight.js משלה (``hljs_fallback`` של ``get_export_theme``): הפלטה שנגזרת מהמשתנים, כמו בתצוגה
+        (``export_hljs_fallback_css``). לפני ``hljs_css``, שגובר עליה כשיש לערכה כללים משלה. #}
+    {%- if hljs_fallback_css %}
+    <style>
+        /* Syntax Highlighting של highlight.js מהפלטה שנגזרת ממשתני הערכה — במסך בלבד, כמו hljs_css */
+        @media screen {
+{{ hljs_fallback_css | safe }}
+        }
+    </style>
+    {%- endif %}
     {%- if hljs_css %}
     <style>
         /* Syntax Highlighting של highlight.js (מערכת הנושא) — במסך בלבד, כמו extra_css, כדי שבהדפסה הקוד יישאר בצבע אחד */
@@ -506,8 +525,9 @@
     {%- endif %}
 </head>
 <body>
-    {#- בייצוא מהעורך הציבורי אין באנר עליון: אין לקובץ שם, והכיתוב נשאר רק בתחתית. #}
-    {%- if not editor_export %}
+    {#- באנר עליון עם שם הקובץ — בייצוא של המחוברים (``show_header``). בייצוא מהעורך הציבורי אין: אין לקובץ שם, והכיתוב
+        נשאר רק בתחתית. #}
+    {%- if show_header %}
     <header>
         <h1>{{ title }}</h1>
         <p class="subtitle">{{ footer_text }}</p>
@@ -521,6 +541,12 @@
         </nav>
         {% endif %}
 
+        {% if share_source -%}
+        {#- עמוד קישור השיתוף (``share_source``): המסמך מרונדר כאן, בדפדפן, ועד אז מוצגת שורת מצב. ``styled-share-view.js``
+            מחליף את ההערה במסמך ומסיר את השורה, או כותב בה שהרינדור נכשל. #}
+        <p class="ck-share-status" id="ckShareStatus" role="status">טוען את המסמך…</p>
+        <noscript><p class="ck-share-status">כדי להציג את המסמך צריך JavaScript.</p></noscript>
+        {% endif -%}
         {{ content | safe }}
     </main>
 
@@ -538,7 +564,15 @@
       (script-src 'sha256-...'). חשוב לא להוסיף רווחים בין התגיות לבין הביטוי,
       אחרת ה-hash לא יתאים והכפתור ייחסם.
     -->
-    <script>{{ copy_script | safe }}</script>
+    <script>{{ copy_script | safe }}</script>{% if share_source %}
+    {#- עמוד קישור השיתוף: הטקסט כ-JSON (``tojson`` מקודד את ``<``, ``>``, ``&`` ו-``'``, ולכן הטקסט אינו יכול לסגור את
+        התגית), המנוע של התצוגה החיה — אותו partial של עמודי העורך, בלי עותק שני של הרשימה — ומה שמרנדר אותו. כולם
+        ``defer``, ולכן הם רצים אחרי סקריפט ההעתקה שמעל, שמשאיר את ``window.ckAttachCopyButtons`` למסמך שעוד יגיע. #}
+    <script type="application/json" id="ckShareSource">{{ share_source | tojson }}</script>
+{% include "_live_preview_scripts.html" %}
+    <script src="{{ url_for('static', filename='js/utils/styled-export-core.js') }}?v={{ static_version }}" defer></script>
+    <script src="{{ url_for('static', filename='js/styled-share-view.js') }}?v={{ static_version }}" defer></script>
+    {%- endif %}
 </body>
 </html>
 

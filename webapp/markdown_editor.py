@@ -23,7 +23,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from services.styled_export_service import EXPORT_PRESETS
+from services.styled_export_service import EXPORT_PRESETS, export_mermaid_theme
 
 #: הערכה הציבורית (``shared_themes``) שהעמוד מוצג בה.
 THEME_ID = "everforest_dark"
@@ -55,8 +55,8 @@ def export_themes() -> list[dict]:
             "id": theme_id,
             "name": preset["name"],
             "description": preset.get("description", ""),
-            # ``default`` היא הערכה הבהירה של Mermaid, ו-``dark`` הכהה
-            "mermaid_theme": "default" if preset.get("category") == "light" else "dark",
+            # ``default`` היא הערכה הבהירה של Mermaid, ו-``dark`` הכהה — הכרעה אחת עם חלון הייצוא של המחוברים
+            "mermaid_theme": export_mermaid_theme(preset),
             "bg": preset["variables"]["--bg-primary"],
             "accent": preset["variables"]["--primary"],
         })
@@ -89,6 +89,44 @@ def katex_inline_css() -> str:
     if "./fonts/" in css:
         raise ValueError("katex_inline_css: נשארה הפניה לגופן בקובץ חיצוני")
     return css
+
+
+#: הפלטה של highlight.js שנגזרת ממשתני הערכה, והכללים שמחברים אליה את מחלקות highlight.js — מתוך הצבעים של
+#: התצוגה, בין הסימונים שבקובץ (הבלוק של ערכה מותאמת או משותפת, ואחריו כללי ``#md-content .hljs-*``).
+MD_CONTENT_COLORS_CSS = Path(__file__).with_name("static") / "css" / "md-content-colors.css"
+EXPORT_HLJS_PALETTE_START = "/* export-hljs-palette:start"
+EXPORT_HLJS_PALETTE_END = "/* export-hljs-palette:end */"
+EXPORT_HLJS_RULES_START = "/* export-hljs-rules:start"
+EXPORT_HLJS_RULES_END = "/* export-hljs-rules:end */"
+#: הבורר שהכללים נכתבים תחתיו בקובץ המיוצא, במקום ``#md-content``: המיכל של התוכן ב-``export/styled_document.html``.
+EXPORT_HLJS_FALLBACK_ROOT = "main.container"
+
+
+def _between(text: str, start: str, end: str) -> str:
+    """הטקסט שבין סוף שורת הסימון ``start`` ל-``end`` — וזורק כשאחד מהם חסר."""
+    begin = text.index(start)
+    begin = text.index("*/", begin) + 2
+    return text[begin:text.index(end, begin)]
+
+
+@lru_cache(maxsize=1)
+def export_hljs_fallback_css() -> str:
+    """צבעי highlight.js לייצוא בערכה שאין לה צבעים משלה (``hljs_fallback`` של ``get_export_theme``).
+
+    זו אותה פלטה שהתצוגה צובעת בה ערכה מותאמת או משותפת — מילת מפתח ב-``--primary``, מחרוזת ב-``--success``, הערה
+    ב-``--text-muted`` וכו' — והיא נקראת מ-``md-content-colors.css`` ולא נכתבת כאן שוב, כדי שלא יהיו שני עותקים
+    שנסחפים. ``#md-content`` מוחלף ב-``EXPORT_HLJS_FALLBACK_ROOT``.
+
+    נקרא בבקשה הראשונה ונשמר בזיכרון של התהליך. סימון שחסר **זורק**, כמו ``katex_inline_css``; ``lru_cache`` לא
+    שומר חריגה, ולכן הבקשה הבאה תנסה שוב.
+    """
+    css = MD_CONTENT_COLORS_CSS.read_text(encoding="utf-8")
+    palette = _between(css, EXPORT_HLJS_PALETTE_START, EXPORT_HLJS_PALETTE_END).strip()
+    rules = _between(css, EXPORT_HLJS_RULES_START, EXPORT_HLJS_RULES_END).strip()
+    if "--hljs-keyword" not in palette or "#md-content .hljs-keyword" not in rules:
+        raise ValueError("export_hljs_fallback_css: הסימונים ב-md-content-colors.css כבר לא סוגרים את הפלטה והכללים")
+    root = EXPORT_HLJS_FALLBACK_ROOT
+    return f"{root} {{\n{palette}\n}}\n{rules.replace('#md-content', root)}\n"
 
 
 @lru_cache(maxsize=1)

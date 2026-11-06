@@ -166,6 +166,8 @@ from note_threads import NOTE_THREADS_COLLECTION, note_threads_indexes
 from drive_owner import WEBAPP as DRIVE_OWNER_WEBAPP, drive_fields
 # זיכרון השיחה והמכסה היומית של מצב היועץ — המפרט במודול השורש הטהור שגם הכותב משתמש בו.
 from advisor_collections import advisor_indexes
+# קישורי השיתוף של ייצוא ה-HTML המעוצב — המפרט במודול השורש הטהור שגם הוובאפ (הכותב) משתמש בו.
+from styled_shares import STYLED_SHARES_COLLECTION, styled_shares_indexes
 try:
     # Structured logging events
     from observability import emit_event
@@ -2400,6 +2402,46 @@ class DatabaseManager:
         """הכניסה מבחוץ לאותה פונקציה — שער המוכנות של שירות ה-MCP קורא לה."""
         return DatabaseManager._create_mcp_uploads_indexes(self, self.safe_create_index)
 
+    def _create_styled_shares_indexes(self, safe_create_index) -> Dict[str, bool]:
+        """האינדקסים של ``styled_shares`` — קישורי השיתוף של ייצוא ה-HTML המעוצב.
+
+        את האוסף כותב רק הוובאפ, והוא עובר כאן בכל עלייה. האינדקסים שמסומנים ``required`` הם של **התנהגות**:
+        ה-TTL הוא היחיד שמוחק קישור שפקע (הקורא רק מסתיר אותו ב-404), והייחודי הוא מה שמבטיח ש-``token`` מוביל
+        למסמך אחד. לכן כשל של אינדקס ``required`` יוצא כאירוע ברמת error, וכשל של אינדקס ביצועים לא. המפרט
+        ב-``styled_shares.py``.
+
+        ⚠️ **ביצירה הראשונה מונגו מוחק בבת אחת את כל הקישורים הזמניים שכבר פקעו**
+        (https://www.mongodb.com/docs/manual/core/index-ttl/). זו החלטה ולא תאונה: קישור כזה כבר עונה 404
+        מאז שפקע, ומה שנמחק הוא רק ה-HTML שנשאר במסד. קישור קבוע (``expires_at`` הוא ``None``) אינו נמחק.
+
+        ``safe_create_index`` אינו זורק; כשל חוזר כ-``False`` (דפוס K11).
+
+        Returns:
+            ``{שם אינדקס: האם הוא במצב המבוקש בסוף הקריאה}``.
+        """
+        results: Dict[str, bool] = {}
+        for spec in styled_shares_indexes():
+            ok = bool(
+                safe_create_index(
+                    STYLED_SHARES_COLLECTION,
+                    list(spec["keys"]),
+                    name=spec["name"],
+                    unique=bool(spec.get("unique", False)),
+                    background=True,
+                    enforce=bool(spec.get("enforce", False)),
+                    expire_after_seconds=spec.get("expire_after_seconds"),
+                )
+            )
+            if not ok and spec.get("required"):
+                emit_event(
+                    "db_styled_shares_index_missing",
+                    severity="error",
+                    collection=STYLED_SHARES_COLLECTION,
+                    index_name=spec["name"],
+                )
+            results[spec["name"]] = ok
+        return results
+
     def _create_advisor_indexes(self, safe_create_index) -> Dict[str, bool]:
         """האינדקסים של מצב היועץ — זיכרון השיחה והמכסה היומית.
 
@@ -2561,6 +2603,9 @@ class DatabaseManager:
 
         # מצב היועץ — זיכרון השיחה והמכסה היומית. כותב אחד (הבוט), ושני TTL של התנהגות.
         DatabaseManager._create_advisor_indexes(self, safe_create_index)
+
+        # styled_shares - קישורי השיתוף של ייצוא ה-HTML המעוצב. כותב אחד (הוובאפ), TTL וייחודי של התנהגות, ואינדקס ביצועים לרשימת הקישורים של קובץ.
+        DatabaseManager._create_styled_shares_indexes(self, safe_create_index)
 
         # note_threads - שרשורי התגובות על פתקים. שני כותבים (שירות ה-MCP והוובאפ),
         # ולכן ההצהרה כאן ולא אצל אחד מהם.

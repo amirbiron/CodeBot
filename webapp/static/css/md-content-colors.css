@@ -274,6 +274,9 @@
   --md-code-lang-bg: color-mix(in srgb, var(--text-primary, #ffffff) 14%, var(--bg-primary, #1a1c23));
   --md-code-lang-text: var(--text-primary, #f4f4ff);
   --md-code-shadow: 0 18px 30px rgba(0, 0, 0, 0.55);
+  /* export-hljs-palette:start — מכאן ועד הסימון שבסוף, הפלטה של highlight.js שנגזרת ממשתני הערכה. הייצוא ל-HTML
+     מעוצב קורא את השורות האלה (``export_hljs_fallback_css`` ב-``webapp/markdown_editor.py``) לערכה שאין לה צבעי
+     highlight.js משלה, כדי שהקובץ ייצבע כמו התצוגה. */
   --hljs-text: var(--text-primary, #e5eaf7);
   --hljs-keyword: var(--primary, #c678dd);
   --hljs-string: var(--success, #98c379);
@@ -285,6 +288,7 @@
   --hljs-addition-bg: color-mix(in srgb, var(--success, #98c379) 18%, transparent);
   --hljs-deletion-text: var(--danger, #e06c75);
   --hljs-deletion-bg: color-mix(in srgb, var(--danger, #e06c75) 22%, transparent);
+  /* export-hljs-palette:end */
   /* Blockquotes: 10% mix for clear distinction */
   --md-blockquote-bg: color-mix(in srgb, var(--text-primary, #ffffff) 10%, var(--bg-primary, #1a1c23));
   --md-blockquote-border: color-mix(in srgb, var(--text-primary, #ffffff) 25%, transparent);
@@ -433,6 +437,8 @@
 }
 
 #md-content code.hljs,
+/* export-hljs-rules:start — הכללים שמחברים את מחלקות highlight.js לפלטה. הייצוא קורא גם אותם, עם בורר משלו
+   במקום ``#md-content`` (``export_hljs_fallback_css``). */
 #md-content pre code.hljs {
   background: transparent !important;
   color: var(--hljs-text, var(--md-code-text));
@@ -486,6 +492,7 @@
   color: var(--hljs-deletion-text, var(--hljs-keyword, var(--hljs-text)));
   background: var(--hljs-deletion-bg, transparent);
 }
+/* export-hljs-rules:end */
 
 /* קוד בשורה */
 #md-content code:not(pre code) {

@@ -2015,6 +2015,20 @@ def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
     return "\n".join(css_by_selector.values())
 
 
+# 🎨 הבוררים ש-``sanitize_codemirror_css`` מקבל: tok- (CodeMirror 6 classHighlighter) ו-cm- (legacy), גם משורשרים
+# — עד 3 classes (לדוג' ``.tok-variableName.tok-definition.tok-local``).
+_CODEMIRROR_SINGLE_CLASS = r'(\.tok-[a-zA-Z0-9_-]+|\.cm-[a-z0-9_-]+)'
+_CODEMIRROR_SELECTOR_RE = re.compile(f'^{_CODEMIRROR_SINGLE_CLASS}({_CODEMIRROR_SINGLE_CLASS}){{0,2}}$')
+
+# הבוררים של highlight.js ש-``generate_hljs_css_from_tokens`` כותב: מחלקה ``hljs-`` ועד שלוש מחלקות-המשך
+# (``.hljs-title.function_``, ‏``.hljs-title.class_.inherited__``). בלי ``.hljs`` לבד: הכלל הבסיסי של הערכה
+# (צבע ורקע לכל הבלוק) אינו כלל של טוקן.
+_HLJS_SELECTOR_RE = re.compile(r'^\.hljs-[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+){0,3}$')
+
+#: הקידומת שכללי ערכה מותאמת או משותפת כתובים תחתיה בעמודי האתר — אותה קידומת של כללי highlight.js.
+_CUSTOM_THEME_RULE_PREFIX = HLJS_SITE_THEME_SELECTOR_PREFIX
+
+
 def sanitize_codemirror_css(css: str) -> str:
     """
     🔒 מנקה CSS של CodeMirror (syntax_css) כדי למנוע CSS injection.
@@ -2024,6 +2038,26 @@ def sanitize_codemirror_css(css: str) -> str:
 
     תומך גם ב-tok- classes (CodeMirror 6 classHighlighter) וגם ב-cm- classes (legacy).
     """
+    return _sanitize_custom_theme_rules(css, _CODEMIRROR_SELECTOR_RE, _CUSTOM_THEME_RULE_PREFIX)
+
+
+def rebase_hljs_css(css: str, selector_prefix: str) -> str:
+    """🔒 כללי highlight.js מתוך ``syntax_css`` של ערכה מיובאת, תחת ``selector_prefix`` במקום הקידומת של האתר.
+
+    ``parse_vscode_theme`` כותב את כללי highlight.js תחת ``HLJS_SITE_THEME_SELECTOR_PREFIX``, שמתאים רק בעמודי האתר
+    (``:root[data-theme-type="custom"]``), ו-``tokenColors`` עצמם לא נשמרים עם הערכה — כך שאי אפשר לחשב אותם מחדש.
+    הפונקציה לוקחת את הכללים השמורים ומחזירה אותם תחת קידומת אחרת (בייצוא: ``EXPORT_HLJS_SELECTOR_PREFIX``).
+
+    הטקסט מגיע מהמסד, ולכן הוא עובר אותו ניקוי של ``sanitize_codemirror_css``, שורה-שורה: רק בורר ``hljs-``, רק
+    ``color`` תקין ו-``font-style: italic`` / ``font-weight: bold`` / ``text-decoration: underline``. כל השאר —
+    כללי CodeMirror ו-Pygments שבאותו ``syntax_css``, והכלל הבסיסי ``.hljs`` — לא עובר.
+    """
+    return _sanitize_custom_theme_rules(css, _HLJS_SELECTOR_RE, selector_prefix)
+
+
+def _sanitize_custom_theme_rules(css: str, selector_re: re.Pattern, output_prefix: str) -> str:
+    """הניקוי המשותף: כללים בשורה אחת, תחת הקידומת של ערכה מותאמת (בפורמט הישן או החדש), שהבורר שלהם תואם
+    ל-``selector_re`` וההצהרות שלהן ברשימה הסגורה. כל כלל תקין יוצא תחת ``output_prefix``."""
     if not css or not isinstance(css, str):
         return ""
 
@@ -2075,14 +2109,7 @@ def sanitize_codemirror_css(css: str) -> str:
             continue
         selector = rest
 
-        # 🎨 תומך גם ב-tok- (CodeMirror 6) וגם ב-cm- (legacy)
-        # תומך גם ב-composite selectors כמו .tok-variableName.tok-definition
-        tok_pattern = r'\.tok-[a-zA-Z0-9_-]+'
-        cm_pattern = r'\.cm-[a-z0-9_-]+'
-        single_class = f'({tok_pattern}|{cm_pattern})'
-        # מאפשר עד 3 classes משורשרים (לדוג' .tok-variableName.tok-definition.tok-local)
-        composite_pattern = f'^{single_class}({single_class}){{0,2}}$'
-        if not re.match(composite_pattern, selector):
+        if not selector_re.match(selector):
             continue
 
         decls = [d.strip() for d in body.split(";") if d.strip()]
@@ -2136,8 +2163,8 @@ def sanitize_codemirror_css(css: str) -> str:
         if not any(p.startswith("color:") for p in out_parts):
             continue
 
-        # ננרמל תמיד לפורמט החדש, כדי שיתפוס גם custom וגם shared (דרך data-theme-type).
-        safe_rules.append(f':root[data-theme-type="custom"] {selector} {{ {"; ".join(out_parts)}; }}')
+        # ``sanitize_codemirror_css`` מנרמל תמיד לפורמט החדש, כדי שיתפוס גם custom וגם shared (דרך data-theme-type).
+        safe_rules.append(f'{output_prefix} {selector} {{ {"; ".join(out_parts)}; }}')
 
     return "\n".join(safe_rules)
 

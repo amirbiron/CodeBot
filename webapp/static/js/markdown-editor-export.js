@@ -12,6 +12,8 @@
  *   ההמתנה לרינדור ולשלד: דפדפן מתיר ``window.open`` רק זמן קצר אחרי פעולה של המשתמש ("transient activation" בתקן
  *   של HTML), ורינדור של מסמך עם תרשימים יכול להימשך יותר.
  * - **"הורד HTML"** מוריד אותו כ-``DOWNLOAD_NAME``, באותו מנגנון כמו "הורד ‎.md" (``downloadBlob``).
+ * - **מה שמשותף לייצוא של המחוברים** — הבקשה לשלד עם תקרת זמן, ההכנסה של המסמך, הטאב וההורדה, וההודעות על כשל —
+ *   ב-``utils/styled-export-core.js`` (``window.StyledExportCore``).
  * - **שם המסמך** (``<title>``) הוא הכותרת הראשונה במסמך, ונכנס דרך ``document.title`` — טקסט, לא HTML.
  *
  * התיעוד: ``docs/webapp/markdown-editor.rst``.
@@ -19,7 +21,8 @@
 (function () {
   'use strict';
 
-  const { getEditorContent, downloadBlob } = window.EditorPageUtils;
+  const { getEditorContent } = window.EditorPageUtils;
+  const Core = window.StyledExportCore;
 
   const DOWNLOAD_NAME = 'document.html';
   // השם כשאין במסמך כותרת
@@ -52,115 +55,48 @@
     toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
   });
 
+  // ``styled-export-core.js`` לא נטען (בקשה שנכשלה): הכפתורים גלויים, ולכן לחיצה עליהם אומרת למה אין ייצוא — ולא
+  // שותקת.
+  if (!Core) {
+    console.error('[markdown-editor-export] StyledExportCore is missing; export is unavailable');
+    actionButtons.forEach((btn) => {
+      btn.addEventListener('click', () => setStatus('רכיב הייצוא לא נטען, ולכן אי אפשר לייצא. נסו לרענן את העמוד.'));
+    });
+    return;
+  }
+
   function selectedTheme() {
     return panel.querySelector('input[name="mdEditorExportTheme"]:checked');
   }
 
-  // ``AbortSignal.timeout`` כשהדפדפן מכיר אותו; אחרת אותה תקרה מ-``AbortController``; ובדפדפן שאין בו אף אחד מהם —
-  // בלי סיגנל, והבקשה נשלחת בלי תקרה. לפי יכולת, לא אחרי כשל. אותו מבנה כמו ``requestDeadline`` ב-``card-preview.js``
-  // (ושם ההסבר למה הוא לא אוחד לקובץ משותף).
-  function timeoutSignal(ms) {
-    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-      return AbortSignal.timeout(ms);
-    }
-    if (typeof AbortController === 'function') {
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), ms);
-      return controller.signal;
-    }
-    return undefined;
-  }
-
-  async function fetchSkeleton(url, withMath) {
-    const target = withMath ? `${url}?math=1` : url;
-    const resp = await fetch(target, { credentials: 'same-origin', signal: timeoutSignal(SKELETON_TIMEOUT_MS) });
-    if (!resp.ok) {
-      throw new Error(`skeleton_http_${resp.status}`);
-    }
-    return resp.text();
-  }
-
-  function findMarker(doc) {
-    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_COMMENT);
-    let node = walker.nextNode();
-    while (node) {
-      if (node.nodeValue === markerText) return node;
-      node = walker.nextNode();
-    }
-    return null;
-  }
-
-  function documentTitle(box) {
-    const heading = box.querySelector('h1, h2, h3, h4');
-    const text = heading ? heading.textContent.replace(/\s+/g, ' ').trim() : '';
-    return text || FALLBACK_TITLE;
-  }
-
-  // הקובץ השלם, כמחרוזת: השלד, עם המסמך במקום ההערה.
+  // הקובץ השלם, כמחרוזת: השלד, עם המסמך במקום ההערה. שם המסמך — הכותרת הראשונה בו.
   async function buildDocument(themeInput) {
-    if (!window.MarkdownLiveRenderer || typeof window.MarkdownLiveRenderer.renderForExport !== 'function') {
-      throw new Error('renderer_missing');
-    }
-    const box = await window.MarkdownLiveRenderer.renderForExport(getEditorContent(textarea), {
-      mermaidTheme: themeInput.getAttribute('data-mermaid-theme') || undefined,
-    });
-    const skeleton = await fetchSkeleton(themeInput.getAttribute('data-skeleton-url'), !!box.querySelector('.katex'));
-    const doc = new DOMParser().parseFromString(skeleton, 'text/html');
-    const marker = findMarker(doc);
-    if (!marker) {
-      throw new Error('skeleton_marker_missing');
-    }
-    const fragment = doc.createDocumentFragment();
-    Array.from(box.childNodes).forEach((node) => fragment.appendChild(doc.importNode(node, true)));
-    marker.replaceWith(fragment);
-    doc.title = documentTitle(box);
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  }
-
-  function describeError(err) {
-    const message = (err && err.message) || '';
-    if (err && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-      return 'השרת לא ענה בזמן. נסו שוב בעוד רגע.';
-    }
-    if (message === 'skeleton_http_429') {
-      return 'יותר מדי ייצואים בזמן קצר. נסו שוב מאוחר יותר.';
-    }
-    if (message === 'renderer_missing') {
-      return 'ספריית ה-Markdown לא נטענה, ולכן אי אפשר לייצא. נסו לרענן את העמוד.';
-    }
-    return 'הייצוא נכשל. נסו שוב.';
+    const box = await Core.renderMarkdown(getEditorContent(textarea), themeInput.getAttribute('data-mermaid-theme'));
+    const url = themeInput.getAttribute('data-skeleton-url');
+    const skeleton = await Core.fetchText(Core.hasMath(box) ? `${url}?math=1` : url, { timeoutMs: SKELETON_TIMEOUT_MS });
+    return Core.assemble(skeleton.text, box, markerText, Core.firstHeadingTitle(box, FALLBACK_TITLE));
   }
 
   async function exportDocument(mode) {
     const themeInput = selectedTheme();
     if (!themeInput) return;
-    // "הצג": הטאב נפתח עכשיו, בתוך הלחיצה (ראו בראש הקובץ), ומנותק מהעמוד הזה לפני שנטען בו משהו.
     let previewWindow = null;
     if (mode === 'preview') {
-      previewWindow = window.open('', '_blank');
+      previewWindow = Core.openPreviewTab();
       if (!previewWindow) {
         setStatus('הדפדפן חסם את הטאב החדש. אפשר להתיר חלונות קופצים לאתר, או להוריד את הקובץ.');
         return;
       }
-      previewWindow.opener = null;
     }
     setBusy(true);
     setStatus('מכין את הקובץ…');
     try {
-      const html = await buildDocument(themeInput);
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      if (previewWindow) {
-        // הכתובת לא משתחררת: רענון של הטאב טוען אותה שוב, וכתובת ששוחררה הייתה מחזירה שגיאה. הדפדפן משחרר
-        // אותה כשהעמוד הזה נסגר.
-        previewWindow.location.href = URL.createObjectURL(blob);
-      } else {
-        downloadBlob(blob, DOWNLOAD_NAME);
-      }
+      Core.deliver(await buildDocument(themeInput), previewWindow, DOWNLOAD_NAME);
       setStatus('');
     } catch (err) {
       console.error('[markdown-editor-export] export failed', err);
       if (previewWindow) previewWindow.close();
-      setStatus(describeError(err));
+      setStatus(Core.describeError(err));
     } finally {
       setBusy(false);
     }

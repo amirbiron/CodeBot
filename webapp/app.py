@@ -215,6 +215,12 @@ from services.markdown_files import (  # noqa: E402
 )
 # אזהרה לצד קוד שמוצג, כשיש בו תווים שמשנים את סדר התצוגה (ראו services/code_service.py).
 from services.code_service import bidi_warning_for_display  # noqa: E402
+# קישורי השיתוף של ייצוא ה-HTML המעוצב — שם האוסף והאינדקסים שלו (מודול שורש טהור, ראו styled_shares.py).
+from styled_shares import (  # noqa: E402
+    STYLED_SHARES_COLLECTION,
+    STYLED_SHARE_FORMAT_MARKDOWN,
+    STYLED_SHARE_MAX_MARKDOWN_BYTES,
+)
 # כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
 # שלמעלה, ראו tests/test_webapp_import_paths.py.
 from file_dates import (  # noqa: E402
@@ -270,6 +276,7 @@ from webapp.gallery import GALLERY_SLIDES, share_image as gallery_share_image  #
 from webapp.markdown_editor import THEME_ID as MARKDOWN_EDITOR_THEME_ID, demo_text as markdown_editor_demo_text  # noqa: E402
 from webapp.markdown_editor import (  # noqa: E402
     EXPORT_THEME_IDS as MARKDOWN_EDITOR_EXPORT_THEME_IDS,
+    export_hljs_fallback_css as markdown_editor_hljs_fallback_css,
     export_themes as markdown_editor_export_themes,
     katex_inline_css as markdown_editor_katex_css,
 )
@@ -294,12 +301,18 @@ from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
     COPY_CODE_SCRIPT_CSP_HASH,
     EDITOR_EXPORT_CONTENT_MARKER_TEXT,
+    export_mermaid_theme,
     get_export_theme,
     list_export_presets,
     markdown_to_html,
     render_editor_export_skeleton,
+    render_styled_export_skeleton,
     render_styled_html,
+    render_styled_share_page,
+    styled_export_filename,
+    styled_export_title,
     styled_share_csp,
+    styled_share_page_csp,
 )
 from services.theme_parser_service import parse_vscode_theme, validate_theme_json  # noqa: E402
 
@@ -2203,6 +2216,11 @@ try:
 except Exception:
     PUBLIC_SHARE_TTL_DAYS = 7
 
+#: חלון הייצוא המעוצב בעמוד הקובץ (``export_modal.html``) בונה את הקובץ בדפדפן, באותו מנוע כמו התצוגה החיה.
+#: ``0`` מחזיר אותו לבנייה בשרת (``/export/styled/<file_id>``), שנשארה כמו שהיא — דרך חזרה בלי דיפלוי של קוד.
+#: עובר לתבנית דרך ``inject_globals``.
+STYLED_EXPORT_BROWSER_RENDER = _env_bool('STYLED_EXPORT_BROWSER_RENDER', True)
+
 
 def _hebrew_day_count(days: int) -> str:
     """מספר ימים בעברית תקנית: "יום אחד", "יומיים", "7 ימים".
@@ -2580,6 +2598,10 @@ def inject_globals():
         # תוקף הקישור הזמני במודאל השיתוף, מאותה סיבה: המודאל אמר רק "זמני",
         # ומספר מוקלד לידו היה נשאר מאחור ברגע ש-``PUBLIC_SHARE_TTL_DAYS`` משתנה.
         'public_share_ttl_label': _hebrew_day_count(PUBLIC_SHARE_TTL_DAYS),
+        # חלון הייצוא המעוצב: האם הקובץ נבנה בדפדפן, וטקסט ההערה שהשלד מחזיק במקום התוכן (מאותו קבוע שהשלד
+        # נבנה ממנו). כאן ולא בכל אחת מקריאות ה-render של עמוד הקובץ, כדי שלא יהיו כמה עותקים שצריך לזכור.
+        'styled_export_browser_render': STYLED_EXPORT_BROWSER_RENDER,
+        'styled_export_content_marker': EDITOR_EXPORT_CONTENT_MARKER_TEXT,
         # External uptime config for templates (non-sensitive only)
         'uptime_provider': UPTIME_PROVIDER,
         'uptime_status_url': UPTIME_STATUS_URL,
@@ -14260,6 +14282,9 @@ def view_file(file_id):
     # הוא הוולידטור היחיד לעמוד הזה (ראו ההערה על ``If-Modified-Since``
     # מתחת), ולכן המצב נכנס אליו — כולל "לא ידוע".
     etag_variant = "{}|fav:{}".format(etag_variant, {None: 'u', True: '1', False: '0'}[favorite_state])
+    # ``STYLED_EXPORT_BROWSER_RENDER`` נכתב לתוך העמוד (``data-browser-render`` בחלון הייצוא), ושינוי שלו הוא דיפלוי
+    # בלי קוד חדש. בלעדיו כאן, עמוד שמור היה מקבל 304 וממשיך במסלול שכובה — והמתג לא היה מחזיר אותו לאחור.
+    etag_variant = "{}|ser:{}".format(etag_variant, '1' if STYLED_EXPORT_BROWSER_RENDER else '0')
     etag = _compute_file_etag(file, variant=etag_variant)
     last_modified_dt = _file_last_modified(file)
     last_modified_str = http_date(last_modified_dt)
@@ -17574,23 +17599,7 @@ def export_styled_html(file_id):
         flash('ייצוא HTML מעוצב זמין רק לקבצי Markdown', 'warning')
         return redirect(url_for('view_file', file_id=file_id))
 
-    # שליפת ערכת הנושא - תלוי ב-Method
-    if request.method == 'POST':
-        # POST: ערכת VS Code מה-Form Data
-        vscode_json = request.form.get('vscode_json')
-        if vscode_json:
-            theme = get_export_theme('vscode-import', vscode_json=vscode_json)
-        else:
-            theme = get_export_theme('tech-guide-dark')
-    else:
-        # GET: ערכה מה-Query String
-        theme_id = request.args.get('theme', 'tech-guide-dark')
-
-        # שליפת ערכות המשתמש (אם בחר ערכה אישית)
-        user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
-        user_themes = user_data.get("custom_themes", []) if user_data else []
-
-        theme = get_export_theme(theme_id, user_themes=user_themes)
+    theme = _styled_export_theme_from_request(db, user_id)
 
     # המרת Markdown ל-HTML
     raw_content = file.get('code') or file.get('content') or ''
@@ -17600,10 +17609,7 @@ def export_styled_html(file_id):
     html_content, toc_html = markdown_to_html(raw_content, include_toc=include_toc)
 
     # רינדור HTML מלא
-    # שימוש ב-or כדי לטפל גם במקרה ש-file_name קיים אבל הוא None
-    # הסרת סיומות case-insensitive עם regex
-    raw_title = file.get('file_name') or 'Untitled'
-    title = re.sub(r'\.(md|markdown)$', '', raw_title, flags=re.IGNORECASE)
+    title = styled_export_title(file.get('file_name'))
     rendered_html = render_styled_html(
         content_html=html_content,
         title=title,
@@ -17626,11 +17632,72 @@ def export_styled_html(file_id):
     response = make_response(rendered_html)
     response.headers['Content-Type'] = 'text/html; charset=utf-8'
 
-    # 🔒 סניטציה של שם הקובץ - רווח בודד במקום כל whitespace, ללא newlines
-    safe_filename = re.sub(r'[^\w \-.]', '', title)  # רווח בודד, לא \s
-    safe_filename = safe_filename.strip()[:50] or 'document'
-    response.headers['Content-Disposition'] = f'attachment; filename="{safe_filename}.html"'
+    # 🔒 סניטציה של שם הקובץ — כלל אחד עם הייצוא בדפדפן (``styled_export_filename``)
+    response.headers['Content-Disposition'] = f'attachment; filename="{styled_export_filename(title)}"'
 
+    return response
+
+
+def _styled_export_theme_from_request(db, user_id):
+    """הערכה של ייצוא מעוצב לפי הבקשה — לייצוא בשרת (``export_styled_html``) ולשלד של הייצוא בדפדפן.
+
+    ב-POST: ערכת VS Code חד-פעמית מ-``vscode_json`` שבטופס, ובלעדיה ``tech-guide-dark``. ב-GET: ``theme`` מה-query,
+    כולל ערכות המשתמש מהמסד.
+    """
+    if request.method == 'POST':
+        vscode_json = request.form.get('vscode_json')
+        if vscode_json:
+            return get_export_theme('vscode-import', vscode_json=vscode_json)
+        return get_export_theme('tech-guide-dark')
+    theme_id = request.args.get('theme', 'tech-guide-dark')
+    user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
+    user_themes = user_data.get("custom_themes", []) if user_data else []
+    return get_export_theme(theme_id, user_themes=user_themes)
+
+
+@app.route('/export/styled/<file_id>/skeleton', methods=['GET', 'POST'])
+@login_required
+@premium_or_admin_required
+@traced("export.styled_skeleton")
+def export_styled_skeleton(file_id):
+    """השלד של הייצוא של המחוברים, כשהמסמך מרונדר בדפדפן: העמוד המעוצב של הערכה, עם הערת HTML במקום התוכן.
+
+    הדפדפן (``export-modal.js``) מרנדר את הקובץ באותו מנוע כמו התצוגה החיה ומכניס אותו לשלד — כמו בעורך הציבורי,
+    ומאותה סיבה: מנוע אחד לכל הייצוא. בשלד אין את תוכן הקובץ, רק שם הקובץ (בבאנר וב-``<title>``) והעיצוב של הערכה —
+    ובכל זאת הוא תחת אותן הרשאות של הייצוא שבשרת: התחברות, פרימיום, וקובץ Markdown של המשתמש.
+
+    הערכה כמו בייצוא שבשרת (``_styled_export_theme_from_request``), ו-``math`` הוא ``1`` (עם ה-CSS של KaTeX) או חסר.
+    ``X-Export-Filename`` — שם הקובץ שיורד, מקודד ב-URL (``styled_export_filename``): כותרת HTTP היא latin-1, ושם
+    הקובץ בעברית.
+    """
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
+    except Exception as e:
+        logger.exception("DB error fetching file for export skeleton", extra={"file_id": file_id, "user_id": user_id, "error": str(e)})
+        abort(500)
+    if not file:
+        abort(404)
+    if not _is_markdown_file((file.get('programming_language') or '').lower(), file.get('file_name') or ''):
+        abort(400)
+    math = request.values.get('math')
+    if math not in (None, '1'):
+        abort(404)
+
+    title = styled_export_title(file.get('file_name'))
+    html = render_styled_export_skeleton(
+        _styled_export_theme_from_request(db, user_id),
+        title,
+        katex_css=markdown_editor_katex_css() if math == '1' else "",
+        hljs_fallback_css=markdown_editor_hljs_fallback_css(),
+    )
+    response = make_response(html)
+    response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    # השלד נושא את שם הקובץ ואת ערכות המשתמש — לא נשמר בשום מטמון
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Content-Security-Policy'] = _MARKDOWN_EDITOR_SKELETON_CSP
+    response.headers['X-Export-Filename'] = url_quote(styled_export_filename(title))
     return response
 
 
@@ -17649,8 +17716,8 @@ def api_export_themes():
     db = get_db()
     user_id = session['user_id']
 
-    # Presets
-    presets = list_export_presets()
+    # Presets. ``mermaid_theme`` — ערכת ה-Mermaid של הקובץ: הדפדפן מרנדר את התרשימים לפני שהוא מבקש את השלד
+    presets = [dict(p, mermaid_theme=export_mermaid_theme(p)) for p in list_export_presets()]
 
     # ערכות המשתמש
     user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
@@ -17665,6 +17732,10 @@ def api_export_themes():
                 "name": theme.get("name", "My Theme"),
                 "description": theme.get("description", ""),
                 "category": "custom",
+                # לערכת משתמש אין קטגוריה שמורה, ולכן ההכרעה לפי ``--bg-primary`` שלה
+                "mermaid_theme": export_mermaid_theme(
+                    {"variables": theme.get("variables") if isinstance(theme.get("variables"), dict) else {}}
+                ),
             })
 
     return jsonify({
@@ -17707,6 +17778,7 @@ def api_parse_vscode_theme():
             "type": parsed.get("type", "dark"),
             "variables": parsed.get("variables", {}),
             "syntax_css": parsed.get("syntax_css", ""),
+            "mermaid_theme": export_mermaid_theme({"category": parsed.get("type")}),
         })
     except Exception as e:
         logger.exception("Failed to parse VS Code theme")
@@ -17749,14 +17821,34 @@ def api_create_styled_share(file_id):
         if not _is_markdown_file(language, file_name):
             return jsonify({'ok': False, 'error': 'ייצוא HTML מעוצב זמין רק לקבצי Markdown'}), 400
 
-        # פרסור הבקשה
-        data = request.get_json(silent=True) or {}
-        theme_id = data.get('theme', 'tech-guide-dark')
-        vscode_json = data.get('vscode_json')
-        is_permanent = bool(data.get('permanent', False))
+        # פרסור הבקשה. גוף שאינו אובייקט, או שדה מסוג אחר מהמצופה, הם בקשה שגויה (400) — ולא 500, ולא ניחוש:
+        # ``theme`` נבדק מול מילון (``theme_id in EXPORT_PRESETS``), ורשימה שם זורקת ``TypeError``; ו-``permanent`` חייב
+        # להיות boolean, כי ``bool("false")`` הוא ``True`` — קישור זמני היה נשמר כקבוע, בלי תוקף.
+        data = request.get_json(silent=True)
+        if data is None:
+            data = {}
+        theme_id = data.get('theme', 'tech-guide-dark') if isinstance(data, dict) else None
+        vscode_json = data.get('vscode_json') if isinstance(data, dict) else None
+        is_permanent = data.get('permanent', False) if isinstance(data, dict) else None
+        if (
+            not isinstance(theme_id, str)
+            or not isinstance(vscode_json, (str, type(None)))
+            or not isinstance(is_permanent, bool)
+        ):
+            return jsonify({'ok': False, 'error': 'בקשה לא תקינה', 'code': 'invalid_request'}), 400
 
-        # יצירת ה-styled HTML
-        markdown_content = file.get('code', '')
+        # הטקסט של הגרסה ששותפה. קובץ גדול (``large_files``) שומר אותו ב-``content`` ולא ב-``code``,
+        # כמו במסלול ההורדה של ``export_styled_html`` — בלי זה שיתוף של קובץ גדול שמר עמוד ריק.
+        markdown_content = file.get('code') or file.get('content') or ''
+        # הצורה השנייה (``styled_shares.py``): הטקסט ותמונה של הערכה, והדפדפן של מי שפותח מרנדר — באותו מנוע כמו
+        # ההורדה מעמוד הקובץ. ``STYLED_EXPORT_BROWSER_RENDER`` כבוי מחזיר גם את השיתוף לצורה הראשונה, כמו קודם.
+        browser_share = STYLED_EXPORT_BROWSER_RENDER
+        if browser_share and len(markdown_content.encode('utf-8')) > STYLED_SHARE_MAX_MARKDOWN_BYTES:
+            return jsonify({
+                'ok': False,
+                'error': 'הקובץ גדול מכדי לשתף אותו כקישור מעוצב. אפשר להוריד אותו כ-HTML מעוצב ולשלוח את הקובץ.',
+                'code': 'file_too_large_to_share',
+            }), 413
         try:
             if vscode_json:
                 theme = get_export_theme('vscode-import', vscode_json=vscode_json)
@@ -17766,22 +17858,26 @@ def api_create_styled_share(file_id):
                 user_themes = (user_data.get("custom_themes") or []) if user_data else []
                 theme = get_export_theme(theme_id, user_themes=user_themes)
 
-            # המרת Markdown ל-HTML
-            html_content, toc_html = markdown_to_html(markdown_content, include_toc=False)
-
-            # יצירת כותרת מהשם (הסרת סיומת)
-            raw_title = file_name or 'Untitled'
-            title = re.sub(r'\.(md|markdown)$', '', raw_title, flags=re.IGNORECASE)
-
-            # רינדור HTML מלא
-            styled_html = render_styled_html(
-                content_html=html_content,
-                title=title,
-                theme=theme,
-                toc_html=toc_html,
-            )
+            if browser_share:
+                share_content = {
+                    'format': STYLED_SHARE_FORMAT_MARKDOWN,
+                    'markdown': markdown_content,
+                    # הערכה כמו ש-``get_export_theme`` החזיר אותה, כולה: העמוד נבנה ממנה בכל צפייה, ושינוי מאוחר
+                    # בערכה של המשתמש אינו משנה קישור שכבר נשלח — כמו ב-HTML ששמרה הצורה הראשונה.
+                    'theme': dict(theme),
+                }
+            else:
+                html_content, toc_html = markdown_to_html(markdown_content, include_toc=False)
+                share_content = {
+                    'styled_html': render_styled_html(
+                        content_html=html_content,
+                        title=styled_export_title(file_name),
+                        theme=theme,
+                        toc_html=toc_html,
+                    ),
+                }
         except Exception as e:
-            logger.exception("Failed to render styled HTML for share", extra={"file_id": file_id, "theme_id": theme_id})
+            logger.exception("Failed to build styled share", extra={"file_id": file_id, "theme_id": theme_id})
             return jsonify({'ok': False, 'error': 'שגיאה ביצירת HTML מעוצב'}), 500
 
         # יצירת token ושמירה ב-DB
@@ -17789,13 +17885,13 @@ def api_create_styled_share(file_id):
         now = datetime.now(timezone.utc)
         expires_at = None if is_permanent else now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
 
-        db.styled_shares.insert_one({
+        db[STYLED_SHARES_COLLECTION].insert_one({
             'token': token,
             'source_file_id': ObjectId(file_id),
             'user_id': int(user_id),
             'file_name': file_name,
             'theme_id': theme_id,
-            'styled_html': styled_html,
+            **share_content,
             'created_at': now,
             'expires_at': expires_at,
             'is_permanent': is_permanent,
@@ -17814,6 +17910,101 @@ def api_create_styled_share(file_id):
     except Exception as e:
         logger.exception("Failed to create styled share", extra={"file_id": file_id})
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
+#: כמה קישורים מעוצבים מוצגים לקובץ בחלון הייצוא, מהחדש לישן.
+STYLED_SHARES_LIST_LIMIT = 50
+
+
+@app.route('/api/export/styled/<file_id>/shares')
+@login_required
+@traced("export.styled_share_list")
+def api_list_styled_shares(file_id):
+    """הקישורים המעוצבים שהמשתמש יצר לקובץ — לרשימה בחלון הייצוא, שממנה אפשר להעתיק קישור או לבטל אותו.
+
+    **לפי הישות, ולא לפי הגרסה:** הקישורים של המשתמש לאותו שם קובץ, גם אלה שנוצרו מגרסה אחרת שלו — ``file_id`` רק
+    מאתר את הקובץ ואת השם שלו. עד ``STYLED_SHARES_LIST_LIMIT`` החדשים; קישור שפג ועוד לא נמחק (ה-TTL רץ פעם בדקה) נספר
+    במגבלה ואינו מוצג. בלי ``premium_or_admin_required``:
+    מי שכבר אינו פרימיום עדיין רואה ומבטל קישורים שיצר.
+    """
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
+    except Exception:
+        logger.exception("DB error fetching file for styled share list", extra={"file_id": file_id})
+        return jsonify({'ok': False, 'error': 'שגיאה בשרת'}), 500
+    if not file:
+        return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+    try:
+        docs = list(
+            db[STYLED_SHARES_COLLECTION]
+            .find(
+                {'user_id': int(user_id), 'file_name': file.get('file_name') or ''},
+                # בלי הטקסט, ה-HTML והערכה: הרשימה צריכה רק את מה שמוצג בה
+                {'_id': 0, 'token': 1, 'created_at': 1, 'expires_at': 1, 'is_permanent': 1, 'view_count': 1},
+            )
+            .sort('created_at', -1)
+            .limit(STYLED_SHARES_LIST_LIMIT)
+        )
+    except Exception:
+        logger.exception("DB error listing styled shares", extra={"file_id": file_id})
+        return jsonify({'ok': False, 'error': 'שגיאה בשרת'}), 500
+
+    now = datetime.now(timezone.utc)
+    base_url = _webapp_base_url()
+    shares = []
+    for doc in docs:
+        token = doc.get('token')
+        if not isinstance(token, str):
+            continue
+        created_at = doc.get('created_at')
+        expires_at = doc.get('expires_at')
+        is_permanent = bool(doc.get('is_permanent'))
+        expires_label = None
+        if not is_permanent:
+            # הלקוח של המסד הוא ``tz_aware``; ערך שאינו תאריך מודע אינו קישור בתוקף (כמו בעמוד הקישור עצמו)
+            if not isinstance(expires_at, datetime) or expires_at.tzinfo is None or expires_at <= now:
+                continue
+            days_left = max(1, math.ceil((expires_at - now).total_seconds() / 86400))
+            expires_label = f"עוד {_hebrew_day_count(days_left)}"
+        shares.append({
+            'token': token,
+            'share_url': f"{base_url}/shared/styled/{token}",
+            'created_at': created_at.isoformat() if isinstance(created_at, datetime) else None,
+            'is_permanent': is_permanent,
+            'expires_label': expires_label,
+            'view_count': doc.get('view_count') if isinstance(doc.get('view_count'), int) else 0,
+        })
+    return jsonify({'ok': True, 'shares': shares})
+
+
+@app.route('/api/export/styled/shares/<token>/revoke', methods=['POST'])
+@login_required
+@traced("export.styled_share_revoke")
+def api_revoke_styled_share(token):
+    """מבטל קישור מעוצב: מוחק את המסמך, ומי שיפתח את הקישור יקבל 404 (העמוד מוגש עם ``no-cache``, ולכן גם עותק שמור).
+
+    רק בעל הקישור — המחיקה מסננת גם לפי ``user_id``, וקישור של משתמש אחר נענה כמו קישור שאינו קיים. ``POST`` ולא
+    ``GET``: פעולה בלתי הפיכה, שאסור שתרוץ מטעינה מוקדמת של קישור או מסורק תצוגה מקדימה.
+    """
+    # ``Content-Type`` של JSON הוא חובה, כמו ב-``_docs_index_json_body``: טופס מאתר אחר לא יכול לשלוח אותו, ובקשת JSON
+    # מאתר אחר נעצרת ב-preflight (אין CORS). בלי זה, עמוד זר שמכיר את הקישור (הוא ציבורי) היה מבטל אותו בטופס שנשלח
+    # מעצמו בזמן שבעליו מחובר — ה-cookie של ה-session נשלח בלי ``SameSite``.
+    if not request.is_json:
+        return jsonify({'ok': False, 'error': 'json_required'}), 415
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        result = db[STYLED_SHARES_COLLECTION].delete_one({'token': token, 'user_id': int(user_id)})
+    except Exception:
+        logger.exception("DB error revoking styled share")
+        return jsonify({'ok': False, 'error': 'שגיאה בשרת'}), 500
+    # ``delete_one`` אינו זורק כשלא נמצא מסמך — ``deleted_count`` הוא שאומר אם משהו בוטל
+    if result.deleted_count != 1:
+        return jsonify({'ok': False, 'error': 'הקישור לא נמצא', 'code': 'not_found'}), 404
+    return jsonify({'ok': True})
 
 
 @app.route('/api/share/<file_id>', methods=['POST'])
@@ -21918,7 +22109,7 @@ def public_shared_styled(token: str):
     """
     try:
         db = get_db()
-        doc = db.styled_shares.find_one({'token': token})
+        doc = db[STYLED_SHARES_COLLECTION].find_one({'token': token})
     except Exception:
         doc = None
 
@@ -21947,27 +22138,48 @@ def public_shared_styled(token: str):
 
     # עדכון מונה צפיות
     try:
-        db.styled_shares.update_one(
+        db[STYLED_SHARES_COLLECTION].update_one(
             {'token': token},
             {'$inc': {'view_count': 1}}
         )
     except Exception:
         pass  # לא קריטי
 
-    # החזרת ה-HTML המעוצב
-    styled_html = doc.get('styled_html', '')
-    if not styled_html:
+    # שתי הצורות של מסמך (``styled_shares.py``). המסמך הגיע מהמסד, ולכן הצורה נבדקת לפני שימוש: מסמך שאינו אף
+    # אחת מהשתיים מקבל 404, ונרשם — אין ממנו עמוד להציג.
+    styled_html = doc.get('styled_html')
+    markdown_text = doc.get('markdown')
+    share_theme = doc.get('theme')
+    if isinstance(styled_html, str) and styled_html:
+        response = make_response(styled_html)
+        # CSP מחמיר: מתירים אך ורק את סקריפט כפתור ההעתקה המהימן (לפי hash),
+        # וחוסמים כל סקריפט אחר. תוכן המשתמש כבר עובר sanitization (bleach + הסרת
+        # <script>) בעת יצירת ה-HTML, כך שהסקריפט היחיד שמותר הוא שלנו. כך כפתור
+        # ההעתקה בבלוקי הקוד עובד גם בקישור הזמני/הקבוע, בלי לפתוח פרצת XSS.
+        # ה-HTML נשמר כמו שנוצר, עם הסקריפט של אז — ולכן גם ה-hash של גרסאות קודמות שלו.
+        response.headers['Content-Security-Policy'] = styled_share_csp()
+    elif (
+        doc.get('format') == STYLED_SHARE_FORMAT_MARKDOWN
+        and isinstance(markdown_text, str)
+        and isinstance(share_theme, dict)
+    ):
+        response = make_response(render_styled_share_page(
+            share_theme,
+            styled_export_title(doc.get('file_name') if isinstance(doc.get('file_name'), str) else None),
+            markdown=markdown_text,
+            # נוסחה מתחילה תמיד ב-``$`` (``md-math-plugin.js``), ולכן בלי ``$`` אין נוסחה, וה-CSS של KaTeX לא נשלח
+            katex_css=markdown_editor_katex_css() if '$' in markdown_text else "",
+            hljs_fallback_css=markdown_editor_hljs_fallback_css(),
+        ))
+        response.headers['Content-Security-Policy'] = styled_share_page_csp()
+    else:
+        logger.warning("styled share document has no renderable shape", extra={"format": doc.get('format')})
         return render_template('404.html'), 404
 
-    response = make_response(styled_html)
     response.headers['Content-Type'] = 'text/html; charset=utf-8'
-    response.headers['Cache-Control'] = 'public, max-age=3600'  # cache לשעה
-    # CSP מחמיר: מתירים אך ורק את סקריפט כפתור ההעתקה המהימן (לפי hash),
-    # וחוסמים כל סקריפט אחר. תוכן המשתמש כבר עובר sanitization (bleach + הסרת
-    # <script>) בעת יצירת ה-HTML, כך שהסקריפט היחיד שמותר הוא שלנו. כך כפתור
-    # ההעתקה בבלוקי הקוד עובד גם בקישור הזמני/הקבוע, בלי לפתוח פרצת XSS.
-    # ה-HTML נשמר כמו שנוצר, עם הסקריפט של אז — ולכן גם ה-hash של גרסאות קודמות שלו.
-    response.headers['Content-Security-Policy'] = styled_share_csp()
+    # בלי ``max-age``: קישור שבוטל או שפג מפסיק להיפתח מיד, ולא שעה אחרי מעותק שמור. ``no-cache`` ולא ``no-store`` —
+    # מותר לשמור, ובכל פתיחה בודקים מול השרת.
+    response.headers['Cache-Control'] = 'no-cache'
     return response
 
 

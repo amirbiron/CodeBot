@@ -1,7 +1,12 @@
 {# מודאל בחירת ערכה לייצוא HTML מעוצב #}
 {# Usage: {% include 'export/export_modal.html' %} #}
+{# ``data-browser-render`` — האם "תצוגה מקדימה" ו"הורד HTML" בונים את הקובץ בדפדפן (``STYLED_EXPORT_BROWSER_RENDER``),
+   ו-``data-content-marker`` — טקסט ההערה שהשלד מחזיק במקום התוכן. שניהם מ-``inject_globals``; ``export-modal.js``
+   קורא אותם. #}
 
-<div id="exportThemeModal" class="export-modal" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle" hidden>
+<div id="exportThemeModal" class="export-modal" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle" hidden
+     data-browser-render="{{ '1' if styled_export_browser_render else '0' }}"
+     data-content-marker="{{ styled_export_content_marker }}">
     <div class="export-modal__surface">
         <div class="export-modal__header">
             <h3 id="exportModalTitle">
@@ -23,6 +28,10 @@
             <button type="button" class="export-tab" data-tab="import">
                 <i class="fas fa-file-import"></i>
                 ייבוא VS Code
+            </button>
+            <button type="button" class="export-tab" data-tab="links">
+                <i class="fas fa-link"></i>
+                קישורים
             </button>
         </div>
 
@@ -63,6 +72,12 @@
                         <span id="exportUploadFileName">theme.json</span>
                     </div>
                 </div>
+            </div>
+
+            {# Tab 4: הקישורים המעוצבים של הקובץ — להעתקה או לביטול (``/api/export/styled/<file_id>/shares``) #}
+            <div class="export-tab-content" id="export-links-tab">
+                <p class="text-muted">קישורי השיתוף שיצרת לקובץ הזה, מכל הגרסאות שלו. ביטול מוחק את הקישור, ומי שיפתח אותו יקבל "לא נמצא".</p>
+                <ul class="export-links-list" id="exportLinksList" aria-live="polite"></ul>
             </div>
         </div>
 

@@ -67,9 +67,14 @@
     gap: 0;
     padding: 0 1rem;
     border-bottom: 1px solid var(--border-color);
+    /* ארבע לשוניות לא נכנסות בשורה אחת בטלפון: השורה נגללת לרוחב, ושם לשונית לא נשבר לכמה שורות */
+    overflow-x: auto;
+    scrollbar-width: thin;
 }
 
 .export-tab {
+    flex-shrink: 0;
+    white-space: nowrap;
     background: transparent;
     border: none;
     color: var(--text-secondary);
@@ -250,6 +255,44 @@
     gap: 0.75rem;
 }
 
+/* Links tab — הקישורים המעוצבים של הקובץ. מאפיינים לוגיים בלבד, כדי שהשורה תתהפך עם העמוד */
+.export-links-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.export-link-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    background: var(--bg-secondary, rgba(255, 255, 255, 0.05));
+    border-radius: 12px;
+    padding: 0.75rem;
+}
+
+.export-link-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.export-link-meta small {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.export-link-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
 /* Utilities */
 .export-loading,
 .export-empty,
@@ -324,6 +367,10 @@
 
     .export-themes-grid {
         grid-template-columns: 1fr 1fr;
+    }
+
+    .export-tab {
+        padding: 0.75rem 0.75rem;
     }
 
     .export-modal__footer {

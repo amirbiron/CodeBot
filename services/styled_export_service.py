@@ -43,6 +43,7 @@ from services.theme_parser_service import (
     generate_hljs_css_from_tokens,
     generate_pygments_css_from_tokens,
     parse_vscode_theme,
+    rebase_hljs_css,
 )
 from services.theme_presets_service import get_preset_by_id, list_presets
 
@@ -2186,6 +2187,8 @@ def _theme_from_export_preset(preset_id: str) -> dict:
         "syntax_css": preset.get("syntax_css", ""),
         "extra_css": preset.get("extra_css", ""),
         "hljs_css": preset.get("hljs_css", ""),
+        # ערכה עם צבעי highlight.js משלה (``hljs_css``) נשארת בדיוק כמו שהיא; לשאר — הפלטה שנגזרת מהמשתנים
+        "hljs_fallback": not preset.get("hljs_css"),
     }
 
 
@@ -2210,8 +2213,10 @@ def get_export_theme(
         vscode_json: תוכן JSON של ערכת VS Code (אופציונלי)
 
     Returns:
-        dict עם name, variables, ו-syntax_css (אופציונלי). ``extra_css`` ו-``hljs_css``
-        מגיעים רק מ-Export Presets (ומה-fallback, שהוא אחד מהם).
+        dict עם name, variables, ו-syntax_css (אופציונלי). ``extra_css`` מגיע רק מ-Export Presets
+        (ומה-fallback, שהוא אחד מהם). ``hljs_css`` — כללי highlight.js תחת ``EXPORT_HLJS_SELECTOR_PREFIX`` — מגיע
+        מ-Export Presets שיש להם, ומערכה מיובאת מ-VS Code (קובץ ישיר או ערכת משתמש). ``hljs_fallback`` אומר אם
+        הייצוא בדפדפן צריך מתחתם את הפלטה שנגזרת מהמשתנים (``export_hljs_fallback_css`` ב-``webapp/markdown_editor.py``).
     """
 
     # 1. VS Code JSON ישיר
@@ -2226,6 +2231,9 @@ def get_export_theme(
                 "category": str(theme_type).lower(),
                 "variables": parsed.get("variables", fallback),
                 "syntax_css": parsed.get("syntax_css", ""),
+                # כללי highlight.js ש-``parse_vscode_theme`` חישב מ-``tokenColors``, תחת הקידומת של הייצוא
+                "hljs_css": rebase_hljs_css(parsed.get("syntax_css", ""), EXPORT_HLJS_SELECTOR_PREFIX),
+                "hljs_fallback": True,
             }
         except Exception as e:
             logger.warning("Failed to parse VS Code theme: %s", e)
@@ -2243,6 +2251,8 @@ def get_export_theme(
             "category": gallery_preset.get("category", "dark"),
             "variables": gallery_preset.get("variables", FALLBACK_DARK),
             "syntax_css": gallery_preset.get("syntax_css", ""),
+            # בערכות הגלריה יש רק כללי CodeMirror (``.tok-*``), ולכן הייצוא בדפדפן צובע בפלטה שנגזרת מהמשתנים
+            "hljs_fallback": True,
         }
 
     # 4. ערכות המשתמש
@@ -2268,6 +2278,10 @@ def get_export_theme(
                     "category": theme.get("category", "dark"),
                     "variables": theme.get("variables", FALLBACK_DARK),
                     "syntax_css": stored_css,
+                    # ערכה מיובאת מ-VS Code שומרת כללי highlight.js תחת הקידומת של האתר. ערכה ישנה, או ערכה מבונה
+                    # הערכות, בלי כללים כאלה — מקבלת רק את הפלטה, שיושבת מתחת לכללים בכל מקרה (כמו בתצוגה).
+                    "hljs_css": rebase_hljs_css(stored_css, EXPORT_HLJS_SELECTOR_PREFIX),
+                    "hljs_fallback": True,
                 }
 
     # 5. Fallback
@@ -2483,39 +2497,45 @@ COPY_CODE_SCRIPT = """
 (function() {
     'use strict';
 
-    // מוסיף כפתור "העתק" לכל בלוק קוד
-    document.querySelectorAll('pre').forEach(function(codeBlock) {
-        // יצירת הכפתור
-        var button = document.createElement('button');
-        button.className = 'copy-btn';
-        button.type = 'button';
-        button.innerHTML = '📋 <span>העתק</span>';
-        button.title = 'העתק קוד ללוח';
-        button.setAttribute('aria-label', 'העתק קוד ללוח');
+    // מוסיף כפתור "העתק" לכל בלוק קוד ב-root שעוד אין לו. ``window.ckAttachCopyButtons`` — לתוכן שנכנס לעמוד
+    // אחרי שהסקריפט הזה רץ: קישור השיתוף מרנדר את המסמך בדפדפן, אחרי הטעינה (``styled-share-view.js``).
+    function attach(root) {
+        root.querySelectorAll('pre').forEach(function(codeBlock) {
+            if (codeBlock.querySelector(':scope > .copy-btn')) return;
+            // יצירת הכפתור
+            var button = document.createElement('button');
+            button.className = 'copy-btn';
+            button.type = 'button';
+            button.innerHTML = '📋 <span>העתק</span>';
+            button.title = 'העתק קוד ללוח';
+            button.setAttribute('aria-label', 'העתק קוד ללוח');
 
-        button.addEventListener('click', function() {
-            // מציאת הקוד להעתקה. textContent ולא innerText: innerText נגזר מהפריסה, ומוסיף שורה ריקה סביב כל
-            // אלמנט בלוק — וקטע קוד בתוך בלוק קוד בעברית עטוף באחד כזה (rtl-code-ltr)
-            var codeEl = codeBlock.querySelector('code');
-            var textToCopy = codeEl ? codeEl.textContent : codeBlock.textContent;
+            button.addEventListener('click', function() {
+                // מציאת הקוד להעתקה. textContent ולא innerText: innerText נגזר מהפריסה, ומוסיף שורה ריקה סביב כל
+                // אלמנט בלוק — וקטע קוד בתוך בלוק קוד בעברית עטוף באחד כזה (rtl-code-ltr)
+                var codeEl = codeBlock.querySelector('code');
+                var textToCopy = codeEl ? codeEl.textContent : codeBlock.textContent;
 
-            // ניקוי רווחים מיותרים בסוף
-            textToCopy = textToCopy.trim();
+                // ניקוי רווחים מיותרים בסוף
+                textToCopy = textToCopy.trim();
 
-            // העתקה ללוח
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(textToCopy).then(function() {
-                    showSuccess(button);
-                }).catch(function() {
+                // העתקה ללוח
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(textToCopy).then(function() {
+                        showSuccess(button);
+                    }).catch(function() {
+                        fallbackCopy(textToCopy, button);
+                    });
+                } else {
                     fallbackCopy(textToCopy, button);
-                });
-            } else {
-                fallbackCopy(textToCopy, button);
-            }
-        });
+                }
+            });
 
-        codeBlock.appendChild(button);
-    });
+            codeBlock.appendChild(button);
+        });
+    }
+    window.ckAttachCopyButtons = attach;
+    attach(document);
 
     // פידבק ויזואלי להצלחה
     function showSuccess(button) {
@@ -2571,6 +2591,8 @@ COPY_CODE_SCRIPT_CSP_HASH = get_copy_script_csp_hash()
 PREVIOUS_COPY_CODE_SCRIPT_CSP_HASHES: tuple[str, ...] = (
     # עד נובמבר 2026: הסקריפט העתיק ב-innerText
     "sha256-0Wt1VA+WQC23yWC5IwGNSWIqC1UxKDvG1BMM0E4jf1I=",
+    # עד 6.11.2026: הסקריפט הוסיף כפתורים רק לבלוקים שהיו בעמוד כשהוא רץ (בלי ``ckAttachCopyButtons``)
+    "sha256-AKUzYU7XLfJje15Bqp0r7gwjOWmHGMJ6AromJ/9mgns=",
 )
 
 
@@ -2597,6 +2619,50 @@ EDITOR_EXPORT_FOOTER = 'נוצר אוטומטית ע"י Code Keeper'
 
 #: הכותרת של השלד, עד שהדפדפן מחליף אותה בכותרת של המסמך.
 EDITOR_EXPORT_DEFAULT_TITLE = "מסמך"
+
+#: הכיתוב של הייצוא של המחוברים — בבאנר העליון ובתחתית, ליד שם הקובץ. בשני המסלולים שלו: ``render_styled_html``
+#: (השרת) ו-``render_styled_export_skeleton`` (הדפדפן).
+STYLED_EXPORT_FOOTER = 'נוצר אוטומטית ע"י Code Keeper Bot'
+
+#: סף הבהירות (0–255) של ``--bg-primary`` שמעליו ערכה נחשבת בהירה — אותו סף ואותה נוסחה של ``pageMermaidTheme``
+#: ב-``webapp/static/js/live-preview.js``, שבוחר כך את ערכת ה-Mermaid של התצוגה בערכה מותאמת. שני עותקים בשתי שפות,
+#: ו-``test_the_threshold_and_formula_are_those_of_the_live_preview`` קורא את שניהם ומשווה.
+_LIGHT_BACKGROUND_BRIGHTNESS = 128
+_HEX_COLOR_RE = re.compile(r"^#([0-9a-fA-F]{6})")
+
+
+def export_mermaid_theme(theme: dict) -> str:
+    """ערכת ה-Mermaid שהתרשימים בקובץ המיוצא מצוירים בה: ``default`` (הבהירה) או ``dark``.
+
+    לפי ``category`` של הערכה כשיש לה. לערכת משתמש אין (``import_theme`` לא שומר אותה), ולכן אצלה ההכרעה לפי הבהירות
+    של ``--bg-primary``, כמו בתצוגה. ``webapp/markdown_editor.py`` (העורך הציבורי) ו-``/api/export/themes`` (חלון
+    הייצוא של המחוברים) קוראים לפונקציה הזו, כדי שתהיה הכרעה אחת.
+    """
+    category = theme.get("category")
+    if category in ("light", "dark"):
+        return "default" if category == "light" else "dark"
+    # ערכת משתמש מגיעה מהמסד, ו-``variables`` שאינו מילון (רשומה פגומה) נחשב כאילו אין משתנים
+    variables = theme.get("variables")
+    if not isinstance(variables, dict):
+        variables = {}
+    match = _HEX_COLOR_RE.match(str(variables.get("--bg-primary", "")).strip())
+    if not match:
+        return "dark"
+    r, g, b = (int(match.group(1)[i:i + 2], 16) for i in (0, 2, 4))
+    brightness = (r * 299 + g * 587 + b * 114) / 1000
+    return "default" if brightness > _LIGHT_BACKGROUND_BRIGHTNESS else "dark"
+
+
+def styled_export_title(file_name: str) -> str:
+    """הכותרת של הייצוא של המחוברים — בבאנר, ב-``<title>`` ובשם הקובץ שיורד: שם הקובץ בלי ``.md`` / ``.markdown``."""
+    return re.sub(r"\.(md|markdown)$", "", file_name or "Untitled", flags=re.IGNORECASE)
+
+
+def styled_export_filename(title: str) -> str:
+    """שם הקובץ שיורד בייצוא של המחוברים: הכותרת (שם הקובץ בלי הסיומת) בלי תווים שאינם אותיות, ספרות, רווח, מקף
+    או נקודה, עד 50 תווים, ו-``.html``. כותרת שלא נשאר ממנה כלום — ``document.html``."""
+    safe = re.sub(r"[^\w \-.]", "", title or "").strip()[:50] or "document"
+    return f"{safe}.html"
 
 
 def editor_export_meta_csp() -> str:
@@ -2654,27 +2720,125 @@ def _render_export_document(**context) -> str:
     return render_template("export/styled_document.html", **context)
 
 
-def render_editor_export_skeleton(theme: dict, katex_css: str = "") -> str:
-    """השלד של הייצוא מהעורך הציבורי: העמוד המעוצב של ``theme``, עם ``EDITOR_EXPORT_CONTENT_MARKER`` במקום התוכן.
+def _render_browser_export_skeleton(
+    theme: dict,
+    *,
+    title: str,
+    footer_text: str,
+    show_header: bool,
+    katex_css: str,
+    hljs_fallback_css: str,
+    share_source: dict | None = None,
+) -> str:
+    """שלד שהדפדפן מכניס לתוכו את המסמך — המשותף לייצוא מהעורך הציבורי, לייצוא של המחוברים ולקישור השיתוף.
 
-    שום קלט של הגולש לא מגיע לכאן — רק ערכה מתוך רשימה סגורה (``EXPORT_THEME_IDS`` ב-``webapp/markdown_editor.py``)
-    ו-``katex_css``, ה-CSS של KaTeX עם הגופנים, שהשרת קורא מהבאנדל של התצוגה כשבמסמך יש נוסחה.
+    שונה מ-``render_styled_html`` (``editor_export`` בתבנית): עם ``EDITOR_EXPORT_CONTENT_MARKER`` במקום התוכן, העיצוב
+    של markdown-it (``export/_editor_export_styles.css``), הדגשת highlight.js (``hljs_css`` של הערכה, ומתחתיו
+    ``hljs_fallback_css`` כשהערכה צריכה אותו) ו-CSP בתוך הקובץ — ובלי כללי Pygments, כי הקוד מסומן ב-highlight.js.
 
-    שונה מ-``render_styled_html`` (``editor_export`` בתבנית): בלי באנר עליון, עם העיצוב של markdown-it
-    (``export/_editor_export_styles.css``), הדגשת highlight.js (``hljs_css`` של הערכה) ו-CSP בתוך הקובץ — ובלי כללי
-    Pygments, כי הקוד בשלד מסומן ב-highlight.js.
+    ``share_source`` — לעמוד של קישור השיתוף (``render_styled_share_page``): הטקסט, ערכת ה-Mermaid וטקסט ההערה, שהעמוד
+    מרנדר בעצמו. אז אין CSP בתוך העמוד: הוא מוגש מהשרת עם כותרת (``styled_share_page_csp``), ומדיניות בתוך העמוד הייתה
+    נאכפת יחד איתה וחוסמת את הסקריפטים שהוא טוען.
     """
     return _render_export_document(
-        **_export_document_context(theme, EDITOR_EXPORT_FOOTER),
-        title=EDITOR_EXPORT_DEFAULT_TITLE,
+        **_export_document_context(theme, footer_text),
+        title=title,
         content=EDITOR_EXPORT_CONTENT_MARKER,
         toc_html="",
         syntax_css="",
         editor_export=True,
-        meta_csp=editor_export_meta_csp(),
+        show_header=show_header,
+        meta_csp="" if share_source else editor_export_meta_csp(),
+        share_source=share_source,
         admonition_groups=_admonition_groups(),
         hljs_css=sanitize_css(theme.get("hljs_css", "")),
+        hljs_fallback_css=sanitize_css(hljs_fallback_css) if theme.get("hljs_fallback") else "",
         katex_css=sanitize_css(katex_css),
+    )
+
+
+def render_editor_export_skeleton(theme: dict, katex_css: str = "", hljs_fallback_css: str = "") -> str:
+    """השלד של הייצוא מהעורך הציבורי: העמוד המעוצב של ``theme``, עם ``EDITOR_EXPORT_CONTENT_MARKER`` במקום התוכן.
+
+    שום קלט של הגולש לא מגיע לכאן — רק ערכה מתוך רשימה סגורה (``EXPORT_THEME_IDS`` ב-``webapp/markdown_editor.py``)
+    ו-``katex_css``, ה-CSS של KaTeX עם הגופנים, שהשרת קורא מהבאנדל של התצוגה כשבמסמך יש נוסחה. בלי באנר עליון:
+    לקובץ אין שם, והכותרת שלו היא הכותרת הראשונה במסמך.
+    """
+    return _render_browser_export_skeleton(
+        theme,
+        title=EDITOR_EXPORT_DEFAULT_TITLE,
+        footer_text=EDITOR_EXPORT_FOOTER,
+        show_header=False,
+        katex_css=katex_css,
+        hljs_fallback_css=hljs_fallback_css,
+    )
+
+
+def render_styled_export_skeleton(theme: dict, title: str, katex_css: str = "", hljs_fallback_css: str = "") -> str:
+    """השלד של הייצוא של המחוברים, כשהמסמך מרונדר בדפדפן: כמו הייצוא שבשרת — באנר עליון עם ``title`` (שם הקובץ),
+    ``STYLED_EXPORT_FOOTER`` ושם הערכה — אבל עם הסימון של markdown-it ו-highlight.js, כמו העורך הציבורי.
+
+    ``theme`` הוא מה ש-``get_export_theme`` מחזיר — כל ערכה שאפשר לייצא בה, כולל ערכות המשתמש — ו-``hljs_fallback_css``
+    נכנס רק לערכה שצריכה אותו (``hljs_fallback``).
+    """
+    return _render_browser_export_skeleton(
+        theme,
+        title=title,
+        footer_text=STYLED_EXPORT_FOOTER,
+        show_header=True,
+        katex_css=katex_css,
+        hljs_fallback_css=hljs_fallback_css,
+    )
+
+
+def styled_share_page_csp() -> str:
+    """ה-CSP של עמוד קישור השיתוף מהצורה השנייה (``format`` = ``STYLED_SHARE_FORMAT_MARKDOWN`` ב-``styled_shares.py``).
+
+    כאן Markdown של בעל הקובץ — שיכול להיות כל טקסט — מרונדר בדפדפן של מי שפותח את הקישור, בדומיין שלנו, בלי שהוא
+    מחובר. ההגנה הראשונה היא המנוע עצמו (markdown-it עם ``html: false``, ‏Mermaid ב-``strict``), והמדיניות כאן היא
+    השכבה השנייה: הכול חסום (``default-src 'none'``), חוץ ממה שהעמוד צריך.
+
+    - ``script-src 'self'`` ו-hash של סקריפט ההעתקה — המנוע של התצוגה החיה מהסטטיקה שלנו, ובלי שום סקריפט inline אחר.
+    - ``style-src 'unsafe-inline'``, ‏``font-src data:``, ‏``img-src data: http: https:`` — כמו בקובץ שיורד
+      (``editor_export_meta_csp``, וההסבר שם).
+    - ``connect-src`` חסום (דרך ``default-src``): הרינדור אינו פונה לשום כתובת. פיצ'ר שיצטרך ``fetch`` מהעמוד — ההיתר
+      שלו נכתב כאן.
+    - ``form-action 'none'`` — אין בעמוד טופס, ולכן גם טופס שהוזרק לא יכול לשלוח לשום מקום. עמוד שיקבל טופס — ההיתר
+      נכתב כאן.
+    - ``frame-ancestors 'none'`` — העמוד אינו מוטמע באתר אחר. הטמעה שתהיה פיצ'ר — ההיתר נכתב כאן.
+    - ``base-uri 'none'`` — ``default-src`` אינו חל עליו.
+    """
+    return (
+        "default-src 'none'; "
+        f"script-src 'self' '{COPY_CODE_SCRIPT_CSP_HASH}'; "
+        "style-src 'unsafe-inline'; "
+        "font-src data:; "
+        "img-src data: http: https:; "
+        "base-uri 'none'; "
+        "form-action 'none'; "
+        "frame-ancestors 'none'"
+    )
+
+
+def render_styled_share_page(theme: dict, title: str, *, markdown: str, katex_css: str = "", hljs_fallback_css: str = "") -> str:
+    """עמוד קישור השיתוף מהצורה השנייה: השלד של הייצוא של המחוברים (באנר עם ``title``, ``STYLED_EXPORT_FOOTER``), עם
+    הטקסט ועם המנוע של התצוגה החיה, שמרנדר אותו בדפדפן של מי שפותח (``webapp/static/js/styled-share-view.js``).
+
+    ``theme`` הוא התמונה של הערכה ששמורה בקישור; ערכת ה-Mermaid נגזרת ממנה (``export_mermaid_theme``), ולא נשמרת לידה.
+    ה-CSP של העמוד: ``styled_share_page_csp``.
+    """
+    return _render_browser_export_skeleton(
+        theme,
+        title=title,
+        footer_text=STYLED_EXPORT_FOOTER,
+        show_header=True,
+        katex_css=katex_css,
+        hljs_fallback_css=hljs_fallback_css,
+        share_source={
+            "markdown": markdown,
+            "mermaidTheme": export_mermaid_theme(theme),
+            "marker": EDITOR_EXPORT_CONTENT_MARKER_TEXT,
+        },
     )
 
 
@@ -2683,7 +2847,7 @@ def render_styled_html(
     title: str,
     theme: dict,
     toc_html: str = "",
-    footer_text: str = 'נוצר אוטומטית ע"י Code Keeper Bot',
+    footer_text: str = STYLED_EXPORT_FOOTER,
 ) -> str:
     """
     מרנדר HTML מעוצב מלא.
@@ -2732,5 +2896,6 @@ def render_styled_html(
         content=content_html,
         syntax_css=syntax_css,
         toc_html=toc_html,
+        show_header=True,
     )
 
