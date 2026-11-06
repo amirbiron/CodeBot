@@ -124,11 +124,13 @@ def browser(chromium_executable):
 class Session:
     """הקשר דפדפן אחד מול העמוד: הבקשות שנשלחו (עם הגוף), השגיאות, והדף."""
 
-    def __init__(self, browser, *, draft=None, skeleton_status=None):
+    def __init__(self, browser, *, draft=None, skeleton_status=None, blocked=()):
         b, app = browser
         self.browser = b
         # קוד תשובה שנכפה על בקשת השלד — כדי לבדוק ייצוא שנכשל
         self.skeleton_status = skeleton_status
+        # סוף נתיב של בקשות שנכשלות ברשת — סקריפט שלא נטען
+        self.blocked = tuple(blocked)
         self.requests: list[tuple[str, str, bytes]] = []
         self.errors: list[str] = []
         self.dialogs: list[str] = []
@@ -147,6 +149,8 @@ class Session:
             self.requests.append((request.method, target, request.post_data_buffer or b""))
             if self.skeleton_status and u.path.startswith("/api/markdown-editor/export-skeleton/"):
                 return route.fulfill(status=self.skeleton_status, body="", headers={"Content-Type": "text/plain"})
+            if any(u.path.endswith(b) for b in self.blocked):
+                return route.abort()
             headers = {"Content-Type": request.headers.get("content-type", "")}
             if request.headers.get("if-none-match"):
                 headers["If-None-Match"] = request.headers["if-none-match"]
@@ -453,6 +457,21 @@ def test_a_failed_export_tells_the_visitor_and_frees_the_buttons(session, status
     assert downloads == []
     # בקרה: בקשת השלד באמת נשלחה ונכשלה, ולא הייצוא נעצר לפניה
     assert any("export-skeleton" in target for _m, target, _b in s.requests)
+
+
+def test_a_missing_export_core_tells_the_visitor_instead_of_doing_nothing(session):
+    """``styled-export-core.js`` לא נטען: הכפתורים גלויים, ולכן לחיצה עליהם אומרת למה אין ייצוא."""
+    s = session(blocked=("/utils/styled-export-core.js",))
+    assert s.page.evaluate("typeof window.StyledExportCore") == "undefined"  # בקרה: באמת חסר
+    s.choose("morass")
+    downloads: list = []
+    s.page.on("download", lambda d: downloads.append(d))
+    s.page.click("[data-md-editor-export-action=download]")
+    s.page.wait_for_function("document.querySelector('[data-md-editor-status]').textContent.trim().length > 0")
+
+    assert "רכיב הייצוא לא נטען" in s.page.inner_text("[data-md-editor-status]")
+    assert downloads == []
+    assert not any("export-skeleton" in target for _m, target, _b in s.requests)
 
 
 # ---------------------------------------------------------------------------

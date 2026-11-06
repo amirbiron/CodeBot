@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import time
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
@@ -216,11 +217,20 @@ def browser(chromium_executable):
 class Session:
     """הקשר דפדפן אחד מול עמוד הקובץ: הבקשות שנשלחו, השגיאות, והדף."""
 
-    def __init__(self, browser, *, file_id=FILE_ID, fail=None):
+    def __init__(self, browser, *, file_id=FILE_ID, fail=None, blocked=()):
         b, wa = browser
+        self.browser_pair = browser
         self.file_id = file_id
         # ``(תחילת נתיב, קוד)`` — תשובה שנכפית על בקשה, כדי לבדוק ייצוא שנכשל
         self.fail = fail
+        # סוף נתיב של בקשות שנכשלות ברשת — סקריפט שלא נטען
+        self.blocked = tuple(blocked)
+        # סוף נתיב של הבקשה הבאה שתוחזק בלי תשובה עד ``release`` (פעם אחת). התשובה מחושבת כבר ברגע ההחזקה, כמו תשובה
+        # שהשרת שלח והרשת עיכבה — ולכן היא משקפת את המצב של אז
+        self.hold = None
+        # ``True`` — השרת מטפל בבקשה המוחזקת רק בשחרור, כמו בקשה שהרשת עיכבה בדרך אליו
+        self.hold_defer = False
+        self.held: list = []
         self.requests: list[tuple[str, str]] = []
         self.errors: list[str] = []
         client = wa.app.test_client()
@@ -246,10 +256,20 @@ class Session:
             self.requests.append((request.method, target))
             if self.fail and u.path.startswith(self.fail[0]):
                 return route.fulfill(status=self.fail[1], body="", headers={"Content-Type": "text/plain"})
-            r = client.open(
-                target, method=request.method, data=request.post_data_buffer,
-                headers={"Content-Type": request.headers.get("content-type", "")},
-            )
+            if any(u.path.endswith(b) for b in self.blocked):
+                return route.abort()
+            def respond():
+                return client.open(
+                    target, method=request.method, data=request.post_data_buffer,
+                    headers={"Content-Type": request.headers.get("content-type", "")},
+                )
+
+            if self.hold and u.path.endswith(self.hold):
+                self.hold = None
+                # ``Response`` של werkzeug הוא עצמו callable (אפליקציית WSGI), ולכן הדחייה מסומנת במפורש ולא לפי callable
+                self.held.append((route, None if self.hold_defer else respond(), respond))
+                return None
+            r = respond()
             route.fulfill(
                 status=r.status_code,
                 body=r.data,
@@ -262,7 +282,8 @@ class Session:
         # ``confirm`` של ביטול קישור מאושר; כל חלון נרשם
         self.page.on("dialog", lambda d: (self.dialogs.append(d.message), d.accept()))
         self.page.goto(f"http://{HOST}/file/{file_id}")
-        poll(self.page, "typeof window.openExportModal === 'function' && !!window.StyledExportCore", "חלון הייצוא מוכן")
+        # הסקריפטים ``defer``, ו-``styled-export-core.js`` לפני ``export-modal.js``: כשהחלון מוכן, ה-Core כבר נטען — אם נטען
+        poll(self.page, "typeof window.openExportModal === 'function'", "חלון הייצוא מוכן")
 
     def open_modal(self):
         self.page.evaluate("(fid) => window.openExportModal(fid)", self.file_id)
@@ -298,6 +319,15 @@ class Session:
         poll(self.page, "window.__copied !== undefined", "הקישור נוצר והועתק")
         url = self.page.evaluate("window.__copied")
         return urlsplit(url).path.rsplit("/", 1)[-1]
+
+    def release(self):
+        """משחרר את הבקשה שהוחזקה, עם התשובה שחושבה ברגע ההחזקה."""
+        for route, r, respond in self.held:
+            if r is None:
+                r = respond()
+            route.fulfill(status=r.status_code, body=r.data,
+                          headers={k: v for k, v in r.headers.items() if k.lower() in FORWARDED_HEADERS})
+        self.held.clear()
 
     def close(self):
         self.ctx.close()
@@ -735,3 +765,116 @@ def test_a_file_too_large_to_share_is_refused_with_a_message(session):
     poll(s.page, "!document.querySelector('.export-error-message').hidden", "הודעת שגיאה")
     assert "גדול מכדי לשתף" in s.page.inner_text(".export-error-message")
     assert s.page.evaluate("window.__copied") is None
+
+
+# ---------------------------------------------------------------------------
+# מצבים שבהם משהו נתקע או חסר
+# ---------------------------------------------------------------------------
+
+
+def test_a_missing_export_core_is_reported_and_not_replaced_by_the_server(session, tmp_path):
+    """``styled-export-core.js`` לא נטען: "הורד HTML" אומר למה אין ייצוא, ואינו עובר בשקט לייצוא שבשרת — מנוע אחר."""
+    s = session(blocked=("/utils/styled-export-core.js",))
+    assert s.page.evaluate("typeof window.StyledExportCore") == "undefined"  # בקרה: באמת חסר
+    s.open_modal()
+    s.choose("morass")
+    downloads: list = []
+    s.page.on("download", lambda d: downloads.append(d))
+    s.page.click('#exportThemeModal [data-action="download"]')
+    poll(s.page, "!document.querySelector('.export-error-message').hidden", "הודעת שגיאה")
+
+    assert "רכיב הייצוא לא נטען" in s.page.inner_text(".export-error-message")
+    assert downloads == []
+    assert _server_exports(s) == [] and _skeleton_requests(s) == []
+
+
+def test_a_hung_engine_script_is_requested_again(session, tmp_path):
+    """בקשה לבאנדל שלא חוזרת: הניסיון הבא מבקש אותו מחדש, ולא מחכה לאותה בקשה תקועה עד רענון. וכשהבקשה התקועה
+    מסתיימת בכל זאת והבאנדל רץ פעם שנייה, הייצוא עדיין עובד."""
+    s = session()
+    s.hold = "/md_preview.bundle.js"
+    load = (
+        "async (ms) => { try { await window.StyledExportCore.loadEngine("
+        "document.getElementById('styledExportEngine'), ms); return 'ok'; } catch (e) { return e.message; } }"
+    )
+    assert s.page.evaluate(load, 1500) == "engine_timeout"
+    assert len(s.held) == 1  # בקרה: הבקשה הראשונה באמת תקועה
+
+    second = s.page.evaluate(load, 30000)
+    assert (second, s.count("/md_preview.bundle.js")) == ("ok", 2)
+
+    s.page.evaluate("window.__hljsBefore = window.hljs")
+    s.release()  # הבקשה הישנה מסתיימת
+    s.page.wait_for_timeout(1000)
+    # בקרה: הבאנדל באמת רץ פעם שנייה (מופע חדש של highlight.js), ולא רק לא הפריע
+    assert s.page.evaluate("!!window.hljs && window.hljs !== window.__hljsBefore") is True
+    s.open_modal()
+    s.choose("morass")
+    _download, path = s.download(tmp_path, "after-rerun.html")
+    ctx, page, attempts, _dialogs = open_file(s.browser_pair, path)
+    try:
+        r = page.evaluate(PROBE_FILE)
+    finally:
+        ctx.close()
+    assert attempts == []
+    assert r["code"]["coloredPct"] >= 90 and r["mermaid"]["svgs"] == 3 and r["katex"]["count"] == 5, r
+    assert s.errors == []
+
+
+def test_finishing_an_export_does_not_reenable_a_pending_copy_link(browser, session, tmp_path):
+    _b, wa = browser
+    before = len(wa.get_db().styled_shares.docs)
+    s = session()
+    s.open_modal()
+    s.choose("morass")
+    s.hold = f"/api/export/styled/{FILE_ID}/share"
+    s.page.click('#exportThemeModal [data-action="copy-link"]')
+    poll(s.page, "document.querySelector('#exportThemeModal [data-action=copy-link]').disabled", "יוצר קישור")
+    s.download(tmp_path, "while-copying.html")  # הייצוא מסתיים באמצע יצירת הקישור
+    s.open_modal()  # וגם פתיחה מחדש של החלון באמצע
+
+    assert s.page.evaluate("document.querySelector('#exportThemeModal [data-action=copy-link]').disabled") is True
+    s.release()
+    poll(s.page, "window.__copied !== undefined", "הקישור נוצר")
+    assert len(wa.get_db().styled_shares.docs) == before + 1
+
+
+def test_a_stale_links_response_is_not_shown(session):
+    """טעינה שהתחילה לפני ביטול חוזרת אחרי טעינה חדשה — והקישור שבוטל לא חוזר לרשימה."""
+    s = session()
+    token = s.create_link("morass")
+    s.hold = f"/api/export/styled/{FILE_ID}/shares"
+    s.page.click("#exportThemeModal [data-tab=links]")
+    deadline = time.monotonic() + 10
+    while not s.held and time.monotonic() < deadline:
+        s.page.wait_for_timeout(50)
+    assert len(s.held) == 1  # התשובה הישנה, עם הקישור, מוחזקת
+
+    s.page.evaluate("(t) => fetch(`/api/export/styled/shares/${t}/revoke`, { method: 'POST' })", token)
+    s.page.click("#exportThemeModal [data-tab=links]")
+    poll(s.page, "document.querySelector('#exportLinksList').innerText.includes('אין קישורים')", "הרשימה הריקה")
+    s.release()
+    s.page.wait_for_timeout(500)
+
+    assert s.page.query_selector(f'#exportLinksList [data-token="{token}"]') is None
+    assert "אין קישורים" in s.page.inner_text("#exportLinksList")
+
+
+def test_a_refresh_during_revoke_does_not_leave_the_revoked_link(session):
+    """"קישורים" נפתחת שוב בזמן שהביטול בדרך לשרת: הרשימה שחוזרת עוד מכילה את הקישור, והיא מתחלפת כשהביטול מסתיים."""
+    s = session()
+    token = s.create_link("morass")
+    s.page.click("#exportThemeModal [data-tab=links]")
+    poll(s.page, f"!!document.querySelector('#exportLinksList [data-token=\"{token}\"]')", "הקישור ברשימה")
+    s.hold, s.hold_defer = "/revoke", True
+    s.page.click(f'#exportLinksList [data-token="{token}"] [data-link-action=revoke]')
+    deadline = time.monotonic() + 10
+    while not s.held and time.monotonic() < deadline:
+        s.page.wait_for_timeout(50)
+    assert len(s.held) == 1  # הביטול עוד לא הגיע לשרת
+
+    s.page.click("#exportThemeModal [data-tab=links]")
+    poll(s.page, f"!!document.querySelector('#exportLinksList [data-token=\"{token}\"]')", "הרשימה, עם הקישור")
+    s.release()
+    poll(s.page, "document.querySelector('#exportLinksList').innerText.includes('אין קישורים')", "הרשימה אחרי הביטול")
+    assert s.page.query_selector(f'#exportLinksList [data-token="{token}"]') is None

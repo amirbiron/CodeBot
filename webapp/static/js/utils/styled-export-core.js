@@ -130,27 +130,58 @@
   // הערך המשותף הוא ההבטחה עצמה, והיא גם השומר: לחיצה שנייה בזמן טעינה מקבלת את אותה הבטחה, וכשל מאפס אותה כדי
   // שלחיצה הבאה תנסה שוב — ולא תיזכר ככישלון עד רענון.
   let enginePromise = null;
-  // הבטחה לכל סקריפט: ניסיון חוזר (אחרי תקרת זמן או כשל) משתמש במה שכבר נטען או עדיין נטען, ובונה מחדש רק את מה
-  // שנכשל — בלי להריץ את הבאנדל פעמיים
-  const scriptPromises = new Map();
+  // רשומה לכל סקריפט — ההבטחה, האלמנט, והאם הוא כבר נטען. ניסיון חוזר משתמש בסקריפט שכבר נטען (בלי להריץ אותו
+  // שוב), ובונה מחדש סקריפט שנכשל או שננטש בתקרת הזמן (``abandonPending``).
+  const scripts = new Map();
+  // כמה פעמים כל סקריפט ננטש בתקרת הזמן. ניסיון אחרי נטישה מבקש כתובת אחרת (``retry=N``): Chromium מצמיד אלמנט חדש
+  // לבקשה שעוד פתוחה לאותה כתובת, ואז גם הניסיון החדש מחכה לבקשה התקועה (נמדד ב-Chromium 153: בלי הפרמטר יצאה בקשה
+  // אחת לשני הניסיונות). הנתיב הסטטי מתעלם מהפרמטר.
+  const abandoned = new Map();
+
+  function forgetScript(src, entry) {
+    if (scripts.get(src) === entry) scripts.delete(src);
+    entry.el.remove();
+  }
+
+  function scriptUrl(src) {
+    const retry = abandoned.get(src);
+    return retry ? `${src}${src.includes('?') ? '&' : '?'}retry=${retry}` : src;
+  }
 
   function loadScript(src) {
-    if (scriptPromises.has(src)) return scriptPromises.get(src);
-    const promise = new Promise((resolve, reject) => {
-      const el = document.createElement('script');
-      el.src = src;
-      // סקריפט שנוסף מקוד הוא async כברירת מחדל; כאן הוא נטען אחרי שהקודם הסתיים, ולכן הסדר נשמר בכל מקרה
-      el.async = false;
-      el.onload = () => resolve();
-      el.onerror = () => {
-        scriptPromises.delete(src);
-        el.remove();
+    const known = scripts.get(src);
+    if (known) return known.promise;
+    const entry = { el: document.createElement('script'), loaded: false, promise: null };
+    entry.promise = new Promise((resolve, reject) => {
+      entry.el.src = scriptUrl(src);
+      // ``async`` (ברירת המחדל לסקריפט שנוסף מקוד), ולא ``async = false``: הסדר נשמר בכל מקרה, כי כל סקריפט נוסף רק
+      // אחרי שהקודם נטען. ו-``async = false`` מכניס את הסקריפט לתור של "לפי סדר ההוספה", שבו הוא מחכה לכל מי שנוסף
+      // לפניו — גם לסקריפט שננטש בבקשה תקועה, ושהסרה מהעמוד אינה מוציאה מהתור (נמדד: הניסיון החדש נתקע מאחוריו).
+      entry.el.async = true;
+      entry.el.onload = () => {
+        entry.loaded = true;
+        resolve();
+      };
+      entry.el.onerror = () => {
+        forgetScript(src, entry);
         reject(new Error('engine_load_failed'));
       };
-      document.head.appendChild(el);
+      document.head.appendChild(entry.el);
     });
-    scriptPromises.set(src, promise);
-    return promise;
+    scripts.set(src, entry);
+    return entry.promise;
+  }
+
+  // בתקרת הזמן: סקריפט שעוד לא נטען — בקשה תקועה, חיבור שנפל באמצע — יוצא מהרשימה, כדי שהניסיון הבא יבקש אותו מחדש.
+  // בלי זה כל ניסיון היה מחכה לאותה בקשה תקועה, ונכשל שוב, עד רענון העמוד. אי אפשר לבטל בקשה של אלמנט סקריפט, ולכן
+  // אם הבקשה הישנה תסתיים בכל זאת, הסקריפט ירוץ פעם נוספת; ``test_a_hung_engine_script_is_requested_again`` מראה
+  // שהייצוא עובד גם אחרי ריצה כזו.
+  function abandonPending() {
+    scripts.forEach((entry, src) => {
+      if (entry.loaded) return;
+      forgetScript(src, entry);
+      abandoned.set(src, (abandoned.get(src) || 0) + 1);
+    });
   }
 
   function loadEngine(templateEl, timeoutMs) {
@@ -166,13 +197,21 @@
     }
     const load = sources.reduce((chain, src) => chain.then(() => loadScript(src)), Promise.resolve());
     // תקרה אחת על הטעינה כולה, לא לכל סקריפט: עשרה סקריפטים איטיים עוברים כל תקרה לסקריפט אחד
+    let timer = null;
     const deadline = new Promise((_resolve, reject) => {
-      setTimeout(() => reject(new Error('engine_timeout')), timeoutMs);
+      timer = setTimeout(() => {
+        abandonPending();
+        reject(new Error('engine_timeout'));
+      }, timeoutMs);
     });
-    enginePromise = Promise.race([load, deadline]).catch((err) => {
-      enginePromise = null;
-      throw err;
-    });
+    // התקרה מבוטלת כשהטעינה מסתיימת, בכל דרך, כדי שתקרה של ניסיון קודם (שנכשל מהר) לא תרוץ באמצע ניסיון חדש ותוציא
+    // מהרשומות סקריפטים שלו. זה סדר, לא תיקון של תקלה שנראית: הניסיון החדש היה מסתיים גם כך
+    enginePromise = Promise.race([load, deadline])
+      .finally(() => clearTimeout(timer))
+      .catch((err) => {
+        enginePromise = null;
+        throw err;
+      });
     return enginePromise;
   }
 

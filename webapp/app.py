@@ -17821,16 +17821,21 @@ def api_create_styled_share(file_id):
         if not _is_markdown_file(language, file_name):
             return jsonify({'ok': False, 'error': 'ייצוא HTML מעוצב זמין רק לקבצי Markdown'}), 400
 
-        # פרסור הבקשה. גוף שאינו אובייקט, או ``theme`` / ``vscode_json`` שאינם מחרוזת, הם בקשה שגויה (400) — ולא 500:
-        # ``theme`` נבדק מול מילון (``theme_id in EXPORT_PRESETS``), ורשימה שם זורקת ``TypeError``.
+        # פרסור הבקשה. גוף שאינו אובייקט, או שדה מסוג אחר מהמצופה, הם בקשה שגויה (400) — ולא 500, ולא ניחוש:
+        # ``theme`` נבדק מול מילון (``theme_id in EXPORT_PRESETS``), ורשימה שם זורקת ``TypeError``; ו-``permanent`` חייב
+        # להיות boolean, כי ``bool("false")`` הוא ``True`` — קישור זמני היה נשמר כקבוע, בלי תוקף.
         data = request.get_json(silent=True)
         if data is None:
             data = {}
         theme_id = data.get('theme', 'tech-guide-dark') if isinstance(data, dict) else None
         vscode_json = data.get('vscode_json') if isinstance(data, dict) else None
-        if not isinstance(theme_id, str) or not isinstance(vscode_json, (str, type(None))):
+        is_permanent = data.get('permanent', False) if isinstance(data, dict) else None
+        if (
+            not isinstance(theme_id, str)
+            or not isinstance(vscode_json, (str, type(None)))
+            or not isinstance(is_permanent, bool)
+        ):
             return jsonify({'ok': False, 'error': 'בקשה לא תקינה', 'code': 'invalid_request'}), 400
-        is_permanent = bool(data.get('permanent', False))
 
         # הטקסט של הגרסה ששותפה. קובץ גדול (``large_files``) שומר אותו ב-``content`` ולא ב-``code``,
         # כמו במסלול ההורדה של ``export_styled_html`` — בלי זה שיתוף של קובץ גדול שמר עמוד ריק.

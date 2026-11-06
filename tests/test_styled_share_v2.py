@@ -174,11 +174,27 @@ def test_with_the_switch_off_the_share_is_built_on_the_server_as_before(wa, monk
     assert "markdown" not in doc and "format" not in doc and "theme" not in doc
 
 
-@pytest.mark.parametrize("body", [["morass"], {"theme": ["morass"]}, {"theme": "morass", "vscode_json": 5}])
+@pytest.mark.parametrize("body", [
+    ["morass"],
+    {"theme": ["morass"]},
+    {"theme": "morass", "vscode_json": 5},
+    # ``bool("false")`` הוא ``True``: מחרוזת הייתה הופכת קישור זמני לקבוע
+    {"theme": "morass", "permanent": "false"},
+    {"theme": "morass", "permanent": 1},
+])
 def test_a_malformed_body_is_400(wa, body):
     resp = _client(wa).post(f"/api/export/styled/{FILE_ID}/share", json=body)
     assert resp.status_code == 400
+    assert resp.get_json()["code"] == "invalid_request"
     assert wa._test_db.styled_shares.docs == []
+
+
+@pytest.mark.parametrize("permanent, expires", [(True, False), (False, True)])
+def test_permanent_is_taken_as_the_boolean_that_was_sent(wa, permanent, expires):
+    assert _share(wa, _client(wa), permanent=permanent).status_code == 200
+    [doc] = wa._test_db.styled_shares.docs
+    assert doc["is_permanent"] is permanent
+    assert (doc["expires_at"] is not None) is expires
 
 
 # ---------------------------------------------------------------------------

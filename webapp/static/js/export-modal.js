@@ -69,6 +69,8 @@
         if (!presetsLoaded) {
             loadThemes();
         }
+        // הלשונית "קישורים" שנשארה פתוחה מהפעם הקודמת — נטענת מחדש, לקובץ של הפתיחה הזו
+        if (modal.querySelector('.export-tab.active[data-tab="links"]')) loadLinks();
     };
 
     function closeModal() {
@@ -430,7 +432,9 @@
     // ============================================
 
     const Core = window.StyledExportCore;
-    const browserRender = modal.dataset.browserRender === '1' && !!Core;
+    // המסלול נקבע לפי המתג (``data-browser-render``) בלבד. ``styled-export-core.js`` שלא נטען אינו סיבה לעבור בשקט
+    // לייצוא שבשרת — מנוע אחר, ותוצאה אחרת — אלא כשל שמוצג (``browserExport``). עמוד ישן, בלי המאפיין, נשאר בשרת.
+    const browserRender = modal.dataset.browserRender === '1';
     const markerText = modal.dataset.contentMarker || '';
     const engineTemplate = document.getElementById('styledExportEngine');
     // תקרות זמן: לטעינת המנוע כולה (כ-1.4MB דחוס בטעינה הראשונה), לבקשת הטקסט ולבקשת השלד. הכפתורים מושבתים בזמן
@@ -439,8 +443,10 @@
     const TEXT_TIMEOUT_MS = 30000;
     const SKELETON_TIMEOUT_MS = 15000;
 
+    // רק "תצוגה מקדימה" ו"הורד HTML". ל"העתק קישור" יש מצב המתנה משלו (הבקשה שיוצרת את הקישור), וייצוא שמסתיים
+    // באמצע שלה לא מחזיר אותו ללחיצה — לחיצה שנייה הייתה יוצרת קישור כפול.
     function setBusy(busy) {
-        [previewBtn, downloadBtn, copyLinkBtn].forEach((btn) => { if (btn) btn.disabled = busy; });
+        [previewBtn, downloadBtn].forEach((btn) => { if (btn) btn.disabled = busy; });
         modal.setAttribute('aria-busy', busy ? 'true' : 'false');
     }
 
@@ -469,6 +475,11 @@
     // מחזיר ``true`` כשהקובץ נמסר. "תצוגה מקדימה" פותחת את הטאב כבר עכשיו, בתוך הלחיצה (``openPreviewTab``).
     async function browserExport(mode) {
         hideError();
+        if (!Core) {
+            console.error('[export-modal] StyledExportCore is missing; browser export is unavailable');
+            showError('רכיב הייצוא לא נטען, ולכן אי אפשר לייצא. נסו לרענן את העמוד.');
+            return false;
+        }
         let previewWindow = null;
         if (mode === 'preview') {
             previewWindow = Core.openPreviewTab();
@@ -578,7 +589,9 @@
             const data = await readJson(resp);
             if (!resp.ok || !data.ok) throw new Error(data.error || 'ביטול הקישור נכשל');
             item.remove();
-            if (linksList && !linksList.children.length) linksMessage('אין קישורים לקובץ הזה.', 'export-empty');
+            // הרשימה נקראת שוב מהשרת — המצב עצמו, ולא מה שהלקוח מניח עליו. כך גם רשימה שנטענה בזמן שהביטול היה בדרך
+            // (פתיחה מחדש של הלשונית), ועוד מציגה את הקישור שבוטל, מתחלפת
+            loadLinks();
         } catch (err) {
             console.error('Revoke link error:', err);
             showError(err && err.name === 'TimeoutError' ? 'השרת לא ענה בזמן. נסו שוב בעוד רגע.' : (err.message || 'ביטול הקישור נכשל'));
@@ -635,18 +648,27 @@
         });
     }
 
+    // מספר הטעינה האחרונה. רק התשובה שלה מוצגת: תשובה של טעינה קודמת — לחיצה שנייה על הלשונית, ביטול באמצע, או
+    // החלון שנפתח לקובץ אחר — מגיעה אחרי שהמצב השתנה, ואם הייתה מוצגת, היה אפשר לפעול על קישורים שכבר אינם.
+    let linksRequest = 0;
+
     async function loadLinks() {
         if (!linksList || !fileId) return;
+        const request = ++linksRequest;
+        const requestedFileId = fileId;
+        const current = () => request === linksRequest && requestedFileId === fileId;
         linksMessage('טוען קישורים...', 'export-loading');
         try {
-            const resp = await fetch(`/api/export/styled/${encodeURIComponent(fileId)}/shares`, {
+            const resp = await fetch(`/api/export/styled/${encodeURIComponent(requestedFileId)}/shares`, {
                 credentials: 'same-origin',
                 signal: linksSignal(),
             });
             const data = await readJson(resp);
+            if (!current()) return;
             if (!resp.ok || !data.ok || !Array.isArray(data.shares)) throw new Error(data.error || 'load_failed');
             renderLinks(data.shares);
         } catch (err) {
+            if (!current()) return;
             console.error('Load links error:', err);
             linksMessage('שגיאה בטעינת הקישורים', 'export-error');
         }
@@ -658,9 +680,12 @@
 
     let copyLinkResetTimeout = null;
     const COPY_LINK_ORIGINAL_TEXT = 'העתק קישור';
+    // הבקשה שיוצרת קישור עוד לא חזרה. פתיחה מחדש של החלון באמצע לא מחזירה את הכפתור ללחיצה — לחיצה שנייה הייתה יוצרת
+    // קישור כפול. לבקשה יש תקרת זמן (``linksSignal``), ולכן הדגל לא נשאר דלוק לתמיד.
+    let copyLinkPending = false;
 
     function resetCopyLinkButton() {
-        if (!copyLinkBtn) return;
+        if (!copyLinkBtn || copyLinkPending) return;
 
         // ביטול timeout קיים
         if (copyLinkResetTimeout) {
@@ -682,6 +707,7 @@
             const copyLinkText = copyLinkBtn.querySelector('.copy-link-text');
 
             // הצגת מצב טעינה
+            copyLinkPending = true;
             copyLinkBtn.disabled = true;
             if (copyLinkText) copyLinkText.textContent = 'יוצר קישור...';
 
@@ -706,6 +732,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(requestBody),
+                    signal: linksSignal(),
                 });
 
                 // ניסיון לפרסר JSON - גם אם הסטטוס לא ok, השרת עשוי להחזיר הודעת שגיאה ב-JSON
@@ -751,9 +778,11 @@
 
             } catch (err) {
                 console.error('Copy link error:', err);
-                showError(err.message || 'שגיאה ביצירת קישור שיתוף');
+                showError(err && err.name === 'TimeoutError' ? 'השרת לא ענה בזמן. נסו שוב בעוד רגע.' : (err.message || 'שגיאה ביצירת קישור שיתוף'));
                 if (copyLinkText) copyLinkText.textContent = COPY_LINK_ORIGINAL_TEXT;
                 copyLinkBtn.disabled = false;
+            } finally {
+                copyLinkPending = false;
             }
         });
     }

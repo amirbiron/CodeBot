@@ -34,7 +34,7 @@
   const toggle = document.querySelector('[data-md-editor-export-toggle]');
   const textarea = document.getElementById('codeTextarea');
   const statusEl = document.querySelector('[data-md-editor-status]');
-  if (!panel || !toggle || !textarea || !Core) {
+  if (!panel || !toggle || !textarea) {
     return;
   }
   const markerText = panel.getAttribute('data-content-marker') || '';
@@ -54,6 +54,16 @@
     panel.hidden = !open;
     toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
   });
+
+  // ``styled-export-core.js`` לא נטען (בקשה שנכשלה): הכפתורים גלויים, ולכן לחיצה עליהם אומרת למה אין ייצוא — ולא
+  // שותקת.
+  if (!Core) {
+    console.error('[markdown-editor-export] StyledExportCore is missing; export is unavailable');
+    actionButtons.forEach((btn) => {
+      btn.addEventListener('click', () => setStatus('רכיב הייצוא לא נטען, ולכן אי אפשר לייצא. נסו לרענן את העמוד.'));
+    });
+    return;
+  }
 
   function selectedTheme() {
     return panel.querySelector('input[name="mdEditorExportTheme"]:checked');
