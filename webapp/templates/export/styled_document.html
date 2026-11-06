@@ -479,6 +479,16 @@
         /* הסימון של markdown-it בייצוא מהעורך הציבורי */
 {% include "export/_editor_export_styles.css" %}
     </style>
+    {#- ערכה בלי צבעי highlight.js משלה (``hljs_fallback`` של ``get_export_theme``): הפלטה שנגזרת מהמשתנים, כמו בתצוגה
+        (``export_hljs_fallback_css``). לפני ``hljs_css``, שגובר עליה כשיש לערכה כללים משלה. #}
+    {%- if hljs_fallback_css %}
+    <style>
+        /* Syntax Highlighting של highlight.js מהפלטה שנגזרת ממשתני הערכה — במסך בלבד, כמו hljs_css */
+        @media screen {
+{{ hljs_fallback_css | safe }}
+        }
+    </style>
+    {%- endif %}
     {%- if hljs_css %}
     <style>
         /* Syntax Highlighting של highlight.js (מערכת הנושא) — במסך בלבד, כמו extra_css, כדי שבהדפסה הקוד יישאר בצבע אחד */
@@ -506,8 +516,9 @@
     {%- endif %}
 </head>
 <body>
-    {#- בייצוא מהעורך הציבורי אין באנר עליון: אין לקובץ שם, והכיתוב נשאר רק בתחתית. #}
-    {%- if not editor_export %}
+    {#- באנר עליון עם שם הקובץ — בייצוא של המחוברים (``show_header``). בייצוא מהעורך הציבורי אין: אין לקובץ שם, והכיתוב
+        נשאר רק בתחתית. #}
+    {%- if show_header %}
     <header>
         <h1>{{ title }}</h1>
         <p class="subtitle">{{ footer_text }}</p>

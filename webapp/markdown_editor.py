@@ -91,6 +91,44 @@ def katex_inline_css() -> str:
     return css
 
 
+#: הפלטה של highlight.js שנגזרת ממשתני הערכה, והכללים שמחברים אליה את מחלקות highlight.js — מתוך הצבעים של
+#: התצוגה, בין הסימונים שבקובץ (הבלוק של ערכה מותאמת או משותפת, ואחריו כללי ``#md-content .hljs-*``).
+MD_CONTENT_COLORS_CSS = Path(__file__).with_name("static") / "css" / "md-content-colors.css"
+EXPORT_HLJS_PALETTE_START = "/* export-hljs-palette:start"
+EXPORT_HLJS_PALETTE_END = "/* export-hljs-palette:end */"
+EXPORT_HLJS_RULES_START = "/* export-hljs-rules:start"
+EXPORT_HLJS_RULES_END = "/* export-hljs-rules:end */"
+#: הבורר שהכללים נכתבים תחתיו בקובץ המיוצא, במקום ``#md-content``: המיכל של התוכן ב-``export/styled_document.html``.
+EXPORT_HLJS_FALLBACK_ROOT = "main.container"
+
+
+def _between(text: str, start: str, end: str) -> str:
+    """הטקסט שבין סוף שורת הסימון ``start`` ל-``end`` — וזורק כשאחד מהם חסר."""
+    begin = text.index(start)
+    begin = text.index("*/", begin) + 2
+    return text[begin:text.index(end, begin)]
+
+
+@lru_cache(maxsize=1)
+def export_hljs_fallback_css() -> str:
+    """צבעי highlight.js לייצוא בערכה שאין לה צבעים משלה (``hljs_fallback`` של ``get_export_theme``).
+
+    זו אותה פלטה שהתצוגה צובעת בה ערכה מותאמת או משותפת — מילת מפתח ב-``--primary``, מחרוזת ב-``--success``, הערה
+    ב-``--text-muted`` וכו' — והיא נקראת מ-``md-content-colors.css`` ולא נכתבת כאן שוב, כדי שלא יהיו שני עותקים
+    שנסחפים. ``#md-content`` מוחלף ב-``EXPORT_HLJS_FALLBACK_ROOT``.
+
+    נקרא בבקשה הראשונה ונשמר בזיכרון של התהליך. סימון שחסר **זורק**, כמו ``katex_inline_css``; ``lru_cache`` לא
+    שומר חריגה, ולכן הבקשה הבאה תנסה שוב.
+    """
+    css = MD_CONTENT_COLORS_CSS.read_text(encoding="utf-8")
+    palette = _between(css, EXPORT_HLJS_PALETTE_START, EXPORT_HLJS_PALETTE_END).strip()
+    rules = _between(css, EXPORT_HLJS_RULES_START, EXPORT_HLJS_RULES_END).strip()
+    if "--hljs-keyword" not in palette or "#md-content .hljs-keyword" not in rules:
+        raise ValueError("export_hljs_fallback_css: הסימונים ב-md-content-colors.css כבר לא סוגרים את הפלטה והכללים")
+    root = EXPORT_HLJS_FALLBACK_ROOT
+    return f"{root} {{\n{palette}\n}}\n{rules.replace('#md-content', root)}\n"
+
+
 @lru_cache(maxsize=1)
 def demo_text() -> str:
     """טקסט ההדגמה, כפי שהוא בקובץ.

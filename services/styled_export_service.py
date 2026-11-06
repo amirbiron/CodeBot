@@ -43,6 +43,7 @@ from services.theme_parser_service import (
     generate_hljs_css_from_tokens,
     generate_pygments_css_from_tokens,
     parse_vscode_theme,
+    rebase_hljs_css,
 )
 from services.theme_presets_service import get_preset_by_id, list_presets
 
@@ -2186,6 +2187,8 @@ def _theme_from_export_preset(preset_id: str) -> dict:
         "syntax_css": preset.get("syntax_css", ""),
         "extra_css": preset.get("extra_css", ""),
         "hljs_css": preset.get("hljs_css", ""),
+        # ערכה עם צבעי highlight.js משלה (``hljs_css``) נשארת בדיוק כמו שהיא; לשאר — הפלטה שנגזרת מהמשתנים
+        "hljs_fallback": not preset.get("hljs_css"),
     }
 
 
@@ -2210,8 +2213,10 @@ def get_export_theme(
         vscode_json: תוכן JSON של ערכת VS Code (אופציונלי)
 
     Returns:
-        dict עם name, variables, ו-syntax_css (אופציונלי). ``extra_css`` ו-``hljs_css``
-        מגיעים רק מ-Export Presets (ומה-fallback, שהוא אחד מהם).
+        dict עם name, variables, ו-syntax_css (אופציונלי). ``extra_css`` מגיע רק מ-Export Presets
+        (ומה-fallback, שהוא אחד מהם). ``hljs_css`` — כללי highlight.js תחת ``EXPORT_HLJS_SELECTOR_PREFIX`` — מגיע
+        מ-Export Presets שיש להם, ומערכה מיובאת מ-VS Code (קובץ ישיר או ערכת משתמש). ``hljs_fallback`` אומר אם
+        הייצוא בדפדפן צריך מתחתם את הפלטה שנגזרת מהמשתנים (``export_hljs_fallback_css`` ב-``webapp/markdown_editor.py``).
     """
 
     # 1. VS Code JSON ישיר
@@ -2226,6 +2231,9 @@ def get_export_theme(
                 "category": str(theme_type).lower(),
                 "variables": parsed.get("variables", fallback),
                 "syntax_css": parsed.get("syntax_css", ""),
+                # כללי highlight.js ש-``parse_vscode_theme`` חישב מ-``tokenColors``, תחת הקידומת של הייצוא
+                "hljs_css": rebase_hljs_css(parsed.get("syntax_css", ""), EXPORT_HLJS_SELECTOR_PREFIX),
+                "hljs_fallback": True,
             }
         except Exception as e:
             logger.warning("Failed to parse VS Code theme: %s", e)
@@ -2243,6 +2251,8 @@ def get_export_theme(
             "category": gallery_preset.get("category", "dark"),
             "variables": gallery_preset.get("variables", FALLBACK_DARK),
             "syntax_css": gallery_preset.get("syntax_css", ""),
+            # בערכות הגלריה יש רק כללי CodeMirror (``.tok-*``), ולכן הייצוא בדפדפן צובע בפלטה שנגזרת מהמשתנים
+            "hljs_fallback": True,
         }
 
     # 4. ערכות המשתמש
@@ -2268,6 +2278,10 @@ def get_export_theme(
                     "category": theme.get("category", "dark"),
                     "variables": theme.get("variables", FALLBACK_DARK),
                     "syntax_css": stored_css,
+                    # ערכה מיובאת מ-VS Code שומרת כללי highlight.js תחת הקידומת של האתר. ערכה ישנה, או ערכה מבונה
+                    # הערכות, בלי כללים כאלה — מקבלת רק את הפלטה, שיושבת מתחת לכללים בכל מקרה (כמו בתצוגה).
+                    "hljs_css": rebase_hljs_css(stored_css, EXPORT_HLJS_SELECTOR_PREFIX),
+                    "hljs_fallback": True,
                 }
 
     # 5. Fallback
@@ -2598,6 +2612,10 @@ EDITOR_EXPORT_FOOTER = 'נוצר אוטומטית ע"י Code Keeper'
 #: הכותרת של השלד, עד שהדפדפן מחליף אותה בכותרת של המסמך.
 EDITOR_EXPORT_DEFAULT_TITLE = "מסמך"
 
+#: הכיתוב של הייצוא של המחוברים — בבאנר העליון ובתחתית, ליד שם הקובץ. בשני המסלולים שלו: ``render_styled_html``
+#: (השרת) ו-``render_styled_export_skeleton`` (הדפדפן).
+STYLED_EXPORT_FOOTER = 'נוצר אוטומטית ע"י Code Keeper Bot'
+
 
 def editor_export_meta_csp() -> str:
     """ה-CSP שבתוך הקובץ שיוצא מהעורך הציבורי (``<meta http-equiv>``).
@@ -2654,27 +2672,62 @@ def _render_export_document(**context) -> str:
     return render_template("export/styled_document.html", **context)
 
 
-def render_editor_export_skeleton(theme: dict, katex_css: str = "") -> str:
-    """השלד של הייצוא מהעורך הציבורי: העמוד המעוצב של ``theme``, עם ``EDITOR_EXPORT_CONTENT_MARKER`` במקום התוכן.
+def _render_browser_export_skeleton(
+    theme: dict, *, title: str, footer_text: str, show_header: bool, katex_css: str, hljs_fallback_css: str
+) -> str:
+    """שלד שהדפדפן מכניס לתוכו את המסמך — המשותף לייצוא מהעורך הציבורי ולייצוא של המחוברים.
 
-    שום קלט של הגולש לא מגיע לכאן — רק ערכה מתוך רשימה סגורה (``EXPORT_THEME_IDS`` ב-``webapp/markdown_editor.py``)
-    ו-``katex_css``, ה-CSS של KaTeX עם הגופנים, שהשרת קורא מהבאנדל של התצוגה כשבמסמך יש נוסחה.
-
-    שונה מ-``render_styled_html`` (``editor_export`` בתבנית): בלי באנר עליון, עם העיצוב של markdown-it
-    (``export/_editor_export_styles.css``), הדגשת highlight.js (``hljs_css`` של הערכה) ו-CSP בתוך הקובץ — ובלי כללי
-    Pygments, כי הקוד בשלד מסומן ב-highlight.js.
+    שונה מ-``render_styled_html`` (``editor_export`` בתבנית): עם ``EDITOR_EXPORT_CONTENT_MARKER`` במקום התוכן, העיצוב
+    של markdown-it (``export/_editor_export_styles.css``), הדגשת highlight.js (``hljs_css`` של הערכה, ומתחתיו
+    ``hljs_fallback_css`` כשהערכה צריכה אותו) ו-CSP בתוך הקובץ — ובלי כללי Pygments, כי הקוד מסומן ב-highlight.js.
     """
     return _render_export_document(
-        **_export_document_context(theme, EDITOR_EXPORT_FOOTER),
-        title=EDITOR_EXPORT_DEFAULT_TITLE,
+        **_export_document_context(theme, footer_text),
+        title=title,
         content=EDITOR_EXPORT_CONTENT_MARKER,
         toc_html="",
         syntax_css="",
         editor_export=True,
+        show_header=show_header,
         meta_csp=editor_export_meta_csp(),
         admonition_groups=_admonition_groups(),
         hljs_css=sanitize_css(theme.get("hljs_css", "")),
+        hljs_fallback_css=sanitize_css(hljs_fallback_css) if theme.get("hljs_fallback") else "",
         katex_css=sanitize_css(katex_css),
+    )
+
+
+def render_editor_export_skeleton(theme: dict, katex_css: str = "", hljs_fallback_css: str = "") -> str:
+    """השלד של הייצוא מהעורך הציבורי: העמוד המעוצב של ``theme``, עם ``EDITOR_EXPORT_CONTENT_MARKER`` במקום התוכן.
+
+    שום קלט של הגולש לא מגיע לכאן — רק ערכה מתוך רשימה סגורה (``EXPORT_THEME_IDS`` ב-``webapp/markdown_editor.py``)
+    ו-``katex_css``, ה-CSS של KaTeX עם הגופנים, שהשרת קורא מהבאנדל של התצוגה כשבמסמך יש נוסחה. בלי באנר עליון:
+    לקובץ אין שם, והכותרת שלו היא הכותרת הראשונה במסמך.
+    """
+    return _render_browser_export_skeleton(
+        theme,
+        title=EDITOR_EXPORT_DEFAULT_TITLE,
+        footer_text=EDITOR_EXPORT_FOOTER,
+        show_header=False,
+        katex_css=katex_css,
+        hljs_fallback_css=hljs_fallback_css,
+    )
+
+
+def render_styled_export_skeleton(theme: dict, title: str, katex_css: str = "", hljs_fallback_css: str = "") -> str:
+    """השלד של הייצוא של המחוברים, כשהמסמך מרונדר בדפדפן: כמו הייצוא שבשרת — באנר עליון עם ``title`` (שם הקובץ),
+    ``STYLED_EXPORT_FOOTER`` ושם הערכה — אבל עם הסימון של markdown-it ו-highlight.js, כמו העורך הציבורי.
+
+    ``theme`` הוא מה ש-``get_export_theme`` מחזיר — כל ערכה שאפשר לייצא בה, כולל ערכות המשתמש — ו-``hljs_fallback_css``
+    נכנס רק לערכה שצריכה אותו (``hljs_fallback``).
+    """
+    return _render_browser_export_skeleton(
+        theme,
+        title=title,
+        footer_text=STYLED_EXPORT_FOOTER,
+        show_header=True,
+        katex_css=katex_css,
+        hljs_fallback_css=hljs_fallback_css,
     )
 
 
@@ -2683,7 +2736,7 @@ def render_styled_html(
     title: str,
     theme: dict,
     toc_html: str = "",
-    footer_text: str = 'נוצר אוטומטית ע"י Code Keeper Bot',
+    footer_text: str = STYLED_EXPORT_FOOTER,
 ) -> str:
     """
     מרנדר HTML מעוצב מלא.
@@ -2732,5 +2785,6 @@ def render_styled_html(
         content=content_html,
         syntax_css=syntax_css,
         toc_html=toc_html,
+        show_header=True,
     )
 
