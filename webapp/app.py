@@ -11911,12 +11911,13 @@ def index_head():
 @app.route('/', methods=['GET'])
 @_limiter_exempt()
 def index():
-    """דף הבית"""
+    """דף הבית. ``base_url`` לתגיות התצוגה המקדימה של הקישור (``og:url``, ``og:image``), שצריכות כתובת מלאה — כמו בגלריה."""
     return render_template(
         'index.html',
         bot_username=BOT_USERNAME_CLEAN,
         logged_in=('user_id' in session),
         user=session.get('user_data', {}),
+        base_url=_webapp_base_url(),
     )
 
 

@@ -9,11 +9,32 @@
   - **בלי סטטיסטיקות.** העמוד לא קורא ל-``/api/public_stats`` ול-``/api/uptime``, וה-route לא קורא ל-``fetch_external_uptime``. שני ה-API נשארו, כי הם API ציבורי מתועד (``docs/openapi.yaml``).
 #}
 
+{% set home_title = 'CodeKeeper - המקום לקוד, למסמכים ול-AI שלך' %}
 {% set home_tagline = 'המקום לשמור את הקוד, המסמכים והפתקים שלך, ולחבר אליהם את סוכני ה-AI שלך.' %}
 
-{% block title %}CodeKeeper - המקום לקוד, למסמכים ול-AI שלך{% endblock %}
+{% block title %}{{ home_title }}{% endblock %}
 
 {% block extra_head %}
+{#
+  תגיות התצוגה המקדימה של קישור (https://ogp.me), לוואטסאפ, לטלגרם, ללינקדאין ולאתרי אינדקס. אותן דרישות של וואטסאפ כמו בגלריה (ההערה ב-``gallery.html``): כתובת מלאה ב-``og:url`` וב-``og:image`` (``base_url``, ``_webapp_base_url`` ב-``webapp/app.py``), והתגיות בתחילת ה-HTML. ``tests/test_home_page.py`` מבקש את התמונה מהכתובת שב-``og:image``, ובודק שהיא בגודל שב-``og:image:width`` / ``og:image:height`` ובסוג שב-``og:image:type``.
+
+  - **``og:title`` נפתח בתו RLM (U+200F), בכוונה.** בתצוגה המקדימה, הכיוון של השורה נקבע לפי האות החזקה הראשונה (כללים P2–P3 ב-https://www.unicode.org/reports/tr9/). הכותרת מתחילה ב-"CodeKeeper", ובלי התו כל השורה מוצגת משמאל לימין ו-"ול-AI שלך" יוצא הפוך. RLM הוא תו מימין לשמאל שאינו נראה, ולכן השורה מימין לשמאל ו-CodeKeeper מופיע ראשון, בצד ימין. התו נכתב כ-escape ולא כתו בלתי נראה בקובץ, והוא מגיע ל-HTML כתו עצמו ולא כישות (``&rlm;``), כך שגם סורק שאינו מפענח ישויות רואה אותו. ה-``<title>`` של הלשונית בלי התו: שם הכיוון נקבע לפי ``dir`` של הדף.
+  - ``og:description`` מתחיל בעברית, ולכן אין בו צורך בתו.
+  - ``twitter:card`` הוא התגית היחידה של X כאן. כשאין ``twitter:title`` / ``twitter:description`` / ``twitter:image``, X לוקח את תגיות ה-``og:`` המקבילות (טבלת ה-fallback ב-https://developer.x.com/cards/markup). הדף הזה חוסם קריאה אוטומטית (402), והטענה נלקחה מהתקציר שלו בתוצאות החיפוש ולא מקריאה של הדף המלא (8.11.2026).
+#}
+<meta name="description" content="{{ home_tagline }}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CodeKeeper">
+<meta property="og:locale" content="he_IL">
+<meta property="og:title" content="{{ '\u200f' ~ home_title }}">
+<meta property="og:description" content="{{ home_tagline }}">
+<meta property="og:url" content="{{ base_url }}{{ url_for('index') }}">
+<meta property="og:image" content="{{ base_url }}{{ url_for('static', filename='og/og-image.jpg') }}?v={{ static_version }}">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="מחשב נייד פתוח על שולחן, ועל המסך CodeKeeper עם לוח של פתקים דביקים. סביבו כרטיסים של היכולות: לוחות פתקים, מסמכים חיים, שרת MCP, בוט טלגרם וערכות נושא.">
+<meta name="twitter:card" content="summary_large_image">
 {# נתונים מובנים (schema.org) לגוגל: מי עומד מאחורי המוצר, בלי שורת קרדיט על המסך. ``author`` של ``WebApplication`` מקבל ``Person`` (https://schema.org/WebApplication, ירושה מ-``CreativeWork``). #}
 <script type="application/ld+json">
 {{ {

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import ast
+import html as html_lib
 import json
 import re
 from html.parser import HTMLParser
@@ -118,6 +119,17 @@ def test_share_tags_point_to_absolute_urls_and_the_first_slide():
     assert re.match(r"^https?://[^/]+/static/gallery/", props["og:image"]), props["og:image"]
     assert props["og:image"].split("?")[0].endswith("/" + share_image(GALLERY_SLIDES[0]))
     assert props["og:image:alt"] == GALLERY_SLIDES[0].alt
+
+
+def test_share_title_opens_with_rlm_and_the_tab_title_does_not():
+    """הכותרת מתחילה ב-"CodeKeeper". בלי RLM בתחילת ``og:title`` וואטסאפ וטלגרם מציגים את השורה משמאל לימין, וה-``<title>`` של הלשונית נשאר בלי התו (ההסבר בהערה שב-``extra_head`` של ``index.html``)."""
+    html = _get_gallery().get_data(as_text=True)
+    parser = _Meta()
+    parser.feed(html)
+
+    title = html_lib.unescape(re.search(r"<title>(.*?)</title>", html, re.S).group(1))
+    assert not title.startswith("\u200f")
+    assert parser.props["og:title"] == "\u200f" + title, (parser.props["og:title"], title)
 
 
 def test_share_tags_sit_within_the_first_300kb():
