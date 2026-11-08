@@ -52,6 +52,20 @@ Gemini API אין משפט מקביל.
     (הבלוק נבלע, למעלה), ולכן Gemini חותך בשקט את סוף הנתח. עם תיאור בפרוזה (``snippet+prose``)
     אותם נתחים נשארים מתחת לתקרה: 1,830 ו-1,818 טוקנים. זה המסלול של ה-worker של הסניפטים,
     מלפני אינדקס התיעוד, והפער מתועד ב-docstring של ``create_embedding_text``.
+
+ואחריהם מה שה-worker של הסניפטים נשען עליו מאז שהוא שולח אצוות (``_probe_batch_semantics``):
+
+* **פריט פסול אחד באצווה** — האם האצווה כולה נדחית. מה שנמדד ב-8.11.2026: אצווה של שלושה
+  טקסטים שאחד מהם ריק חזרה ``400 INVALID_ARGUMENT`` ("EmbedContentRequest.content contains an
+  empty Part."), בלי שום וקטור ובלי לומר איזה פריט — ולכן ה-worker חוצה אצווה שנדחתה.
+* **הסדר** — האם הווקטור ה-i שייך לטקסט ה-i. מה שנמדד ב-8.11.2026: כל וקטור באצווה של שישה
+  טקסטים זהה (קוסינוס 1.000000) לווקטור של אותו טקסט שנשלח לבד, ומול האחרים לא יותר מ-0.68.
+* **זמן התשובה** של אצווה בגודל ``paced_batch_size`` מטקסטים בגודל המקסימלי שה-worker שולח
+  (נתח מלא ועוד מטא-דאטה), מול ``REQUEST_TIMEOUT``. מה שנמדד ב-8.11.2026: 25 טקסטים (כ-2,500
+  בתים ו-500–700 טוקנים כל אחד) ב-0.44 וב-0.68 שניות בשתי הרצות; ובאותו יום, בהרצה ידנית, גם 50
+  ב-1.11 ו-90 ב-1.21.
+* בכותרות התשובה של Gemini אין שום מידע על מכסה או קצב, ובתיעוד לא כתוב איך אצווה נספרת
+  במכסה — לכן השער תופס מרווח לכל טקסט (ההערה מעל ``EMBEDDING_MIN_INTERVAL_SECONDS``).
 """
 
 from __future__ import annotations
@@ -247,6 +261,90 @@ def _probe_batch_contract(client: httpx.Client) -> None:
               f"totalTokens={tokens}{over}")
 
 
+def _probe_batch_semantics(client: httpx.Client) -> None:
+    """מה שה-worker של הסניפטים נשען עליו באצוות: פריט פסול, הסדר, וזמן התשובה (ראו למעלה).
+
+    כמו שאר החלקים אחרי שלושת הפרובים: מידע בלבד. כשל בדרך מודפס, והחלק נעצר — הוא לא רשאי
+    למנוע מ-``main`` להגיע למסקנה על ``autoTruncate``.
+    """
+    try:
+        _batch_semantics(client)
+    except Exception as exc:
+        # תווית משלו ולא "transport error": גם באג בחלק הזה מגיע לכאן, והוא צריך להיראות כמו שהוא.
+        print(f"{'batch semantics':34s} -> stopped: {type(exc).__name__}: {exc}")
+
+
+def _batch_semantics(client: httpx.Client) -> None:
+    import math
+    import time
+
+    from services.chunking_service import create_embedding_text, split_code_to_chunks  # noqa: E402
+    from services.embedding_service import (  # noqa: E402
+        REQUEST_TIMEOUT,
+        build_embed_content_request,
+        paced_batch_size,
+    )
+
+    base = f"https://generativelanguage.googleapis.com/{DEFAULT_API_VERSION}/models/{DEFAULT_MODEL}"
+
+    def shaped(text: str) -> dict:
+        return build_embed_content_request(text, model=DEFAULT_MODEL, dimensions=DEFAULT_DIMENSIONS)
+
+    empty = dict(shaped("x"), content={"parts": [{"text": ""}]})
+    response = client.post(
+        f"{base}:batchEmbedContents", json={"requests": [shaped("def a(): pass"), empty, shaped("def b(): pass")]}
+    )
+    print(f"{'batch [valid, empty, valid]':34s} -> HTTP {response.status_code}: {response.text[:160]!r}")
+
+    texts = [
+        "def parse_config(path):\n    return yaml.safe_load(open(path))",
+        "SELECT name FROM users WHERE id = %s",
+        "שלום עולם, זה מסמך בעברית על גיבויים",
+        "body { color: red; margin: 0 auto; }",
+        "async function fetchUser(id) { return await api.get(id); }",
+        "Kubernetes deployment rollout restart",
+    ]
+    batch = [e["values"] for e in client.post(
+        f"{base}:batchEmbedContents", json={"requests": [shaped(t) for t in texts]}
+    ).json()["embeddings"]]
+    singles = []
+    for text in texts:
+        singles.append(client.post(f"{base}:embedContent", json=shaped(text)).json()["embedding"]["values"])
+        time.sleep(1.3)
+
+    def cos(a: list, b: list) -> float:
+        dot = sum(x * y for x, y in zip(a, b))
+        return dot / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)))
+
+    for i in range(len(texts)):
+        row = [cos(batch[i], singles[j]) for j in range(len(texts))]
+        off = max(v for j, v in enumerate(row) if j != i)
+        print(f"{f'order: batch[{i}] vs single':34s} -> same text {row[i]:.6f}, best other {off:.4f}")
+
+    source = Path(__file__).resolve().parents[1].joinpath("services", "embedding_service.py").read_text("utf-8")
+    chunks = sorted((c.content for c in split_code_to_chunks(source * 3)), key=lambda c: len(c.encode()), reverse=True)
+    size = paced_batch_size()
+    payload = [
+        create_embedding_text(
+            code_chunk=chunk,
+            title="embedding_service.py",
+            description="Embedding client for the Gemini API, with a shared rate gate and retries. " * 20,
+            tags=["gemini", "embeddings"],
+            language="python",
+        )
+        for chunk in chunks[:size]
+    ]
+    start = time.monotonic()
+    response = client.post(f"{base}:batchEmbedContents", json={"requests": [shaped(t) for t in payload]})
+    elapsed = time.monotonic() - start
+    print(
+        f"{f'latency, batch of {len(payload)}':34s} -> HTTP {response.status_code} in {elapsed:.2f}s "
+        f"({sum(len(t.encode('utf-8')) for t in payload):,} bytes; REQUEST_TIMEOUT={REQUEST_TIMEOUT:.0f}s)"
+    )
+    quota_headers = sorted(k for k in response.headers if "limit" in k.lower() or "quota" in k.lower())
+    print(f"{'quota headers in the answer':34s} -> {quota_headers or 'none'}")
+
+
 #: סוגי תוכן צפוף — מה שמכניס הכי הרבה טוקנים לכל בית. ``dense code`` הוא שתי אותיות על כל שבעה
 #: סימנים או ספרות: היחס 7/9 נמוך מ-``LOW_INFORMATION_RATIO``, כך שנתח כזה **עובר** את הסינון של
 #: הסניפטים. גם ``hex`` ו-``uuid list`` עוברים אותו, כי הסינון סופר רק ספרות וסימנים, והאותיות
@@ -368,6 +466,9 @@ def main() -> int:
 
         print()
         _probe_batch_contract(client)
+
+        print()
+        _probe_batch_semantics(client)
 
     print()
     if short_off != 200:
