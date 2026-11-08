@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{#
+  מחיקה של קישור מעוצב שדווח (``admin_styled_shares`` / ``admin_delete_styled_share`` ב-``webapp/app.py``): מדביקים את
+  הקישור — מהעורך הציבורי או של משתמש מחובר — ומוחקים. התיעוד: ``docs/webapp/markdown-editor.rst``, בסעיף על הקישור הציבורי.
+#}
+
+{% block title %}מחיקת קישור מעוצב{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* טוקנים של העמוד (Level 3), כמו ב-admin_docs_index.html: ל-High Contrast אין --card-* ו---text-primary */
+  :root {
+    --styled-shares-surface: var(--card-bg);
+    --styled-shares-border: var(--card-border);
+    --styled-shares-text: var(--text-primary);
+    --styled-shares-muted: var(--text-secondary);
+  }
+  :root[data-theme="high-contrast"] {
+    --styled-shares-surface: var(--md-surface);
+    --styled-shares-border: var(--glass-border);
+    --styled-shares-text: var(--md-text);
+    --styled-shares-muted: var(--md-text);
+  }
+  .styled-shares-page { display: flex; flex-direction: column; gap: 1rem; color: var(--styled-shares-text); max-width: 760px; }
+  .styled-shares-page h1 { margin: 0; font-size: 1.6rem; }
+  .styled-shares-note { margin: 0; color: var(--styled-shares-muted); }
+  .styled-shares-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    background: var(--styled-shares-surface);
+    border: 1px solid var(--styled-shares-border);
+    border-radius: 14px;
+    padding: 1rem 1.1rem;
+  }
+  .styled-shares-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .styled-shares-input {
+    flex: 1 1 22rem;
+    min-width: 0;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--styled-shares-border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--styled-shares-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .styled-shares-status { margin: 0; min-height: 1.25em; color: var(--styled-shares-muted); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="styled-shares-page">
+  <h1><i class="fas fa-link-slash" aria-hidden="true"></i> מחיקת קישור מעוצב</h1>
+  <p class="styled-shares-note">מדביקים קישור מהצורה <span dir="ltr">/shared/styled/…</span> — שגולש יצר בעורך הציבורי, או שמשתמש מחובר יצר מעמוד קובץ — ומוחקים. המחיקה סופית: מי שיפתח את הקישור יקבל עמוד שלא נמצא.</p>
+  <div class="styled-shares-card">
+    <label for="styledShareLink">הקישור</label>
+    <div class="styled-shares-row">
+      <input type="text" id="styledShareLink" class="styled-shares-input" dir="ltr" autocomplete="off" spellcheck="false">
+      <button type="button" class="btn btn-primary btn-icon" id="styledShareDelete">
+        <i class="fas fa-trash" aria-hidden="true"></i>
+        מחק
+      </button>
+    </div>
+    <p class="styled-shares-status" id="styledShareStatus" aria-live="polite"></p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+  const input = document.getElementById('styledShareLink');
+  const button = document.getElementById('styledShareDelete');
+  const statusEl = document.getElementById('styledShareStatus');
+  const deleteUrl = {{ url_for('admin_delete_styled_share') | tojson }};
+  // הקוד ב-``error`` של תשובת סירוב (``admin_delete_styled_share``) ← ההודעה
+  const ERRORS = {
+    invalid_link: 'זה לא קישור מעוצב. צריך קישור מהצורה /shared/styled/… או את המזהה שבסופו.',
+    not_found: 'הקישור לא נמצא. ייתכן שהוא כבר נמחק.',
+  };
+
+  button.addEventListener('click', async () => {
+    const link = input.value.trim();
+    if (!link) return;
+    if (!window.confirm('למחוק את הקישור? המחיקה סופית.')) return;
+    button.disabled = true;
+    statusEl.textContent = 'מוחק…';
+    try {
+      const resp = await fetch(deleteUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ link }),
+        credentials: 'same-origin',
+        signal: AbortSignal.timeout(15000),
+      });
+      let data = null;
+      try {
+        data = await resp.json();
+      } catch (_parseErr) {
+        // תשובה שאינה JSON — ההודעה הכללית למטה
+        data = null;
+      }
+      if (resp.ok && data && data.ok) {
+        statusEl.textContent = data.origin === 'public_editor'
+          ? 'נמחק — קישור שגולש יצר בעורך הציבורי.'
+          : 'נמחק — קישור של משתמש מחובר.';
+        input.value = '';
+      } else {
+        statusEl.textContent = (data && ERRORS[data.error]) || 'המחיקה נכשלה. נסו שוב.';
+      }
+    } catch (err) {
+      console.error('[admin-styled-shares] delete failed', err);
+      statusEl.textContent = 'המחיקה נכשלה. נסו שוב.';
+    } finally {
+      button.disabled = false;
+    }
+  });
+})();
+</script>
+{% endblock %}

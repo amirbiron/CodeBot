@@ -30,7 +30,7 @@ import time as _time
 from werkzeug.http import http_date, parse_date
 from werkzeug.utils import secure_filename
 from urllib.parse import urlparse, urlunparse, quote as url_quote
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING, ASCENDING
 from pymongo.errors import PyMongoError
@@ -218,8 +218,15 @@ from services.code_service import bidi_warning_for_display  # noqa: E402
 # קישורי השיתוף של ייצוא ה-HTML המעוצב — שם האוסף והאינדקסים שלו (מודול שורש טהור, ראו styled_shares.py).
 from styled_shares import (  # noqa: E402
     STYLED_SHARES_COLLECTION,
+    STYLED_SHARE_DELETE_KEY_HASH_FIELD,
     STYLED_SHARE_FORMAT_MARKDOWN,
     STYLED_SHARE_MAX_MARKDOWN_BYTES,
+    STYLED_SHARE_ORIGIN_FIELD,
+    STYLED_SHARE_ORIGIN_PUBLIC_EDITOR,
+    STYLED_SHARE_TOKEN_RE,
+    markdown_share_fields,
+    new_styled_share_secret,
+    styled_share_delete_key_hash,
 )
 # כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
 # שלמעלה, ראו tests/test_webapp_import_paths.py.
@@ -276,6 +283,10 @@ from webapp.gallery import GALLERY_SLIDES, share_image as gallery_share_image  #
 from webapp.markdown_editor import THEME_ID as MARKDOWN_EDITOR_THEME_ID, demo_text as markdown_editor_demo_text  # noqa: E402
 from webapp.markdown_editor import (  # noqa: E402
     EXPORT_THEME_IDS as MARKDOWN_EDITOR_EXPORT_THEME_IDS,
+    PUBLIC_SHARE_DAILY_LIMIT as MARKDOWN_EDITOR_PUBLIC_SHARE_DAILY_LIMIT,
+    PUBLIC_SHARE_DAILY_WINDOW as MARKDOWN_EDITOR_PUBLIC_SHARE_DAILY_WINDOW,
+    PUBLIC_SHARE_MAX_BODY_BYTES as MARKDOWN_EDITOR_PUBLIC_SHARE_MAX_BODY_BYTES,
+    PUBLIC_SHARE_RATE_LIMIT as MARKDOWN_EDITOR_PUBLIC_SHARE_RATE_LIMIT,
     export_hljs_fallback_css as markdown_editor_hljs_fallback_css,
     export_themes as markdown_editor_export_themes,
     katex_inline_css as markdown_editor_katex_css,
@@ -306,6 +317,7 @@ from services.styled_export_service import (  # noqa: E402
     list_export_presets,
     markdown_to_html,
     render_editor_export_skeleton,
+    render_public_editor_share_page,
     render_styled_export_skeleton,
     render_styled_html,
     render_styled_share_page,
@@ -11967,6 +11979,8 @@ def markdown_editor():
         base_url=_webapp_base_url(),
         export_themes=markdown_editor_export_themes(),
         export_content_marker=EDITOR_EXPORT_CONTENT_MARKER_TEXT,
+        # "צור קישור" בודק את הגודל בדפדפן לפני השליחה, מול אותה תקרה שהשרת אוכף (``markdown_editor_create_share``)
+        share_max_bytes=STYLED_SHARE_MAX_MARKDOWN_BYTES,
         **theme_context,
     )
 
@@ -12019,6 +12033,224 @@ def markdown_editor_export_skeleton(theme_id: str):
     response.headers['Cache-Control'] = 'no-cache'
     response.add_etag()
     return response.make_conditional(request)
+
+
+def _public_share_refusal(code: str, status: int):
+    """סירוב של ראוטי הקישור הציבורי: ``{"ok": false, "error": <קוד>}``. ``markdown-editor-export.js`` מתרגם את הקוד
+    להודעה בעברית, וכל סיבה מקבלת קוד משלה — כדי שהגולש ידע אם לקצר את המסמך, לחכות או לבחור ערכה."""
+    return jsonify({'ok': False, 'error': code}), status
+
+
+@app.route('/api/markdown-editor/share', methods=['POST'])
+@_search_limiter_decorator(MARKDOWN_EDITOR_PUBLIC_SHARE_RATE_LIMIT)
+@traced("markdown_editor.share_create")
+def markdown_editor_create_share():
+    """"צור קישור" בעורך הציבורי: שומר את הטקסט ונותן קישור קבוע לעמוד מעוצב, בלי התחברות.
+
+    זו הפעולה היחידה בעמוד ששולחת את הטקסט לשרת, ורק בלחיצה. נשמר הטקסט ולא HTML: ה-HTML היה מגיע מהדפדפן, ואפשר
+    לשלוח לשרת כל דבר. מי שפותח את הקישור מקבל את השלד של הערכה, והרינדור נעשה אצלו, באותו מנוע ועם אותן הגנות של
+    העורך (``public_shared_styled``, ``render_public_editor_share_page``). המסמך באוסף ``styled_shares``, עם ``origin`` =
+    ``STYLED_SHARE_ORIGIN_PUBLIC_EDITOR`` (``styled_shares.py``).
+
+    **הבדיקות, מהזולה ליקרה:** ``Content-Type`` של JSON (415) — טופס מאתר אחר לא יכול לשלוח אותו, ובקשת JSON מאתר אחר
+    נעצרת ב-preflight, כך שאתר זר לא יוצר קישורים מהדפדפן של מבקר; תקרה על הגוף לפני הקריאה
+    (``MARKDOWN_EDITOR_PUBLIC_SHARE_MAX_BODY_BYTES``, 413); הצורה של כל שדה (400); ערכה מהרשימה הסגורה (400); התקרה על
+    הטקסט בבתים של UTF-8 (``STYLED_SHARE_MAX_MARKDOWN_BYTES``, 413 — סירוב ולא חיתוך); ואז התקרה הכוללת במסד
+    (``MARKDOWN_EDITOR_PUBLIC_SHARE_DAILY_LIMIT``, 429). המגבלה לכל גולש היא של Flask-Limiter, בדקורטור.
+
+    **מה חוזר:** ``share_url`` ו-``delete_url`` — הקישור לעמוד, וקישור לעורך עם מפתח המחיקה אחרי ``#``. החלק שאחרי ``#``
+    לא נשלח לשרת כשפותחים את הקישור, ולכן המפתח לא מגיע ללוגים. במסד רק ה-hash שלו. ``no-store``, כי בתשובה המפתח.
+    """
+    if not request.is_json:
+        return _public_share_refusal('json_required', 415)
+    # התקרה על הבקשה הזו בלבד (Flask 3.1: ``Request.max_content_length`` אפשר לקבוע לבקשה). Werkzeug 3.1.9 בודק אותה
+    # מול ``Content-Length`` לפני הקריאה, ועוצר גוף בלי ``Content-Length`` כשהוא עובר אותה (``get_input_stream``
+    # ב-``werkzeug/wsgi.py``). החריגה אינה ``ValueError``, ולכן ``silent=True`` לא בולע אותה.
+    request.max_content_length = MARKDOWN_EDITOR_PUBLIC_SHARE_MAX_BODY_BYTES
+    try:
+        body = request.get_json(silent=True)
+    except RequestEntityTooLarge:
+        return _public_share_refusal('document_too_large', 413)
+    if not isinstance(body, dict):
+        return _public_share_refusal('invalid_request', 400)
+    markdown_text = body.get('markdown')
+    theme_id = body.get('theme')
+    if not isinstance(markdown_text, str) or not isinstance(theme_id, str):
+        return _public_share_refusal('invalid_request', 400)
+    if theme_id not in MARKDOWN_EDITOR_EXPORT_THEME_IDS:
+        return _public_share_refusal('unknown_theme', 400)
+    if not markdown_text.strip():
+        return _public_share_refusal('empty_document', 400)
+    try:
+        markdown_bytes = len(markdown_text.encode('utf-8'))
+    except UnicodeEncodeError:
+        # surrogate בודד (``"\ud800"`` ב-JSON): אינו טקסט, ולא היה נשמר במסד
+        return _public_share_refusal('invalid_request', 400)
+    # בבתים ולא בתווים: התקרה היא על הנפח שנשמר ושנשלח למי שפותח, ועברית היא שני בתים לאות
+    if markdown_bytes > STYLED_SHARE_MAX_MARKDOWN_BYTES:
+        return _public_share_refusal('document_too_large', 413)
+
+    now = datetime.now(timezone.utc)
+    try:
+        collection = get_db()[STYLED_SHARES_COLLECTION]
+        recent = collection.count_documents({
+            STYLED_SHARE_ORIGIN_FIELD: STYLED_SHARE_ORIGIN_PUBLIC_EDITOR,
+            'created_at': {'$gte': now - MARKDOWN_EDITOR_PUBLIC_SHARE_DAILY_WINDOW},
+        })
+    except Exception:
+        # בלי הספירה אין תקרה, ולכן לא יוצרים (fail-closed)
+        logger.exception("markdown_editor_create_share: counting recent public shares failed")
+        return _public_share_refusal('server_error', 500)
+    if recent >= MARKDOWN_EDITOR_PUBLIC_SHARE_DAILY_LIMIT:
+        emit_event('public_editor_share_rejected', severity='warning', reason='daily_limit', recent=recent)
+        return _public_share_refusal('daily_limit_reached', 429)
+
+    token = new_styled_share_secret()
+    delete_key = new_styled_share_secret()
+    try:
+        result = collection.insert_one({
+            'token': token,
+            STYLED_SHARE_ORIGIN_FIELD: STYLED_SHARE_ORIGIN_PUBLIC_EDITOR,
+            'theme_id': theme_id,
+            **markdown_share_fields(markdown_text, get_export_theme(theme_id)),
+            STYLED_SHARE_DELETE_KEY_HASH_FIELD: styled_share_delete_key_hash(delete_key),
+            'created_at': now,
+            # קבוע: ``None`` ולא תאריך, ולכן ה-TTL של האוסף מדלג עליו (``STYLED_SHARE_EXPIRES_FIELD``)
+            'expires_at': None,
+            'is_permanent': True,
+            'view_count': 0,
+        })
+        # קוראים את המסמך בחזרה לפי ה-``_id`` שהכתיבה החזירה, ולא מניחים שנשמר מה שביקשנו
+        stored = collection.find_one({'_id': result.inserted_id}, {'_id': 0, 'token': 1})
+    except Exception:
+        logger.exception("markdown_editor_create_share: storing the public share failed")
+        return _public_share_refusal('server_error', 500)
+    if not stored or stored.get('token') != token:
+        logger.error("markdown_editor_create_share: the stored public share could not be read back")
+        return _public_share_refusal('server_error', 500)
+
+    # בלי ``token`` ובלי המפתח: שניהם פותחים את הקישור או מוחקים אותו
+    emit_event('public_editor_share_created', severity='info', theme_id=theme_id, markdown_bytes=markdown_bytes)
+    base_url = _webapp_base_url()
+    response = jsonify({
+        'ok': True,
+        'share_url': base_url + url_for('public_shared_styled', token=token),
+        'delete_url': f"{base_url}{url_for('markdown_editor')}#delete={token}.{delete_key}",
+    })
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+#: תקרת הגוף של בקשת המחיקה (המזהה, בצורה של ``STYLED_SHARE_TOKEN_RE``) ושל בקשת המחיקה של אדמין (קישור שהודבק).
+_PUBLIC_SHARE_DELETE_MAX_BODY_BYTES = 4096
+
+
+@app.route('/api/markdown-editor/share/delete', methods=['POST'])
+@traced("markdown_editor.share_delete")
+def markdown_editor_delete_share():
+    """מחיקה של קישור מהעורך הציבורי במפתח המחיקה שהיוצר קיבל (``delete_url`` של ``markdown_editor_create_share``).
+
+    ``token`` בגוף, והמפתח בכותרת ``Authorization: Bearer <מפתח>`` — לא בכתובת ולא בגוף. Sentry מצרף לכל אירוע שקורה
+    בזמן הבקשה את גוף ה-JSON שלה (עד ``max_request_body_size`` = ``"medium"``, ברירת המחדל), והמנקה שלנו
+    (``scrub_sentry_event``) מזהה סוד לפי צורה, ולא לפי שם של שדה ב-JSON; ואת ``Authorization`` Sentry מסיר בעצמו כש-
+    ``send_default_pii`` כבוי (``SENSITIVE_ENV_KEYS`` ו-``_filter_headers`` ב-``integrations/_wsgi_common.py``, נקרא
+    ב-sentry-sdk 2.42.1). כך כשל במסד באמצע מחיקה לא שולח את המפתח ל-Sentry. המחיקה מסננת לפי המזהה, ה-``origin``
+    וה-hash של המפתח יחד, ובודקת ב-``deleted_count`` שבאמת נמחק מסמך; מפתח שגוי וקישור שכבר נמחק נענים אותו דבר
+    (404). ``POST`` עם ``Content-Type`` של JSON, מאותה סיבה כמו ``api_revoke_styled_share``. מגבלת הקצב היא הגורפת:
+    ניחוש של מפתח בן 256 ביט אינו אפשרי, והמגבלה רק שומרת על המסד.
+    """
+    if not request.is_json:
+        return _public_share_refusal('json_required', 415)
+    request.max_content_length = _PUBLIC_SHARE_DELETE_MAX_BODY_BYTES
+    try:
+        body = request.get_json(silent=True)
+    except RequestEntityTooLarge:
+        return _public_share_refusal('invalid_request', 400)
+    token = body.get('token') if isinstance(body, dict) else None
+    scheme, _space, key = (request.headers.get('Authorization') or '').partition(' ')
+    if scheme != 'Bearer':
+        key = None
+    if not (
+        isinstance(token, str) and isinstance(key, str)
+        and STYLED_SHARE_TOKEN_RE.fullmatch(token) and STYLED_SHARE_TOKEN_RE.fullmatch(key)
+    ):
+        return _public_share_refusal('invalid_request', 400)
+    try:
+        result = get_db()[STYLED_SHARES_COLLECTION].delete_one({
+            'token': token,
+            STYLED_SHARE_ORIGIN_FIELD: STYLED_SHARE_ORIGIN_PUBLIC_EDITOR,
+            STYLED_SHARE_DELETE_KEY_HASH_FIELD: styled_share_delete_key_hash(key),
+        })
+    except Exception:
+        logger.exception("markdown_editor_delete_share: delete failed")
+        return _public_share_refusal('server_error', 500)
+    # ``delete_one`` אינו זורק כשלא נמצא מסמך — ``deleted_count`` הוא שאומר אם משהו נמחק
+    if result.deleted_count != 1:
+        return _public_share_refusal('not_found', 404)
+    emit_event('public_editor_share_deleted', severity='info')
+    return jsonify({'ok': True})
+
+
+def _styled_share_token_from_link(value: str) -> str | None:
+    """המזהה מתוך קישור לעמוד קישור מעוצב שהודבק בעמוד האדמין — או המזהה עצמו — ו-``None`` כשאין.
+
+    הנתיב נבדק מול טבלת הראוטים של האפליקציה עצמה (``url_map``), ולא מול מחרוזת של הנתיב: כך אין עותק שני שלו, ושינוי
+    שלו לא ישבור את המחיקה בשקט. שם השרת בקישור אינו נבדק — המזהה הוא מה שמזהה את הקישור.
+    """
+    candidate = value.strip()
+    if STYLED_SHARE_TOKEN_RE.fullmatch(candidate):
+        return candidate
+    # קישור בלי ``https://`` (``example.com/shared/...``) — בלי הסכמה ``urlparse`` היה קורא את שם השרת כחלק מהנתיב
+    path = urlparse(candidate if '://' in candidate else f'https://{candidate}').path
+    try:
+        endpoint, args = app.url_map.bind('localhost').match(path, method='GET')
+    except HTTPException:
+        # ``NotFound``, ``MethodNotAllowed`` ו-``RequestRedirect`` (לוכסן בסוף) — כולם ``HTTPException`` ב-Werkzeug 3.1.9
+        return None
+    token = args.get('token') if endpoint == 'public_shared_styled' else None
+    return token if isinstance(token, str) and STYLED_SHARE_TOKEN_RE.fullmatch(token) else None
+
+
+@app.route('/admin/styled-shares', methods=['GET'])
+@admin_required
+def admin_styled_shares():
+    """עמוד אדמין למחיקה של קישור מעוצב שדווח — מהעורך הציבורי, או של משתמש מחובר: מדביקים את הקישור ומוחקים."""
+    return render_template('admin_styled_shares.html')
+
+
+@app.route('/admin/styled-shares/delete', methods=['POST'])
+@admin_api_required
+@traced("admin.styled_share_delete")
+def admin_delete_styled_share():
+    """מוחק קישור מעוצב לפי הקישור שהודבק (``_styled_share_token_from_link``), כל קישור באוסף.
+
+    ``find_one_and_delete`` מחזיר את המסמך שנמחק, או ``None`` כשלא היה — ולכן ידוע גם אם נמחק משהו וגם מאיפה הוא נוצר,
+    לאירוע הביקורת. ``Content-Type`` של JSON הוא חובה, כמו בשאר המחיקות.
+    """
+    if not request.is_json:
+        return _public_share_refusal('json_required', 415)
+    request.max_content_length = _PUBLIC_SHARE_DELETE_MAX_BODY_BYTES
+    try:
+        body = request.get_json(silent=True)
+    except RequestEntityTooLarge:
+        return _public_share_refusal('invalid_link', 400)
+    link = body.get('link') if isinstance(body, dict) else None
+    token = _styled_share_token_from_link(link) if isinstance(link, str) else None
+    if token is None:
+        return _public_share_refusal('invalid_link', 400)
+    try:
+        deleted = get_db()[STYLED_SHARES_COLLECTION].find_one_and_delete(
+            {'token': token}, projection={'_id': 0, STYLED_SHARE_ORIGIN_FIELD: 1},
+        )
+    except Exception:
+        logger.exception("admin_delete_styled_share: delete failed")
+        return _public_share_refusal('server_error', 500)
+    if deleted is None:
+        return _public_share_refusal('not_found', 404)
+    origin = deleted.get(STYLED_SHARE_ORIGIN_FIELD)
+    origin = origin if origin == STYLED_SHARE_ORIGIN_PUBLIC_EDITOR else 'file'
+    emit_event('styled_share_admin_deleted', severity='warning', admin_user_id=int(session['user_id']), origin=origin)
+    return jsonify({'ok': True, 'origin': origin})
 
 
 #: הדפים הציבוריים שמופיעים ב-``sitemap.xml``, לפי שם ה-endpoint.
@@ -17875,13 +18107,8 @@ def api_create_styled_share(file_id):
                 theme = get_export_theme(theme_id, user_themes=user_themes)
 
             if browser_share:
-                share_content = {
-                    'format': STYLED_SHARE_FORMAT_MARKDOWN,
-                    'markdown': markdown_content,
-                    # הערכה כמו ש-``get_export_theme`` החזיר אותה, כולה: העמוד נבנה ממנה בכל צפייה, ושינוי מאוחר
-                    # בערכה של המשתמש אינו משנה קישור שכבר נשלח — כמו ב-HTML ששמרה הצורה הראשונה.
-                    'theme': dict(theme),
-                }
+                # הטקסט והערכה כמו ש-``get_export_theme`` החזיר אותה, כולה — אותה פונקציה של הקישור מהעורך הציבורי
+                share_content = markdown_share_fields(markdown_content, theme)
             else:
                 html_content, toc_html = markdown_to_html(markdown_content, include_toc=False)
                 share_content = {
@@ -17897,7 +18124,7 @@ def api_create_styled_share(file_id):
             return jsonify({'ok': False, 'error': 'שגיאה ביצירת HTML מעוצב'}), 500
 
         # יצירת token ושמירה ב-DB
-        token = secrets.token_urlsafe(32)
+        token = new_styled_share_secret()
         now = datetime.now(timezone.utc)
         expires_at = None if is_permanent else now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
 
@@ -22166,7 +22393,28 @@ def public_shared_styled(token: str):
     styled_html = doc.get('styled_html')
     markdown_text = doc.get('markdown')
     share_theme = doc.get('theme')
-    if isinstance(styled_html, str) and styled_html:
+    is_markdown_share = (
+        doc.get('format') == STYLED_SHARE_FORMAT_MARKDOWN
+        and isinstance(markdown_text, str)
+        and isinstance(share_theme, dict)
+    )
+    # נוסחה מתחילה תמיד ב-``$`` (``md-math-plugin.js``), ולכן בלי ``$`` אין נוסחה, וה-CSS של KaTeX לא נשלח
+    katex_css = markdown_editor_katex_css() if is_markdown_share and '$' in markdown_text else ""
+    if doc.get(STYLED_SHARE_ORIGIN_FIELD) == STYLED_SHARE_ORIGIN_PUBLIC_EDITOR:
+        # קישור שגולש יצר בעורך הציבורי: תמיד מהצורה השנייה. בלי באנר של שם קובץ, עם ההודעה שהתוכן של גולש, ובלי
+        # אינדקס — גם בכותרת, שחלה גם על סורק שלא קורא את התגית (``render_public_editor_share_page``)
+        if not is_markdown_share:
+            logger.warning("public editor share document has no renderable shape", extra={"format": doc.get('format')})
+            return render_template('404.html'), 404
+        response = make_response(render_public_editor_share_page(
+            share_theme,
+            markdown=markdown_text,
+            katex_css=katex_css,
+            hljs_fallback_css=markdown_editor_hljs_fallback_css(),
+        ))
+        response.headers['Content-Security-Policy'] = styled_share_page_csp()
+        response.headers['X-Robots-Tag'] = 'noindex, nofollow'
+    elif isinstance(styled_html, str) and styled_html:
         response = make_response(styled_html)
         # CSP מחמיר: מתירים אך ורק את סקריפט כפתור ההעתקה המהימן (לפי hash),
         # וחוסמים כל סקריפט אחר. תוכן המשתמש כבר עובר sanitization (bleach + הסרת
@@ -22174,17 +22422,12 @@ def public_shared_styled(token: str):
         # ההעתקה בבלוקי הקוד עובד גם בקישור הזמני/הקבוע, בלי לפתוח פרצת XSS.
         # ה-HTML נשמר כמו שנוצר, עם הסקריפט של אז — ולכן גם ה-hash של גרסאות קודמות שלו.
         response.headers['Content-Security-Policy'] = styled_share_csp()
-    elif (
-        doc.get('format') == STYLED_SHARE_FORMAT_MARKDOWN
-        and isinstance(markdown_text, str)
-        and isinstance(share_theme, dict)
-    ):
+    elif is_markdown_share:
         response = make_response(render_styled_share_page(
             share_theme,
             styled_export_title(doc.get('file_name') if isinstance(doc.get('file_name'), str) else None),
             markdown=markdown_text,
-            # נוסחה מתחילה תמיד ב-``$`` (``md-math-plugin.js``), ולכן בלי ``$`` אין נוסחה, וה-CSS של KaTeX לא נשלח
-            katex_css=markdown_editor_katex_css() if '$' in markdown_text else "",
+            katex_css=katex_css,
             hljs_fallback_css=markdown_editor_hljs_fallback_css(),
         ))
         response.headers['Content-Security-Policy'] = styled_share_page_csp()

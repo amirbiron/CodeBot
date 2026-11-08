@@ -34,17 +34,28 @@
     return undefined;
   }
 
-  // בקשה עם תקרת זמן. סטטוס שאינו 2xx זורק ``http_<סטטוס>`` (``describeError`` מתרגם אותו להודעה).
+  // בקשה עם תקרת זמן. סטטוס שאינו 2xx זורק ``http_<סטטוס>`` (``describeError`` מתרגם אותו להודעה), עם ``status`` ועם
+  // גוף התשובה ב-``bodyText`` — לקורא שמבחין בין סירובים עם אותו סטטוס ("צור קישור" בעורך הציבורי: 429 של מגבלת הקצב
+  // מול 429 של התקרה היומית).
   async function fetchText(url, options) {
     const opts = options || {};
     const resp = await fetch(url, {
       method: opts.method || 'GET',
+      headers: opts.headers,
       body: opts.body,
       credentials: 'same-origin',
       signal: timeoutSignal(opts.timeoutMs),
     });
     if (!resp.ok) {
-      throw new Error(`http_${resp.status}`);
+      const err = new Error(`http_${resp.status}`);
+      err.status = resp.status;
+      try {
+        err.bodyText = await resp.text();
+      } catch (_readErr) {
+        // הגוף רק מפרט את הסיבה; בלעדיו הקורא נשען על הסטטוס, שכבר בשגיאה
+        err.bodyText = '';
+      }
+      throw err;
     }
     return { text: await resp.text(), headers: resp.headers };
   }

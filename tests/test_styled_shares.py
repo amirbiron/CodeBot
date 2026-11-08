@@ -63,7 +63,9 @@ def test_startup_declares_the_styled_share_indexes():
     DatabaseManager._create_indexes(_fake_self(_safe_create_index))
 
     declared = {kwargs["name"]: (keys, kwargs) for coll, keys, kwargs in requested if coll == "styled_shares"}
-    assert set(declared) == {"styled_shares_ttl", "styled_shares_token", "styled_shares_by_file"}
+    assert set(declared) == {
+        "styled_shares_ttl", "styled_shares_token", "styled_shares_by_file", "styled_shares_public_editor_recent",
+    }
 
     keys, ttl = declared["styled_shares_ttl"]
     assert keys == [("expires_at", 1)]
@@ -80,6 +82,11 @@ def test_startup_declares_the_styled_share_indexes():
     assert keys == [("user_id", 1), ("file_name", 1), ("created_at", -1)]
     assert by_file["unique"] is False and by_file.get("expire_after_seconds") is None
 
+    # התקרה הכוללת של העורך הציבורי: שוויון על ``origin``, ואחריו הטווח על ``created_at``. אינדקס ביצועים
+    keys, recent = declared["styled_shares_public_editor_recent"]
+    assert keys == [("origin", 1), ("created_at", -1)]
+    assert recent["unique"] is False and recent.get("expire_after_seconds") is None
+
 
 def test_a_failed_styled_share_index_is_an_error_event(events):
     """``safe_create_index`` אינו זורק; כשל חוזר כ-``False`` (K11). שני האינדקסים הם הבטחה, ולכן כשל של כל
@@ -88,8 +95,11 @@ def test_a_failed_styled_share_index_is_an_error_event(events):
         SimpleNamespace(), lambda coll, keys, **kwargs: coll != "styled_shares"
     )
 
-    assert results == {"styled_shares_ttl": False, "styled_shares_token": False, "styled_shares_by_file": False}
-    # אינדקס הביצועים נכשל גם הוא, ואינו אירוע error: בלעדיו הרשימה איטית, לא שבורה
+    assert results == {
+        "styled_shares_ttl": False, "styled_shares_token": False, "styled_shares_by_file": False,
+        "styled_shares_public_editor_recent": False,
+    }
+    # אינדקסי הביצועים נכשלו גם הם, ואינם אירוע error: בלעדיהם הרשימה והספירה איטיות, לא שבורות
     missing = sorted(f["index_name"] for e, s, f in events if e == "db_styled_shares_index_missing" and s == "error")
     assert missing == ["styled_shares_token", "styled_shares_ttl"]
 

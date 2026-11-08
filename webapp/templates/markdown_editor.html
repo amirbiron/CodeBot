@@ -6,7 +6,7 @@
   העורך הציבורי — עורך Markdown ותצוגה חיה, בלי התחברות (``/markdown-editor``, ``markdown_editor`` ב-``webapp/app.py``; הנתונים ב-``webapp/markdown_editor.py``). התיעוד: ``docs/webapp/markdown-editor.rst``.
 
   - **אותם רכיבים כמו בעמוד העריכה.** העורך (``EditorManager``), התצוגה החיה (``LivePreviewController``) וסרגל ה-MD הם אותם קבצים, עם אפשרויות שרק העמוד הזה מפעיל: ``fixedEditor`` (תמיד CodeMirror, בלי מתג, בלי שמירת העדפה), ``textDirection: 'rtl'`` (הכל מימין לשמאל חוץ מבלוקי קוד) ו-``gutters: false`` (בלי מספרי שורות וחיצי קיפול) ב-``markdown-editor.js``, ``data-preview-mode="markdown"`` / ``data-preview-autostart`` / ``data-preview-client-only`` על ``#livePreviewRoot``, ו-``markdown_toolbar(inline=True, markdown_only=True)``. כך תיקון באחד מהם מגיע לכאן ולעמוד העריכה יחד.
-  - **בלי שרת אחרי הטעינה.** הרינדור בדפדפן בלבד (``data-preview-client-only``), כי ``/api/preview/live`` דורש התחברות; הטיוטה ב-``localStorage`` (``markdown-editor.js``).
+  - **בלי שרת אחרי הטעינה.** הרינדור בדפדפן בלבד (``data-preview-client-only``), כי ``/api/preview/live`` דורש התחברות; הטיוטה ב-``localStorage`` (``markdown-editor.js``). היוצא מן הכלל היחיד הוא "צור קישור" בשורת "HTML מעוצב", ששולח את הטקסט לשרת רק בלחיצה עליו.
   - **טקסט ההדגמה** מגיע מהראוט כמשתנה (``demo_text``), ו-Jinja מברח אותו לתוך ה-textarea. לא ``{% include %}``: בטקסט יש ``{{ __html: html }}``, ו-include היה מריץ אותו כתבנית. "טען דוגמה" קורא אותו בחזרה מ-``textarea.defaultValue``, שהוא התוכן שהשרת שלח ואינו משתנה כשכותבים בעורך.
   - **הפריסה.** בעברית העורך מימין והתצוגה משמאל, מאותו ``split-view.css`` של עמוד העריכה. בלי כרטיס עוטף: ה-Split View הוא המסגרת, שורת כלי ה-MD יושבת בראש שלו עם Live Preview בסופה, והתווית של העורך מוסתרת ויזואלית — כדי שכל הגובה ילך לכתיבה ולתצוגה.
 #}
@@ -185,6 +185,72 @@
     gap: 0.5rem;
 }
 
+/* "צור קישור": שורה משלה בתוך השורה של הייצוא, עם ההסבר ליד הכפתור, ומתחתיה הקישורים אחרי היצירה. הצבעים — טוקנים
+   של העמוד, כמו בשאר השורה. השדות של הקישורים משמאל לימין (``dir="ltr"`` בתבנית), כי הם כתובות. */
+.md-editor-share {
+    flex-basis: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding-block-start: 0.75rem;
+    border-block-start: 1px solid var(--glass-border, currentColor);
+}
+
+.md-editor-share__intro {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+}
+
+.md-editor-share__note {
+    flex: 1 1 18rem;
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary, currentColor);
+}
+
+.md-editor-share__result {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.md-editor-share__result[hidden] {
+    display: none;
+}
+
+.md-editor-share__field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.md-editor-share__label {
+    font-size: 0.85rem;
+    color: var(--text-secondary, currentColor);
+}
+
+.md-editor-share__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.md-editor-share__input {
+    flex: 1 1 16rem;
+    min-width: 0;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--glass-border, currentColor);
+    border-radius: 8px;
+    background: var(--bg-secondary, transparent);
+    color: var(--text-primary, currentColor);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+}
+
 .md-editor-page__status {
     flex-basis: 100%;
     margin: 0;
@@ -244,8 +310,8 @@
 <div class="md-editor-page">
   <header class="md-editor-page__header">
     <div>
-      <h1 class="page-title md-editor-page__title">עורך Markdown עם תצוגה חיה</h1>
-      <p class="md-editor-page__lead">כותבים מימין, ורואים את התוצאה משמאל. בלי הרשמה, והטיוטה נשמרת בדפדפן שלך.</p>
+      <h1 class="page-title md-editor-page__title">עורך Markdown בעברית</h1>
+      <p class="md-editor-page__lead">בלי הרשמה. הטיוטה נשמרת בדפדפן, גם אם תצא ותחזור.</p>
     </div>
     <div class="md-editor-page__actions" role="group" aria-label="פעולות על הטקסט">
       <button type="button" class="btn btn-secondary btn-icon" data-md-editor-action="download">
@@ -288,6 +354,46 @@
           <i class="fas fa-download" aria-hidden="true"></i>
           הורד HTML
         </button>
+      </div>
+      {# "צור קישור" (``markdown-editor-export.js``): הפעולה היחידה בעמוד ששולחת את הטקסט לשרת, ורק בלחיצה — ולכן ההסבר
+         כתוב תמיד ליד הכפתור. ``data-max-bytes`` הוא ``STYLED_SHARE_MAX_MARKDOWN_BYTES``, שהשרת אוכף; הבדיקה בדפדפן רק
+         חוסכת שליחה שתידחה. הקישור והמחיקה: ``markdown_editor_create_share`` ו-``markdown_editor_delete_share`` ב-``webapp/app.py``. #}
+      <div class="md-editor-share" data-md-editor-share data-share-url="{{ url_for('markdown_editor_create_share') }}" data-delete-url="{{ url_for('markdown_editor_delete_share') }}" data-max-bytes="{{ share_max_bytes }}">
+        <div class="md-editor-share__intro">
+          <button type="button" class="btn btn-secondary btn-icon" data-md-editor-share-action="create">
+            <i class="fas fa-link" aria-hidden="true"></i>
+            צור קישור
+          </button>
+          <p class="md-editor-share__note">הקישור שומר את הטקסט בשרת, וכל מי שיקבל אותו יוכל לקרוא את המסמך בערכה שבחרת. הוא לא פג: הוא נשאר עד שמוחקים אותו.</p>
+        </div>
+        <div class="md-editor-share__result" data-md-editor-share-result hidden>
+          <div class="md-editor-share__field">
+            <label class="md-editor-share__label" for="mdEditorShareLink">הקישור לשיתוף</label>
+            <div class="md-editor-share__row">
+              <input type="text" id="mdEditorShareLink" class="md-editor-share__input" dir="ltr" readonly data-md-editor-share-link>
+              <button type="button" class="btn btn-secondary btn-icon" data-md-editor-share-copy="mdEditorShareLink">
+                <i class="fas fa-copy" aria-hidden="true"></i>
+                העתק
+              </button>
+            </div>
+          </div>
+          <div class="md-editor-share__field">
+            <label class="md-editor-share__label" for="mdEditorShareDeleteLink">קישור מחיקה — שמרו אותו אצלכם: רק איתו אפשר למחוק את הקישור, והוא לא יוצג שוב.</label>
+            <div class="md-editor-share__row">
+              <input type="text" id="mdEditorShareDeleteLink" class="md-editor-share__input" dir="ltr" readonly data-md-editor-share-delete-link>
+              <button type="button" class="btn btn-secondary btn-icon" data-md-editor-share-copy="mdEditorShareDeleteLink">
+                <i class="fas fa-copy" aria-hidden="true"></i>
+                העתק
+              </button>
+            </div>
+          </div>
+          <div class="md-editor-share__row">
+            <button type="button" class="btn btn-secondary btn-icon" data-md-editor-share-action="delete">
+              <i class="fas fa-trash" aria-hidden="true"></i>
+              מחק את הקישור עכשיו
+            </button>
+          </div>
+        </div>
       </div>
     </div>
     <p class="md-editor-page__status" data-md-editor-status aria-live="polite"></p>
@@ -352,7 +458,7 @@
       </ul>
 
       <h2>איפה הטקסט נשמר</h2>
-      <p>הטקסט נשמר רק בדפדפן הזה, ולא נשלח לשרת. הוא יחכה לך כשתחזור לעמוד, אבל לא יופיע במכשיר אחר. כדי לקחת אותו איתך, הורידו אותו כקובץ ‎.md.</p>
+      <p>הטקסט נשמר רק בדפדפן הזה, ולא נשלח לשרת — חוץ מכשיוצרים ממנו קישור לשיתוף ב"HTML מעוצב", ואז הוא נשמר בשרת עד שמוחקים את הקישור. הוא יחכה לך כשתחזור לעמוד, אבל לא יופיע במכשיר אחר. כדי לקחת אותו איתך, הורידו אותו כקובץ ‎.md.</p>
 
       <h2>לשמור את המסמכים לאורך זמן</h2>
       <p>ב-CodeKeeper אפשר לשמור מסמכי Markdown וקוד, לחפש בהם, לארגן אותם באוספים ולחבר אליהם את סוכני ה-AI שלך.</p>

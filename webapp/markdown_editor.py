@@ -12,6 +12,9 @@
 - **הייצוא ל-HTML מעוצב** — :data:`EXPORT_THEME_IDS` הן הערכות שאפשר לייצא בהן (מתוך ``EXPORT_PRESETS``),
   ו-:func:`katex_inline_css` הוא ה-CSS של KaTeX שנכנס לקובץ כשבמסמך יש נוסחה. השרת מגיש רק את השלד, בלי
   הטקסט — ההסבר בראש החלק על השלד ב-``services/styled_export_service.py``.
+- **הקישור הציבורי** ("צור קישור") — המגבלות שלו כאן (:data:`PUBLIC_SHARE_RATE_LIMIT`, :data:`PUBLIC_SHARE_DAILY_LIMIT`,
+  :data:`PUBLIC_SHARE_MAX_BODY_BYTES`); הראוטים ``markdown_editor_create_share`` ו-``markdown_editor_delete_share``
+  ב-``webapp/app.py``, והמסמך ב-``styled_shares.py``. זו הפעולה היחידה בעמוד ששולחת את הטקסט לשרת, ורק בלחיצה.
 
 התיעוד: ``docs/webapp/markdown-editor.rst``.
 """
@@ -20,10 +23,12 @@ from __future__ import annotations
 
 import base64
 import re
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 
 from services.styled_export_service import EXPORT_PRESETS, export_mermaid_theme
+from styled_shares import STYLED_SHARE_MAX_MARKDOWN_BYTES
 
 #: הערכה הציבורית (``shared_themes``) שהעמוד מוצג בה.
 THEME_ID = "everforest_dark"
@@ -32,6 +37,29 @@ DEMO_PATH = Path(__file__).with_name("markdown_editor_demo.md")
 
 #: הערכות שאפשר לייצא בהן מהעורך, לפי הסדר שבו הן מוצגות. כל ערך אחר בנתיב השלד מקבל 404.
 EXPORT_THEME_IDS: tuple[str, ...] = ("morass", "pen-paper-coffee", "everforest-dark")
+
+# --- הקישור הציבורי ("צור קישור") ------------------------------------------------------------------------------
+# הקישור קבוע — אין לו תוקף, והוא נשאר עד שהגולש מוחק אותו במפתח המחיקה, או שאדמין מוחק אותו. לכן גידול המסד מוגבל
+# רק במגבלות שכאן, וההחלטה עליהן (8.11.2026) היא של בעל הפרויקט. התקרה על הטקסט היא זו של כל קישור מהצורה השנייה,
+# ``STYLED_SHARE_MAX_MARKDOWN_BYTES`` ב-``styled_shares.py``, והמדידה שהיא נשענת עליה כתובה שם.
+
+#: המגבלה לכל גולש, במחרוזת של Flask-Limiter (``limits`` 5.6.0 מפריד כמה מגבלות ב-``;``). המפתח הוא ``_client_rate_key``
+#: ב-``webapp/app.py``, שלגולש לא מחובר לוקח את הכתובת השמאלית ב-``X-Forwarded-For`` — כתובת שהגולש שולט בה, ולכן
+#: אפשר לעקוף את המגבלה הזו (הפתק "K2: מגבלת הקצב לפי IP עקיפה" בלוח issues ב-CodeKeeper). מה שבכל זאת חוסם את הגידול
+#: הוא :data:`PUBLIC_SHARE_DAILY_LIMIT`, שאינו תלוי בכתובת.
+PUBLIC_SHARE_RATE_LIMIT = "3 per hour;9 per day"
+
+#: כמה קישורים ציבוריים נוצרים בכל האתר יחד ב-:data:`PUBLIC_SHARE_DAILY_WINDOW`. נספר במסד (אינדקס
+#: ``STYLED_SHARE_PUBLIC_EDITOR_RECENT_INDEX_NAME``), ולכן אינו תלוי בכתובת ה-IP, בתהליך או ב-Redis. ספירה ואחריה כתיבה
+#: אינן פעולה אחת, ולכן בקשות שמגיעות יחד ממש בקצה יכולות לעבור אותו במעט — תקרה רכה, לא מנעול.
+PUBLIC_SHARE_DAILY_LIMIT = 30
+PUBLIC_SHARE_DAILY_WINDOW = timedelta(hours=24)
+
+#: התקרה על גוף הבקשה, לפני שהוא נקרא. הדפדפן שולח ``JSON.stringify`` של הטקסט, ושם תו בקרה (בית אחד ב-UTF-8) נכתב
+#: ``\u0001`` — שישה בתים, היחס הגבוה ביותר; גרשיים, לוכסן הפוך ושורה חדשה — פי שניים; עברית ואמוג'י — כמו שהם
+#: (נמדד ב-8.11.2026 ב-Node 22, אותו מנוע V8 של Chromium). לכן טקסט בתקרה נכנס תמיד בפי שישה, ועוד מקום למפתחות
+#: ולמזהה הערכה. הגוף הוא שכבה נפרדת מהתקרה על הטקסט, שנמדדת אחרי הפענוח, בבתים של UTF-8.
+PUBLIC_SHARE_MAX_BODY_BYTES = 6 * STYLED_SHARE_MAX_MARKDOWN_BYTES + 1024
 
 #: ה-CSS של התצוגה, שבתוכו ה-CSS של KaTeX. esbuild (``webapp/static_build/build-md-preview.mjs``) כותב לפני כל
 #: קובץ מקור הערה עם הנתיב שלו, והקטע של KaTeX הוא מההערה שלו ועד ההערה של הקובץ הבא.
