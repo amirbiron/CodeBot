@@ -148,6 +148,146 @@ check('בלי עברית — אין טווחים', () => {
   eq(comment('/*\n */'), []);
 });
 
+// ---------- סימני הערה של שפות נוספות ----------
+
+check('סימני הערה של ini, vbnet, erlang/matlab/latex ו-fortran נשארים בחוץ', () => {
+  // הטוקן של highlight.js 11.11.1 פותח בסימן (``ini.js``, ``vbnet.js``, ``erlang.js``, ``fortran.js``).
+  // בתוך העטיפה הסימן היה מצויר בקצה הימני של העברית.
+  eq(comment('; הערה ארוכה על key בעברית'), ['הערה ארוכה על key בעברית']);
+  eq(comment(';; הערה של lisp בעברית'), ['הערה של lisp בעברית']);
+  eq(comment('% הערה עם x בעברית'), ['הערה עם x בעברית']);
+  eq(comment('! הערה עם do בעברית'), ['הערה עם do בעברית']);
+  eq(comment("' הערה עם Dim בעברית"), ['הערה עם Dim בעברית']);
+});
+
+check('REM של vbnet הוא סימן רק כשאחריו רווח, בלי הבחנה בין אותיות גדולות לקטנות', () => {
+  // ``([\t ]|^)REM(?=\s)`` עם ``case_insensitive`` ב-``vbnet.js``.
+  eq(comment('REM הערה עם Sub בעברית'), ['הערה עם Sub בעברית']);
+  eq(comment('rem הערה עם Sub בעברית'), ['הערה עם Sub בעברית']);
+  eq(comment('REMARK הערה עם Sub בעברית'), ['REMARK הערה עם Sub בעברית']);
+});
+
+check('מחרוזת raw של C++: התחילית, ה-tag והסוגריים בחוץ', () => {
+  // ``(?:u8?|U|L)?R"([^()\\ ]{0,16})\(`` ב-``cpp.js``, והסגירה באותו tag.
+  eq(string('R"-=(שלום עם id בעברית)-="'), ['שלום עם id בעברית']);
+  eq(string('u8R"(שלום עולם בעברית)"'), ['שלום עולם בעברית']);
+  eq(string('LR"[x(שורה ראשונה בעברית\nשורה שנייה בעברית)[x"'), ['שורה ראשונה בעברית', 'שורה שנייה בעברית']);
+  // סוגר שאינו של אותו tag הוא תוכן ולא שלד.
+  eq(string('R"ab(שלום עם x בעברית)cd"'), ['שלום עם x בעברית)cd"']);
+});
+
+// ---------- השוואה לביטוי של הבלוג ----------
+//
+// **החלוקה הסורקת חייבת לענות בדיוק כמו הביטוי שהחליפה**, על כל קלט שאינו פותח
+// באחד מהסימנים שנוספו (``;``, ``%``, ``!``, ``'``, ``REM``) ואינו מחרוזת raw.
+// ההיסטים, לא רק הגופים: גוף זהה במקום אחר היה עוטף טקסט אחר.
+
+const BLOG_SPLIT = /^(\s*(?:\/\/+|#+|--|\/\*+|\*|<!--|"""|''')?\s*)([\s\S]*?)(\s*(?:\*\/|-->|"""|''')?\s*)$/;
+const BLOG_STRING = /^(\s*)([\s\S]*?)(\s*)$/;
+const OPEN = /^[A-Za-z0-9@$#]*(?:"""|'''|"|'|`)/;
+const CLOSE = /(?:"""|'''|"|'|`)#*$/;
+
+/** ``hebrewTokenRanges`` כפי שהייתה, עם הביטויים — האורקל. */
+function blogRanges(text, isString) {
+  const lines = text.split('\n');
+  const out = [];
+  let offset = 0;
+  lines.forEach((line, i) => {
+    const lineStart = offset;
+    offset += line.length + 1;
+    let lead = 0;
+    let rest = line;
+    if (isString) {
+      if (i === 0) { const o = OPEN.exec(rest); if (o) { lead = o[0].length; rest = rest.slice(lead); } }
+      if (i === lines.length - 1) { const c = CLOSE.exec(rest); if (c) rest = rest.slice(0, c.index); }
+    }
+    const m = (isString ? BLOG_STRING : BLOG_SPLIT).exec(rest);
+    const body = m ? m[2] : '';
+    if (!body || !/\s/.test(body) || !R.isHebrewMajority(body)) return;
+    const start = lineStart + lead + m[1].length;
+    out.push({ start, end: start + body.length });
+  });
+  return out;
+}
+
+check('על 30,000 טוקנים אקראיים — אותם טווחים כמו הביטוי של הבלוג', () => {
+  // מחולל דטרמיניסטי (LCG), כדי שכשל יחזור על עצמו.
+  let seed = 7;
+  const rand = (n) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  const pieces = [' ', '  ', '\t', '/', '//', '*', '/*', '*/', '#', '-', '--', '<!--', '-->', '"', '"""', "'''",
+    '`', 'f', '$', 'x', 'id', 'שלום', 'עולם', 'בעברית', '\n'];
+  // פותח באחד מהסימנים שנוספו — שם התשובה השתנתה בכוונה.
+  const newOpener = /^\s*(?:[;%!']|REM\s)/i;
+  let compared = 0, wrapped = 0;
+  for (let n = 0; n < 30000; n++) {
+    let text = '';
+    const len = 1 + rand(10);
+    for (let k = 0; k < len; k++) text += pieces[rand(pieces.length)];
+    const isString = rand(2) === 1;
+    if (text.split('\n').some((line) => newOpener.test(line))) continue;
+    const got = R.hebrewTokenRanges(text, isString);
+    const want = blogRanges(text, isString);
+    if (JSON.stringify(got) !== JSON.stringify(want)) {
+      throw new Error(`${JSON.stringify(text)} (${isString ? 'מחרוזת' : 'הערה'}): ${JSON.stringify(got)} ≠ ${JSON.stringify(want)}`);
+    }
+    compared += 1;
+    if (want.length) wrapped += 1;
+  }
+  // בקרה: אילו המחולל לא ייצר כמעט גופים עבריים, ההשוואה הייתה עוברת בלי לבדוק כלום.
+  eq(compared > 25000, true, `הושוו רק ${compared}`);
+  eq(wrapped > 3000, true, `רק ${wrapped} טוקנים קיבלו טווח`);
+});
+
+// ---------- לינאריות ----------
+//
+// **זמן מול זמן, ולא תקרה בשניות** — אותה צורה כמו ב-``tests/rtl-code-inner-fences.test.js``:
+// אותה עבודה על רבע מהקלט ועל כולו, הזמן הקצר ביותר משלושה סבבים, וזמן המעבד של התהליך.
+// לינארי נותן פי 4 בערך; הביטוי שהוחלף נתן בהערה גידול בחזקה שלישית.
+
+const GROWTH_LIMIT = 8;
+
+/**
+ * **שומר מהיר לפני מדידת הגידול.** על הביטוי שהוחלף, הקלטים של מדידת הגידול לוקחים דקות ארוכות, ולכן
+ * בלי השומר רגרסיה הייתה **תוקעת** את הג'וב במקום להפיל אותו. קריאה אחת על 2,000 רווחים: בקוד ליניארי
+ * היא מאיות של מילישנייה, ותקרה של שנייה רחוקה ממנה בכמה סדרי גודל.
+ */
+function quickGuard(text, isString) {
+  const started = process.hrtime.bigint();
+  R.hebrewTokenRanges(text, isString);
+  const ms = Number(process.hrtime.bigint() - started) / 1e6;
+  if (ms > 1000) throw new Error(`שורה של 2,000 רווחים לקחה ${ms.toFixed(0)}ms — הזמן אינו ליניארי`);
+}
+
+function growth(build, isString) {
+  const inputs = [build(1), build(4)];
+  const fastest = [Infinity, Infinity];
+  for (let round = 0; round < 3; round++) {
+    inputs.forEach((text, slot) => {
+      const started = process.cpuUsage();
+      for (let rep = 0; rep < 5; rep++) R.hebrewTokenRanges(text, isString);
+      const used = process.cpuUsage(started);
+      fastest[slot] = Math.min(fastest[slot], used.user + used.system);
+    });
+  }
+  return fastest[1] / Math.max(fastest[0], 1);
+}
+
+check('הערה עם 20,000 רווחים באמצע — זמן ליניארי באורך הרצף, והגוף הנכון', () => {
+  const build = (n) => '// הערה' + ' '.repeat(n) + 'עם hast בעברית */';
+  quickGuard(build(2000), false);
+  const g = growth((k) => build(5000 * k), false);
+  eq(g < GROWTH_LIMIT, true, `הזמן גדל פי ${g.toFixed(1)} על קלט גדול פי 4`);
+  eq(comment(build(20000)), ['הערה' + ' '.repeat(20000) + 'עם hast בעברית']);
+});
+
+check('מחרוזת עם 20,000 רווחים באמצע — זמן ליניארי באורך הרצף, והגוף הנכון', () => {
+  const build = (n) => '"שלום' + ' '.repeat(n) + 'עולם בעברית"';
+  quickGuard(build(2000), true);
+  const g = growth((k) => build(5000 * k), true);
+  eq(g < GROWTH_LIMIT, true, `הזמן גדל פי ${g.toFixed(1)} על קלט גדול פי 4`);
+  eq(string(build(20000)), ['שלום' + ' '.repeat(20000) + 'עולם בעברית']);
+});
+
 check('ההיסטים מכוונים לטקסט של הטוקן כולו, גם אחרי ירידות שורה', () => {
   const text = '/*\n * שורה עם hast בעברית\n * עוד שורה בעברית\n */';
   const ranges = R.hebrewTokenRanges(text, false);

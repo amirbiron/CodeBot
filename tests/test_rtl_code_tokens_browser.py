@@ -17,9 +17,11 @@
 
 **המדידה היא של הציור.** לכל ביטוי עברי: סדר המילים על המסך זהה לסדר שלהן באותו טקסט בתוך ``div``
 עם ``dir="rtl"`` — כלומר הוא נקרא כמו פסקה עברית. לכל שורה: השלד שלה (כל תו שאינו עברי, אינו רווח
-ואינו בתוך עטיפה, וכל עטיפה כיחידה אחת) מצויר משמאל לימין בסדר הלוגי, והקצה השמאלי שלה לא זז מריצת
-הבקרה. **ריצת הבקרה** היא אותו עמוד כש-``isolateHebrewTokens`` לא עושה כלום, והיא מוכיחה שהמדידה
-רואה את הבאג: שם הביטויים לא נקראים כעברית, והשורה עם מחרוזת והערה עבריות מאבדת את סדר השלד שלה.
+ואינו חלק מגוף שצריך להיעטף — ``WRAPPED`` — וכל גוף כיחידה אחת) מצויר משמאל לימין בסדר הלוגי, והקצה
+השמאלי שלה לא זז מריצת הבקרה. השלד נגזר מהגופים ולא מהעטיפות שבעמוד, ולכן סימן הערה או tag של מחרוזת
+שנכנסו לעטיפה נמדדים כשלד, ונתפסים כשהם מצוירים בצד הלא נכון של הגוף. **ריצת הבקרה** היא אותו
+עמוד כש-``isolateHebrewTokens`` לא עושה כלום, והיא מוכיחה שהמדידה רואה את הבאג: שם הביטויים לא
+נקראים כעברית, והשורה עם מחרוזת והערה עבריות מאבדת את סדר השלד שלה.
 
 **מה לא נבדק כאן:** תצוגת המסמך (``/md/<id>``), התצוגה החיה בעמוד העריכה ותצוגת הסניפט של האדמין —
 שלושתם דורשים מונגו אמיתי (``wired_mongo``). שלושתם מדגישים דרך אותו ``highlightBlock``, והחיווט שלהם
@@ -80,6 +82,9 @@ SAMPLES = [
         "-- the user ה-id",
     ])),
     ("yaml", "name: ערך בעברית ארוך"),
+    # סימן הערה שאינו ברשימה של הבלוג, ומחרוזת raw של C++ עם tag שאינו סימטרי במראה.
+    ("ini", "; הערה ארוכה על key בעברית\nkey = value"),
+    ("cpp", 'auto s = R"-=(שלום עם id בעברית)-=";'),
 ]
 
 #: מה שנעטף, בסדר המסמך — הגוף בלבד: בלי ההזחה, בלי סימני ההערה ובלי השלד של המחרוזת.
@@ -98,6 +103,8 @@ WRAPPED = [
     "הערה עם div בעברית",
     "כותרת עם id בעברית",
     "שאילתה שמחזירה users פעילים",
+    "הערה ארוכה על key בעברית",
+    "שלום עם id בעברית",
 ]
 
 #: ביטויים שיש בהם מילה לועזית בין העבריות — בריצת הבקרה הם **לא** נקראים כעברית, ואחרי התיקון כן.
@@ -155,7 +162,7 @@ READY_JS = """([root, count]) => {
 
 #: לכל שורה של כל בלוק: הטקסט, הקצה השמאלי, האם השלד מסודר משמאל לימין, ומה נמדד לכל ביטוי.
 #: שורה היא מה שבין ירידות שורה, או תא בטבלת השורות של ספריית הסניפטים.
-MEASURE_JS = r"""([root, needles]) => {
+MEASURE_JS = r"""([root, needles, bodies]) => {
   const HEB = /[֐-׿]/;
   const WORD = /[\p{L}\p{N}]/u;
   const lines = [];
@@ -213,15 +220,23 @@ MEASURE_JS = r"""([root, needles]) => {
   const result = lines.filter((l) => l.chars.length).map((l) => {
     const text = l.chars.map((x) => x.c).join('');
     const visible = l.chars.filter((x) => x.c.trim());
+    // **השלד נגזר מהגופים שצריכים להיעטף (``WRAPPED``), ולא מהעטיפות שבעמוד** — כך סימן הערה או
+    // tag שנכנסו בטעות לעטיפה נמדדים כשלד, ונתפסים כשהם מצוירים בצד הלא נכון של הגוף.
+    const bodyOf = new Array(text.length).fill(-1);
+    bodies.forEach((body, b) => {
+      for (let at = text.indexOf(body); at >= 0; at = text.indexOf(body, at + 1)) {
+        for (let k = at; k < at + body.length; k++) bodyOf[k] = b;
+      }
+    });
     const items = [];
-    // עטיפה שנשברה לשתי שורות מסך היא שתי יחידות, אחת בכל שורה.
-    l.chars.forEach((x) => {
+    // גוף שנשבר לשתי שורות מסך הוא שתי יחידות, אחת בכל שורה.
+    l.chars.forEach((x, k) => {
       if (!x.c.trim()) return;
-      if (x.wrap) {
+      if (bodyOf[k] >= 0) {
         const last = items[items.length - 1];
-        if (last && last.wrap === x.wrap && last.row === x.row) {
+        if (last && last.body === bodyOf[k] && last.row === x.row) {
           last.left = Math.min(last.left, x.left); last.right = Math.max(last.right, x.right);
-        } else items.push({wrap: x.wrap, row: x.row, left: x.left, right: x.right});
+        } else items.push({body: bodyOf[k], row: x.row, left: x.left, right: x.right});
         return;
       }
       if (HEB.test(x.c)) return;
@@ -364,7 +379,7 @@ def opened(surface: str, mode: str, browser, server):
 
 
 def _measure(page, root):
-    return page.evaluate(MEASURE_JS, [root, FIXED + KEPT])
+    return page.evaluate(MEASURE_JS, [root, FIXED + KEPT, WRAPPED])
 
 
 @pytest.mark.parametrize("surface", list(SURFACES))
@@ -403,20 +418,35 @@ CODE_TEXTS_JS = """(root) => [...document.querySelectorAll(root + ' pre code')].
 CELLS_JS = """(root) => [...document.querySelectorAll(root + ' pre')].map(
   (p) => [...p.querySelectorAll('.hljs-ln-code')].map((td) => td.textContent))"""
 
-#: שולח שוב את כל הבלוקים בעמוד דרך העטיפה, ומחזיר כמה עטיפות נוספו ואם ה-HTML השתנה.
+#: שולח שוב את כל הבלוקים בעמוד דרך העטיפה, ישירות ואחר כך דרך הדגשה מחדש מאפס. מחזיר כמה עטיפות
+#: הוסיפה הקריאה הישירה, אם ה-HTML השתנה אחריה, כמה בלוקים נצבעו מחדש, ואם ה-HTML השתנה אחריהם.
+#:
+#: **``data-highlighted`` נמחק לפני ``highlightBlock``.** בלוק שכבר נצבע נושא אותו, ו-``highlightBlock``
+#: חוזר מיד כשהוא קיים — כך שקריאה בלעדיו לא הייתה מגיעה לעטיפה בכלל. בלעדיו ההדגשה בונה את הבלוק
+#: מחדש מהטקסט שלו, ומריצה את העטיפה על הבלוק החדש.
 REPEAT_JS = """(root) => {
   const pres = [...document.querySelectorAll(root + ' pre')];
   const html = pres.map((p) => p.innerHTML);
   const added = pres.reduce((sum, p) => sum + window.RtlCode.isolateHebrewTokens(p), 0);
-  pres.forEach((p) => { const c = p.querySelector('code'); if (c) window.SafeHighlight.highlightBlock(c); });
-  return {added, same: pres.every((p, i) => p.innerHTML === html[i])};
+  const direct = pres.every((p, i) => p.innerHTML === html[i]);
+  let rebuilt = 0;
+  pres.forEach((p) => {
+    const c = p.querySelector('code');
+    if (!c) return;
+    delete c.dataset.highlighted;
+    window.SafeHighlight.highlightBlock(c);
+    if (c.dataset.highlighted === 'yes') rebuilt += 1;
+  });
+  return {added, direct, rebuilt, same: pres.every((p, i) => p.innerHTML === html[i])};
 }"""
 
 
 @pytest.mark.parametrize("surface", list(SURFACES))
 def test_the_text_is_unchanged_and_a_second_pass_adds_nothing(surface, browser, admin_live_server, world):
     """הטקסט של כל בלוק זהה למקור תו בתו, וכפתור ההעתקה — בלחיצה אמיתית — מעתיק בדיוק אותו. הרצה
-    נוספת של העטיפה, ישירות או דרך ``highlightBlock``, אינה מוסיפה עטיפה ואינה משנה את ה-HTML."""
+    נוספת של העטיפה ישירות אינה מוסיפה עטיפה ואינה משנה את ה-HTML, והדגשה מחדש מאפס דרך
+    ``highlightBlock`` בונה בדיוק אותו HTML. בספריית הסניפטים הבלוק כבר הפך לטבלת שורות ואין בו
+    ``code``, ולכן שם נבדקת רק הקריאה הישירה."""
     with opened(surface, "fixed", browser, admin_live_server) as (page, root, _):
         if surface == "snippets":
             # הטבלה של ספריית הסניפטים: תא לכל שורה, ושורה ריקה הופכת לרווח (``snippets.js``).
@@ -433,7 +463,8 @@ def test_the_text_is_unchanged_and_a_second_pass_adds_nothing(surface, browser, 
                   const text = await navigator.clipboard.readText();
                   return text === expected ? true : {ok: false, text};
                 }""", f"{surface}: הכפתור של בלוק {index} העתיק בדיוק את המקור", content)
-        assert page.evaluate(REPEAT_JS, root) == {"added": 0, "same": True}, surface
+        rebuilt = 0 if surface == "snippets" else len(expected)
+        assert page.evaluate(REPEAT_JS, root) == {"added": 0, "direct": True, "rebuilt": rebuilt, "same": True}, surface
 
 
 #: התווית שכל צרכן רושם כשהדגשה של בלוק נכשלת — זו שחריגה מהעטיפה הייתה מקבלת בלי ה-``try`` שלה.

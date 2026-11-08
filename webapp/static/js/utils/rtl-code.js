@@ -408,21 +408,101 @@
   // (נבדק ב-11.9.0 וב-11.11.1). בתוך העטיפה ה-``f`` של ``f"✅ הקובץ {name}
   // נשמר"`` היה מצויר בקצה הימני, אחרי הגרש הסוגר.
 
-  /**
-   * שורה של הערה: ההזחה וסימן ההערה, הגוף, וסימן הסגירה. אותו ביטוי כמו
-   * ``SPLIT`` בבלוג. ``*`` הוא סימן ההמשך בשורות של ``/* … *\/``.
-   */
-  var COMMENT_LINE = /^(\s*(?:\/\/+|#+|--|\/\*+|\*|<!--|"""|''')?\s*)([\s\S]*?)(\s*(?:\*\/|-->|"""|''')?\s*)$/;
-
-  /** שורה של מחרוזת: רווחים, גוף, רווחים. סימני ההערה אינם סימנים כאן. */
-  var STRING_LINE = /^(\s*)([\s\S]*?)(\s*)$/;
+  // **סימני ההערה בתחילת שורה, לפי הסדר שבו הם נבדקים**: הטקסט, והאם התו
+  // האחרון שלו יכול לחזור (``///``, ``##``, ``/**``, ``;;``). הרשימה של הבלוג
+  // (``//``, ``#``, ``--``, ``/*``, ``*`` — סימן ההמשך בשורות של ``/* … *\/`` —
+  // ``<!--``, ``"""``, ``'''``), ועוד הסימנים שהטוקן של highlight.js 11.11.1
+  // פותח בהם בשפות שהרשימה של הבלוג לא כיסתה: ``;`` (``ini``, ``lisp``),
+  // ``%`` (``erlang``, ``matlab``, ``latex``), ``!`` (``fortran``), ``'`` ו-
+  // ``REM`` (``vbnet``, בלי הבחנה בין אותיות גדולות לקטנות, ורק כשאחריו רווח —
+  // ``([\t ]|^)REM(?=\s)`` ב-``vbnet.js``). סימן שאינו כאן נשאר בתוך העטיפה,
+  // ובכיוון מימין לשמאל הוא מצויר בקצה הימני של העברית.
+  var COMMENT_OPENERS = [
+    { text: '//', repeats: true },
+    { text: '#', repeats: true },
+    { text: '--' },
+    { text: '/*', repeats: true },
+    { text: '*' },
+    { text: '<!--' },
+    { text: '"""' },
+    { text: "'''" },
+    { text: ';', repeats: true },
+    { text: '%', repeats: true },
+    { text: '!', repeats: true },
+    { text: "'" },
+    { text: 'REM', word: true },
+  ];
+  var COMMENT_CLOSERS = ['*/', '-->', '"""', "'''"];
 
   // שלד המחרוזת: בפתיחה — תחילית צמודה וגרש (``f"``, ``rb'``, ``$@"``,
   // ``u8"``, ``r#"``, ``"""``), ובסגירה — הגרש ו-``#`` של Rust. רק בשורה
   // הראשונה של הטוקן ובאחרונה שלו: גרש בתחילת שורה **באמצע** מחרוזת רב-שורתית
-  // הוא תוכן ולא סימן.
+  // הוא תוכן ולא סימן. שני הביטויים מעוגנים לקצה ואין בהם חזרה חופפת, ולכן
+  // הם ליניאריים.
   var STRING_OPEN = /^[A-Za-z0-9@$#]*(?:"""|'''|"|'|`)/;
   var STRING_CLOSE = /(?:"""|'''|"|'|`)#*$/;
+
+  // **מחרוזת raw של C ו-C++**: ``R"tag(`` … ``)tag"``, וה-tag חלק מהשלד. אותו
+  // ביטוי כמו הפתיחה ב-``cpp.js`` וב-``c.js`` של highlight.js 11.11.1, והסגירה
+  // שם היא אותו tag (``END_SAME_AS_BEGIN``). בתוך העטיפה tag שאינו סימטרי
+  // במראה, כמו ``-=``, היה מצויר בסדר ההפוך — נמדד, ו-
+  // ``tests/test_rtl_code_tokens_browser.py`` בודק את זה.
+  var CPP_RAW_OPEN = /^(?:u8?|U|L)?R"([^()\\ ]{0,16})\(/;
+
+  function isSpace(ch) {
+    return /\s/.test(ch);
+  }
+
+  // אורך סימן הפתיחה של הערה ב-``line[at]``, או אפס.
+  function commentOpenerLength(line, at) {
+    for (var k = 0; k < COMMENT_OPENERS.length; k++) {
+      var opener = COMMENT_OPENERS[k];
+      var len = opener.text.length;
+      var found = opener.word
+        ? line.slice(at, at + len).toUpperCase() === opener.text && isSpace(line.charAt(at + len))
+        : line.slice(at, at + len) === opener.text;
+      if (!found) continue;
+      if (opener.repeats) {
+        var last = opener.text.charAt(len - 1);
+        while (line.charAt(at + len) === last) len++;
+      }
+      return len;
+    }
+    return 0;
+  }
+
+  /**
+   * הגוף של שורה בטוקן, ``{start, end}`` בתוך השורה: בלי הרווחים בשני הקצוות,
+   * ובהערה גם בלי סימן הפתיחה וסימן הסגירה.
+   *
+   * **סריקה של תווים ולא ביטוי רגולרי**, מאותה סיבה כמו ``fenceOpening``. הביטוי
+   * של הבלוג (גוף עצל, ואחריו ``\s*`` משני צדי סימן סגירה אופציונלי) ניסה כל
+   * חלוקה של רצף רווחים בין שני ה-``\s*``, בכל מקום שהגוף נעצר בו — זמן שגדל
+   * בחזקה שלישית באורך הרצף, והערה עם כמה אלפי רווחים תקעה את העמוד לשניות
+   * ארוכות. כאן כל תו נקרא פעם אחת לכל היותר מכל כיוון, ו-
+   * ``tests/rtl-code-tokens.test.js`` בודק שהזמן גדל ליניארית.
+   */
+  function lineBody(line, isComment) {
+    var start = 0;
+    var end = line.length;
+    while (start < end && isSpace(line.charAt(start))) start++;
+    if (isComment) {
+      start += commentOpenerLength(line, start);
+      while (start < end && isSpace(line.charAt(start))) start++;
+    }
+    while (end > start && isSpace(line.charAt(end - 1))) end--;
+    if (isComment) {
+      for (var k = 0; k < COMMENT_CLOSERS.length; k++) {
+        var closer = COMMENT_CLOSERS[k];
+        if (end - closer.length >= start && line.slice(end - closer.length, end) === closer) {
+          end -= closer.length;
+          break;
+        }
+      }
+      while (end > start && isSpace(line.charAt(end - 1))) end--;
+    }
+    return { start: start, end: end };
+  }
 
   var HEBREW_TOKENS = '.hljs-comment, .hljs-string';
 
@@ -442,6 +522,7 @@
     var lines = String(text == null ? '' : text).split('\n');
     var ranges = [];
     var offset = 0;
+    var rawCloser = null;
     lines.forEach(function (line, i) {
       var lineStart = offset;
       offset += line.length + 1;
@@ -449,18 +530,24 @@
       var rest = line;
       if (isString) {
         if (i === 0) {
-          var open = STRING_OPEN.exec(rest);
+          var raw = CPP_RAW_OPEN.exec(rest);
+          var open = raw || STRING_OPEN.exec(rest);
+          if (raw) rawCloser = ')' + raw[1] + '"';
           if (open) { lead = open[0].length; rest = rest.slice(lead); }
         }
         if (i === lines.length - 1) {
-          var close = STRING_CLOSE.exec(rest);
-          if (close) rest = rest.slice(0, close.index);
+          if (rawCloser) {
+            if (rest.slice(-rawCloser.length) === rawCloser) rest = rest.slice(0, rest.length - rawCloser.length);
+          } else {
+            var close = STRING_CLOSE.exec(rest);
+            if (close) rest = rest.slice(0, close.index);
+          }
         }
       }
-      var parts = (isString ? STRING_LINE : COMMENT_LINE).exec(rest);
-      var body = parts ? parts[2] : '';
+      var span = lineBody(rest, !isString);
+      var body = rest.slice(span.start, span.end);
       if (!body || !/\s/.test(body) || !isHebrewMajority(body)) return;
-      var start = lineStart + lead + parts[1].length;
+      var start = lineStart + lead + span.start;
       ranges.push({ start: start, end: start + body.length });
     });
     return ranges;
