@@ -57,3 +57,6 @@ docs/locales/**/*.mo
 
 # Node (Worker only)
 worker/node_modules/
+
+# התלויות של scripts/syntax_colors/reference.mjs (נעולות ב-package-lock.json שלידו), לא של האתר
+scripts/syntax_colors/node_modules/
