@@ -51,6 +51,7 @@ from services.vscode_token_theme import (
     FONT_STYLE_ITALIC,
     HLJS_LANGUAGES,
     VSCodeTokenTheme,
+    parse_token_rules,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -164,6 +165,24 @@ def test_layer2_parent_scopes_and_the_child_combinator():
     assert _style(tokens, "source.js", "constant.language.js").foreground is None
     assert _style(tokens, "source.x", "meta.a", "string.quoted").font_style == FONT_STYLE_BOLD
     assert _style(tokens, "source.x", "meta.a", "meta.b", "string.quoted").foreground is None
+
+
+def test_a_long_run_of_commas_parses_in_linear_time():
+    """הפסיקים בקצוות נחתכים ב-``strip``. רגקס ``,+$`` היה בודק רצף ארוך של פסיקים באמצע המחרוזת — שאחריו תו אחר — מכל
+    נקודת התחלה: על 20 אלף פסיקים הוא לקח 1.2 שניות, וזמנו גדל בריבוע. כאן הרצף ארוך פי שניים וחצי (נמדד ב-8.11.2026)."""
+    import time
+
+    started = time.perf_counter()
+    rules = parse_token_rules([{"scope": "comment" + "," * 50_000 + "x", "settings": {"foreground": "#111111"}}])
+    assert time.perf_counter() - started < 1.0
+    # כמו ב-VS Code: כל קטע ריק בין שני פסיקים הוא בורר ריק, כלומר כלל ברירת מחדל
+    assert (rules[0].scope, rules[-1].scope, len(rules)) == ("comment", "x", 50_001)
+
+
+def test_every_export_preset_with_highlightjs_colors_is_in_the_reference():
+    """ערכת ייצוא עם ``hljs_css`` נבנית מ-``EXPORT_PRESET_TOKEN_COLORS`` — ולכן נכנסת להשוואה מול VS Code."""
+    with_hljs = {pid for pid, preset in export.EXPORT_PRESETS.items() if preset.get("hljs_css")}
+    assert with_hljs == set(export.EXPORT_PRESET_TOKEN_COLORS) == set(THEMES) == set(REFERENCE["themes"])
 
 
 def test_malformed_entries_are_skipped_like_vscode_skips_them():

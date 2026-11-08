@@ -41,8 +41,6 @@ _FONT_STYLE_SEGMENTS = {
 
 # ``isValidHexColor``: ‏#rgb, ‏#rgba, ‏#rrggbb, ‏#rrggbbaa — בלי רווחים מסביב (VS Code לא מנקה אותם).
 _HEX_COLOR_RE = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
-_LEADING_COMMAS_RE = re.compile(r"^,+")
-_TRAILING_COMMAS_RE = re.compile(r",+$")
 
 
 def is_valid_hex_color(value: object) -> bool:
@@ -111,7 +109,9 @@ def parse_token_rules(token_colors: object, *, default_foreground: str | None = 
 
         raw_scope = entry.get("scope")
         if isinstance(raw_scope, str):
-            stripped = _TRAILING_COMMAS_RE.sub("", _LEADING_COMMAS_RE.sub("", raw_scope))
+            # כמו ``replace(/^[,]+/, '')`` ו-``replace(/[,]+$/, '')`` — אבל ``strip`` ולא רגקס: ‏``,+$`` על רצף ארוך של פסיקים
+            # שאחריו תו אחר בודק את כל הרצף מכל נקודת התחלה (זמן ריבועי), והמחרוזת מגיעה מקובץ שהמשתמש העלה
+            stripped = raw_scope.strip(",")
             scopes: list[object] = list(stripped.split(","))
         elif isinstance(raw_scope, list):
             scopes = list(raw_scope)

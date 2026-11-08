@@ -485,14 +485,14 @@
 כל מחלקה מקבלת את הצבע ש-VS Code נותן לטוקן שהיא צובעת
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-לכל מחלקה של highlight.js ולכל tag של CodeMirror יש נציג: שרשרת ה-scopes שטוקן כזה מקבל ב-VS Code. למשל, ``.hljs-comment`` מיוצג על ידי ``comment``, ו-``.hljs-built_in`` בפייתון על ידי ``meta.function-call.python support.function.builtin.python``. המחולל שואל את הערכה איזה צבע VS Code נותן לשרשרת הזו, ומכריע כמו vscode-textmate 9.3.2, הספרייה ש-VS Code צובע בה:
+לכל מחלקה של highlight.js שהמחולל צובע (``HLJS_REPRESENTATIVES``) ולכל tag של CodeMirror יש נציג: שרשרת ה-scopes שטוקן כזה מקבל ב-VS Code. למשל, ``.hljs-comment`` מיוצג על ידי ``comment``, ו-``.hljs-built_in`` בפייתון על ידי ``meta.function-call.python support.function.builtin.python``. המחולל שואל את הערכה איזה צבע VS Code נותן לשרשרת הזו, ומכריע כמו vscode-textmate 9.3.2, הספרייה ש-VS Code צובע בה:
 
 - ``scope`` שכתוב כמחרוזת הוא רשימת בוררים מופרדים בפסיק, ו-``scope`` שכתוב כרשימה לא מפוצל.
 - בורר חל על ה-scope שלו ועל מה שמתחתיו בלבד: כלל ל-``variable.interpolation`` לא צובע את כל המשתנים.
 - הבורר המדויק יותר מנצח, ובתיקו — הכלל המאוחר בקובץ. צבע וגופן עוברים בירושה כל אחד בנפרד, מהבורר הכללי למדויק.
 - בורר עם הורה (``source.python constant.language``) חל רק בתוך ההורה.
 
-ההכרעה והנציגים נמצאים ב-``services/vscode_token_theme.py``, והמחוללים — ``generate_hljs_css_from_tokens``, ``generate_syntax_colors_from_tokens`` ו-``generate_codemirror_css_from_tokens`` — ב-``services/theme_parser_service.py``. Pygments נשאר עם המיפוי הקודם (``TOKEN_TO_PYGMENTS_MAP``), כי הוא משמש רק את הייצוא שבשרת.
+ההכרעה והנציגים נמצאים ב-``services/vscode_token_theme.py``, והמחוללים — ``generate_hljs_css_from_tokens``, ``generate_syntax_colors_from_tokens`` ו-``generate_codemirror_css_from_tokens`` — ב-``services/theme_parser_service.py``. Pygments נשאר עם המיפוי הקודם (``TOKEN_TO_PYGMENTS_MAP``). הכללים שלו צובעים קוד שמרונדר בשרת ב-Pygments: עמוד הקובץ והייצוא שבשרת.
 
 **מחלקה ש-VS Code משאיר בצבע הטקסט מקבלת את** ``editor.foreground`` **במפורש.** אחרת, למשל, הביטוי בתוך ``{}`` של f-string היה יורש את הצבע של המחרוזת שסביבו. לכן ערכה מיובאת עם מעט ``tokenColors`` נראית כמו ב-VS Code: מה שהערכה לא צובעת מוצג בצבע הטקסט, ולא בפלטה שנגזרת מהמשתנים. הכלל הבסיסי ``.hljs`` — צבע ורקע לבלוק — נשאר כמו שהיה.
 

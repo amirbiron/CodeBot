@@ -828,7 +828,7 @@ def _is_dark_color(hex_color: str) -> bool:
 # Syntax Highlighting: tokenColors → CodeMirror ו-highlight.js
 # ==========================================
 # הצבע של כל מחלקה הוא מה ש-VS Code נותן לטוקן שהיא צובעת: ההכרעה והנציגים ב-``services/vscode_token_theme.py``.
-# Pygments (``TOKEN_TO_PYGMENTS_MAP`` למטה) נשאר עם המיפוי הישן — הוא משמש רק את הייצוא שבשרת.
+# Pygments (``TOKEN_TO_PYGMENTS_MAP`` למטה) נשאר עם המיפוי הישן. הוא צובע קוד שמרונדר בשרת ב-Pygments: עמוד הקובץ והייצוא שבשרת.
 
 
 TOKEN_TO_PYGMENTS_MAP: dict[str, str] = {
@@ -965,7 +965,7 @@ TOKEN_TO_PYGMENTS_MAP: dict[str, str] = {
 
 def _hex_or_none(value: object) -> str | None:
     """צבע ברירת מחדל נכנס להכרעה רק אם VS Code היה מקבל אותו (``isValidHexColor``)."""
-    return value if is_valid_hex_color(value) else None
+    return value if isinstance(value, str) and is_valid_hex_color(value) else None
 
 
 def _resolve_generic(theme: VSCodeTokenTheme, stack: tuple[str, ...]) -> TokenStyle:

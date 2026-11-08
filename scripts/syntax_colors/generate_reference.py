@@ -25,15 +25,11 @@ SAMPLE_FILES = {"python": "python.txt", "javascript": "javascript.txt"}
 
 
 def reference_themes() -> dict[str, list]:
-    """ה-``tokenColors`` של ערכות הייצוא — אותן רשימות שהמחוללים מקבלים."""
+    """ה-``tokenColors`` של ערכות הייצוא — ``EXPORT_PRESET_TOKEN_COLORS``, אותן רשימות שהמחוללים מקבלים."""
     sys.path.insert(0, str(REPO))
-    from services import styled_export_service as s
+    from services.styled_export_service import EXPORT_PRESET_TOKEN_COLORS
 
-    return {
-        "everforest-dark": s._EVERFOREST_DARK_TOKEN_COLORS,
-        "morass": s._MORASS_TOKEN_COLORS,
-        "pen-paper-coffee": s._PEN_PAPER_COFFEE_TOKEN_COLORS,
-    }
+    return dict(EXPORT_PRESET_TOKEN_COLORS)
 
 
 def sha256_json(value: object) -> str:
