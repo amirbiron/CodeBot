@@ -430,24 +430,16 @@ def _server_exports(s):
 # ---------------------------------------------------------------------------
 
 
-#: כמה מהתווים ש-highlight.js מסמן מקבלים ב-morass צבע אחר מצבע הטקסט — נמדד ב-8.11.2026, בטסטים של הקובץ הזה. מאז
-#: המחוללים צובעים כמו VS Code (``services/vscode_token_theme.py``), וטוקן ש-VS Code משאיר בצבע הטקסט (פרמטר, משתנה,
-#: פיסוק בתוך span) אינו נספר "צבוע". הנאמנות ל-VS Code, תו-תו, נבדקת ב-``tests/test_syntax_colors_vscode_browser.py``.
-MORASS_COLORED_PCT = 87
-
-
 @pytest.mark.parametrize(
     "theme_id, user, light, min_colored_pct",
     [
         # ערכות עם צבעי highlight.js משלהן
         ("pen-paper-coffee", False, True, 90),
-        ("morass", False, False, MORASS_COLORED_PCT),
+        ("morass", False, False, 90),
         # ערכה בלי צבעים משלה — הפלטה שנגזרת מהמשתנים
         ("tech-guide-dark", False, False, 90),
-        # ערכת משתמש מיובאת: הכללים שלה עברו לקידומת של הייצוא, והפלטה מתחתם. ב-``VSCODE_LIGHT`` יש רק מילות מפתח,
-        # מחרוזות והערות, ו-VS Code מציג כל טוקן אחר ב-``editor.foreground`` — וכך גם הכללים שלה מאז 8.11.2026
-        # (נמדד אז: 53). הפלטה נשארת למחלקות שאין להן כלל.
-        ("imported-light", True, True, 53),
+        # ערכת משתמש מיובאת: הכללים שלה עברו לקידומת של הייצוא, והפלטה מתחתם
+        ("imported-light", True, True, 90),
     ],
 )
 def test_the_file_is_built_in_the_browser_and_works_on_its_own(
@@ -665,7 +657,7 @@ def test_a_share_renders_in_the_visitors_browser_under_its_policy(browser, sessi
     assert title == "מדריך" and status_line is None
     assert r["header"] is True and "Code Keeper Bot" in r["footer"]
     assert r["alerts"]["count"] == 15 and r["alerts"]["styled"] == 15, r["alerts"]
-    assert r["code"]["tokenChars"] > 300 and r["code"]["coloredPct"] >= MORASS_COLORED_PCT, r["code"]
+    assert r["code"]["tokenChars"] > 300 and r["code"]["coloredPct"] >= 90, r["code"]
     # כפתורי ההעתקה נוספו אחרי שהמסמך נכנס לעמוד — אחד לכל בלוק
     assert r["code"]["pres"] > 0 and r["code"]["copyButtonsPerPre"] == [1] * r["code"]["pres"], r["code"]
     assert again == [1] * r["code"]["pres"], again
@@ -825,7 +817,7 @@ def test_a_hung_engine_script_is_requested_again(session, tmp_path):
     finally:
         ctx.close()
     assert attempts == []
-    assert r["code"]["coloredPct"] >= MORASS_COLORED_PCT and r["mermaid"]["svgs"] == 3 and r["katex"]["count"] == 5, r
+    assert r["code"]["coloredPct"] >= 90 and r["mermaid"]["svgs"] == 3 and r["katex"]["count"] == 5, r
     assert s.errors == []
 
 

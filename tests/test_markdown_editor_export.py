@@ -396,9 +396,7 @@ def test_both_syntax_styles_come_from_the_theme_token_colors(theme_id, tokens):
     """מקור אחד לצבעי התחביר: Pygments לייצוא של המחוברים, highlight.js לייצוא מהעורך."""
     theme = get_export_theme(theme_id)
     assert theme["syntax_css"] == generate_pygments_css_from_tokens(tokens)
-    assert theme["hljs_css"] == generate_hljs_css_from_tokens(
-        tokens, selector_prefix=EXPORT_HLJS_SELECTOR_PREFIX, token_foreground=theme["variables"]["--code-text"]
-    )
+    assert theme["hljs_css"] == generate_hljs_css_from_tokens(tokens, selector_prefix=EXPORT_HLJS_SELECTOR_PREFIX)
     assert all(line.startswith("code.hljs .hljs-") for line in theme["hljs_css"].splitlines())
 
 
@@ -409,11 +407,10 @@ def test_the_editor_export_themes_keep_the_template_headings():
 
 
 def test_the_site_themes_keep_the_default_hljs_prefix():
-    # כלל ל-``keyword`` צובע ב-VS Code גם את ``keyword.operator`` — ולכן גם ``.hljs-operator``
     tokens = [{"scope": "keyword", "settings": {"foreground": "#123456"}}]
-    lines = generate_hljs_css_from_tokens(tokens).splitlines()
-    assert f"{HLJS_SITE_THEME_SELECTOR_PREFIX} .hljs-keyword {{ color: #123456 !important; }}" in lines
-    assert lines and all(line.startswith(f"{HLJS_SITE_THEME_SELECTOR_PREFIX} .hljs-") for line in lines)
+    assert generate_hljs_css_from_tokens(tokens) == (
+        f"{HLJS_SITE_THEME_SELECTOR_PREFIX} .hljs-keyword {{ color: #123456 !important; }}"
+    )
 
 
 # ---------------------------------------------------------------------------

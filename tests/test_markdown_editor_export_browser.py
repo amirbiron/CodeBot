@@ -209,12 +209,12 @@ def session(browser):
 @pytest.mark.parametrize(
     "theme_id, light, min_colored_pct",
     [
-        # הספים נמדדו ב-8.11.2026, בטסט הזה. מאז המחוללים צובעים כמו VS Code (``services/vscode_token_theme.py``), טוקן
-        # ש-VS Code משאיר בצבע הטקסט — פרמטר, משתנה, פיסוק בתוך span — מקבל את צבע הטקסט, ולכן אינו נספר כאן "צבוע".
-        # הנאמנות ל-VS Code, תו-תו, נבדקת ב-``tests/test_syntax_colors_vscode_browser.py``; כאן — שצבעי הערכה בקובץ.
         ("pen-paper-coffee", True, 90),
-        ("morass", False, 87),
-        ("everforest-dark", False, 72),
+        ("morass", False, 90),
+        # 76 נמדד ב-5.11.2026, בטסט הזה. הפער הוא במחוללים של ``services/theme_parser_service.py``, שלא מפצלים
+        # ``scope`` עם פסיקים — כמחצית מהרשומות של הערכה הזו, ובהן ההערות. כרטיס "מחוללי צבעי התחביר — scope עם
+        # פסיקים וכיוון ההתאמה" בלוח ה-issues ב-CodeKeeper. כשהמחוללים יתוקנו, הסף חוזר ל-90.
+        ("everforest-dark", False, 76),
     ],
 )
 def test_the_downloaded_file_works_on_its_own_without_network(
