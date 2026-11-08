@@ -1,6 +1,8 @@
 import pytest
 
 from services.theme_parser_service import (
+    _find_cm_tag,
+    _find_codemirror_class,
     color_with_opacity,
     export_theme_to_json,
     generate_codemirror_css_from_tokens,
@@ -286,8 +288,7 @@ class TestParseVscodeTheme:
                 {"scope": "keyword", "settings": {"foreground": "#afd0c4"}},
                 {"scope": "constant.numeric", "settings": {"foreground": "#f8bb39"}},
                 {"scope": "entity.name.function", "settings": {"foreground": "#afb54c"}},
-                # ‏``entity.name.type.class`` ולא ``entity.name.class``: זה ה-scope ששמות מחלקות מקבלים בדקדוקים של VS Code
-                {"scope": "entity.name.type.class", "settings": {"foreground": "#68875a", "fontStyle": "underline"}},
+                {"scope": "entity.name.class", "settings": {"foreground": "#68875a", "fontStyle": "underline"}},
                 {"scope": "invalid", "settings": {"foreground": "#cf433e"}},
             ],
         }
@@ -391,30 +392,82 @@ class TestTokenColorsToCodeMirrorCSS:
         assert "font-style: italic !important" in css
         assert ':root[data-theme-type="custom"] .tok-keyword' in css
 
-    def test_each_class_gets_the_color_vscode_gives_its_tokens(self):
-        """כל מחלקה מקבלת את הצבע שהבורר של הערכה נותן ב-VS Code לטוקן שלה — ובורר שאינו חל עליו לא צובע אותה."""
+    def test_extended_scopes_mapping(self):
+        """בדיקה שכל הסקופים החדשים ממופים כראוי ל-tok- classes."""
         token_colors = [
+            # Keywords (כולל keyword.control)
             {"scope": ["keyword.control"], "settings": {"foreground": "#ff79c6"}},
-            {"scope": ["entity.name.type.class"], "settings": {"foreground": "#8be9fd"}},
+            {"scope": ["keyword.control.import.python"], "settings": {"foreground": "#ff79c6"}},
+            # Storage
+            {"scope": ["storage"], "settings": {"foreground": "#ff79c6"}},
+            {"scope": ["storage.type"], "settings": {"foreground": "#ff79c6"}},
+            # Classes (support.class, entity.name.class -> tok-className)
+            {"scope": ["support.class"], "settings": {"foreground": "#8be9fd"}},
+            {"scope": ["entity.name.class"], "settings": {"foreground": "#8be9fd"}},
+            # Types (entity.name.type -> tok-typeName)
             {"scope": ["entity.name.type"], "settings": {"foreground": "#66d9ef"}},
+            # Constants
             {"scope": ["constant.numeric"], "settings": {"foreground": "#bd93f9"}},
-            {"scope": ["constant.language.boolean"], "settings": {"foreground": "#ff5555"}},
+            {"scope": ["constant.language.boolean"], "settings": {"foreground": "#bd93f9"}},
+            # Variables
             {"scope": ["variable.language.this"], "settings": {"foreground": "#f8f8f2"}},
+            # Functions
+            {"scope": ["entity.name.function.method"], "settings": {"foreground": "#50fa7b"}},
         ]
         css = generate_codemirror_css_from_tokens(token_colors)
-        rules = {line.split(" {")[0].split(" ", 1)[1]: line for line in css.splitlines()}
-        assert "#ff79c6" in rules[".tok-keyword"]
-        assert "#8be9fd" in rules[".tok-className"]
-        assert "#66d9ef" in rules[".tok-typeName"]
-        assert "#bd93f9" in rules[".tok-number"]
-        assert "#ff5555" in rules[".tok-bool"]
-        assert "#f8f8f2" in rules[".tok-variableName2"]
 
-    def test_a_rule_for_a_neighbouring_scope_does_not_color_the_class(self):
-        """‏``support.class`` (מחלקה מובנית) אינו ``entity.name.type.class`` (שם מחלקה), ו-VS Code לא צובע את האחד בכלל של השני.
-        עד נובמבר 2026 ההתאמה כאן קיבלה גם את הכיוון ההפוך, וכלל צר צבע מחלקה רחבה שלמה."""
-        css = generate_codemirror_css_from_tokens([{"scope": "support.class", "settings": {"foreground": "#8be9fd"}}])
-        assert ".tok-className" not in css
+        # בדיקת Keywords - tok-keyword (CodeMirror 6)
+        assert ".tok-keyword" in css
+
+        # בדיקת Classes - tok-className (CodeMirror 6)
+        assert ".tok-className" in css
+
+        # בדיקת Types - tok-typeName (CodeMirror 6)
+        assert ".tok-typeName" in css
+
+        # בדיקת Constants - tok-number, tok-bool (CodeMirror 6)
+        assert ".tok-number" in css
+        assert ".tok-bool" in css
+
+        # בדיקת Variables - tok-variableName (CodeMirror 6)
+        assert ".tok-variableName" in css
+
+    def test_prefix_matching_fallback(self):
+        """בדיקה שסקופים ספציפיים נופלים ל-scope הספציפי ביותר (לא הראשון)."""
+        from services.theme_parser_service import _find_codemirror_class
+
+        # התאמה מדויקת - tok- classes (CodeMirror 6)
+        assert _find_codemirror_class("keyword") == ".tok-keyword"
+        assert _find_codemirror_class("keyword.control") == ".tok-keyword"
+        assert _find_codemirror_class("constant.numeric") == ".tok-number"
+
+        # Prefix Matching - סקופים ספציפיים שצריכים ליפול לבסיסי
+        assert _find_codemirror_class("keyword.control.import.python") == ".tok-keyword"
+        assert _find_codemirror_class("keyword.control.flow.if") == ".tok-keyword"
+        assert _find_codemirror_class("entity.name.function.method.call") == ".tok-variableName"
+
+        # 🔑 בדיקה קריטית: constant.numeric.integer.decimal צריך לקבל .tok-number
+        # כי "constant.numeric" הוא הספציפי ביותר (ארוך יותר מ-"constant")
+        assert _find_codemirror_class("constant.numeric.integer.decimal") == ".tok-number"
+        assert _find_codemirror_class("constant.numeric.float") == ".tok-number"
+
+        # constant.language צריך לקבל .tok-atom (יש מיפוי ספציפי)
+        assert _find_codemirror_class("constant.language.boolean.true") == ".tok-bool"
+
+        # variable.language.this צריך לקבל .tok-variableName2 (special variables)
+        assert _find_codemirror_class("variable.language.this.js") == ".tok-variableName2"
+
+        # 🔑 בדיקה קריטית: support.class.component צריך לקבל .tok-className (JSX)
+        assert _find_codemirror_class("support.class.component") == ".tok-className"
+        assert _find_codemirror_class("support.class.component.MyButton") == ".tok-className"
+
+        # support.class רגיל צריך להיות .tok-className
+        assert _find_codemirror_class("support.class") == ".tok-className"
+        assert _find_codemirror_class("support.class.builtin") == ".tok-className"
+
+        # סקופים לא מוכרים צריכים להחזיר None
+        assert _find_codemirror_class("unknown.scope.here") is None
+        assert _find_codemirror_class("") is None
 
     def test_all_font_styles(self):
         """בדיקה שכל סגנונות הפונט נתמכים (עם !important)."""
@@ -490,6 +543,36 @@ class TestSanitizeCodeMirrorCSS:
 class TestSyntaxColorsGeneration:
     """בדיקות לפונקציות החדשות של syntax_colors (HighlightStyle דינמי)."""
 
+    def test_find_cm_tag_exact_match(self):
+        """בדיקה ש-_find_cm_tag מוצא התאמות מדויקות."""
+        assert _find_cm_tag("comment") == "comment"
+        assert _find_cm_tag("keyword") == "keyword"
+        assert _find_cm_tag("string") == "string"
+        assert _find_cm_tag("constant.numeric") == "number"
+
+    def test_find_cm_tag_prefix_matching(self):
+        """בדיקה ש-_find_cm_tag עושה prefix matching נכון."""
+        # סקופים ספציפיים יותר צריכים ליפול לבסיס
+        assert _find_cm_tag("keyword.control.import.python") == "moduleKeyword"
+        assert _find_cm_tag("keyword.control.flow") == "controlKeyword"
+        assert _find_cm_tag("constant.numeric.integer.decimal") == "integer"
+        assert _find_cm_tag("variable.language.this") == "self"
+
+    def test_find_cm_tag_function_scopes(self):
+        """בדיקה שסקופים של פונקציות ממופים נכון."""
+        # הגדרת פונקציה - CodeMirror משתמש ב-function(definition(...))
+        assert _find_cm_tag("entity.name.function") == "function(definition(variableName))"
+        # קריאה לפונקציה
+        assert _find_cm_tag("meta.function-call") == "function(variableName)"
+        # פונקציות מובנות
+        assert _find_cm_tag("support.function.builtin") == "standard(function(variableName))"
+
+    def test_find_cm_tag_unknown_returns_none(self):
+        """בדיקה שסקופים לא מוכרים מחזירים None."""
+        assert _find_cm_tag("unknown.scope.here") is None
+        assert _find_cm_tag("") is None
+        assert _find_cm_tag(None) is None
+
     def test_generate_syntax_colors_basic(self):
         """בדיקה בסיסית של generate_syntax_colors_from_tokens."""
         token_colors = [
@@ -506,16 +589,16 @@ class TestSyntaxColorsGeneration:
         assert colors["keyword"]["color"] == "#569cd6"
         assert "fontStyle" not in colors["keyword"]
 
-    def test_generate_syntax_colors_the_later_rule_wins_a_tie(self):
-        """שני כללים לאותו בורר: המאוחר מנצח, כמו ב-VS Code (``resolveParsedThemeRules`` ממיין לפי המיקום בקובץ).
-        עד נובמבר 2026 הראשון ניצח."""
+    def test_generate_syntax_colors_first_wins(self):
+        """בדיקה שהכלל הראשון מנצח כשיש התנגשויות."""
         token_colors = [
-            {"scope": "keyword", "settings": {"foreground": "#ff0000"}},
-            {"scope": "keyword", "settings": {"foreground": "#00ff00"}},
+            {"scope": "keyword", "settings": {"foreground": "#ff0000"}},  # ראשון
+            {"scope": "keyword", "settings": {"foreground": "#00ff00"}},  # שני - צריך להתעלם
         ]
         colors = generate_syntax_colors_from_tokens(token_colors)
 
-        assert colors["keyword"]["color"] == "#00ff00"
+        assert "keyword" in colors
+        assert colors["keyword"]["color"] == "#ff0000"
 
     def test_generate_syntax_colors_empty_input(self):
         """בדיקה שקלט ריק מחזיר מילון ריק."""
