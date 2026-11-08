@@ -1,4 +1,4 @@
-:summary: אל תרשום סודות/PII בלוגים, השתמש ב‑ENV בלבד.
+:summary: ניקוי טוקנים וסודות מלוגים, מחריגות ומ-Sentry, הרצת קוד ב-Playground, הכותרת X-Content-Type-Options: nosniff בתשובות של הוובאפ, ודוגמאות להצפנת טוקנים, ל-CSRF ולמגבלת קצב.
 
 Security Guide
 ==============
@@ -74,6 +74,21 @@ CSRF ב‑WebApp
    app = Flask(__name__)
    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
    csrf = CSRFProtect(app)
+
+.. _security-nosniff:
+
+סוג התוכן בלי ניחוש — ``X-Content-Type-Options: nosniff``
+---------------------------------------------------------------
+
+כל תשובה שהוובאפ מייצר דרך Flask נושאת את הכותרת ``X-Content-Type-Options: nosniff``: עמודים, ‏API, דפי שגיאה, קבצים סטטיים והורדות. היא נוספת במקום אחד, ``_add_nosniff`` ב-``webapp/app.py``, שרשום כ-``after_request``. ב-Flask 3.1.2 גם ``full_dispatch_request`` וגם ``handle_exception`` (ב-``flask/app.py``) מסיימים ב-``finalize_request``, שמריץ את פונקציות ה-``after_request`` — ולכן גם תשובה של מטפל שגיאות מקבלת את הכותרת.
+
+**מה הכותרת עושה.** בלעדיה הדפדפן מנחש את סוג התוכן לפי התוכן עצמו. איתה הוא מאמין לסוג שהשרת הצהיר עליו: הוא מסרב להריץ סקריפט שהסוג שלו אינו JavaScript, ולהחיל גיליון סגנון שהסוג שלו אינו ``text/css`` (Fetch Standard, הסעיף "Should response to request be blocked due to nosniff?").
+
+**למה זה נחוץ כאן.** ``/share/<id>/download`` מגיש כ-``text/plain`` את הטקסט שבעל השיתוף כתב. עמוד באתר שטוען את הכתובת הזו ב-``<script src>`` — למשל דרך HTML שהוזרק לעמוד — מריץ אותה, ו-``script-src 'self'`` לא עוצר את זה, כי הכתובת באמת מהאתר שלנו. ב-8.11.2026, ב-Chrome for Testing 153, הקוד רץ בלי הכותרת, ועם הכותרת הדפדפן סירב: ``Refused to execute script from '…' because its MIME type ('text/plain') is not executable, and strict MIME type checking is enabled.`` המדידה היא ``tests/test_nosniff_browser.py``, עם בקרה שמורידה את הכותרת מאותה תשובה בדיוק.
+
+**נתיב שקבע את הכותרת בעצמו נשאר עם מה שקבע.** ``_add_nosniff`` משתמש ב-``setdefault``, ולכן ``raw_html`` ו-``raw_svg``, שקובעים אותה בעצמם, לא מקבלים עותק שני (``test_a_route_that_sets_the_header_itself_keeps_one_copy`` ב-``tests/test_nosniff.py``).
+
+**מה שומר על הסקריפטים של האתר עצמו.** הסקריפטים וגיליונות הסגנון שהאתר מגיש בעצמו הם קבצים תחת ``webapp/static``, ו-Flask מגיש אותם בסוג שטבלת ``mimetypes`` נותנת לסיומת. ``/sw.js`` (``service_worker_js``) מצהיר על ``application/javascript`` בעצמו. ``test_every_static_script_and_stylesheet_is_served_with_a_type_the_browser_accepts_under_nosniff`` נכשל על קובץ סקריפט או ``.css`` שמוגש בסוג אחר, ו-``tests/test_nosniff_browser.py`` טוען את העורך הציבורי, עמוד שיתוף ועמוד קובץ ובודק שאף סקריפט או גיליון סגנון לא נחסם. **נתיב חדש שמגיש סקריפט או גיליון סגנון שנבנה בזמן ריצה חייב להצהיר על הסוג הנכון:** אחרת הדפדפן יחסום אותו בשקט — הודעה ב-console, ושום דבר בלוגים של השרת.
 
 Rate Limiting (דוגמה)
 ----------------------

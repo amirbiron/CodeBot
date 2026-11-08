@@ -5154,6 +5154,22 @@ def _disable_html_cache(resp):
     return resp
 
 
+# --- X-Content-Type-Options: nosniff on every response ---
+@app.after_request
+def _add_nosniff(resp):
+    """הדפדפן מאמין לסוג התוכן שהשרת הצהיר עליו, ולא מנחש.
+
+    בלי הכותרת, Chromium מריץ כסקריפט תשובה של ``text/plain`` שנטענה ב-``<script src>`` מהאתר שלנו — למשל
+    ``/share/<id>/download``, שמגיש את הטקסט שבעל השיתוף כתב. ``script-src 'self'`` לא עוצר את זה, כי הכתובת באמת מהאתר
+    שלנו. עם הכותרת הדפדפן מסרב להריץ סקריפט שהסוג שלו אינו JavaScript, ולהחיל גיליון סגנון שהסוג שלו אינו
+    ``text/css``. הפירוט, והמדידה, ב-``docs/security.rst``.
+
+    ‏``setdefault``: נתיב שכבר קבע את הכותרת בעצמו (``raw_html``, ``raw_svg``) נשאר עם מה שקבע, בלי עותק שני.
+    """
+    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    return resp
+
+
 # --- Service Worker: served at root scope (/sw.js) ---
 @app.route('/sw.js')
 def service_worker_js():
