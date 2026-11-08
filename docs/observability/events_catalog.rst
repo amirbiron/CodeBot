@@ -60,6 +60,10 @@ Web/Share
 - ``share_view_not_found`` — שיתוף לא נמצא.
 - ``share_without_content`` — מסמך שיתוף בלי ``code``, ולכן ``/share/<share_id>`` ו-``/read/share/<share_id>`` מחזירים 404 ולא עמוד ריק. המקרה הצפוי היחיד: שיתוף שנוצר בוובאפ לפני שהשיתוף התחיל לשמור את התוכן המלא. נשלח מ-``_shared_code_or_none`` ב-``webapp/app.py``, עם ``code_type`` ו-``has_source_file`` — ובלי ``share_id``, שהוא הטוקן שפותח את הקישור.
 - ``internal_web_started`` — שירות פנימי הועלה.
+- ``public_editor_share_created`` — גולש יצר קישור ציבורי מהעורך (``markdown_editor_create_share``), עם ``theme_id`` ו-``markdown_bytes``. בלי המזהה ובלי מפתח המחיקה: הראשון פותח את הקישור, והשני מוחק אותו. ראו :ref:`webapp-markdown-editor-share`.
+- ``public_editor_share_rejected`` — יצירה שנדחתה בתקרה הכוללת של האתר (``reason`` = ``daily_limit``, ו-``recent``: כמה קישורים נוצרו בחלון), ברמת ``warning``. סירוב של מגבלת הקצב לכל גולש יוצא באירוע הגורף ``rate_limit_blocked``.
+- ``public_editor_share_deleted`` — גולש מחק קישור ציבורי במפתח המחיקה (``markdown_editor_delete_share``).
+- ``styled_share_admin_deleted`` — אדמין מחק קישור מעוצב מ-``/admin/styled-shares`` (``admin_delete_styled_share``), ברמת ``warning``, עם ``origin`` — ``public_editor`` לקישור מהעורך הציבורי, ``file`` לקישור של משתמש מחובר. מי מחק — ה-``user_id`` המטושטש שכל שורה בבקשה נושאת (``bind_user_context``), ולא שדה מפורש: שדה שמועבר ל-``emit_event`` נרשם כמו שהוא.
 
 .. code-block:: json
 

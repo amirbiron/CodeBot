@@ -10,6 +10,9 @@
  *   אבל רינדור שנגמר אחריו — מסמך ארוך, טלפון איטי — לא נגלל לבד (נמדד ב-``test_a_share_opens_at_the_anchor_in_its_address``,
  *   שמעכב את הרינדור עד אחרי ``load``), ולכן הגלילה אליו כאן.
  * - **כשל** נכתב בשורת המצב (``#ckShareStatus``), במקום "טוען", ובקונסול.
+ * - **קישור שגולש יצר בעורך הציבורי** (``publicEditor`` ב-``#ckShareSource``, ``render_public_editor_share_page``): לטקסט
+ *   אין שם קובץ, ולכן שם העמוד הוא הכותרת הראשונה במסמך (``firstHeadingTitle``, כמו בקובץ שיוצא מהעורך), כטקסט. וכל
+ *   קישור במסמך מקבל ``rel="ugc nofollow noreferrer"`` (``USER_CONTENT_LINK_REL``): הקישורים של גולש, ולא של האתר.
  *
  * ה-CSP של העמוד: ``styled_share_page_csp`` ב-``services/styled_export_service.py``. התיעוד: ``docs/webapp/styled-export.rst``.
  */
@@ -17,6 +20,12 @@
   'use strict';
 
   const FAILED_MESSAGE = 'לא הצלחנו להציג את המסמך. נסו לרענן את העמוד.';
+  // ``ugc`` ו-``nofollow`` — לסורקים: הקישור של גולש, והאתר לא ממליץ עליו. ``noreferrer`` — היעד לא מקבל את כתובת העמוד
+  const USER_CONTENT_LINK_REL = 'ugc nofollow noreferrer';
+
+  function markUserContent(box) {
+    box.querySelectorAll('a[href]').forEach((a) => a.setAttribute('rel', USER_CONTENT_LINK_REL));
+  }
 
   function readSource() {
     const el = document.getElementById('ckShareSource');
@@ -48,6 +57,11 @@
       const box = await Core.renderMarkdown(source.markdown, source.mermaidTheme);
       const marker = Core.findMarker(document, source.marker);
       if (!marker) throw new Error('skeleton_marker_missing');
+      if (source.publicEditor === true) {
+        markUserContent(box);
+        // בלי כותרת במסמך — השם שהשרת נתן לשלד (``EDITOR_EXPORT_DEFAULT_TITLE``) נשאר
+        document.title = Core.firstHeadingTitle(box, document.title);
+      }
       const fragment = document.createDocumentFragment();
       while (box.firstChild) fragment.appendChild(box.firstChild);
       const container = marker.parentNode;

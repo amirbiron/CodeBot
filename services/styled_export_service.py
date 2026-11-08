@@ -2820,6 +2820,22 @@ def styled_share_page_csp() -> str:
     )
 
 
+def _share_source(theme: dict, markdown: str, *, public_editor: bool) -> dict:
+    """מה שעמוד קישור השיתוף מרנדר בעצמו (``share_source`` בתבנית, ``#ckShareSource`` ב-``styled-share-view.js``).
+
+    ``publicEditor`` — קישור שגולש יצר בעורך הציבורי: התבנית מוסיפה ``noindex`` ואת ההודעה שהתוכן של גולש, והסקריפט
+    נותן לעמוד את הכותרת הראשונה במסמך ומסמן את הקישורים שבו כתוכן של גולש. דגל אחד לשלושתם, כדי שלא ייפרדו.
+    """
+    source = {
+        "markdown": markdown,
+        "mermaidTheme": export_mermaid_theme(theme),
+        "marker": EDITOR_EXPORT_CONTENT_MARKER_TEXT,
+    }
+    if public_editor:
+        source["publicEditor"] = True
+    return source
+
+
 def render_styled_share_page(theme: dict, title: str, *, markdown: str, katex_css: str = "", hljs_fallback_css: str = "") -> str:
     """עמוד קישור השיתוף מהצורה השנייה: השלד של הייצוא של המחוברים (באנר עם ``title``, ``STYLED_EXPORT_FOOTER``), עם
     הטקסט ועם המנוע של התצוגה החיה, שמרנדר אותו בדפדפן של מי שפותח (``webapp/static/js/styled-share-view.js``).
@@ -2834,11 +2850,26 @@ def render_styled_share_page(theme: dict, title: str, *, markdown: str, katex_cs
         show_header=True,
         katex_css=katex_css,
         hljs_fallback_css=hljs_fallback_css,
-        share_source={
-            "markdown": markdown,
-            "mermaidTheme": export_mermaid_theme(theme),
-            "marker": EDITOR_EXPORT_CONTENT_MARKER_TEXT,
-        },
+        share_source=_share_source(theme, markdown, public_editor=False),
+    )
+
+
+def render_public_editor_share_page(theme: dict, *, markdown: str, katex_css: str = "", hljs_fallback_css: str = "") -> str:
+    """עמוד הקישור שגולש יצר בעורך הציבורי (``origin`` = ``STYLED_SHARE_ORIGIN_PUBLIC_EDITOR`` ב-``styled_shares.py``).
+
+    אותו עמוד כמו ``render_styled_share_page``, באותו מנוע ובאותו CSP, ובשלושה הבדלים: אין באנר עליון, כי לטקסט אין שם
+    קובץ — הכותרת, והכיתוב בתחתית (``EDITOR_EXPORT_FOOTER``), כמו בקובץ שיוצא מהעורך; בראש העמוד הודעה שהתוכן נכתב על
+    ידי גולש ולא על ידי האתר — עמוד בדומיין שלנו שכל אחד יכול לכתוב, ולכן גם כלי לפישינג; ו-``noindex``, בתגית ובכותרת
+    ``X-Robots-Tag`` שהראוט מוסיף.
+    """
+    return _render_browser_export_skeleton(
+        theme,
+        title=EDITOR_EXPORT_DEFAULT_TITLE,
+        footer_text=EDITOR_EXPORT_FOOTER,
+        show_header=False,
+        katex_css=katex_css,
+        hljs_fallback_css=hljs_fallback_css,
+        share_source=_share_source(theme, markdown, public_editor=True),
     )
 
 
