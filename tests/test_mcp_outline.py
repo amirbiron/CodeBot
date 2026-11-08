@@ -3348,7 +3348,7 @@ def _style_bodies(text):
         if declared and declared.group(1).casefold() not in {"", "text/css"}:
             continue
         closing = re.search(r"</style", rendered[found.end():], re.IGNORECASE)
-        stop = found.end() + (closing.start() if closing else len(text))
+        stop = (found.end() + closing.start()) if closing else len(text)
         yield text[found.end():stop]
 
 
@@ -3779,7 +3779,7 @@ def test_the_seam_counter_can_actually_fail():
     naive = 0
     for found in _STYLE_OPENING.finditer(text):
         closing = re.search(r"</style", text[found.end():], re.IGNORECASE)
-        stop = found.end() + (closing.start() if closing else len(text))
+        stop = (found.end() + closing.start()) if closing else len(text)
         naive += len(_structural_blocks(text[found.end():stop]))
 
     assert correct == 1
