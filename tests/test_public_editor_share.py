@@ -3,8 +3,8 @@
 - **היצירה** (``markdown_editor_create_share``) — בלי התחברות. נשמרים הטקסט כמו שהוא והערכה כמו ש-``get_export_theme``
   החזיר אותה (``markdown_share_fields``, אותה פונקציה של הכותב של המחוברים), עם ``origin`` של העורך, בלי תוקף, ועם
   ה-hash של מפתח המחיקה — לא המפתח. כל סירוב בקוד משלו, ואף סירוב אינו שומר דבר.
-- **העמוד** (``public_shared_styled``) — אותו מנוע ואותו CSP של קישור המחוברים, ובלי באנר של שם קובץ, עם ההודעה שהתוכן
-  של גולש ועם ``noindex``.
+- **העמוד** (``public_shared_styled``) — אותו מנוע ואותו CSP של קישור המחוברים, בלי באנר של שם קובץ, בלי שום הודעה לפני
+  המסמך, ועם ``noindex``.
 - **המחיקה** — של היוצר במפתח, ושל אדמין בקישור שהודבק.
 
 הרינדור בדפדפן, ושהטקסט לא יוצא בלי לחיצה — ב-``tests/test_public_editor_share_browser.py``.
@@ -359,7 +359,7 @@ def test_both_writers_build_the_markdown_shape_in_the_shared_function():
 # ---------------------------------------------------------------------------
 
 
-def test_the_page_carries_the_notice_and_noindex_under_the_share_policy(wa):
+def test_the_page_carries_noindex_under_the_share_policy_and_nothing_before_the_document(wa):
     data, token, _key = _created(wa)
     resp = _guest(wa).get(urlsplit(data["share_url"]).path)
     html = resp.get_data(as_text=True)
@@ -369,9 +369,10 @@ def test_the_page_carries_the_notice_and_noindex_under_the_share_policy(wa):
     assert resp.headers["X-Robots-Tag"] == "noindex, nofollow"
     assert resp.headers["Cache-Control"] == "no-cache"
     assert '<meta name="robots" content="noindex, nofollow">' in html
-    assert 'data-testid="public-editor-share-notice"' in html
-    # בלי באנר של שם קובץ (אין קובץ), ובלי תגיות של תצוגה מקדימה
+    # בלי באנר של שם קובץ (אין קובץ), בלי שום דבר לפני המסמך — גם לא הודעה על תוכן של גולש, שהוסרה בכוונה — ובלי
+    # תגיות של תצוגה מקדימה
     assert "<header>" not in html and "og:" not in html
+    assert re.search(r"<body>\s*<main class=\"container\">\s*<p class=\"ck-share-status\"", html), "יש משהו לפני המסמך"
     assert f"<title>{EDITOR_EXPORT_DEFAULT_TITLE}</title>" in html
     source = _source(html)
     assert source["markdown"] == DOC and source["publicEditor"] is True and source["mermaidTheme"] == "dark"
@@ -390,7 +391,7 @@ def test_a_share_from_a_signed_in_user_keeps_its_page(wa):
 
     assert resp.status_code == 200
     assert "X-Robots-Tag" not in resp.headers
-    assert 'name="robots"' not in html and "public-editor-share-notice" not in html
+    assert 'name="robots"' not in html
     assert "<header>" in html and "publicEditor" not in _source(html)
 
 
