@@ -265,20 +265,51 @@ class TestLowInformationChunks:
         assert updates[-1]["chunker_version"] == CHUNKER_VERSION
 
 
-class TestMetadataEmbedding:
+class TestNoMetadataRequest:
+    """בקשת הטמעה אחת לכל צ'אנק, ולא בקשה נוספת למטא-דאטה של הקובץ.
+
+    עד 8.11.2026 נשלחה אחרי הצ'אנקים עוד בקשה, על שם הקובץ, התיאור, התגיות והשפה בלבד,
+    והתוצאה נשמרה ב-``snippetEmbedding`` — שדה שאף קוד בריפו לא קרא. כשל זמני בבקשה הזו
+    החזיר לתור קובץ שכל הצ'אנקים שלו כבר נשמרו, ובסבב הבא כולם נשלחו שוב.
+    """
+
     @pytest.mark.asyncio
-    async def test_empty_metadata_is_not_a_failure(self, harness, monkeypatch):
-        """קובץ בלי שם/תיאור/תגיות/שפה — אין מה להטמיע, וזה לא כשל."""
+    async def test_every_request_is_a_chunk(self, harness, monkeypatch):
+        saved, _updates = harness
+        w, svc = _make_worker(monkeypatch, [])
+
+        await w._process_snippet(_snippet(code="print(1)\n" * 40))
+
+        stored = saved[-1]["chunks"]
+        assert stored, "no chunks were stored"
+        assert svc.calls == len(stored), (
+            f"{svc.calls} requests for {len(stored)} chunks: an extra request was sent"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_transient_failure_after_the_last_chunk_does_not_requeue(
+        self, harness, monkeypatch
+    ):
+        """הצ'אנק היחיד הצליח; 503 שמחכה בתור לא נצרך, והקובץ לא חוזר לתור."""
+        saved, updates = harness
+        w, svc = _make_worker(
+            monkeypatch, [([0.1] * 768, 200, ""), (None, 503, "unavailable")]
+        )
+
+        await w._process_snippet(_snippet())
+
+        assert len(saved[-1]["chunks"]) == 1
+        assert svc.calls == 1
+        assert updates[-1]["needs_embedding"] is False
+
+    @pytest.mark.asyncio
+    async def test_the_status_update_carries_no_metadata_vector(self, harness, monkeypatch):
         _saved, updates = harness
         w, _svc = _make_worker(monkeypatch, [])
-        snippet = _snippet()
-        snippet["file_name"] = ""
-        snippet["programming_language"] = ""
-        snippet["tags"] = []
 
-        await w._process_snippet(snippet)
+        await w._process_snippet(_snippet())
 
-        assert updates[-1]["needs_embedding"] is False
+        assert "snippet_embedding" not in updates[-1]
 
 
 class TestDimensionFallbackClassification:
