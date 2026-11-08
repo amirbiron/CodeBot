@@ -25,6 +25,7 @@ class _Recorder(BaseHTTPRequestHandler):
     seen: dict = {}
     status_queue: list = []
     request_count: int = 0
+    batch_count_override = None
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -33,11 +34,16 @@ class _Recorder(BaseHTTPRequestHandler):
             parsed = json.loads(raw.decode("utf-8"))
         except Exception:
             parsed = {}
-        type(self).seen = {"body": parsed}
+        type(self).seen = {"body": parsed, "path": self.path}
         type(self).request_count += 1
 
         status = type(self).status_queue.pop(0) if type(self).status_queue else 200
-        if status == 200:
+        if status == 200 and self.path.endswith(":batchEmbedContents"):
+            count = len(parsed.get("requests", []))
+            if type(self).batch_count_override is not None:
+                count = type(self).batch_count_override
+            body = json.dumps({"embeddings": [{"values": [0.1] * 768} for _ in range(count)]}).encode()
+        elif status == 200:
             body = json.dumps({"embedding": {"values": [0.1] * 768}}).encode()
         else:
             body = json.dumps({"error": {"code": status, "message": "test"}}).encode()
@@ -56,6 +62,7 @@ def recorder():
     _Recorder.seen = {}
     _Recorder.status_queue = []
     _Recorder.request_count = 0
+    _Recorder.batch_count_override = None
     server = HTTPServer(("127.0.0.1", 0), _Recorder)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -302,3 +309,168 @@ async def test_query_embedding_gives_up_after_bounded_5xx_retries(service_factor
     assert sum(sleeps.waits) == sum(
         mod._retry_backoff_seconds(a) for a in range(mod.MAX_RETRIES - 1)
     )
+
+
+# ---------------------------------------------------------------------------
+# אצווה אסינכרונית — ``EmbeddingService.embed_batch``
+# ---------------------------------------------------------------------------
+#
+# הרקע (8.11.2026): ה-worker של הסניפטים עבר משליחת צ'אנק בכל בקשה לאצוות של
+# ``batchEmbedContents``. הטסטים כאן בודקים את הלקוח מול שרת מקומי אמיתי; התרחישים של ה-worker
+# עצמו ב-``tests/test_embedding_worker_batches.py``.
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_sends_one_request_with_an_item_per_text(service_factory):
+    make, _mod, rec = service_factory
+    texts = ["alpha", "beta", "gamma"]
+
+    vectors, status, detail = await make().embed_batch(
+        texts, model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+
+    assert (status, detail) == (200, "")
+    assert vectors is not None and len(vectors) == 3
+    assert rec.request_count == 1
+    assert rec.seen["path"] == "/v1beta/models/gemini-embedding-001:batchEmbedContents"
+    items = rec.seen["body"]["requests"]
+    assert [item["content"]["parts"][0]["text"] for item in items] == texts
+    assert all(item["model"] == "models/gemini-embedding-001" for item in items)
+    # ``outputDimensionality`` ברמה העליונה של כל פריט — ההערה ליד ``EMBEDDING_AUTO_TRUNCATE``.
+    assert all(item["outputDimensionality"] == 768 for item in items)
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_retries_5xx_and_succeeds(service_factory):
+    make, _mod, rec = service_factory
+    rec.status_queue = [503, 200]
+
+    vectors, status, _ = await make().embed_batch(
+        ["alpha", "beta"], model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+
+    assert status == 200 and vectors is not None and len(vectors) == 2
+    assert rec.request_count == 2
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_retries_429_and_reports_it_when_exhausted(service_factory):
+    """בניגוד ל-``SyncEmbeddingClient``, שמחזיר 429 מיד: כאן אותה מדיניות כמו בבקשה בודדת."""
+    make, mod, rec = service_factory
+    rec.status_queue = [429] * mod.MAX_RETRIES
+
+    vectors, status, detail = await make().embed_batch(
+        ["alpha"], model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+
+    assert vectors is None
+    assert status == 429
+    assert detail.startswith("http 429")
+    assert rec.request_count == mod.MAX_RETRIES
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_returns_400_without_retrying(service_factory):
+    make, _mod, rec = service_factory
+    rec.status_queue = [400, 200]
+
+    vectors, status, _ = await make().embed_batch(
+        ["alpha", "beta"], model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+
+    assert vectors is None and status == 400
+    assert rec.request_count == 1
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_rejects_an_oversized_text_without_a_request(service_factory, monkeypatch):
+    make, mod, rec = service_factory
+    monkeypatch.setattr(mod, "EMBEDDING_MAX_INPUT_BYTES", 100)
+
+    vectors, status, detail = await make().embed_batch(
+        ["short", "x" * 500], model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+
+    assert vectors is None
+    assert status == mod.EMBEDDING_STATUS_INPUT_TOO_LONG
+    assert "index=1" in detail
+    assert rec.request_count == 0
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_does_not_map_a_short_answer(service_factory):
+    """תשובה עם פחות וקטורים מטקסטים אינה מתפרשת כ"הראשונים" — היא כשל."""
+    make, _mod, rec = service_factory
+    rec.batch_count_override = 2
+
+    vectors, status, detail = await make().embed_batch(
+        ["a", "b", "c"], model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+
+    assert vectors is None
+    assert status == 200 and detail.startswith("malformed_response")
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_takes_an_interval_per_text_in_the_gate(service_factory, monkeypatch):
+    """אצווה של N טקסטים מרחיקה את הבקשה הבאה כמו N בקשות בודדות."""
+    make, mod, _rec = service_factory
+    monkeypatch.setattr(mod, "EMBEDDING_MIN_INTERVAL_SECONDS", 5.0)
+    monkeypatch.setattr(mod, "_next_allowed_ts", 0.0)
+    import time
+
+    before = time.monotonic()
+    await make().embed_batch(
+        ["a", "b", "c"], model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+    after = time.monotonic()
+
+    assert before + 15.0 <= mod._next_allowed_ts <= after + 15.0
+
+
+@pytest.mark.asyncio
+async def test_a_single_request_still_takes_one_interval(service_factory, monkeypatch):
+    make, mod, _rec = service_factory
+    monkeypatch.setattr(mod, "EMBEDDING_MIN_INTERVAL_SECONDS", 5.0)
+    monkeypatch.setattr(mod, "_next_allowed_ts", 0.0)
+    import time
+
+    before = time.monotonic()
+    await make().generate_embedding_with_status(
+        "a", model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+    after = time.monotonic()
+
+    assert before + 5.0 <= mod._next_allowed_ts <= after + 5.0
+
+
+@pytest.mark.parametrize(
+    "interval,expected",
+    [(1.2, 25), (2.0, 15), (0.0, 100), (0.1, 100), (100.0, 1)],
+)
+def test_paced_batch_size_is_half_a_minute_of_the_gate(monkeypatch, interval, expected):
+    import services.embedding_service as mod
+
+    monkeypatch.setattr(mod, "EMBEDDING_MIN_INTERVAL_SECONDS", interval)
+
+    assert mod.paced_batch_size() == expected
+
+
+@pytest.mark.asyncio
+async def test_waiting_for_the_gate_does_not_reserve_a_slot(monkeypatch):
+    """ה-worker מחכה לשער לפני שהוא בודק את הקובץ, ושומר חריץ רק בבקשה עצמה."""
+    import time
+
+    import services.embedding_service as mod
+
+    sleeps = _SleepRecorder()
+    monkeypatch.setattr(mod, "asyncio", sleeps)
+    # מרווח אמיתי: עם ``0`` (ברירת המחדל בטסטים) גם שמירת חריץ לא הייתה מזיזה את השער.
+    monkeypatch.setattr(mod, "EMBEDDING_MIN_INTERVAL_SECONDS", 5.0)
+    busy_until = time.monotonic() + 30.0
+    monkeypatch.setattr(mod, "_next_allowed_ts", busy_until)
+
+    await mod.wait_for_throttle_gate()
+
+    assert mod._next_allowed_ts == busy_until
+    assert len(sleeps.waits) == 1 and 29.0 < sleeps.waits[0] <= 30.0

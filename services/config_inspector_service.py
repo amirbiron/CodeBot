@@ -3507,7 +3507,10 @@ class ConfigService:
             key="EMBEDDING_MIN_INTERVAL_SECONDS",
             services=("webapp", "bot", "webserver"),
             default="1.2",
-            description="מרווח מינימלי (שניות) בין קריאות ל-Gemini Embeddings (שער גלובלי)",
+            description=(
+                "מרווח מינימלי (שניות) בשער הגלובלי של Gemini Embeddings: בקשה תופסת מרווח, "
+                "ואצווה של ה-embedding worker מרווח לכל צ'אנק. קובע גם את גודל האצווה (paced_batch_size)"
+            ),
             category="ai",
         ),
         "EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS": ConfigDefinition(

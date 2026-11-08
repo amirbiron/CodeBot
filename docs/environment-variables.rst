@@ -1236,7 +1236,7 @@
      - ``0.1``
      - Bot/WebApp
    * - ``EMBEDDING_MIN_INTERVAL_SECONDS``
-     - מרווח מינימלי (שניות) בין קריאות ל‑Gemini Embeddings (שער גלובלי למניעת 429)
+     - מרווח מינימלי (שניות) בשער הגלובלי של Gemini Embeddings, למניעת 429. בקשה רגילה תופסת מרווח אחד, ואצווה של ה‑embedding worker תופסת מרווח לכל צ'אנק, כך שהקצב הממוצע של צ'אנקים לא תלוי בגודל האצווה. קובע גם את גודל האצווה של ה‑worker: ``PACED_BATCH_WINDOW_SECONDS`` של מרווחים, עד ``GEMINI_MAX_BATCH_REQUESTS`` (``paced_batch_size`` ב‑``services/embedding_service.py``).
      - לא
      - ``1.2``
      - ``2.0``

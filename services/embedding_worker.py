@@ -7,7 +7,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import List, Optional, Tuple
+from dataclasses import dataclass
+from typing import List, Optional, Sequence, Tuple
 
 from database.manager import (
     get_snippets_needing_processing,
@@ -25,9 +26,13 @@ from services.embedding_service import (
     compute_content_hash,
     get_embedding_service,
     is_dimension_mismatch,
+    oversized_input_detail,
+    paced_batch_size,
+    wait_for_throttle_gate,
 )
 from services.chunking_service import (
     CHUNKER_VERSION,
+    CodeChunk,
     create_embedding_text,
     is_low_information_chunk,
     split_code_to_chunks,
@@ -87,6 +92,19 @@ class EmbeddingQuotaExhausted(Exception):
 
 class _RestartSnippetProcessing(Exception):
     """Internal signal: model/dim changed, restart snippet processing."""
+
+
+@dataclass(frozen=True)
+class _PendingChunk:
+    """צ'אנק שממתין להטמעה: המקום שלו בקובץ, הצ'אנק עצמו, והטקסט שנשלח עליו.
+
+    הטקסט והצ'אנק נוסעים יחד דרך האצוות והחציה, וכך הווקטור ה-i של אצווה מגיע תמיד לצ'אנק
+    שהטקסט ה-i שלה נבנה ממנו.
+    """
+
+    position: int
+    chunk: CodeChunk
+    text: str
 
 
 class EmbeddingWorker:
@@ -160,8 +178,11 @@ class EmbeddingWorker:
                 )
                 break
             except Exception as exc:
+                # גבול הלולאה: כשל של קובץ אחד לא עוצר את האחרים, והקובץ נשאר עם הדגלים שלו
+                # ונבחר שוב בסבב הבא. עם traceback, כי מאז 8.11.2026 הקריאה ל-Gemini כבר לא
+                # עטופה ב-``except Exception`` שהפך כל חריגה לכשל זמני — באג מגיע לכאן.
                 logger.error(
-                    "Failed to process snippet %s: %s", snippet.get("_id"), exc
+                    "Failed to process snippet %s: %s", snippet.get("_id"), exc, exc_info=True
                 )
 
         logger.info("Processed %s/%s snippets", processed, len(snippets))
@@ -184,101 +205,85 @@ class EmbeddingWorker:
             dimensions=effective_dim,
         )
 
-        async def _embed_with_settings(
-            text: str,
-        ) -> Tuple[Optional[List[float]], Optional[str]]:
-            """מחזירה ``(embedding, failure_kind)``.
+        def _act_on_status(code: int) -> str:
+            """מסווג, ומטפל ב-404 באותו אופן בכל אתר קריאה.
 
-            ``failure_kind`` הוא אחד מ-``FAILURE_*`` או ``None`` בהצלחה.
-            הפרדת סוגי הכשל היא מה שמונע את הלולאה האינסופית: רק כשל זמני
-            מחזיר את הקובץ לתור.
+            Model missing mid-processing: לא עושים self-heal במקום (זה היה
+            מערבב וקטורים משתי הגדרות בתוך אותו סניפט), אלא מסמנים ללולאה
+            החיצונית להתחיל את הסניפט מחדש אחרי שה-self-heal עדכן קונפיג.
+            """
+            failure = _classify_status(int(code or 0))
+            if failure == FAILURE_MODEL_MISSING:
+                logger.warning(
+                    "Snippet %s: model returned 404 (status=%s), signalling restart",
+                    snippet_id, code,
+                )
+                raise _RestartSnippetProcessing()
+            return failure
 
-            If the model is missing (404), we signal a restart so the outer loop
-            can self-heal (ListModels pick) and refresh `settings`.
+        async def _embed_texts(
+            texts: Sequence[str],
+        ) -> Tuple[Optional[List[List[float]]], Optional[str]]:
+            """קריאה אחת ל-``embed_batch``. מחזירה ``(וקטורים, None)``, או ``(None, failure_kind)``.
+
+            ``failure_kind`` הוא אחד מ-``FAILURE_*``. הפרדת סוגי הכשל היא מה שמונע את הלולאה
+            האינסופית: רק כשל זמני מחזיר את הקובץ לתור. 404 זורק ``_RestartSnippetProcessing``,
+            כדי שהלולאה החיצונית תריץ self-heal ותרענן את ``settings``.
+
+            **כל הצ'אנקים של קובץ באותן הגדרות.** המודל וגרסת ה-API קבועים לכל הניסיון
+            (``settings``). המימד: אחרי 422 של מימד שונה מהמבוקש, האצווה נשלחת שוב בלי מימד
+            קבוע, ומשם גם כל שאר האצוות של הקובץ (``request_dims``) — אבל רק כל עוד אף וקטור
+            של הקובץ עוד לא התקבל. 422 אחרי וקטור ראשון, או וקטורים באורך אחר משלו, הם כשל זמני:
+            שמירה שלהם הייתה מערבבת מימדים בתוך קובץ אחד, והקובץ חוזר לתור ומתחיל מההתחלה.
             """
             nonlocal effective_model, effective_api_version, effective_dim, effective_key
+            nonlocal request_dims, established_dim
             model = str(getattr(settings, "model", "") or "")
             api_version = str(getattr(settings, "api_version", "") or "v1beta")
-            dimensions = int(getattr(settings, "dimensions", 0) or 768)
 
-            try:
-                embedding, status, body = await self.embedding_service.generate_embedding_with_status(
-                    text,
-                    model=model,
-                    api_version=api_version,
-                    dimensions=dimensions,
+            vectors, status, body = await self.embedding_service.embed_batch(
+                texts, model=model, api_version=api_version, dimensions=request_dims
+            )
+            if vectors is None and is_dimension_mismatch(status, body) and established_dim is None:
+                logger.warning(
+                    "Snippet %s: %s, retrying the batch and the rest of the file without a fixed dimension",
+                    snippet_id, body,
                 )
-            except Exception:
-                return None, FAILURE_TRANSIENT
+                request_dims = 0
+                # הסטטוס של הניסיון השני עובר **בדיוק** את אותו טיפול כמו של הראשון —
+                # כולל 404, שמפעיל self-heal ולא retry. מודל שנעלם בין שתי הקריאות היה
+                # שולח את הקובץ לרטריי אינסופי במקום לתקן את ההגדרה.
+                vectors, status, body = await self.embedding_service.embed_batch(
+                    texts, model=model, api_version=api_version, dimensions=0
+                )
 
-            if embedding:
-                # Ensure effective metadata matches actual settings used.
-                try:
+            if vectors is not None:
+                dims = {len(vector) for vector in vectors}
+                expected = {established_dim} if established_dim is not None else dims
+                if len(dims) != 1 or dims != expected:
+                    logger.warning(
+                        "Snippet %s: vectors of %s dimensions, expected %s; the file goes back to the queue",
+                        snippet_id, sorted(dims), established_dim,
+                    )
+                    return None, FAILURE_TRANSIENT
+                if established_dim is None:
+                    established_dim = dims.pop()
                     effective_model = model
                     effective_api_version = api_version
-                    effective_dim = int(len(embedding) or dimensions or 0) or int(dimensions or 0) or 768
+                    effective_dim = established_dim
                     effective_key = make_embedding_key(
-                        api_version=effective_api_version,
-                        model=effective_model,
-                        dimensions=effective_dim,
+                        api_version=api_version, model=model, dimensions=established_dim
                     )
-                except Exception:
-                    pass
-                return embedding, None
+                return vectors, None
 
-            status = int(status or 0)
-
-            def _act_on_status(code: int) -> str:
-                """מסווג, ומטפל ב-404 באותו אופן בכל אתר קריאה.
-
-                Model missing mid-processing: לא עושים self-heal במקום (זה היה
-                מערבב וקטורים משתי הגדרות בתוך אותו סניפט), אלא מסמנים ללולאה
-                החיצונית להתחיל את הסניפט מחדש אחרי שה-self-heal עדכן קונפיג.
-                """
-                failure = _classify_status(int(code or 0))
-                if failure == FAILURE_MODEL_MISSING:
-                    logger.warning(
-                        "Snippet %s: model returned 404 (status=%s), signalling restart",
-                        snippet_id, code,
-                    )
-                    raise _RestartSnippetProcessing()
-                return failure
-
-            failure = _act_on_status(status)
-            if failure == FAILURE_QUOTA:
-                return None, FAILURE_QUOTA
-
-            # Dimension mismatch (best-effort): retry without fixed dimensionality.
             if is_dimension_mismatch(status, body):
-                try:
-                    emb2, status2, _b2 = await self.embedding_service.generate_embedding_with_status(
-                        text,
-                        model=model,
-                        api_version=api_version,
-                        dimensions=0,
-                    )
-                except Exception:
-                    emb2, status2 = None, 0
-                if emb2:
-                    try:
-                        effective_model = model
-                        effective_api_version = api_version
-                        effective_dim = int(len(emb2) or 0) or effective_dim
-                        effective_key = make_embedding_key(
-                            api_version=effective_api_version,
-                            model=effective_model,
-                            dimensions=effective_dim,
-                        )
-                    except Exception:
-                        pass
-                    return emb2, None
-                # הסטטוס של הניסיון השני עובר **בדיוק** את אותו טיפול כמו של
-                # הראשון — כולל 404, שמפעיל self-heal ולא retry. מודל שנעלם בין
-                # שתי הקריאות היה שולח את הקובץ לרטריי אינסופי במקום לתקן את
-                # ההגדרה.
-                return None, _act_on_status(int(status2 or 0))
-
-            return None, failure
+                logger.warning(
+                    "Snippet %s: %s after the file already has %s-dimension vectors; "
+                    "the file goes back to the queue",
+                    snippet_id, body, established_dim,
+                )
+                return None, FAILURE_TRANSIENT
+            return None, _act_on_status(int(status or 0))
 
         async def _finish(
             *,
@@ -330,6 +335,11 @@ class EmbeddingWorker:
                 chunk_count=int(snippet.get("chunkCount", 0) or 0),
             )
             return
+
+        # ההמתנה לשער קורית לפני הבדיקה שלמטה ולא בתוך הבקשה: אחרי אצווה גדולה של הקובץ הקודם
+        # היא יכולה להיות עשרות שניות, ובתוך החלון שבין הבדיקה לכתיבה (ההערה ליד הבדיקה החוזרת)
+        # היא רק הייתה מגדילה את הסיכוי שגרסה חדשה תישמר בינתיים.
+        await wait_for_throttle_gate()
 
         # גרסה שאינה האחרונה לא תופיע בתוצאות חיפוש בשום מקרה — הצינור מסנן
         # אותה. אין טעם לשלם עליה קריאות ל-Gemini, ואת הצ'אנקים שלה מנקים.
@@ -399,10 +409,72 @@ class EmbeddingWorker:
             chunk_docs = []
             transient_failures = 0
             permanent_failures = 0
+            # המימד שהאצוות של הקובץ מבקשות, והמימד שהווקטור הראשון שלו קיבל (``_embed_texts``).
+            # מתאפסים בכל ניסיון, כי ניסיון אחרי restart מתחיל מהגדרות שרועננו.
+            request_dims: int = int(getattr(settings, "dimensions", 0) or 768)
+            established_dim: Optional[int] = None
+
+            def _reject(chunk: CodeChunk) -> None:
+                """צ'אנק שנדחה לצמיתות: נספר, ומדווח באירוע משלו. הקובץ לא נתקע בגללו."""
+                nonlocal permanent_failures
+                permanent_failures += 1
+                emit_event(
+                    "embedding_chunk_rejected",
+                    severity="warn",
+                    snippet_id=str(snippet_id),
+                    chunk_index=int(chunk.index),
+                    bytes=len(chunk.content.encode("utf-8")),
+                )
+
+            async def _embed_items(items: Sequence[_PendingChunk]) -> None:
+                """מטמיע את ``items`` בקריאה אחת, ושומר וקטור לכל צ'אנק לפי הסדר.
+
+                הספק דוחה אצווה שלמה בגלל פריט אחד (``EmbeddingService.embed_batch``), ולכן
+                אחרי כשל קבוע (400) האצווה נחצית, וכל חצי נשלח לבד, עד שהצ'אנק שנדחה נשאר
+                לבדו. שאר הצ'אנקים נשמרים. צ'אנק פסול אחד עולה בערך ``2·log2(n)`` בקשות
+                נוספות; אצווה שכל הצ'אנקים שלה פסולים — עד ``2n - 1``. כל חציה נרשמת בלוג.
+                """
+                nonlocal transient_failures
+                vectors, failure = await _embed_texts([item.text for item in items])
+                if vectors is not None:
+                    for item, vector in zip(items, vectors):
+                        chunk_docs.append(
+                            {
+                                "chunkIndex": item.position,
+                                "codeChunk": item.chunk.content,
+                                "startLine": item.chunk.start_line,
+                                "endLine": item.chunk.end_line,
+                                "language": snippet.get("programming_language", "unknown"),
+                                "chunkEmbedding": vector,
+                                "embeddingModelKey": effective_key,
+                                "embeddingModel": effective_model,
+                                "embeddingApiVersion": effective_api_version,
+                                "embeddingDim": effective_dim,
+                            }
+                        )
+                    return
+                if failure == FAILURE_QUOTA:
+                    raise EmbeddingQuotaExhausted()
+                if failure == FAILURE_PERMANENT:
+                    if len(items) == 1:
+                        _reject(items[0].chunk)
+                        return
+                    middle = len(items) // 2
+                    logger.warning(
+                        "Snippet %s: a batch of %s chunks was rejected, splitting it in two "
+                        "to find the rejected chunk",
+                        snippet_id, len(items),
+                    )
+                    await _embed_items(items[:middle])
+                    await _embed_items(items[middle:])
+                    return
+                transient_failures += len(items)
+
             try:
                 # ``chunkIndex`` ממוספר מחדש ברצף: הצינור בחיפוש מקבץ לפי
                 # ``(snippetId, chunkIndex)``, וחורים במספור אינם מזיקים —
                 # אבל מיפוי רציף שומר על ``chunkCount`` כמדד אמיתי.
+                pending: List[_PendingChunk] = []
                 for position, chunk in enumerate(chunks):
                     embedding_text = create_embedding_text(
                         code_chunk=chunk.content,
@@ -411,36 +483,17 @@ class EmbeddingWorker:
                         tags=snippet.get("tags", []),
                         language=snippet.get("programming_language"),
                     )
+                    # טקסט ארוך מדי נדחה כאן, בלי לשלוח אותו: באצווה הוא היה מפיל את כולה.
+                    if oversized_input_detail(embedding_text):
+                        _reject(chunk)
+                        continue
+                    pending.append(_PendingChunk(position, chunk, embedding_text))
 
-                    embedding, failure = await _embed_with_settings(embedding_text)
-                    if failure == FAILURE_QUOTA:
-                        raise EmbeddingQuotaExhausted()
-                    if embedding:
-                        chunk_docs.append(
-                            {
-                                "chunkIndex": position,
-                                "codeChunk": chunk.content,
-                                "startLine": chunk.start_line,
-                                "endLine": chunk.end_line,
-                                "language": snippet.get("programming_language", "unknown"),
-                                "chunkEmbedding": embedding,
-                                "embeddingModelKey": effective_key,
-                                "embeddingModel": effective_model,
-                                "embeddingApiVersion": effective_api_version,
-                                "embeddingDim": effective_dim,
-                            }
-                        )
-                    elif failure == FAILURE_PERMANENT:
-                        permanent_failures += 1
-                        emit_event(
-                            "embedding_chunk_rejected",
-                            severity="warn",
-                            snippet_id=str(snippet_id),
-                            chunk_index=int(chunk.index),
-                            bytes=len(chunk.content.encode("utf-8")),
-                        )
-                    else:
-                        transient_failures += 1
+                # אצוות של ``paced_batch_size`` (ההסבר שם). השער מרחיק את הבקשה הבאה מרווח לכל
+                # צ'אנק, ולכן הקצב הממוצע של צ'אנקים נשאר כמו כשכל צ'אנק היה בקשה.
+                batch_size = paced_batch_size()
+                for start in range(0, len(pending), batch_size):
+                    await _embed_items(pending[start:start + batch_size])
             except _RestartSnippetProcessing:
                 # Model disappeared mid-run: restart (once).
                 if attempt == 0:
@@ -462,11 +515,12 @@ class EmbeddingWorker:
                 )
                 return
 
-            # בדיקה חוזרת ממש לפני הכתיבה. החלון בין הבדיקה הראשונה לכאן
-            # הוא כל משך ההטמעה — דקות, בקצב של 1.2 שניות לצ'אנק. בזמן הזה
-            # יכולה להישמר גרסה חדשה, והניקוי שלה כבר רץ ומחק את הצ'אנקים
-            # של הישנה. בלי הבדיקה הזו היינו כותבים אותם מיד אחרי, וגרסה
-            # שהוחלפה הייתה חוזרת ל-``$vectorSearch``.
+            # בדיקה חוזרת ממש לפני הכתיבה. החלון בין הבדיקה הראשונה לכאן הוא משך
+            # ההטמעה: בקשה אחת לקובץ שנכנס באצווה אחת, וקובץ גדול יותר מחכה בין
+            # האצוות שלו לשער (``paced_batch_size``). עד 8.11.2026 כל צ'אנק היה בקשה,
+            # והחלון היה דקות. בזמן הזה יכולה להישמר גרסה חדשה, והניקוי שלה כבר רץ
+            # ומחק את הצ'אנקים של הישנה. בלי הבדיקה הזו היינו כותבים אותם מיד אחרי,
+            # וגרסה שהוחלפה הייתה חוזרת ל-``$vectorSearch``.
             if not await is_latest_active_snippet(
                 user_id, str(snippet.get("file_name") or ""), snippet_id
             ):

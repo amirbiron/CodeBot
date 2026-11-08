@@ -17,21 +17,32 @@ from services.chunking_service import CHUNKER_VERSION
 
 
 class _FakeEmbeddingService:
-    """מחזיר תשובות לפי תור מתוכנן, ומונה כמה קריאות יצאו."""
+    """מחזיר תשובה מתוכננת לכל קריאה ל-``embed_batch``, ומונה כמה קריאות יצאו.
+
+    תשובה בתור היא ``(וקטור, סטטוס, תיאור)``: בהצלחה הווקטור חוזר לכל טקסט באצווה, ובכשל
+    ``None`` חוזר כמו שהוא. בלי תשובה בתור — 768 מימדים לכל טקסט.
+    """
 
     def __init__(self, responses):
         self._responses = list(responses)
         self.calls = 0
         self.heal_calls = 0
+        self.batches = []
+        self.dimensions = []
 
     def is_available(self):
         return True
 
-    async def generate_embedding_with_status(self, text, *, model, api_version, dimensions):
+    async def embed_batch(self, texts, *, model, api_version, dimensions):
         self.calls += 1
+        self.batches.append(list(texts))
+        self.dimensions.append(dimensions)
         if self._responses:
-            return self._responses.pop(0)
-        return ([0.1] * 768, 200, "")
+            vector, status, body = self._responses.pop(0)
+            if vector is None:
+                return None, status, body
+            return [list(vector) for _ in texts], status, body
+        return [[0.1] * 768 for _ in texts], 200, ""
 
     async def generate_embedding(self, text):
         self.heal_calls += 1
@@ -63,6 +74,11 @@ def harness(monkeypatch):
     async def _is_latest(user_id, file_name, snippet_id):
         return True
 
+    async def _gate_open():
+        return None
+
+    # השער של התהליך משותף לכל הטסטים, וטסט שדחף אותו קדימה היה גורם לטסט כאן לחכות.
+    monkeypatch.setattr(worker_mod, "wait_for_throttle_gate", _gate_open)
     monkeypatch.setattr(worker_mod, "save_snippet_chunks", _save_snippet_chunks)
     monkeypatch.setattr(worker_mod, "update_snippet_embedding_status", _update_status)
     monkeypatch.setattr(worker_mod, "is_latest_active_snippet", _is_latest)
@@ -274,16 +290,20 @@ class TestNoMetadataRequest:
     """
 
     @pytest.mark.asyncio
-    async def test_every_request_is_a_chunk(self, harness, monkeypatch):
+    async def test_the_only_requests_are_the_chunk_batches(self, harness, monkeypatch):
+        """כל בקשה היא אצווה של צ'אנקים (``paced_batch_size``), ואין שום בקשה מעבר להן."""
         saved, _updates = harness
         w, svc = _make_worker(monkeypatch, [])
+        monkeypatch.setattr(worker_mod, "paced_batch_size", lambda: 3)
+        code = "".join(f"value_{i} = compute_total(items_{i}, offset={i})\n" for i in range(300))
 
-        await w._process_snippet(_snippet(code="print(1)\n" * 40))
+        await w._process_snippet(_snippet(code=code))
 
         stored = saved[-1]["chunks"]
-        assert stored, "no chunks were stored"
-        assert svc.calls == len(stored), (
-            f"{svc.calls} requests for {len(stored)} chunks: an extra request was sent"
+        assert len(stored) > 3, "the file must need more than one batch"
+        assert sum(len(batch) for batch in svc.batches) == len(stored), "an extra text was sent"
+        assert svc.calls == -(-len(stored) // 3), (
+            f"{svc.calls} requests for {len(stored)} chunks in batches of 3"
         )
 
     @pytest.mark.asyncio
