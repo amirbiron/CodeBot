@@ -3219,7 +3219,8 @@ function templateFiles(){
   return walk(TEMPLATES_DIR).filter((f) => f.endsWith('.html'));
 }
 
-function liveLoaders(){
+/** כל העמודים — תבניות שאינן נכללות מתבנית אחרת — אחרי פתרון ה-``{% include %}``. */
+function templatePages(){
   const files = templateFiles();
   const included = new Set();
   files.forEach((f) => {
@@ -3233,8 +3234,19 @@ function liveLoaders(){
       resolve(readTemplate(path.join(TEMPLATES_DIR, name)), depth + 1));
   };
   return files.filter((f) => !included.has(f))
-    .map((f) => ({ name: path.relative(TEMPLATES_DIR, f), src: resolve(readTemplate(f), 0) }))
-    .filter(({ src }) => src.includes("filename='js/live-preview.js'"));
+    .map((f) => ({ name: path.relative(TEMPLATES_DIR, f), src: resolve(readTemplate(f), 0) }));
+}
+
+function liveLoaders(){
+  return templatePages().filter(({ src }) => src.includes("filename='js/live-preview.js'"));
+}
+
+/**
+ * האם העמוד טוען את הנכס, באחת משתי צורות הכתיבה שבריפו: ``url_for`` או נתיב ``/static/``
+ * קשיח (``snippets.html``). ה-``?v=`` של שתיהן נאכף ב-``tests/test_static_cache_busting.py``.
+ */
+function loadsAsset(src, asset){
+  return src.includes("filename='" + asset + "'") || src.includes('/static/' + asset);
 }
 
 check('חיווט: כל תבנית שטוענת live-preview.js טוענת גם את מפת האלרטים, ולפניה', () => {
@@ -3291,6 +3303,39 @@ check('חיווט: כל תבנית שטוענת live-preview.js מספקת גם 
          name + ' טוען את האייקונים של Bootstrap');
     }
   });
+});
+
+check('חיווט: כל עמוד שטוען safe-highlight.js טוען גם את rtl-code.js', () => {
+  // ``SafeHighlight.highlightBlock`` מריץ אחרי ההדגשה את ``RtlCode.isolateHebrewTokens``
+  // (הערות ומחרוזות עבריות בתוך שורת קוד), ומדלג עליו כש-``window.RtlCode`` חסר — היעדר
+  // יכולת סטטי, כמו בפתקים. בלי הבדיקה הזו עמוד חדש שמדגיש קוד היה מקבל את ההדגשה בלי
+  // העטיפה, בלי שגיאה. הסדר בין השניים אינו מחייב: ``RtlCode`` נקרא בזמן ההדגשה, לא בטעינה.
+  const pages = templatePages().filter(({ src }) => loadsAsset(src, 'js/utils/safe-highlight.js'));
+  // בקרה: עמודים מכל הסוגים — עם התצוגה החיה, תצוגת המסמך, וספריית הסניפטים בכתובת הקשיחה.
+  ['md_preview.html', 'snippets.html', 'admin_snippet_view.html', 'edit_file.html'].forEach((name) => {
+    eq(pages.some((p) => p.name === name), true, 'נמצא ' + name + ' בין העמודים שטוענים את safe-highlight.js');
+  });
+  pages.forEach(({ name, src }) => {
+    eq(loadsAsset(src, 'js/utils/rtl-code.js'), true, name + ' טוען את rtl-code.js');
+  });
+});
+
+check('חיווט: כל הדגשה של בלוק עוברת דרך SafeHighlight, ולא ישירות דרך hljs', () => {
+  // **המקום היחיד שמריץ את העטיפה הוא ``highlightBlock``.** עמוד שקורא ל-``hljs.highlightElement``
+  // או ל-``hljs.highlightAll`` בעצמו מדלג עליה — וגם על החסימה של זיהוי diff — בלי שגיאה. כך היה
+  // ב-``admin_snippet_view.html`` עד שהועבר ל-``SafeHighlight.highlightAllBlocks``.
+  const direct = /hljs\.(?:highlightElement|highlightAll)\s*\(/;
+  const offenders = templatePages().filter(({ src }) => direct.test(src)).map(({ name }) => name);
+  const jsDir = path.join(__dirname, '..', 'webapp', 'static', 'js');
+  const walkJs = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walkJs(path.join(d, e.name)) : [path.join(d, e.name)]);
+  walkJs(jsDir)
+    // ``safe-highlight.js`` הוא המקום שכן קורא; הבאנדל הוא highlight.js עצמו.
+    .filter((f) => f.endsWith('.js') && !f.endsWith('.bundle.js') && !f.endsWith(path.join('utils', 'safe-highlight.js')))
+    .filter((f) => direct.test(fs.readFileSync(f, 'utf8')))
+    .forEach((f) => offenders.push(path.relative(jsDir, f)));
+  // ``eq`` משווה ב-``!==``, ולכן הרשימה עוברת כמחרוזת.
+  eq(offenders.join(', '), '', 'קוראים ישירים ל-hljs');
 });
 
 check('חיווט: בלוק הקוד של תצוגת המסמך נבנה מ-md-code-blocks.js, ולא מעותק בתבנית', () => {

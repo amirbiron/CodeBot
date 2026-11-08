@@ -1,6 +1,7 @@
 /**
- * זיהוי ויישור RTL לבלוקי קוד עם תוכן בעברית.
- * משותף ל-live-preview, repo-browser ו-md_preview.
+ * זיהוי ויישור RTL לבלוקי קוד עם תוכן בעברית, ועברית בתוך שורת קוד.
+ * משותף ל-live-preview, repo-browser, md_preview ו-safe-highlight
+ * (``isolateHebrewTokens``, שרץ בכל הדגשה שעוברת דרכו).
  */
 (function () {
   'use strict';
@@ -244,45 +245,111 @@
     return ranges;
   }
 
-  function childIndex(node) {
-    var i = 0;
-    while ((node = node.previousSibling)) i++;
-    return i;
+  // אורך הטקסט של צומת, כפי שהוא נספר ב-``textContent`` של ההורה: הערת HTML
+  // אינה טקסט, ולכן אפס.
+  function textLength(node) {
+    if (node.nodeType === 3) return node.data.length;
+    if (node.nodeType === 1) return node.textContent.length;
+    return 0;
   }
 
-  function nodeLength(node) {
-    return node.nodeType === 3 ? node.data.length : node.childNodes.length;
-  }
-
-  // נקודה בתוך ``root`` לפי מיקום תו ב-``textContent`` שלו. נקודת התחלה
-  // יושבת בצומת שהתו **מתחיל** בו, ונקודת סוף בצומת שהתו שלפניה **נגמר**
-  // בו. אחר כך הנקודה מטפסת כל עוד היא בקצה של אלמנט: כך אלמנט צבוע
-  // שמתחיל בדיוק בגבול עובר לתוך הקטע שלם, במקום להשאיר מאחור קליפה ריקה.
-  function boundaryPoint(root, offset, isEnd) {
-    var walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  /**
+   * מפצלת צומת לחלקים לפי ``cuts`` — מיקומים בטקסט שלו, ממוינים, ממש בתוכו
+   * (לא בקצוות). צומת טקסט נחתך לצמתי טקסט; אלמנט נשכפל בלי ילדיו לכל חלק,
+   * והילדים שלו — מפוצלים באותה דרך — מתחלקים בין השכפולים. כך ``hljs-doctag``
+   * שהגבול עובר בתוכו הופך לשני אלמנטים עם אותה מחלקה, ואין צבע שאובד.
+   * בלי ``cuts`` הצומת חוזר כמו שהוא.
+   */
+  function splitNode(node, cuts) {
+    if (!cuts.length) return [node];
+    var doc = node.ownerDocument;
+    var parts = [];
+    var i;
+    if (node.nodeType === 3) {
+      var from = 0;
+      for (i = 0; i < cuts.length; i++) {
+        parts.push(doc.createTextNode(node.data.slice(from, cuts[i])));
+        from = cuts[i];
+      }
+      parts.push(doc.createTextNode(node.data.slice(from)));
+      return parts;
+    }
+    for (i = 0; i <= cuts.length; i++) parts.push(node.cloneNode(false));
     var seen = 0;
-    var node;
-    var point = null;
-    while ((node = walker.nextNode())) {
-      var len = node.data.length;
-      if (isEnd ? offset <= seen + len : offset < seen + len) {
-        point = { node: node, offset: offset - seen };
-        break;
-      }
+    var k = 0;
+    Array.prototype.slice.call(node.childNodes).forEach(function (child) {
+      var len = textLength(child);
+      while (k < cuts.length && cuts[k] <= seen) k++;
+      var inner = [];
+      for (var j = k; j < cuts.length && cuts[j] < seen + len; j++) inner.push(cuts[j] - seen);
+      var segment = k;
+      splitNode(child, inner).forEach(function (part, n) { parts[segment + n].appendChild(part); });
       seen += len;
-    }
-    if (!point) point = { node: root, offset: root.childNodes.length };
-    while (point.node !== root) {
-      var parent = point.node.parentNode;
-      if (!isEnd && point.offset === 0) {
-        point = { node: parent, offset: childIndex(point.node) };
-      } else if (isEnd && point.offset === nodeLength(point.node)) {
-        point = { node: parent, offset: childIndex(point.node) + 1 };
+    });
+    return parts;
+  }
+
+  /**
+   * עוטפת כל טווח ב-``ranges`` — ``{start, end}`` במיקומי התווים של
+   * ``textContent`` של ``root``, ממוינים ולא חופפים — באלמנט ש-``makeWrapper``
+   * מחזיר, כילד ישיר של ``root``. מחזירה כמה עטיפות נוספו. משותפת ל-
+   * ``wrapInnerFences`` ול-``isolateHebrewTokens``.
+   *
+   * **גוזרת מתוך ה-HTML שכבר נצבע, ולא צובעת מחדש.** אלמנט צבוע שחוצה גבול
+   * מפוצל (``splitNode``) — חלק נשאר בחוץ וחלק עובר לעטיפה — ולכן אין צורך
+   * לדעת אילו טוקנים highlight.js פורש על כמה שורות, או באיזו שפה הבלוק נצבע.
+   * אלמנט שמתחיל או נגמר בדיוק בגבול עובר שלם, בלי קליפה ריקה מאחור.
+   * ``textContent`` נשאר זהה תו בתו, וכפתורי ההעתקה קוראים ממנו.
+   *
+   * **ליניארית באורך התוכן, במעבר אחד.** הגרסה הקודמת גזרה כל טווח ב-
+   * ``Range.extractContents`` משלו, וזה היה ריבועי באורך טוקן: כל ``Range``
+   * חי מתעדכן בכל שינוי במסמך, נקודה בתוך אלמנט היא "הילד ה-N" ונמצאת בהליכה
+   * על האחים, וחיתוך באמצע צומת טקסט מעתיק אותו. ב-docstring עברי של אלפי
+   * שורות — טווח לכל שורה — זה נמדד בכרומיום בשניות ארוכות, והתצוגה החיה
+   * מרנדרת מחדש בכל הקלדה.
+   */
+  function wrapTextRanges(root, ranges, makeWrapper) {
+    if (!ranges.length) return 0;
+    var cuts = [];
+    ranges.forEach(function (r) { cuts.push(r.start, r.end); });
+    var pieces = [];
+    var seen = 0;
+    var k = 0;
+    Array.prototype.slice.call(root.childNodes).forEach(function (child) {
+      var len = textLength(child);
+      while (k < cuts.length && cuts[k] <= seen) k++;
+      var inner = [];
+      for (var j = k; j < cuts.length && cuts[j] < seen + len; j++) inner.push(cuts[j] - seen);
+      var bounds = [seen].concat(inner.map(function (c) { return seen + c; }), [seen + len]);
+      splitNode(child, inner).forEach(function (part, n) {
+        pieces.push({ node: part, start: bounds[n], end: bounds[n + 1] });
+      });
+      seen += len;
+    });
+    var frag = root.ownerDocument.createDocumentFragment();
+    var wrappers = [];
+    var r = 0;
+    pieces.forEach(function (p) {
+      while (r < ranges.length && ranges[r].end <= p.start) r++;
+      var range = ranges[r];
+      // חלק באורך אפס (צומת ריק) נכנס רק כשהוא ממש בפנים — כמו שהוא לא
+      // נכנס לקטע כשהוא יושב בדיוק על הגבול.
+      var inside = range && (p.end > p.start
+        ? range.start <= p.start && p.end <= range.end
+        : range.start < p.start && p.start < range.end);
+      if (inside) {
+        if (!wrappers[r]) {
+          wrappers[r] = makeWrapper();
+          frag.appendChild(wrappers[r]);
+        }
+        wrappers[r].appendChild(p.node);
       } else {
-        break;
+        frag.appendChild(p.node);
       }
-    }
-    return point;
+    });
+    while (root.firstChild) root.removeChild(root.firstChild);
+    root.appendChild(frag);
+    return wrappers.filter(Boolean).length;
   }
 
   /**
@@ -300,12 +367,10 @@
    * נקראת מהמחלקה ``rtl-code`` שעל ה-``pre``, כלומר מ-``applyRtlIfHebrew``
    * שרצה לפני ההדגשה.
    *
-   * **העטיפה גוזרת את הקטע מתוך ה-HTML שכבר נצבע, ולא צובעת מחדש.**
-   * ``Range.extractContents`` מפצל בעצמו כל אלמנט צבוע שחוצה את הגבול —
-   * חצי נשאר בחוץ וחצי עובר לעטיפה — ולכן אין צורך לדעת אילו טוקנים
-   * highlight.js פורש על כמה שורות, ואין צורך לדעת באיזו שפה הבלוק נצבע.
-   * הצבעים נשארים של הבלוק השלם, והעטיפה עובדת גם כש-highlight.js לא נטען.
-   * ``textContent`` נשאר זהה תו בתו, וכפתורי ההעתקה קוראים ממנו.
+   * **העטיפה גוזרת את הקטע מתוך ה-HTML שכבר נצבע, ולא צובעת מחדש**
+   * (``wrapTextRanges``). הצבעים נשארים של הבלוק השלם, והעטיפה עובדת גם
+   * כש-highlight.js לא נטען. ``textContent`` נשאר זהה תו בתו, וכפתורי
+   * ההעתקה קוראים ממנו.
    *
    * **לא עוטפת פעמיים.** עטיפה שכבר קיימת בבלוק פירושה שהוא כבר טופל;
    * הצבעה מחדש מוחקת אותה, ואז הבלוק נעטף שוב.
@@ -314,21 +379,217 @@
     var pre = block && block.closest ? block.closest('pre') : null;
     if (!pre || !pre.classList.contains('rtl-code')) return 0;
     if (block.querySelector('.rtl-code-ltr')) return 0;
-    var ranges = innerFenceRanges(block.textContent);
     var doc = block.ownerDocument;
-    ranges.forEach(function (r) {
-      var start = boundaryPoint(block, r.start, false);
-      var end = boundaryPoint(block, r.end, true);
-      var range = doc.createRange();
-      range.setStart(start.node, start.offset);
-      range.setEnd(end.node, end.offset);
+    return wrapTextRanges(block, innerFenceRanges(block.textContent), function () {
       var wrapper = doc.createElement('span');
       wrapper.className = 'rtl-code-ltr';
       wrapper.setAttribute('dir', 'ltr');
-      wrapper.appendChild(range.extractContents());
-      range.insertNode(wrapper);
+      return wrapper;
     });
-    return ranges.length;
+  }
+
+  // ─── הערות ומחרוזות עבריות בתוך שורת קוד ───────────────────────────
+  //
+  // הכיוון ההפוך מ-``wrapInnerFences``: שם בלוק עברי מכיל קוד, כאן בלוק קוד
+  // מכיל עברית. כל שורה בבלוק קוד היא פסקה משמאל לימין, ולכן הערה כמו
+  // ``// הצורה המינימלית של צומת hast שהתוסף צריך`` מתפרקת לשני קטעים עבריים
+  // משני צדי ``hast``, והם מסודרים משמאל לימין — בסדר הקריאה ההפוך. התיקון:
+  // הגוף של ההערה או המחרוזת נעטף ב-``<span dir="rtl">``. גיליון הסגנון של
+  // הדפדפן נותן לכל אלמנט עם ``dir`` את ``unicode-bidi: isolate`` (תקן HTML,
+  // "Bidirectional text" בפרק ה-Rendering), ולכן הגוף מסודר מימין לשמאל בתוך
+  // עצמו, והשורה סביבו לא זזה — בלי שורת CSS. הועבר מהבלוג של הפורטפוליו
+  // (``client/src/lib/rtl-code-tokens.ts`` שם).
+  //
+  // **ההזחה והסימנים נשארים בחוץ.** עטיפה של הטוקן כולו נמדדה בבלוג ונפסלה:
+  // ב-``dir="rtl"`` הרווחים של ההזחה עוברים לצד ימין, הערה מוזחת נדחפת לקצה
+  // השמאלי, ו-``<!--``/``-->`` מתהפכים. ומאותה סיבה גם שלד המחרוזת נשאר
+  // בחוץ — התחילית והגרש. ב-highlight.js (בניגוד ל-Shiki של הבלוג) התחילית
+  // היא חלק מהטוקן: ``f"…"`` של פייתון, ``$@"…"`` של C#, ``r#"…"#`` של Rust
+  // (נבדק ב-11.9.0 וב-11.11.1). בתוך העטיפה ה-``f`` של ``f"✅ הקובץ {name}
+  // נשמר"`` היה מצויר בקצה הימני, אחרי הגרש הסוגר.
+
+  // **סימני ההערה בתחילת שורה, לפי הסדר שבו הם נבדקים**: הטקסט, והאם התו
+  // האחרון שלו יכול לחזור (``///``, ``##``, ``/**``, ``;;``). הרשימה של הבלוג
+  // (``//``, ``#``, ``--``, ``/*``, ``*`` — סימן ההמשך בשורות של ``/* … *\/`` —
+  // ``<!--``, ``"""``, ``'''``), ועוד הסימנים שהטוקן של highlight.js 11.11.1
+  // פותח בהם בשפות שהרשימה של הבלוג לא כיסתה: ``;`` (``ini``, ``lisp``),
+  // ``%`` (``erlang``, ``matlab``, ``latex``), ``!`` (``fortran``), ``'`` ו-
+  // ``REM`` (``vbnet``, בלי הבחנה בין אותיות גדולות לקטנות, ורק כשאחריו רווח —
+  // ``([\t ]|^)REM(?=\s)`` ב-``vbnet.js``). סימן שאינו כאן נשאר בתוך העטיפה,
+  // ובכיוון מימין לשמאל הוא מצויר בקצה הימני של העברית.
+  var COMMENT_OPENERS = [
+    { text: '//', repeats: true },
+    { text: '#', repeats: true },
+    { text: '--' },
+    { text: '/*', repeats: true },
+    { text: '*' },
+    { text: '<!--' },
+    { text: '"""' },
+    { text: "'''" },
+    { text: ';', repeats: true },
+    { text: '%', repeats: true },
+    { text: '!', repeats: true },
+    { text: "'" },
+    { text: 'REM', word: true },
+  ];
+  var COMMENT_CLOSERS = ['*/', '-->', '"""', "'''"];
+
+  // שלד המחרוזת: בפתיחה — תחילית צמודה וגרש (``f"``, ``rb'``, ``$@"``,
+  // ``u8"``, ``r#"``, ``"""``), ובסגירה — הגרש ו-``#`` של Rust. רק בשורה
+  // הראשונה של הטוקן ובאחרונה שלו: גרש בתחילת שורה **באמצע** מחרוזת רב-שורתית
+  // הוא תוכן ולא סימן. שני הביטויים מעוגנים לקצה ואין בהם חזרה חופפת, ולכן
+  // הם ליניאריים.
+  var STRING_OPEN = /^[A-Za-z0-9@$#]*(?:"""|'''|"|'|`)/;
+  var STRING_CLOSE = /(?:"""|'''|"|'|`)#*$/;
+
+  // **מחרוזת raw של C ו-C++**: ``R"tag(`` … ``)tag"``, וה-tag חלק מהשלד. אותו
+  // ביטוי כמו הפתיחה ב-``cpp.js`` וב-``c.js`` של highlight.js 11.11.1, והסגירה
+  // שם היא אותו tag (``END_SAME_AS_BEGIN``). בתוך העטיפה tag שאינו סימטרי
+  // במראה, כמו ``-=``, היה מצויר בסדר ההפוך — נמדד, ו-
+  // ``tests/test_rtl_code_tokens_browser.py`` בודק את זה.
+  var CPP_RAW_OPEN = /^(?:u8?|U|L)?R"([^()\\ ]{0,16})\(/;
+
+  function isSpace(ch) {
+    return /\s/.test(ch);
+  }
+
+  // אורך סימן הפתיחה של הערה ב-``line[at]``, או אפס.
+  function commentOpenerLength(line, at) {
+    for (var k = 0; k < COMMENT_OPENERS.length; k++) {
+      var opener = COMMENT_OPENERS[k];
+      var len = opener.text.length;
+      var found = opener.word
+        ? line.slice(at, at + len).toUpperCase() === opener.text && isSpace(line.charAt(at + len))
+        : line.slice(at, at + len) === opener.text;
+      if (!found) continue;
+      if (opener.repeats) {
+        var last = opener.text.charAt(len - 1);
+        while (line.charAt(at + len) === last) len++;
+      }
+      return len;
+    }
+    return 0;
+  }
+
+  /**
+   * הגוף של שורה בטוקן, ``{start, end}`` בתוך השורה: בלי הרווחים בשני הקצוות,
+   * ובהערה גם בלי סימן הפתיחה וסימן הסגירה.
+   *
+   * **סריקה של תווים ולא ביטוי רגולרי**, מאותה סיבה כמו ``fenceOpening``. הביטוי
+   * של הבלוג (גוף עצל, ואחריו ``\s*`` משני צדי סימן סגירה אופציונלי) ניסה כל
+   * חלוקה של רצף רווחים בין שני ה-``\s*``, בכל מקום שהגוף נעצר בו — זמן שגדל
+   * בחזקה שלישית באורך הרצף, והערה עם כמה אלפי רווחים תקעה את העמוד לשניות
+   * ארוכות. כאן כל תו נקרא פעם אחת לכל היותר מכל כיוון, ו-
+   * ``tests/rtl-code-tokens.test.js`` בודק שהזמן גדל ליניארית.
+   */
+  function lineBody(line, isComment) {
+    var start = 0;
+    var end = line.length;
+    while (start < end && isSpace(line.charAt(start))) start++;
+    if (isComment) {
+      start += commentOpenerLength(line, start);
+      while (start < end && isSpace(line.charAt(start))) start++;
+    }
+    while (end > start && isSpace(line.charAt(end - 1))) end--;
+    if (isComment) {
+      for (var k = 0; k < COMMENT_CLOSERS.length; k++) {
+        var closer = COMMENT_CLOSERS[k];
+        if (end - closer.length >= start && line.slice(end - closer.length, end) === closer) {
+          end -= closer.length;
+          break;
+        }
+      }
+      while (end > start && isSpace(line.charAt(end - 1))) end--;
+    }
+    return { start: start, end: end };
+  }
+
+  var HEBREW_TOKENS = '.hljs-comment, .hljs-string';
+
+  /**
+   * טווחי הגוף שצריך לעטוף בטקסט של טוקן אחד: ``{start, end}`` לכל שורה,
+   * ``end`` לא כלול. הטוקן של highlight.js יכול להימשך על כמה שורות (``/* … *\/``,
+   * docstring), וכל שורה היא פסקה נפרדת, ולכן ההחלטה וההפרדה הן לכל שורה.
+   *
+   * שורה נעטפת כשהגוף שלה ``isHebrewMajority`` (הסף הוא ``HEBREW_THRESHOLD``),
+   * **ויש בו יותר ממילה אחת.** מילה בודדת אין לה סדר לתקן, ועטיפה שלה רק מזיקה:
+   * highlight.js צובע ערך YAML בלי גרשיים כטוקן לכל מילה (``name: ערך בעברית``
+   * הוא שני טוקנים), ואלמנט מבודד נחשב בשורה כתו ניטרלי. שתי מילים עבריות
+   * צמודות מסודרות היום מימין לשמאל כרצף אחד; כל אחת עטופה לבד — הן מתהפכות.
+   * נמדד בכרומיום, ו-``tests/test_rtl_code_tokens_browser.py`` בודק את זה.
+   */
+  function hebrewTokenRanges(text, isString) {
+    var lines = String(text == null ? '' : text).split('\n');
+    var ranges = [];
+    var offset = 0;
+    var rawCloser = null;
+    lines.forEach(function (line, i) {
+      var lineStart = offset;
+      offset += line.length + 1;
+      var lead = 0;
+      var rest = line;
+      if (isString) {
+        if (i === 0) {
+          var raw = CPP_RAW_OPEN.exec(rest);
+          var open = raw || STRING_OPEN.exec(rest);
+          if (raw) rawCloser = ')' + raw[1] + '"';
+          if (open) { lead = open[0].length; rest = rest.slice(lead); }
+        }
+        if (i === lines.length - 1) {
+          if (rawCloser) {
+            if (rest.slice(-rawCloser.length) === rawCloser) rest = rest.slice(0, rest.length - rawCloser.length);
+          } else {
+            var close = STRING_CLOSE.exec(rest);
+            if (close) rest = rest.slice(0, close.index);
+          }
+        }
+      }
+      var span = lineBody(rest, !isString);
+      var body = rest.slice(span.start, span.end);
+      if (!body || !/\s/.test(body) || !isHebrewMajority(body)) return;
+      var start = lineStart + lead + span.start;
+      ranges.push({ start: start, end: start + body.length });
+    });
+    return ranges;
+  }
+
+  /**
+   * עוטפת ב-``<span dir="rtl">`` את הגוף של כל הערה ומחרוזת עבריות בבלוק קוד
+   * שכבר נצבע, ומחזירה כמה עטיפות נוספו. ``SafeHighlight.highlightBlock`` קורא
+   * לה אחרי הצביעה, ולכן כל מי שמדגיש דרכו מקבל אותה.
+   *
+   * **בלוק ``pre.rtl-code`` מדולג** — הוא כבר כולו מימין לשמאל
+   * (``applyRtlIfHebrew``), והקוד שבתוכו מטופל ב-``wrapInnerFences``.
+   *
+   * **רק הטוקן החיצוני.** מחרוזת בתוך ``{…}`` של f-string היא טוקן בתוך טוקן,
+   * והיא כבר בתוך העטיפה של החיצוני.
+   *
+   * **גוזרת מתוך ה-HTML הצבוע, ולא צובעת מחדש** (``wrapTextRanges``, כמו
+   * ``wrapInnerFences``): בתוך טוקן יכולים להיות אלמנטים צבועים
+   * (``hljs-doctag`` על ``TODO:``, ``hljs-subst`` על ``{name}``), וכל אחד
+   * שחוצה את הגבול מפוצל. ``textContent`` נשאר זהה תו בתו, ולכן כפתורי
+   * ההעתקה — שקוראים ממנו — מעתיקים בדיוק את המקור.
+   *
+   * **בטוחה להרצה חוזרת:** טוקן שכבר יש בו ``span[dir="rtl"]`` מדולג.
+   */
+  function isolateHebrewTokens(block) {
+    if (!block || !block.querySelectorAll) return 0;
+    if (block.closest && block.closest('pre.rtl-code')) return 0;
+    var doc = block.ownerDocument;
+    var makeWrapper = function () {
+      var wrapper = doc.createElement('span');
+      wrapper.setAttribute('dir', 'rtl');
+      return wrapper;
+    };
+    var count = 0;
+    Array.prototype.forEach.call(block.querySelectorAll(HEBREW_TOKENS), function (token) {
+      var outer = token.parentElement && token.parentElement.closest(HEBREW_TOKENS);
+      if (outer && block.contains(outer)) return;
+      if (token.querySelector('span[dir="rtl"]')) return;
+      var ranges = hebrewTokenRanges(token.textContent, token.classList.contains('hljs-string'));
+      count += wrapTextRanges(token, ranges, makeWrapper);
+    });
+    return count;
   }
 
   if (typeof window !== 'undefined') {
@@ -342,6 +603,8 @@
       innerFences: innerFences,
       innerFenceRanges: innerFenceRanges,
       wrapInnerFences: wrapInnerFences,
+      hebrewTokenRanges: hebrewTokenRanges,
+      isolateHebrewTokens: isolateHebrewTokens,
       // **עותק קפוא ולא הרשימה עצמה.** הרג'קסים כבר נבנו ממנה, ולכן שינוי
       // של המערך מבחוץ לא היה משנה אף החלטה — רק גורם לה להיראות אחרת
       // ממה שנאכף. החשיפה קיימת כדי שעמוד המשתמש, שמונה את השמות, ייבדק
