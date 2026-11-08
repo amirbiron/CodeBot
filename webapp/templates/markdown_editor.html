@@ -26,6 +26,13 @@
 <meta property="og:title" content="{{ editor_title }}">
 <meta property="og:description" content="{{ editor_description }}">
 <meta property="og:url" content="{{ editor_url }}">
+{# תמונת התצוגה המקדימה של הקישור. אותם כללים כמו בעמוד הבית (ההערה ב-``extra_head`` של ``index.html``), ונבדקת ב-``tests/test_markdown_editor_page.py`` דרך ``tests/_link_preview.py``, מול הקובץ שמוגש. הכותרת והתיאור מתחילים בעברית, ולכן ``og:title`` בלי RLM. #}
+<meta property="og:image" content="{{ base_url }}{{ url_for('static', filename='og/markdown-editor.jpg') }}?v={{ static_version }}">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="2524">
+<meta property="og:image:height" content="1325">
+<meta property="og:image:alt" content="העורך הציבורי בערכה כהה: מימין טקסט Markdown עם כותרת ותוכן עניינים, משמאל התצוגה החיה של אותו טקסט, ומעליהם שורת הכלים — טבלה, קישור חכם, מארקר, קיפול, רשימת משימות והתראות.">
+<meta name="twitter:card" content="summary_large_image">
 {# נתונים מובנים (schema.org): ``WebApplication`` יורש מ-``SoftwareApplication`` את ``applicationCategory`` ואת ``operatingSystem``, ומ-``CreativeWork`` את ``inLanguage`` ואת ``isAccessibleForFree`` (https://schema.org/WebApplication). #}
 <script type="application/ld+json">
 {{ {

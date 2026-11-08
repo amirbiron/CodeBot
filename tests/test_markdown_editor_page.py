@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 
 import pytest
+from _link_preview import check_preview_image, read_preview_tags
 
 pytest.importorskip("flask")
 
@@ -258,6 +259,14 @@ def test_search_and_share_tags_point_to_the_absolute_url(wa, theme_available):
     assert data["url"] == url
     assert data["description"] == parser.names["description"]
 
+
+def test_the_share_image_is_served_at_an_absolute_url_within_whatsapp_limits(wa, theme_available):
+    """תמונת התצוגה המקדימה של הקישור לעורך: הכללים של כל עמוד עם תמונה, מ-``tests/_link_preview.py`` — כל תגית פעם אחת ובתחילת ה-HTML, והתמונה עונה בכתובת המלאה שב-``og:image``, בגודל ובסוג שהתגיות מצהירות ובתקרות של וואטסאפ."""
+    client = wa.app.test_client()
+    resp = client.get("/markdown-editor")
+    assert resp.status_code == 200, resp.status_code
+
+    check_preview_image(client, read_preview_tags(resp.get_data()))
 
 def test_the_demo_is_read_on_first_use_and_a_failure_is_not_remembered(monkeypatch, tmp_path):
     """``demo_text`` לא קורא את הקובץ בזמן ייבוא (``bugbot-rules/import-time-side-effects.md``), ו-``lru_cache``
