@@ -68,6 +68,10 @@
 {% endblock %}
 
 {% block extra_js %}
+{#- הבקשה עוברת דרך ``StyledExportCore.fetchText`` (``utils/styled-export-core.js``), כמו בעורך הציבורי: תקרת זמן עם
+    נפילה-לאחור ל-``AbortController`` בדפדפן שאינו מכיר ``AbortSignal.timeout``, וגוף הסירוב בשגיאה — בלי עותק נוסף של
+    העוזר הזה. ``defer``, ולכן הקוד שלמטה קורא אותו רק בלחיצה. #}
+<script src="{{ url_for('static', filename='js/utils/styled-export-core.js') }}?v={{ static_version }}" defer></script>
 <script>
 (function () {
   'use strict';
@@ -75,44 +79,52 @@
   const button = document.getElementById('styledShareDelete');
   const statusEl = document.getElementById('styledShareStatus');
   const deleteUrl = {{ url_for('admin_delete_styled_share') | tojson }};
+  const DELETE_TIMEOUT_MS = 15000;
   // הקוד ב-``error`` של תשובת סירוב (``admin_delete_styled_share``) ← ההודעה
   const ERRORS = {
     invalid_link: 'זה לא קישור מעוצב. צריך קישור מהצורה /shared/styled/… או את המזהה שבסופו.',
     not_found: 'הקישור לא נמצא. ייתכן שהוא כבר נמחק.',
   };
+  const FAILED = 'המחיקה נכשלה. נסו שוב.';
+
+  function refusalMessage(err) {
+    if (err && (err.name === 'TimeoutError' || err.name === 'AbortError')) return 'השרת לא ענה בזמן. נסו שוב.';
+    try {
+      const data = JSON.parse((err && err.bodyText) || '');
+      return (data && ERRORS[data.error]) || FAILED;
+    } catch (_parseErr) {
+      // תשובה שאינה JSON (שגיאה של proxy, עמוד 500) — אין קוד, וההודעה הכללית מתאימה
+      return FAILED;
+    }
+  }
 
   button.addEventListener('click', async () => {
     const link = input.value.trim();
     if (!link) return;
+    const Core = window.StyledExportCore;
+    if (!Core) {
+      // הרכיב לא נטען (בקשה שנכשלה): אומרים את זה, ולא שולחים בלי תקרת זמן
+      statusEl.textContent = 'רכיב הבקשות לא נטען, ולכן אי אפשר למחוק. נסו לרענן את העמוד.';
+      return;
+    }
     if (!window.confirm('למחוק את הקישור? המחיקה סופית.')) return;
     button.disabled = true;
     statusEl.textContent = 'מוחק…';
     try {
-      const resp = await fetch(deleteUrl, {
+      const resp = await Core.fetchText(deleteUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ link }),
-        credentials: 'same-origin',
-        signal: AbortSignal.timeout(15000),
+        timeoutMs: DELETE_TIMEOUT_MS,
       });
-      let data = null;
-      try {
-        data = await resp.json();
-      } catch (_parseErr) {
-        // תשובה שאינה JSON — ההודעה הכללית למטה
-        data = null;
-      }
-      if (resp.ok && data && data.ok) {
-        statusEl.textContent = data.origin === 'public_editor'
-          ? 'נמחק — קישור שגולש יצר בעורך הציבורי.'
-          : 'נמחק — קישור של משתמש מחובר.';
-        input.value = '';
-      } else {
-        statusEl.textContent = (data && ERRORS[data.error]) || 'המחיקה נכשלה. נסו שוב.';
-      }
+      const data = JSON.parse(resp.text);
+      statusEl.textContent = data.origin === 'public_editor'
+        ? 'נמחק — קישור שגולש יצר בעורך הציבורי.'
+        : 'נמחק — קישור של משתמש מחובר.';
+      input.value = '';
     } catch (err) {
       console.error('[admin-styled-shares] delete failed', err);
-      statusEl.textContent = 'המחיקה נכשלה. נסו שוב.';
+      statusEl.textContent = refusalMessage(err);
     } finally {
       button.disabled = false;
     }

@@ -66,11 +66,27 @@
 
   // ``styled-export-core.js`` לא נטען (בקשה שנכשלה): הכפתורים גלויים, ולכן לחיצה עליהם אומרת למה אין ייצוא — ולא
   // שותקת.
+  // ``#delete=<מזהה>.<מפתח>`` מתוך ``delete_url``. שני החלקים בצורה של ``STYLED_SHARE_TOKEN_RE`` (``styled_shares.py``);
+  // השרת בודק אותה שוב
+  function parseDeleteFragment(value) {
+    const match = /^#delete=([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(value || '');
+    return match ? { token: match[1], key: match[2] } : null;
+  }
+
+  // ``styled-export-core.js`` לא נטען (בקשה שנכשלה): בלעדיו אין רינדור לייצוא, ואין את הבקשה עם תקרת הזמן שהקישור
+  // והמחיקה שולחים דרכה. כל כפתור, וגם קישור מחיקה שנפתח, אומרים למה — ולא שותקים. קישור המחיקה נשאר בכתובת, כדי
+  // שרענון ינסה שוב.
   if (!Core) {
-    console.error('[markdown-editor-export] StyledExportCore is missing; export is unavailable');
-    actionButtons.concat(shareButtons).forEach((btn) => {
+    console.error('[markdown-editor-export] StyledExportCore is missing; export and sharing are unavailable');
+    actionButtons.forEach((btn) => {
       btn.addEventListener('click', () => setStatus('רכיב הייצוא לא נטען, ולכן אי אפשר לייצא. נסו לרענן את העמוד.'));
     });
+    shareButtons.forEach((btn) => {
+      btn.addEventListener('click', () => setStatus('רכיב הייצוא לא נטען, ולכן אי אפשר ליצור קישור. נסו לרענן את העמוד.'));
+    });
+    if (parseDeleteFragment(window.location.hash)) {
+      setStatus('רכיב הייצוא לא נטען, ולכן אי אפשר למחוק את הקישור עכשיו. נסו לרענן את העמוד — קישור המחיקה עדיין בכתובת.');
+    }
     return;
   }
 
@@ -178,13 +194,6 @@
     linkInput.value = '';
     deleteLinkInput.value = '';
     lastShare = null;
-  }
-
-  // ``#delete=<מזהה>.<מפתח>`` מתוך ``delete_url``. שני החלקים בצורה של ``STYLED_SHARE_TOKEN_RE`` (``styled_shares.py``);
-  // השרת בודק אותה שוב
-  function parseDeleteFragment(value) {
-    const match = /^#delete=([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(value || '');
-    return match ? { token: match[1], key: match[2] } : null;
   }
 
   async function createShare() {

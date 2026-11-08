@@ -320,7 +320,12 @@ def test_the_per_visitor_limit_is_wired_to_the_route(wa):
 def test_both_writers_build_the_markdown_shape_in_the_shared_function():
     """שני כותבים לאוסף (``derived-field-added-to-one-writer``): כל פונקציה בקוד שכותבת ל-``styled_shares`` חייבת לבנות
     את הצורה השנייה ב-``markdown_share_fields``. הסריקה על כל קובצי הפייתון ולא על רשימת כותבים, כדי שכותב שלישי לא
-    יעבור בלי שאיש ידע. הבדיקה ההתנהגותית של כל כותב — כאן ובטסט של המחוברים (``tests/test_styled_share_v2.py``)."""
+    יעבור בלי שאיש ידע. הבדיקה ההתנהגותית של כל כותב — כאן ובטסט של המחוברים (``tests/test_styled_share_v2.py``).
+
+    **הכותב מזוהה בצורת הקריאה, ורק אחר כך נקרא הגוף שלו** — כמו ב-``_functions_inserting_versions``
+    (``tests/test_mcp_description_age.py``). ``ast.get_source_segment`` מפצל את כל הקובץ לשורות בכל קריאה, וקריאה שלו
+    לכל פונקציה ב-``webapp/app.py`` לקחה 8.5 שניות (נמדד מקומית ב-8.11.2026), וב-CI, תחת xdist, עברה את תקרת ה-60. לכן הגוף נחתך מרשימת שורות
+    שמפוצלת פעם אחת לכל קובץ, ורק לפונקציות שיש בהן ``insert_one``."""
     writers = []
     for path in REPO_ROOT.rglob("*.py"):
         rel = path.relative_to(REPO_ROOT)
@@ -329,11 +334,19 @@ def test_both_writers_build_the_markdown_shape_in_the_shared_function():
         source = path.read_text(encoding="utf-8", errors="replace")
         if "STYLED_SHARES_COLLECTION" not in source:
             continue
+        lines = source.splitlines()
         for node in ast.walk(ast.parse(source)):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                body = ast.get_source_segment(source, node) or ""
-                if "STYLED_SHARES_COLLECTION" in body and ".insert_one(" in body:
-                    writers.append((str(rel), node.name, "markdown_share_fields" in body))
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            inserts = any(
+                isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute) and inner.func.attr == "insert_one"
+                for inner in ast.walk(node)
+            )
+            if not inserts:
+                continue
+            body = "\n".join(lines[node.lineno - 1:node.end_lineno])
+            if "STYLED_SHARES_COLLECTION" in body:
+                writers.append((rel.as_posix(), node.name, "markdown_share_fields" in body))
     assert {(p, n) for p, n, _ in writers} == {
         ("webapp/app.py", "api_create_styled_share"),
         ("webapp/app.py", "markdown_editor_create_share"),
@@ -478,7 +491,8 @@ def test_an_admin_deletes_a_reported_link_by_what_was_pasted(wa, form):
     assert resp.status_code == 200 and resp.get_json() == {"ok": True, "origin": "public_editor"}
     assert wa._test_db.styled_shares.docs == []
     [(severity, fields)] = [(s, f) for n, s, f in wa._test_events if n == "styled_share_admin_deleted"]
-    assert severity == "warning" and fields == {"admin_user_id": 1, "origin": "public_editor"}
+    # בלי מזהה מפורש: מי מחק מגיע מההקשר של הבקשה, מטושטש (``bind_user_context``)
+    assert severity == "warning" and fields == {"origin": "public_editor"}
 
 
 def test_an_admin_also_deletes_a_signed_in_users_link(wa):
@@ -494,6 +508,9 @@ def test_an_admin_also_deletes_a_signed_in_users_link(wa):
         "https://ck.example/shared/styled/short", ["x"],
         # ראוט אחר עם פרמטר באותו שם (``public_shared_files``) — המזהה שלו אינו של קישור מעוצב
         f"https://ck.example/shared/{'x' * 43}",
+        # מארח פגום: ``urlparse`` זורק ``ValueError`` — סירוב, ולא 500
+        f"https://[ck.example/shared/styled/{'x' * 43}",
+        f"ck.example]/shared/styled/{'x' * 43}",
     ],
 )
 def test_an_admin_paste_that_is_not_a_styled_link_is_refused(wa, link):

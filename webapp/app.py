@@ -12052,11 +12052,13 @@ def markdown_editor_create_share():
     העורך (``public_shared_styled``, ``render_public_editor_share_page``). המסמך באוסף ``styled_shares``, עם ``origin`` =
     ``STYLED_SHARE_ORIGIN_PUBLIC_EDITOR`` (``styled_shares.py``).
 
-    **הבדיקות, מהזולה ליקרה:** ``Content-Type`` של JSON (415) — טופס מאתר אחר לא יכול לשלוח אותו, ובקשת JSON מאתר אחר
-    נעצרת ב-preflight, כך שאתר זר לא יוצר קישורים מהדפדפן של מבקר; תקרה על הגוף לפני הקריאה
+    **הבדיקות, מהזולה ליקרה.** ראשונה המגבלה לכל גולש (``MARKDOWN_EDITOR_PUBLIC_SHARE_RATE_LIMIT``, 429): העטיפה של
+    הדקורטור של Flask-Limiter בודקת אותה לפני שהיא קוראת לראוט (``_limits.py``, נקרא ב-4.0.0), ולכן כל בקשה נספרת בה,
+    גם כזו שנדחית אחר כך. אחריה, בגוף הראוט: ``Content-Type`` של JSON (415) — טופס מאתר אחר לא יכול לשלוח אותו, ובקשת
+    JSON מאתר אחר נעצרת ב-preflight, כך שאתר זר לא יוצר קישורים מהדפדפן של מבקר; תקרה על הגוף לפני הקריאה
     (``MARKDOWN_EDITOR_PUBLIC_SHARE_MAX_BODY_BYTES``, 413); הצורה של כל שדה (400); ערכה מהרשימה הסגורה (400); התקרה על
     הטקסט בבתים של UTF-8 (``STYLED_SHARE_MAX_MARKDOWN_BYTES``, 413 — סירוב ולא חיתוך); ואז התקרה הכוללת במסד
-    (``MARKDOWN_EDITOR_PUBLIC_SHARE_DAILY_LIMIT``, 429). המגבלה לכל גולש היא של Flask-Limiter, בדקורטור.
+    (``MARKDOWN_EDITOR_PUBLIC_SHARE_DAILY_LIMIT``, 429), שמגבילה את קצב הגידול ולא את הגודל הכולל.
 
     **מה חוזר:** ``share_url`` ו-``delete_url`` — הקישור לעמוד, וקישור לעורך עם מפתח המחיקה אחרי ``#``. החלק שאחרי ``#``
     לא נשלח לשרת כשפותחים את הקישור, ולכן המפתח לא מגיע ללוגים. במסד רק ה-hash שלו. ``no-store``, כי בתשובה המפתח.
@@ -12201,7 +12203,12 @@ def _styled_share_token_from_link(value: str) -> str | None:
     if STYLED_SHARE_TOKEN_RE.fullmatch(candidate):
         return candidate
     # קישור בלי ``https://`` (``example.com/shared/...``) — בלי הסכמה ``urlparse`` היה קורא את שם השרת כחלק מהנתיב
-    path = urlparse(candidate if '://' in candidate else f'https://{candidate}').path
+    try:
+        path = urlparse(candidate if '://' in candidate else f'https://{candidate}').path
+    except ValueError:
+        # מארח פגום — סוגר מרובע שלא נסגר (``Invalid IPv6 URL`` ב-``urlsplit``, נמדד ב-Python 3.13): אין כאן קישור,
+        # והקורא עונה ``invalid_link``
+        return None
     try:
         endpoint, args = app.url_map.bind('localhost').match(path, method='GET')
     except HTTPException:
@@ -12249,7 +12256,8 @@ def admin_delete_styled_share():
         return _public_share_refusal('not_found', 404)
     origin = deleted.get(STYLED_SHARE_ORIGIN_FIELD)
     origin = origin if origin == STYLED_SHARE_ORIGIN_PUBLIC_EDITOR else 'file'
-    emit_event('styled_share_admin_deleted', severity='warning', admin_user_id=int(session['user_id']), origin=origin)
+    # מי מחק — ה-``user_id`` המטושטש שכל שורה בבקשה נושאת (``bind_user_context``). מזהה מפורש כאן היה נרשם כמו שהוא
+    emit_event('styled_share_admin_deleted', severity='warning', origin=origin)
     return jsonify({'ok': True, 'origin': origin})
 
 

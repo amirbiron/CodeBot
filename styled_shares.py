@@ -152,8 +152,8 @@ def styled_shares_indexes() -> list[dict[str, Any]]:
             "required": False,
         },
         {
-            # התקרה הכוללת של העורך הציבורי (``markdown_editor_create_share``) סופרת את הקישורים שנוצרו שם ב-24 השעות
-            # האחרונות: שוויון על ``origin``, ואחריו טווח על ``created_at``. אינדקס ביצועים: בלעדיו הספירה סורקת את
+            # התקרה הכוללת של העורך הציבורי (``markdown_editor_create_share``) סופרת את הקישורים משם שנוצרו בחלון שלה
+            # ועדיין קיימים: שוויון על ``origin``, ואחריו טווח על ``created_at``. אינדקס ביצועים: בלעדיו הספירה סורקת את
             # האוסף, ולא שבורה, ולכן כשל שלו אינו אירוע error.
             "keys": [(STYLED_SHARE_ORIGIN_FIELD, 1), ("created_at", -1)],
             "name": STYLED_SHARE_PUBLIC_EDITOR_RECENT_INDEX_NAME,

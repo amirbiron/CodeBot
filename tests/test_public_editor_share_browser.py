@@ -120,10 +120,19 @@ class _Shares:
         self.docs.remove(doc)
         return SimpleNamespace(deleted_count=1)
 
+    def find_one_and_delete(self, query, projection=None):
+        doc = next((d for d in self.docs if self._matches(d, query)), None)
+        if doc is None:
+            return None
+        self.docs.remove(doc)
+        return {k: v for k, v in doc.items() if not projection or projection.get(k)}
+
 
 class _Db:
     def __init__(self):
         self.styled_shares = _Shares()
+        # מסמך המשתמש של עמוד אדמין (``inject_globals``): אין, והעמוד עולה בלעדיו
+        self.users = SimpleNamespace(find_one=lambda *a, **k: None)
 
     def __getitem__(self, name):
         return getattr(self, name)
@@ -159,8 +168,10 @@ def browser(chromium_executable):
 class Session:
     """הקשר דפדפן אחד: הבקשות שנשלחו (עם הגוף), השגיאות, הדיאלוגים, והדף. ``accept_dialogs`` — מה עונים לאישור."""
 
-    def __init__(self, env, *, draft=None, accept_dialogs=False, viewport=None):
+    def __init__(self, env, *, draft=None, accept_dialogs=False, viewport=None, blocked=(), user_id=None):
         self.env = env
+        # סוף נתיב של בקשות שנכשלות ברשת — סקריפט שלא נטען
+        self.blocked = tuple(blocked)
         self.requests: list[tuple[str, str, bytes]] = []
         self.errors: list[str] = []
         self.dialogs: list[str] = []
@@ -168,6 +179,10 @@ class Session:
         self.accept_dialogs = accept_dialogs
         self.client = env.app.test_client()
         self.client.environ_base["HTTP_X_FORWARDED_FOR"] = f"198.18.0.{next(_ADDRESSES) % 250 + 1}"
+        if user_id is not None:
+            # הדפדפן עובר דרך ה-client, ולכן ה-session של ה-client הוא ה-session של הדפדפן
+            with self.client.session_transaction() as sess:
+                sess["user_id"] = user_id
         self.ctx = env.browser.new_context(viewport=viewport or {"width": 1280, "height": 900}, accept_downloads=True)
         self.ctx.add_init_script(
             "window.__csp = []; document.addEventListener('securitypolicyviolation',"
@@ -184,6 +199,8 @@ class Session:
             return route.abort()
         target = u.path + (f"?{u.query}" if u.query else "")
         self.requests.append((request.method, target, request.post_data_buffer or b""))
+        if any(u.path.endswith(b) for b in self.blocked):
+            return route.abort()
         headers = {"Content-Type": request.headers.get("content-type", "")}
         if request.headers.get("authorization"):
             headers["Authorization"] = request.headers["authorization"]
@@ -471,3 +488,110 @@ def test_the_share_result_fits_a_phone_width(session):
     )
     assert sideways is False
     assert box["left"] >= 0 and box["right"] <= box["width"], box
+
+
+# ---------------------------------------------------------------------------
+# כשרכיב הבקשות לא נטען
+# ---------------------------------------------------------------------------
+
+
+def test_a_delete_link_without_the_export_core_says_so_and_keeps_the_key(session):
+    """``styled-export-core.js`` לא נטען: קישור המחיקה לא נבלע בשקט — הגולש מקבל הסבר, והקישור נשאר בכתובת, כדי
+    שרענון ינסה שוב. וגם "צור קישור" אומר למה אינו עובד."""
+    creator = session()
+    creator.open_editor()
+    share_url, delete_url = creator.create_share("morass")
+
+    s = session(accept_dialogs=True, blocked=("/js/utils/styled-export-core.js",))
+    page = s.open_page(delete_url)
+    poll(page, "document.querySelector('[data-md-editor-status]').textContent.includes('אי אפשר למחוק')", "ההסבר")
+    assert page.url == delete_url
+    assert s.dialogs == []
+    assert [t for m, t, _b in s.requests if m == "POST"] == []
+    assert creator.share_status(share_url) == 200
+
+    page.click("[data-md-editor-export-toggle]")
+    page.click("[data-md-editor-share-action=create]")
+    poll(page, "document.querySelector('[data-md-editor-status]').textContent.includes('ליצור קישור')", "ההסבר ליצירה")
+
+
+# ---------------------------------------------------------------------------
+# המחיקה של אדמין
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def admin_is_1(monkeypatch):
+    import webapp.app as wa
+
+    monkeypatch.setattr(wa, "is_admin", lambda uid: uid == 1)
+
+
+def _status(page):
+    return page.inner_text("#styledShareStatus")
+
+
+def test_an_admin_deletes_a_pasted_link_after_confirming(browser, session, admin_is_1):
+    guest = session()
+    resp = guest.client.post("/api/markdown-editor/share", json={"markdown": "# לדיווח\n", "theme": "morass"})
+    share_url = local(resp.get_json()["share_url"])
+    assert guest.share_status(share_url) == 200  # בקרה
+
+    # סירוב באישור — לא נמחק, ולא נשלחה בקשה
+    refuser = session(user_id=1)
+    page = refuser.open_page(f"http://{HOST}/admin/styled-shares")
+    page.fill("#styledShareLink", share_url)
+    page.click("#styledShareDelete")
+    page.wait_for_timeout(300)
+    assert refuser.dialogs and [t for m, t, _b in refuser.requests if m == "POST"] == []
+    assert guest.share_status(share_url) == 200
+
+    admin = session(user_id=1, accept_dialogs=True)
+    page = admin.open_page(f"http://{HOST}/admin/styled-shares")
+    page.fill("#styledShareLink", share_url)
+    page.click("#styledShareDelete")
+    poll(page, "document.querySelector('#styledShareStatus').textContent.startsWith('נמחק')", "המחיקה")
+    assert "גולש" in _status(page) and page.input_value("#styledShareLink") == ""
+    assert page.is_enabled("#styledShareDelete")
+    assert guest.share_status(share_url) == 404
+    assert admin.errors == []
+
+    # ועכשיו אותו קישור שוב — כבר אין מה למחוק, וזה נאמר
+    page.fill("#styledShareLink", share_url)
+    page.click("#styledShareDelete")
+    poll(page, "document.querySelector('#styledShareStatus').textContent.includes('לא נמצא')", "הקישור כבר נמחק")
+
+
+def test_an_admin_paste_that_is_not_a_link_is_explained(session, admin_is_1):
+    admin = session(user_id=1, accept_dialogs=True)
+    page = admin.open_page(f"http://{HOST}/admin/styled-shares")
+    page.fill("#styledShareLink", "https://[ck.example/shared/styled/abc")
+    page.click("#styledShareDelete")
+    poll(page, "document.querySelector('#styledShareStatus').textContent.includes('לא קישור מעוצב')", "הסירוב")
+    assert page.is_enabled("#styledShareDelete")
+
+
+def test_the_admin_page_without_the_export_core_says_so(session, admin_is_1):
+    admin = session(user_id=1, accept_dialogs=True, blocked=("/js/utils/styled-export-core.js",))
+    page = admin.open_page(f"http://{HOST}/admin/styled-shares")
+    page.fill("#styledShareLink", "z" * 43)
+    page.click("#styledShareDelete")
+    poll(page, "document.querySelector('#styledShareStatus').textContent.includes('לא נטען')", "ההסבר")
+    assert admin.dialogs == [] and [t for m, t, _b in admin.requests if m == "POST"] == []
+
+
+def test_the_admin_delete_works_in_a_browser_without_abortsignal_timeout(session, admin_is_1):
+    """דפדפן שאינו מכיר ``AbortSignal.timeout`` (Safari לפני 16): הבקשה עדיין יוצאת עם תקרת זמן, מ-``AbortController``
+    (``StyledExportCore.timeoutSignal``), ולא נכשלת לפני שהיא נשלחת."""
+    guest = session()
+    resp = guest.client.post("/api/markdown-editor/share", json={"markdown": "# ישן\n", "theme": "morass"})
+    share_url = local(resp.get_json()["share_url"])
+
+    admin = session(user_id=1, accept_dialogs=True)
+    admin.ctx.add_init_script("delete AbortSignal.timeout;")
+    page = admin.open_page(f"http://{HOST}/admin/styled-shares")
+    assert page.evaluate("typeof AbortSignal.timeout") == "undefined"  # בקרה
+    page.fill("#styledShareLink", share_url)
+    page.click("#styledShareDelete")
+    poll(page, "document.querySelector('#styledShareStatus').textContent.startsWith('נמחק')", "המחיקה")
+    assert guest.share_status(share_url) == 404
