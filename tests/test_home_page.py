@@ -3,19 +3,25 @@
 - **בראש העמוד.** מבקר שלא התחבר מקבל את ההתחברות ואת הבוט. משתמש מחובר מקבל ברכה עם השם שלו, ואת הדשבורד והקבצים. הקישורים נגזרים מה-HTML שנוצר, בתוך האזור שמסומן ב-``data-testid`` של המצב שרונדר — הסרגל העליון מקשר גם הוא לדשבורד ולקבצים, ולכן חיפוש בכל העמוד לא היה מבחין.
 - **בלי סטטיסטיקות.** הן ירדו מהעמוד, וגם הקוד שחישב אותן בכל כניסה: ה-route לא קורא ל-``fetch_external_uptime``, והעמוד לא מושך את ``/api/public_stats`` ואת ``/api/uptime``. שני ה-API עצמם נשארו.
 - **הקרדיט למפתח** עבר מהמסך לנתונים המובנים: ``author`` ב-JSON-LD.
+- **התצוגה המקדימה של הקישור** (וואטסאפ, טלגרם, לינקדאין): מה שמשותף לכל עמוד עם תמונה — התגיות, התמונה והתקרות של וואטסאפ — ב-``tests/_link_preview.py``; כאן מה שייחודי לעמוד הבית: הכותרת עם RLM, התיאור והכתובת.
 
 הקישור למדיניות הפרטיות בתחתית העמוד נבדק ב-``tests/test_privacy_page.py``.
 """
 
 from __future__ import annotations
 
+import html as html_lib
 import json
 import re
 from html.parser import HTMLParser
+from urllib.parse import urlsplit
 
 import pytest
+from _link_preview import check_preview_image, is_absolute_http_url, read_preview_tags
 
 pytest.importorskip("flask")
+
+_RLM = "\u200f"
 
 
 #: תגיות בלי תגית סגירה ב-HTML — הן אינן פותחות רמה, ובלעדיהן ספירת העומק לא הייתה חוזרת לאפס
@@ -126,3 +132,33 @@ def test_structured_data_names_the_author():
     assert data["author"] == {"@type": "Person", "name": "אמיר בירון"}
     # התיאור הוא אותו משפט שמוצג בראש העמוד — מוגדר פעם אחת בתבנית
     assert data["description"] and data["description"] in html.replace(blocks[0], "")
+
+
+def test_link_preview_tags_point_to_absolute_urls_and_a_servable_image():
+    """מה שוואטסאפ וטלגרם צריכים כדי להציג תמונה, כותרת ותיאור לקישור לעמוד הבית.
+
+    הכללים של כל עמוד עם תמונה — כל תגית פעם אחת ובתחילת ה-HTML, ותמונה שעונה בכתובת מלאה, בגודל ובסוג שהתגיות מצהירות ובתקרות של וואטסאפ — ב-``tests/_link_preview.py``. כאן מה שייחודי לעמוד הבית:
+
+    - ``og:title`` הוא ה-``<title>`` עם RLM בתחילתו, ו-``<title>`` עצמו בלי (ההסבר בהערה שב-``extra_head`` של ``index.html``).
+    - ``og:description`` הוא המשפט שבראש העמוד ובנתונים המובנים.
+    - ``og:url`` הוא ``/`` בכתובת מלאה.
+    """
+    client = _client()
+    resp = client.get("/")
+    assert resp.status_code == 200, resp.status_code
+    page = resp.get_data(as_text=True)
+    tags = read_preview_tags(resp.get_data())
+
+    title = html_lib.unescape(re.search(r"<title>(.*?)</title>", page, re.S).group(1))
+    assert not title.startswith(_RLM)
+    assert tags["og:title"] == _RLM + title, (tags["og:title"], title)
+
+    ld_json = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', page, re.S).group(1))
+    # התיאור פותח בעברית, ולכן בלי RLM
+    assert tags["og:description"] == tags["description"] == ld_json["description"]
+
+    assert is_absolute_http_url(tags["og:url"]), tags["og:url"]
+    og_url = urlsplit(tags["og:url"])
+    assert og_url.path == "/" and not og_url.query, tags["og:url"]
+
+    check_preview_image(client, tags)
