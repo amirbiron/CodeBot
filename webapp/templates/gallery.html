@@ -20,8 +20,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="CodeKeeper">
 <meta property="og:locale" content="he_IL">
-{# ``og:title`` נפתח בתו RLM, כי הכותרת מתחילה ב-"CodeKeeper", ובלי התו וואטסאפ וטלגרם מציגים את השורה משמאל לימין. ההסבר המלא בהערה שב-``extra_head`` של ``index.html``. #}
-<meta property="og:title" content="{{ '\u200f' ~ gallery_title }}">
+<meta property="og:title" content="{{ gallery_title }}">
 <meta property="og:description" content="{{ gallery_description }}">
 <meta property="og:url" content="{{ base_url }}{{ url_for('gallery') }}">
 <meta property="og:image" content="{{ base_url }}{{ url_for('static', filename='gallery/' ~ share_image) }}?v={{ static_version }}">

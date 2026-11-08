@@ -3294,6 +3294,14 @@ _RAWTEXT_BODY = re.compile(
     r"<(script|textarea|title)\b[^>]*>.*?(?:</\1|\Z)", re.IGNORECASE | re.DOTALL
 )
 _HTML_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
+#: הערת Jinja. **היא נמחקת בזמן הרינדור, לפני שהדפדפן רואה משהו** — נמדד
+#: ב-Jinja 3.1.6: ``{# ה-<title> של הלשונית #}<style>.a{color:red}</style>``
+#: מרונדר ל-``<style>.a{color:red}</style>``. לכן תגית שכתובה בתוך הערה כזו
+#: אינה תגית, ואין לה גוף לנטרל. בלעדיה, ``<title>`` שהוזכר בהערה ב-
+#: ``index.html`` "פתח" גוף RAWTEXT עד סוף הקובץ, והמונה ספר 0 בלוקים מול
+#: 32 שהסורק מצא. הסורק, שמדלג על הערות Jinja לפני כל דבר אחר
+#: (``_read_template`` ב-``mcp_server/outline_scanners/html.py``), הוא שצדק.
+_JINJA_COMMENT = re.compile(r"\{#.*?(?:#\}|\Z)", re.DOTALL)
 _STYLE_OPENING = re.compile(r"<style\b[^>]*>", re.IGNORECASE)
 _DECLARED_TYPE = re.compile(r"""\btype\s*=\s*["']?([^"'>]*)""", re.IGNORECASE)
 
@@ -3316,14 +3324,22 @@ def _style_bodies(text):
     גיליון — נמדד. זו נקודה שקל להחמיץ, כי ל-``<script>`` זה הפוך
     ו-``type=" text/javascript "`` **כן** רץ.
 
+    **ולפני שני הסינונים — מה ש-Jinja מוחק.** הדפדפן מקבל את התבנית
+    אחרי הרינדור, ולכן הערות Jinja נמחקות קודם (``_JINJA_COMMENT``), ושני
+    הסינונים, וגם החיפוש של ``</style``, רצים על מה שנשאר. הגוף עצמו נחתך
+    מהטקסט המקורי, באותם מיקומים, כי ``_structural_blocks`` מטפל בעצמו
+    בהערת Jinja שבתוך CSS.
+
     **הגבולות נגזרים מהטקסט הגולמי ולא מהסימבולים שהסורק החזיר**, וזו
     כל הנקודה: מונה ששואב את הגבולות מהמימוש מעמיד את שני צידי ההשוואה
     על מקור אחד, וקריסה חלקית עוברת אותו בשקט. הנטרול נכתב כאן בנפרד
     ואינו נקרא מהמימוש.
     """
-    masked = list(text)
+    # רווחים באורך ההערה, כדי שהמיקומים יישארו כמו בטקסט המקורי
+    rendered = _JINJA_COMMENT.sub(lambda found: " " * len(found.group(0)), text)
+    masked = list(rendered)
     for pattern in (_HTML_COMMENT, _RAWTEXT_BODY):
-        for found in pattern.finditer(text):
+        for found in pattern.finditer(rendered):
             masked[found.start():found.end()] = " " * (found.end() - found.start())
     masked = "".join(masked)
 
@@ -3331,7 +3347,7 @@ def _style_bodies(text):
         declared = _DECLARED_TYPE.search(found.group(0))
         if declared and declared.group(1).casefold() not in {"", "text/css"}:
             continue
-        closing = re.search(r"</style", text[found.end():], re.IGNORECASE)
+        closing = re.search(r"</style", rendered[found.end():], re.IGNORECASE)
         stop = found.end() + (closing.start() if closing else len(text))
         yield text[found.end():stop]
 
@@ -3736,6 +3752,16 @@ def test_a_style_tag_written_inside_a_javascript_string_is_not_a_style_block():
 
     assert names == ["style", ".real", "script"]
 
+
+def test_a_tag_named_inside_a_jinja_comment_does_not_hide_the_style_after_it():
+    """``<title>`` שמוזכר בהערת Jinja אינו תגית: Jinja מוחק את ההערה לפני שהדפדפן רואה את הדף (``_JINJA_COMMENT``).
+
+    כך נשבר המונה על ``index.html``: ההערה בראש ``extra_head`` מזכירה את ה-``<title>`` של הלשונית, והמונה ראה בזה גוף RAWTEXT עד סוף הקובץ. כאן המונה והסורק מסכימים על הבלוק שאחרי ההערה.
+    """
+    text = "{# ה-``<title>`` של הלשונית #}\n<style>\n.real {\n  color: red;\n}\n</style>\n"
+
+    assert [len(_structural_blocks(body)) for body in _style_bodies(text)] == [1]
+    assert [row["name"] for row in _inside(text, "style")] == [".real"]
 
 def test_the_seam_counter_can_actually_fail():
     """מונה שאינו מסוגל להפיל מימוש שגוי אינו ראיה.
