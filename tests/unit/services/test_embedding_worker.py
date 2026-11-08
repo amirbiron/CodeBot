@@ -172,6 +172,34 @@ class TestFailureClassification:
         assert svc.calls == 1, f"kept calling Gemini after the quota ran out ({svc.calls} calls)"
 
 
+class TestRequestRejected:
+    @pytest.mark.asyncio
+    async def test_the_batch_stops_and_the_worker_pauses(self, harness, monkeypatch):
+        """גם בקשת הביקורת נדחתה: כל קובץ אחר ייתקל באותה תשובה, ולכן הבאץ' נעצר — כמו במכסה."""
+        _saved, updates = harness
+        events = []
+        monkeypatch.setattr(
+            worker_mod, "emit_event", lambda event, severity="info", **f: events.append((event, severity))
+        )
+        w, svc = _make_worker(
+            monkeypatch,
+            [(None, 400, "http 400: INVALID_ARGUMENT"), (None, 400, "http 400: API key not valid")],
+        )
+
+        async def _fetch(limit):
+            return [_snippet(_id=f"s{i}") for i in range(5)]
+
+        monkeypatch.setattr(worker_mod, "get_snippets_needing_processing", _fetch)
+
+        processed = await w._process_batch()
+
+        assert processed == 0
+        assert w._requests_rejected is True
+        assert svc.calls == 2, f"kept calling Gemini after the request was rejected ({svc.calls} calls)"
+        assert updates == []
+        assert ("embedding_request_rejected", "error") in events
+
+
 class TestChunkerVersion:
     @pytest.mark.asyncio
     async def test_written_on_success(self, harness, monkeypatch):

@@ -3545,7 +3545,10 @@ class ConfigService:
             key="EMBEDDING_QUOTA_PAUSE_SECONDS",
             services=("bot",),
             default="900",
-            description="השהיית ה-worker אחרי 429 מ-Gemini שמוצו עליו ה-retries",
+            description=(
+                "השהיית ה-worker אחרי 429 מ-Gemini שמוצו עליו ה-retries, "
+                "או אחרי ש-Gemini דחה גם בקשת ביקורת (הבקשה עצמה פסולה)"
+            ),
             category="ai",
         ),
         "EMBEDDING_AUTO_TRUNCATE": ConfigDefinition(

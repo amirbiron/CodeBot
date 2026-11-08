@@ -491,3 +491,85 @@ async def test_a_later_batch_in_another_dimension_is_not_stored_with_the_first(
     saved = recorded["saved"][-1]
     assert saved and {len(doc["chunkEmbedding"]) for doc in saved} == {3072}
     assert recorded["updates"][-1]["needs_embedding"] is True
+
+
+# ---------------------------------------------------------------------------
+# ‏400 על הבקשה כולה מול 400 על צ'אנק
+# ---------------------------------------------------------------------------
+#
+# Gemini מחזיר ``400 INVALID_ARGUMENT`` גם על פריט פסול וגם על בקשה פסולה כולה — מפתח לא תקף,
+# או ``outputDimensionality`` שהמודל לא תומך בו (נבדק מול ה-API החי ב-8.11.2026). בלי הבחנה,
+# כל קובץ בתור היה נחצה עד הסוף, כל הצ'אנקים שלו נדחים והקובץ מסומן כגמור, בלי וקטורים.
+
+
+@pytest.mark.asyncio
+async def test_a_request_level_400_stops_without_touching_the_file(run, gemini):
+    """גם בקשת הביקורת נדחתה: הבעיה בבקשה. אין חציה, אין דחייה, ואין כתיבה לקובץ."""
+    _port, server = gemini
+    worker_run, recorded = run
+    server.statuses = [400, 400]
+
+    with pytest.raises(worker_mod.EmbeddingRequestRejected):
+        await worker_run(_snippet(_code(200)))
+
+    assert len(server.batch_requests) == 2, [len(r["texts"]) for r in server.batch_requests]
+    assert server.batch_requests[1]["texts"] == [worker_mod._CONTROL_TEXT]
+    assert recorded["saved"] == [], "stored chunks were deleted because of a request-level error"
+    assert recorded["updates"] == [], "the file was marked as handled"
+    assert not [e for e, _f in recorded["events"] if e == "embedding_chunk_rejected"]
+
+
+@pytest.mark.asyncio
+async def test_a_400_in_the_first_batch_checks_the_request_once_then_splits(
+    run, gemini, monkeypatch
+):
+    """הצ'אנק הפסול באצווה הראשונה: בקשת ביקורת אחת מראה שהבקשה תקינה, ואז החציה מבודדת אותו."""
+    _port, server = gemini
+    worker_run, recorded = run
+    monkeypatch.setattr(worker_mod, "paced_batch_size", lambda: 8)
+    snippet = _snippet(_code(400, marker_line=3))
+    expected = _expected_chunks(snippet)
+    bad = [position for position, _c, text in expected if REJECT_MARKER in text]
+    assert bad == [0]
+
+    await worker_run(snippet)
+
+    controls = [r for r in server.batch_requests if r["texts"] == [worker_mod._CONTROL_TEXT]]
+    assert len(controls) == 1
+    saved = recorded["saved"][-1]
+    assert sorted(doc["chunkIndex"] for doc in saved) == [p for p, _c, _t in expected if p != 0]
+    _assert_every_vector_belongs_to_its_chunk(saved, snippet, 768)
+    rejected = [fields for event, fields in recorded["events"] if event == "embedding_chunk_rejected"]
+    assert len(rejected) == 1
+    assert recorded["updates"][-1]["needs_embedding"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_400_after_an_accepted_batch_needs_no_control_request(run, gemini, monkeypatch):
+    """אצווה של הקובץ כבר התקבלה, ולכן 400 מאוחר יותר הוא של הצ'אנקים — בלי בקשת ביקורת."""
+    _port, server = gemini
+    worker_run, _recorded = run
+    monkeypatch.setattr(worker_mod, "paced_batch_size", lambda: 4)
+    snippet = _snippet(_code(400, marker_line=250))
+    expected = _expected_chunks(snippet)
+    bad = [position for position, _c, text in expected if REJECT_MARKER in text]
+    assert bad and bad[0] >= 4, "the marker must not be in the first batch"
+
+    await worker_run(snippet)
+
+    assert not [r for r in server.batch_requests if r["texts"] == [worker_mod._CONTROL_TEXT]]
+
+
+@pytest.mark.asyncio
+async def test_when_the_control_request_fails_transiently_nothing_is_rejected(run, gemini):
+    """הביקורת נכשלה זמנית: אי אפשר לדעת, ולכן הצ'אנקים לא נדחים והקובץ חוזר לתור."""
+    _port, server = gemini
+    worker_run, recorded = run
+    server.statuses = [400] + [503] * svc_mod.MAX_RETRIES
+    snippet = _snippet(_code(5))
+
+    await worker_run(snippet)
+
+    assert len(server.batch_requests) == 1 + svc_mod.MAX_RETRIES, "the batch was split anyway"
+    assert not [e for e, _f in recorded["events"] if e == "embedding_chunk_rejected"]
+    assert recorded["updates"][-1]["needs_embedding"] is True

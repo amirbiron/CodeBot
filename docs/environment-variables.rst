@@ -1266,7 +1266,7 @@
      - ``10``
      - Bot
    * - ``EMBEDDING_QUOTA_PAUSE_SECONDS``
-     - כמה זמן ה‑worker ממתין אחרי ש‑Gemini החזיר 429 גם אחרי מיצוי ה‑retries
+     - כמה זמן ה‑worker ממתין אחרי ש‑Gemini החזיר 429 גם אחרי מיצוי ה‑retries, או אחרי שדחה ב‑400 גם בקשת ביקורת עם טקסט תקין — כלומר הבעיה בבקשה עצמה (מפתח, מודל או מימד), ולא בקובץ (``EmbeddingRequestRejected`` ב‑``services/embedding_worker.py``)
      - לא
      - ``900``
      - ``1800``

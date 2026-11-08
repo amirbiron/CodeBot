@@ -56,7 +56,13 @@ MAX_ERRORS_BEFORE_PAUSE = 5
 # כשמכסת Gemini נגמרת, המשך לקובץ הבא רק שורף עוד קריאות על אותה תשובה.
 # עוצרים את הבאץ' ומחכים. 15 דקות: ארוך מספיק כדי לא להתעקש על מכסה יומית
 # שנגמרה, קצר מספיק כדי לא לעצור עבודה אחרי חלון קצר של rate limiting.
+# אותה המתנה גם כשהספק דוחה את הבקשה עצמה (``EmbeddingRequestRejected``): גם
+# שם כל קובץ אחר ייתקל באותה תשובה, עד שמישהו יתקן את המפתח או את ההגדרה.
 QUOTA_PAUSE_SECONDS = int(os.getenv("EMBEDDING_QUOTA_PAUSE_SECONDS", "900") or 900)
+
+#: הטקסט של בקשת הביקורת (``_chunks_are_to_blame``): קצר ותקין בכל מודל, כך שדחייה שלו
+#: אומרת שהבעיה בבקשה ולא בטקסט.
+_CONTROL_TEXT = "healthcheck"
 
 # סוגי כשל בהטמעת צ'אנק בודד (``FAILURE_*``, מיובאים מ-``services/embedding_service.py``).
 #
@@ -90,6 +96,22 @@ class EmbeddingQuotaExhausted(Exception):
     """Gemini החזיר 429 גם אחרי מיצוי ה-retries. עוצרים את הבאץ'."""
 
 
+class EmbeddingRequestRejected(Exception):
+    """הספק דחה גם בקשת ביקורת עם טקסט תקין: הבעיה בבקשה עצמה, לא בצ'אנקים. עוצרים את הבאץ'.
+
+    ‏400 של Gemini מגיע גם על פריט פסול וגם על בקשה פסולה כולה — מפתח לא תקף ("API key not
+    valid") או ``outputDimensionality`` שהמודל לא תומך בו (נבדק מול ה-API החי ב-8.11.2026) —
+    והתשובה לא אומרת איזה מהשניים. בלי ההבחנה, כל קובץ בתור היה נחצה עד הצ'אנק האחרון, כל
+    הצ'אנקים שלו היו נדחים, הצ'אנקים הקיימים שלו נמחקים, והוא מסומן כגמור — כלומר נעלם מהחיפוש
+    הסמנטי עד שמישהו יערוך אותו.
+    """
+
+    def __init__(self, status: int, detail: str):
+        super().__init__(f"status {status}: {detail}")
+        self.status = status
+        self.detail = detail
+
+
 class _RestartSnippetProcessing(Exception):
     """Internal signal: model/dim changed, restart snippet processing."""
 
@@ -115,6 +137,7 @@ class EmbeddingWorker:
         self._running = False
         self._error_count = 0
         self._quota_hit = False
+        self._requests_rejected = False
 
     async def start(self):
         """Start the worker."""
@@ -128,10 +151,13 @@ class EmbeddingWorker:
         while self._running:
             try:
                 processed = await self._process_batch()
-                if self._quota_hit:
+                if self._quota_hit or self._requests_rejected:
+                    reason = "quota exhausted" if self._quota_hit else "requests rejected"
                     self._quota_hit = False
+                    self._requests_rejected = False
                     logger.warning(
-                        "Embedding quota exhausted, pausing worker for %ss",
+                        "Embedding %s, pausing worker for %ss",
+                        reason,
                         QUOTA_PAUSE_SECONDS,
                     )
                     await asyncio.sleep(QUOTA_PAUSE_SECONDS)
@@ -174,6 +200,19 @@ class EmbeddingWorker:
                 emit_event(
                     "embedding_quota_exhausted",
                     severity="warn",
+                    remaining_in_batch=len(snippets) - processed,
+                )
+                break
+            except EmbeddingRequestRejected as exc:
+                # כמו במכסה: כל קובץ אחר ייתקל באותה תשובה, והקובץ הנוכחי לא נגעו בו — לא
+                # נמחקו לו צ'אנקים ולא נכתב לו סטטוס — והוא ייבחר שוב אחרי ההמתנה.
+                self._requests_rejected = True
+                logger.error("Embedding requests are rejected by the provider: %s", exc)
+                emit_event(
+                    "embedding_request_rejected",
+                    severity="error",
+                    status=exc.status,
+                    detail=exc.detail,
                     remaining_in_batch=len(snippets) - processed,
                 )
                 break
@@ -237,13 +276,16 @@ class EmbeddingWorker:
             שמירה שלהם הייתה מערבבת מימדים בתוך קובץ אחד, והקובץ חוזר לתור ומתחיל מההתחלה.
             """
             nonlocal effective_model, effective_api_version, effective_dim, effective_key
-            nonlocal request_dims, established_dim
+            nonlocal request_dims, established_dim, request_accepted
             model = str(getattr(settings, "model", "") or "")
             api_version = str(getattr(settings, "api_version", "") or "v1beta")
 
             vectors, status, body = await self.embedding_service.embed_batch(
                 texts, model=model, api_version=api_version, dimensions=request_dims
             )
+            # 422 של מימד הוא תשובת 200 שהפענוח שלנו דחה — כלומר הספק קיבל את הבקשה.
+            if vectors is not None or is_dimension_mismatch(status, body):
+                request_accepted = True
             if vectors is None and is_dimension_mismatch(status, body) and established_dim is None:
                 logger.warning(
                     "Snippet %s: %s, retrying the batch and the rest of the file without a fixed dimension",
@@ -284,6 +326,42 @@ class EmbeddingWorker:
                 )
                 return None, FAILURE_TRANSIENT
             return None, _act_on_status(int(status or 0))
+
+        async def _chunks_are_to_blame() -> bool:
+            """אחרי כשל קבוע (400) של אצווה: האם הספק דחה את הצ'אנקים, או את הבקשה עצמה?
+
+            ‏400 לבדו לא אומר (``EmbeddingRequestRejected``). כשבקשה של הקובץ הזה כבר התקבלה
+            (``request_accepted``), המפתח, המודל והמימד תקינים, והבעיה בצ'אנקים. אחרת נשלחת בקשת
+            ביקורת עם ``_CONTROL_TEXT`` באותן הגדרות — בקשה אחת, במקום חציה של האצווה כולה:
+
+            * הביקורת התקבלה — הבעיה בצ'אנקים (``True``).
+            * גם היא נדחתה בכשל קבוע — הבעיה בבקשה: ``EmbeddingRequestRejected``, והבאץ' נעצר.
+            * 429 — ``EmbeddingQuotaExhausted``; ‏404 — ``_RestartSnippetProcessing``.
+            * כשל זמני — אי אפשר לדעת, ולכן לא מאשימים את הצ'אנקים (``False``): האצווה נספרת
+              ככשל זמני, והקובץ חוזר לתור.
+            """
+            nonlocal request_accepted
+            if request_accepted:
+                return True
+            model = str(getattr(settings, "model", "") or "")
+            api_version = str(getattr(settings, "api_version", "") or "v1beta")
+            vectors, status, body = await self.embedding_service.embed_batch(
+                [_CONTROL_TEXT], model=model, api_version=api_version, dimensions=request_dims
+            )
+            if vectors is not None or is_dimension_mismatch(status, body):
+                request_accepted = True
+                return True
+            failure = _act_on_status(int(status or 0))
+            if failure == FAILURE_QUOTA:
+                raise EmbeddingQuotaExhausted()
+            if failure == FAILURE_PERMANENT:
+                raise EmbeddingRequestRejected(int(status or 0), str(body or ""))
+            logger.warning(
+                "Snippet %s: a batch was rejected and the control request failed too (%s); "
+                "the batch goes back to the queue instead of being blamed on its chunks",
+                snippet_id, body,
+            )
+            return False
 
         async def _finish(
             *,
@@ -413,6 +491,8 @@ class EmbeddingWorker:
             # מתאפסים בכל ניסיון, כי ניסיון אחרי restart מתחיל מהגדרות שרועננו.
             request_dims: int = int(getattr(settings, "dimensions", 0) or 768)
             established_dim: Optional[int] = None
+            # האם הספק כבר קיבל בקשה של הקובץ בניסיון הזה (``_chunks_are_to_blame``).
+            request_accepted = False
 
             def _reject(chunk: CodeChunk) -> None:
                 """צ'אנק שנדחה לצמיתות: נספר, ומדווח באירוע משלו. הקובץ לא נתקע בגללו."""
@@ -433,6 +513,9 @@ class EmbeddingWorker:
                 אחרי כשל קבוע (400) האצווה נחצית, וכל חצי נשלח לבד, עד שהצ'אנק שנדחה נשאר
                 לבדו. שאר הצ'אנקים נשמרים. צ'אנק פסול אחד עולה בערך ``2·log2(n)`` בקשות
                 נוספות; אצווה שכל הצ'אנקים שלה פסולים — עד ``2n - 1``. כל חציה נרשמת בלוג.
+
+                לפני שהאצווה נחצית, ``_chunks_are_to_blame`` מוודא שה-400 הוא של הצ'אנקים ולא של
+                הבקשה עצמה; 400 על הבקשה עוצר את הבאץ' (``EmbeddingRequestRejected``).
                 """
                 nonlocal transient_failures
                 vectors, failure = await _embed_texts([item.text for item in items])
@@ -456,6 +539,9 @@ class EmbeddingWorker:
                 if failure == FAILURE_QUOTA:
                     raise EmbeddingQuotaExhausted()
                 if failure == FAILURE_PERMANENT:
+                    if not await _chunks_are_to_blame():
+                        transient_failures += len(items)
+                        return
                     if len(items) == 1:
                         _reject(items[0].chunk)
                         return
