@@ -14,6 +14,17 @@ import logging
 import re
 from typing import Optional
 
+from services.vscode_token_theme import (
+    CM_CLASS_TAGS,
+    CM_TAG_REPRESENTATIVES,
+    GENERIC_ROOT_SCOPE,
+    HLJS_LANGUAGES,
+    HLJS_REPRESENTATIVES,
+    TokenStyle,
+    VSCodeTokenTheme,
+    is_valid_hex_color,
+)
+
 logger = logging.getLogger(__name__)
 
 # ==========================================
@@ -599,11 +610,15 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
     token_colors = theme_data.get("tokenColors", [])
 
     if token_colors:
+        # צבע הטקסט של העורך: מה ש-VS Code נותן לטוקן שאף כלל בערכה לא צובע
+        editor_fg = colors.get("editor.foreground")
+        editor_bg = colors.get("editor.background")
+
         # 🆕 מילון צבעים לפי tag (עבור HighlightStyle דינמי)
-        syntax_colors = generate_syntax_colors_from_tokens(token_colors)
+        syntax_colors = generate_syntax_colors_from_tokens(token_colors, editor_fg)
 
         # CodeMirror CSS (.tok-* classes) - fallback
-        cm_css = generate_codemirror_css_from_tokens(token_colors)
+        cm_css = generate_codemirror_css_from_tokens(token_colors, editor_fg)
         cm_css = sanitize_codemirror_css(cm_css)
         if cm_css:
             syntax_css_parts.append("/* CodeMirror syntax highlighting */")
@@ -617,8 +632,6 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
 
         # 🆕 Highlight.js CSS (.hljs-* classes) - for Markdown Preview
         # מעבירים את צבעי ברירת המחדל לטקסט שלא מסומן (משתנים, קבועים וכו')
-        editor_fg = colors.get("editor.foreground")
-        editor_bg = colors.get("editor.background")
         hljs_css = generate_hljs_css_from_tokens(token_colors, editor_fg, editor_bg)
         if hljs_css:
             syntax_css_parts.append("\n/* Highlight.js syntax highlighting (Preview) */")
@@ -812,652 +825,10 @@ def _is_dark_color(hex_color: str) -> bool:
 
 
 # ==========================================
-# Syntax Highlighting: tokenColors → CodeMirror
+# Syntax Highlighting: tokenColors → CodeMirror ו-highlight.js
 # ==========================================
-
-# ==========================================
-# 🎨 CodeMirror 6 Tags Mapping (for HighlightStyle.define)
-# ==========================================
-# המיפוי הזה ממיר VS Code TextMate scopes לשמות של CodeMirror tags.
-# ה-tags משמשים ליצירת HighlightStyle דינמי ב-JavaScript.
-#
-# ⚠️ חשוב: שמות ה-tags חייבים להתאים לשמות ב-@lezer/highlight
-# ראה: https://lezer.codemirror.net/docs/ref/#highlight.tags
-# ==========================================
-
-# מיפוי VS Code scopes → CodeMirror tag names (לא classes!)
-# זה מאפשר יצירת HighlightStyle דינמי עם צבעים ייחודיים לכל סוג
-VSCODE_TO_CM_TAG: dict[str, str] = {
-    # ===========================================
-    # Comments - מיפוי פשוט
-    # ===========================================
-    "comment": "comment",
-    "comment.line": "lineComment",
-    "comment.block": "blockComment",
-    "comment.block.documentation": "docComment",
-    "punctuation.definition.comment": "comment",
-
-    # ===========================================
-    # Strings
-    # ===========================================
-    "string": "string",
-    "string.quoted": "string",
-    "string.quoted.single": "string",
-    "string.quoted.double": "string",
-    "string.quoted.triple": "string",
-    "string.template": "special(string)",
-    "string.regexp": "regexp",
-    "string.interpolated": "special(string)",
-
-    # ===========================================
-    # Keywords
-    # ===========================================
-    "keyword": "keyword",
-    "keyword.control": "controlKeyword",
-    "keyword.control.flow": "controlKeyword",
-    "keyword.control.import": "moduleKeyword",
-    "keyword.control.export": "moduleKeyword",
-    "keyword.control.conditional": "controlKeyword",
-    "keyword.control.loop": "controlKeyword",
-    "keyword.control.return": "controlKeyword",
-    "keyword.control.trycatch": "controlKeyword",
-    "keyword.other": "keyword",
-    "keyword.other.unit": "unit",
-
-    # ===========================================
-    # Storage (def, class, var, let, const)
-    # ===========================================
-    "storage": "definitionKeyword",
-    "storage.type": "definitionKeyword",
-    "storage.type.function": "definitionKeyword",
-    "storage.type.class": "definitionKeyword",
-    "storage.modifier": "modifier",
-    "storage.modifier.async": "modifier",
-
-    # ===========================================
-    # Functions - הבחנה בין הגדרה לקריאה!
-    # ===========================================
-    # 🔑 CodeMirror Python parser משתמש ב-function(definition(...)) לא definition(function(...))!
-    # ראה: codemirror.local.js שורה ~25146
-    "entity.name.function": "function(definition(variableName))",
-    "entity.name.function.method": "function(definition(variableName))",
-    "entity.name.function.decorator": "macroName",
-    "meta.function.decorator": "macroName",
-    # קריאות לפונקציות
-    "meta.function-call": "function(variableName)",
-    "meta.function-call.generic": "function(variableName)",
-    "entity.name.function.call": "function(variableName)",
-    # פונקציות מובנות
-    "support.function": "standard(function(variableName))",
-    "support.function.builtin": "standard(function(variableName))",
-    "support.function.magic": "special(function(variableName))",
-
-    # ===========================================
-    # Variables - הבחנה בין סוגים שונים
-    # ===========================================
-    "variable": "variableName",
-    "variable.parameter": "local(variableName)",
-    "variable.parameter.function": "local(variableName)",
-    "variable.other": "variableName",
-    "variable.other.readwrite": "variableName",
-    "variable.other.constant": "constant(variableName)",
-    "variable.other.enummember": "constant(variableName)",
-    "variable.language": "self",
-    "variable.language.this": "self",
-    "variable.language.self": "self",
-    "variable.language.super": "self",
-
-    # ===========================================
-    # Constants & Numbers
-    # ===========================================
-    "constant": "atom",
-    "constant.numeric": "number",
-    "constant.numeric.integer": "integer",
-    "constant.numeric.float": "float",
-    "constant.numeric.hex": "integer",
-    "constant.numeric.binary": "integer",
-    "constant.numeric.octal": "integer",
-    "constant.language": "atom",
-    "constant.language.boolean": "bool",
-    "constant.language.boolean.true": "bool",
-    "constant.language.boolean.false": "bool",
-    "constant.language.null": "null",
-    "constant.language.undefined": "null",
-    "constant.character": "character",
-    "constant.character.escape": "escape",
-    "constant.other": "atom",
-
-    # ===========================================
-    # Types & Classes
-    # ===========================================
-    "entity.name.type": "typeName",
-    "entity.name.type.class": "className",
-    "entity.name.type.interface": "typeName",
-    "entity.name.type.enum": "typeName",
-    "entity.name.type.module": "namespace",
-    "entity.name.type.namespace": "namespace",
-    "entity.name.class": "definition(className)",
-    "entity.name.namespace": "namespace",
-    "entity.name.module": "namespace",
-    "support.type": "standard(typeName)",
-    "support.type.primitive": "typeName",
-    "support.class": "standard(className)",
-    "support.class.builtin": "standard(className)",
-
-    # ===========================================
-    # Operators
-    # ===========================================
-    "keyword.operator": "operator",
-    "keyword.operator.assignment": "definitionOperator",
-    "keyword.operator.comparison": "compareOperator",
-    "keyword.operator.logical": "logicOperator",
-    "keyword.operator.arithmetic": "arithmeticOperator",
-    "keyword.operator.bitwise": "bitwiseOperator",
-    "keyword.operator.ternary": "operator",
-    "keyword.operator.spread": "operator",
-    "keyword.operator.new": "operatorKeyword",
-    "keyword.operator.expression": "operatorKeyword",
-    "keyword.operator.typeof": "operatorKeyword",
-    "keyword.operator.instanceof": "operatorKeyword",
-
-    # ===========================================
-    # Properties & Attributes
-    # ===========================================
-    "entity.other.attribute-name": "attributeName",
-    "entity.other.attribute-name.class": "attributeName",
-    "entity.other.attribute-name.id": "attributeName",
-    "support.type.property-name": "propertyName",
-    "support.type.property-name.json": "propertyName",
-    "meta.object-literal.key": "propertyName",
-    "variable.other.property": "propertyName",
-    "variable.other.object.property": "propertyName",
-    "meta.attribute": "attributeName",
-
-    # ===========================================
-    # Tags (HTML/XML/JSX)
-    # ===========================================
-    "entity.name.tag": "tagName",
-    "entity.name.tag.html": "tagName",
-    "entity.name.tag.xml": "tagName",
-    "entity.name.tag.css": "tagName",
-    "punctuation.definition.tag": "angleBracket",
-    "punctuation.definition.tag.begin": "angleBracket",
-    "punctuation.definition.tag.end": "angleBracket",
-    "support.class.component": "className",
-    "support.class.component.jsx": "className",
-
-    # ===========================================
-    # Punctuation
-    # ===========================================
-    "punctuation": "punctuation",
-    "punctuation.definition.string": "string",
-    "punctuation.definition.string.begin": "string",
-    "punctuation.definition.string.end": "string",
-    "punctuation.separator": "separator",
-    "punctuation.terminator": "punctuation",
-    "punctuation.accessor": "punctuation",
-    "punctuation.bracket": "bracket",
-    "punctuation.section": "punctuation",
-    "meta.brace": "brace",
-    "meta.brace.round": "paren",
-    "meta.brace.square": "squareBracket",
-    "meta.brace.curly": "brace",
-
-    # ===========================================
-    # Errors & Special
-    # ===========================================
-    "invalid": "invalid",
-    "invalid.illegal": "invalid",
-    "invalid.deprecated": "invalid",
-
-    # ===========================================
-    # Markup (Markdown)
-    # ===========================================
-    "markup.heading": "heading",
-    "markup.heading.1": "heading1",
-    "markup.heading.2": "heading2",
-    "markup.heading.setext": "heading",
-    "markup.bold": "strong",
-    "markup.italic": "emphasis",
-    "markup.underline": "link",
-    "markup.underline.link": "link",
-    "markup.inserted": "inserted",
-    "markup.deleted": "deleted",
-    "markup.changed": "changed",
-    "markup.quote": "quote",
-    "markup.list": "list",
-    "markup.raw": "monospace",
-    "markup.inline.raw": "monospace",
-
-    # ===========================================
-    # Git Diff
-    # ===========================================
-    "meta.diff.header": "meta",
-    "markup.inserted.diff": "inserted",
-    "markup.deleted.diff": "deleted",
-
-    # ===========================================
-    # Labels & Special Names
-    # ===========================================
-    "entity.name.label": "labelName",
-    "entity.name.section": "heading",
-
-    # ===========================================
-    # Additional
-    # ===========================================
-    "meta": "meta",
-    "meta.embedded": "meta",
-    "meta.preprocessor": "processingInstruction",
-    "emphasis": "emphasis",
-    "strong": "strong",
-    "link": "link",
-    "url": "url",
-    "source": "content",
-}
-
-
-# ==========================================
-# 🎨 Legacy: CodeMirror 6 CSS Classes Mapping (for classHighlighter)
-# ==========================================
-# שמור לתאימות לאחור עם classHighlighter
-# ==========================================
-
-TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
-    # ===========================================
-    # Comments
-    # ===========================================
-    "comment": ".tok-comment",
-    "comment.line": ".tok-comment",
-    "comment.block": ".tok-comment",
-    "comment.block.documentation": ".tok-comment",
-    "punctuation.definition.comment": ".tok-comment",
-
-    # ===========================================
-    # Strings
-    # ===========================================
-    "string": ".tok-string",
-    "string.quoted": ".tok-string",
-    "string.quoted.single": ".tok-string",
-    "string.quoted.double": ".tok-string",
-    "string.quoted.triple": ".tok-string",
-    "string.template": ".tok-string2",
-    "string.regexp": ".tok-string2",
-    "string.interpolated": ".tok-string2",
-
-    # ===========================================
-    # Keywords (מילות מפתח של השפה)
-    # ===========================================
-    "keyword": ".tok-keyword",
-    "keyword.control": ".tok-keyword",
-    "keyword.control.flow": ".tok-keyword",
-    "keyword.control.import": ".tok-keyword",
-    "keyword.control.export": ".tok-keyword",
-    "keyword.control.conditional": ".tok-keyword",
-    "keyword.control.loop": ".tok-keyword",
-    "keyword.control.return": ".tok-keyword",
-    "keyword.control.trycatch": ".tok-keyword",
-    "keyword.other": ".tok-keyword",
-    "keyword.other.unit": ".tok-keyword",
-
-    # ===========================================
-    # Storage (הגדרות משתנים/פונקציות)
-    # ===========================================
-    "storage": ".tok-keyword",
-    "storage.type": ".tok-keyword",
-    "storage.type.function": ".tok-keyword",
-    "storage.type.class": ".tok-keyword",
-    "storage.modifier": ".tok-keyword",
-    "storage.modifier.async": ".tok-keyword",
-
-    # ===========================================
-    # Functions (פונקציות והגדרותיהן)
-    # ===========================================
-    # הגדרות פונקציות משתמשות ב-definition class
-    "entity.name.function": ".tok-variableName.tok-definition",
-    "entity.name.function.method": ".tok-variableName.tok-definition",
-    "entity.name.function.decorator": ".tok-macroName",
-    # קריאות לפונקציות (ללא definition)
-    "meta.function-call": ".tok-variableName",
-    "meta.function-call.generic": ".tok-variableName",
-    "entity.name.function.call": ".tok-variableName",
-    "entity.name.function.method.call": ".tok-variableName",
-    # Built-in functions
-    "support.function": ".tok-variableName",
-    "support.function.builtin": ".tok-variableName",
-    "support.function.magic": ".tok-variableName",
-
-    # ===========================================
-    # Variables (משתנים)
-    # ===========================================
-    "variable": ".tok-variableName",
-    "variable.parameter": ".tok-variableName.tok-local",
-    "variable.parameter.function": ".tok-variableName.tok-local",
-    "variable.other": ".tok-variableName",
-    "variable.other.readwrite": ".tok-variableName",
-    "variable.other.constant": ".tok-variableName2",
-    "variable.other.enummember": ".tok-variableName2",
-    "variable.language": ".tok-variableName2",
-    "variable.language.this": ".tok-variableName2",
-    "variable.language.self": ".tok-variableName2",
-    "variable.language.super": ".tok-variableName2",
-
-    # ===========================================
-    # Constants (קבועים ומספרים)
-    # ===========================================
-    "constant": ".tok-atom",
-    "constant.numeric": ".tok-number",
-    "constant.numeric.integer": ".tok-number",
-    "constant.numeric.float": ".tok-number",
-    "constant.numeric.hex": ".tok-number",
-    "constant.numeric.binary": ".tok-number",
-    "constant.numeric.octal": ".tok-number",
-    "constant.language": ".tok-atom",
-    "constant.language.boolean": ".tok-bool",
-    "constant.language.boolean.true": ".tok-bool",
-    "constant.language.boolean.false": ".tok-bool",
-    "constant.language.null": ".tok-atom",
-    "constant.language.undefined": ".tok-atom",
-    "constant.character": ".tok-string",
-    "constant.character.escape": ".tok-string2",
-    "constant.other": ".tok-atom",
-
-    # ===========================================
-    # Types & Classes (טיפוסים ומחלקות)
-    # ===========================================
-    "entity.name.type": ".tok-typeName",
-    "entity.name.type.class": ".tok-className",
-    "entity.name.type.interface": ".tok-typeName",
-    "entity.name.type.enum": ".tok-typeName",
-    "entity.name.type.module": ".tok-namespace",
-    "entity.name.type.namespace": ".tok-namespace",
-    "entity.name.class": ".tok-className",
-    "entity.name.namespace": ".tok-namespace",
-    "entity.name.module": ".tok-namespace",
-    "support.type": ".tok-typeName",
-    "support.type.primitive": ".tok-typeName",
-    "support.class": ".tok-className",
-    "support.class.builtin": ".tok-className",
-
-    # ===========================================
-    # Operators (אופרטורים)
-    # ===========================================
-    "keyword.operator": ".tok-operator",
-    "keyword.operator.assignment": ".tok-operator",
-    "keyword.operator.comparison": ".tok-operator",
-    "keyword.operator.logical": ".tok-operator",
-    "keyword.operator.arithmetic": ".tok-operator",
-    "keyword.operator.bitwise": ".tok-operator",
-    "keyword.operator.ternary": ".tok-operator",
-    "keyword.operator.spread": ".tok-operator",
-    "keyword.operator.new": ".tok-keyword",
-    "keyword.operator.expression": ".tok-keyword",
-    "keyword.operator.typeof": ".tok-keyword",
-    "keyword.operator.instanceof": ".tok-keyword",
-
-    # ===========================================
-    # Properties & Attributes
-    # ===========================================
-    "entity.other.attribute-name": ".tok-propertyName",
-    "entity.other.attribute-name.class": ".tok-propertyName",
-    "entity.other.attribute-name.id": ".tok-propertyName",
-    "support.type.property-name": ".tok-propertyName",
-    "support.type.property-name.json": ".tok-propertyName",
-    "meta.object-literal.key": ".tok-propertyName",
-    "variable.other.property": ".tok-propertyName",
-    "variable.other.object.property": ".tok-propertyName",
-
-    # ===========================================
-    # Tags (HTML/XML/JSX)
-    # ===========================================
-    "entity.name.tag": ".tok-tagName",
-    "entity.name.tag.html": ".tok-tagName",
-    "entity.name.tag.xml": ".tok-tagName",
-    "entity.name.tag.css": ".tok-tagName",
-    "punctuation.definition.tag": ".tok-punctuation",
-    "punctuation.definition.tag.begin": ".tok-punctuation",
-    "punctuation.definition.tag.end": ".tok-punctuation",
-    "support.class.component": ".tok-className",
-    "support.class.component.jsx": ".tok-className",
-
-    # ===========================================
-    # Punctuation (סימני פיסוק)
-    # ===========================================
-    "punctuation": ".tok-punctuation",
-    "punctuation.definition.string": ".tok-string",
-    "punctuation.definition.string.begin": ".tok-string",
-    "punctuation.definition.string.end": ".tok-string",
-    "punctuation.separator": ".tok-punctuation",
-    "punctuation.terminator": ".tok-punctuation",
-    "punctuation.accessor": ".tok-punctuation",
-    "punctuation.bracket": ".tok-punctuation",
-    "punctuation.section": ".tok-punctuation",
-    "meta.brace": ".tok-punctuation",
-    "meta.brace.round": ".tok-punctuation",
-    "meta.brace.square": ".tok-punctuation",
-    "meta.brace.curly": ".tok-punctuation",
-
-    # ===========================================
-    # Errors & Special
-    # ===========================================
-    "invalid": ".tok-invalid",
-    "invalid.illegal": ".tok-invalid",
-    "invalid.deprecated": ".tok-invalid",
-
-    # ===========================================
-    # Markup (Markdown/HTML content)
-    # ===========================================
-    "markup.heading": ".tok-heading",
-    "markup.heading.1": ".tok-heading",
-    "markup.heading.2": ".tok-heading",
-    "markup.heading.setext": ".tok-heading",
-    "markup.bold": ".tok-strong",
-    "markup.italic": ".tok-emphasis",
-    "markup.underline": ".tok-link",
-    "markup.underline.link": ".tok-link",
-    "markup.inserted": ".tok-inserted",
-    "markup.deleted": ".tok-deleted",
-    "markup.changed": ".tok-atom",
-    "markup.quote": ".tok-meta",
-    "markup.list": ".tok-punctuation",
-    "markup.raw": ".tok-string",
-    "markup.inline.raw": ".tok-string",
-
-    # ===========================================
-    # Git Diff
-    # ===========================================
-    "meta.diff.header": ".tok-meta",
-    "markup.inserted.diff": ".tok-inserted",
-    "markup.deleted.diff": ".tok-deleted",
-
-    # ===========================================
-    # Labels & Special Names
-    # ===========================================
-    "entity.name.label": ".tok-labelName",
-    "entity.name.section": ".tok-heading",
-
-    # ===========================================
-    # Additional CodeMirror 6 Classes
-    # ===========================================
-    "meta": ".tok-meta",
-    "meta.embedded": ".tok-meta",
-    "meta.preprocessor": ".tok-meta",
-    "emphasis": ".tok-emphasis",
-    "strong": ".tok-strong",
-    "link": ".tok-link",
-    "url": ".tok-url",
-    "source": ".tok-meta",
-}
-
-# ==========================================
-# 🎨 Pygments Token Classes Mapping
-# ==========================================
-# מיפוי VS Code TextMate scopes ל-Pygments CSS classes
-# ראה: https://pygments.org/docs/tokens/
-# ==========================================
-
-# ==========================================
-# 🎨 Highlight.js Classes Mapping
-# ==========================================
-# מיפוי VS Code TextMate scopes ל-highlight.js CSS classes
-# ראה: https://highlightjs.readthedocs.io/en/latest/css-classes-reference.html
-# ==========================================
-
-TOKEN_TO_HLJS_MAP: dict[str, str] = {
-    # ===========================================
-    # Comments
-    # ===========================================
-    "comment": ".hljs-comment",
-    "comment.line": ".hljs-comment",
-    "comment.block": ".hljs-comment",
-    "comment.block.documentation": ".hljs-doctag",
-    "punctuation.definition.comment": ".hljs-comment",
-
-    # ===========================================
-    # Strings
-    # ===========================================
-    "string": ".hljs-string",
-    "string.quoted": ".hljs-string",
-    "string.quoted.single": ".hljs-string",
-    "string.quoted.double": ".hljs-string",
-    "string.quoted.triple": ".hljs-string",
-    "string.template": ".hljs-string",
-    "string.regexp": ".hljs-regexp",
-    "string.interpolated": ".hljs-string",
-    "string.other": ".hljs-string",
-
-    # ===========================================
-    # Keywords
-    # ===========================================
-    "keyword": ".hljs-keyword",
-    "keyword.control": ".hljs-keyword",
-    "keyword.control.flow": ".hljs-keyword",
-    "keyword.control.import": ".hljs-keyword",
-    "keyword.control.export": ".hljs-keyword",
-    "keyword.control.conditional": ".hljs-keyword",
-    "keyword.control.loop": ".hljs-keyword",
-    "keyword.control.return": ".hljs-keyword",
-    "keyword.control.trycatch": ".hljs-keyword",
-    "keyword.other": ".hljs-keyword",
-    "keyword.other.unit": ".hljs-number",
-    "keyword.operator": ".hljs-operator",
-
-    # ===========================================
-    # Storage (types and modifiers)
-    # ===========================================
-    "storage": ".hljs-keyword",
-    "storage.type": ".hljs-type",
-    "storage.type.function": ".hljs-keyword",
-    "storage.type.class": ".hljs-keyword",
-    "storage.modifier": ".hljs-keyword",
-    "storage.modifier.async": ".hljs-keyword",
-
-    # ===========================================
-    # Constants (numbers, booleans, etc.)
-    # ===========================================
-    "constant": ".hljs-literal",
-    "constant.numeric": ".hljs-number",
-    "constant.numeric.integer": ".hljs-number",
-    "constant.numeric.float": ".hljs-number",
-    "constant.numeric.hex": ".hljs-number",
-    "constant.numeric.octal": ".hljs-number",
-    "constant.numeric.binary": ".hljs-number",
-    "constant.language": ".hljs-literal",
-    "constant.language.boolean": ".hljs-literal",
-    "constant.language.boolean.true": ".hljs-literal",
-    "constant.language.boolean.false": ".hljs-literal",
-    "constant.language.null": ".hljs-literal",
-    "constant.language.undefined": ".hljs-literal",
-    "constant.character": ".hljs-string",
-    "constant.character.escape": ".hljs-char.escape_",
-    "constant.other": ".hljs-literal",
-
-    # ===========================================
-    # Functions
-    # ===========================================
-    "entity.name.function": ".hljs-title.function_",
-    "entity.name.function.method": ".hljs-title.function_",
-    "entity.name.function.decorator": ".hljs-meta",
-    "support.function": ".hljs-built_in",
-    "support.function.builtin": ".hljs-built_in",
-    "meta.function-call": ".hljs-title.function_",
-
-    # ===========================================
-    # Classes and Types
-    # ===========================================
-    "entity.name.class": ".hljs-title.class_",
-    "entity.name.type": ".hljs-type",
-    "entity.name.type.class": ".hljs-title.class_",
-    "support.class": ".hljs-built_in",
-    "support.type": ".hljs-type",
-    "entity.other.inherited-class": ".hljs-title.class_.inherited__",
-
-    # ===========================================
-    # Variables
-    # ===========================================
-    "variable": ".hljs-variable",
-    "variable.other": ".hljs-variable",
-    "variable.parameter": ".hljs-params",
-    "variable.language": ".hljs-variable.language_",
-    "variable.language.this": ".hljs-variable.language_",
-    "variable.language.self": ".hljs-variable.language_",
-
-    # ===========================================
-    # HTML/XML Tags and Attributes
-    # ===========================================
-    "entity.name.tag": ".hljs-name",
-    "entity.other.attribute-name": ".hljs-attr",
-    "punctuation.definition.tag": ".hljs-tag",
-
-    # ===========================================
-    # Operators and Punctuation
-    # ===========================================
-    "punctuation": ".hljs-punctuation",
-    "punctuation.separator": ".hljs-punctuation",
-    "punctuation.definition.string": ".hljs-string",
-
-    # ===========================================
-    # Markdown
-    # ===========================================
-    "entity.name.section.markdown": ".hljs-section",
-    "markup.heading": ".hljs-section",
-    "markup.bold": ".hljs-strong",
-    "markup.italic": ".hljs-emphasis",
-    "markup.raw": ".hljs-code",
-    "markup.inline.raw": ".hljs-code",
-    "markup.deleted": ".hljs-deletion",
-    "markup.inserted": ".hljs-addition",
-    "markup.list": ".hljs-bullet",
-
-    # ===========================================
-    # Meta
-    # ===========================================
-    "meta": ".hljs-meta",
-    "meta.preprocessor": ".hljs-meta",
-    "meta.decorator": ".hljs-meta",
-
-    # ===========================================
-    # Invalid/Error
-    # ===========================================
-    "invalid": ".hljs-comment",  # no error class in hljs, fallback to comment
-    "invalid.deprecated": ".hljs-comment",
-
-    # ===========================================
-    # Links & URLs
-    # ===========================================
-    "markup.underline.link": ".hljs-link",
-    "string.other.link": ".hljs-link",
-
-    # ===========================================
-    # Quote
-    # ===========================================
-    "markup.quote": ".hljs-quote",
-
-    # ===========================================
-    # Symbols
-    # ===========================================
-    "constant.other.symbol": ".hljs-symbol",
-    "entity.name.label": ".hljs-symbol",
-}
+# הצבע של כל מחלקה הוא מה ש-VS Code נותן לטוקן שהיא צובעת: ההכרעה והנציגים ב-``services/vscode_token_theme.py``.
+# Pygments (``TOKEN_TO_PYGMENTS_MAP`` למטה) נשאר עם המיפוי הישן — הוא משמש רק את הייצוא שבשרת.
 
 
 TOKEN_TO_PYGMENTS_MAP: dict[str, str] = {
@@ -1592,141 +963,78 @@ TOKEN_TO_PYGMENTS_MAP: dict[str, str] = {
 # ==========================================
 
 
-def _find_cm_tag(scope: str) -> str | None:
+def _hex_or_none(value: object) -> str | None:
+    """צבע ברירת מחדל נכנס להכרעה רק אם VS Code היה מקבל אותו (``isValidHexColor``)."""
+    return value if is_valid_hex_color(value) else None
+
+
+def _resolve_generic(theme: VSCodeTokenTheme, stack: tuple[str, ...]) -> TokenStyle:
+    return theme.resolve((GENERIC_ROOT_SCOPE, *stack))
+
+
+def _css_declarations(style: TokenStyle) -> list[str]:
+    """ההצהרות של כלל צבע, עם ``!important`` כדי לדרוס את גיליון ברירת המחדל. בלי צבע — אין כלל.
+
+    ``strikethrough`` לא נכתב: הניקוי של ``syntax_css`` (``_sanitize_custom_theme_rules``) מקבל רק את שלושת אלה.
     """
-    מוצא את ה-CodeMirror tag המתאים ל-scope.
-
-    Args:
-        scope: VS Code TextMate scope (e.g., "keyword.control.import")
-
-    Returns:
-        CodeMirror tag name (e.g., "moduleKeyword") או None אם אין התאמה
-    """
-    if not scope or not isinstance(scope, str):
-        return None
-
-    # התאמה מדויקת
-    if scope in VSCODE_TO_CM_TAG:
-        return VSCODE_TO_CM_TAG[scope]
-
-    # חיפוש ההתאמה הספציפית ביותר
-    best_match: str | None = None
-    best_match_length = 0
-
-    for vs_scope, cm_tag in VSCODE_TO_CM_TAG.items():
-        if scope.startswith(vs_scope + ".") or scope == vs_scope:
-            if len(vs_scope) > best_match_length:
-                best_match = cm_tag
-                best_match_length = len(vs_scope)
-        elif vs_scope.startswith(scope + ".") or vs_scope == scope:
-            if len(scope) > best_match_length:
-                best_match = cm_tag
-                best_match_length = len(scope)
-
-    return best_match
+    if not style.foreground:
+        return []
+    parts = [f"color: {style.foreground} !important"]
+    if style.italic:
+        parts.append("font-style: italic !important")
+    if style.bold:
+        parts.append("font-weight: bold !important")
+    if style.underline:
+        parts.append("text-decoration: underline !important")
+    return parts
 
 
-def generate_syntax_colors_from_tokens(token_colors: list[dict]) -> dict[str, dict]:
+def generate_syntax_colors_from_tokens(token_colors: list[dict], default_foreground: str | None = None) -> dict[str, dict]:
     """
     ממיר tokenColors של VS Code למילון צבעים עבור CodeMirror HighlightStyle.
 
-    🎨 זה מאפשר צביעה עשירה יותר מאשר classHighlighter בלבד,
-    כי כל tag מקבל צבע ייחודי (לא רק classes משותפים).
-
-    Args:
-        token_colors: רשימת tokenColors מקובץ VS Code theme
+    לכל tag ב-``CM_TAG_REPRESENTATIVES``, הצבע ש-VS Code נותן לטוקן שה-tag מסמן. ``default_foreground``
+    (``editor.foreground``) הוא הצבע של tag ש-VS Code משאיר בצבע ברירת המחדל; בלעדיו tag כזה לא נכתב.
 
     Returns:
         מילון בפורמט: {
             "keyword": {"color": "#ff0000"},
-            "controlKeyword": {"color": "#00ff00", "fontStyle": "bold"},
+            "controlKeyword": {"color": "#00ff00", "fontWeight": "bold"},
             ...
         }
     """
     if not isinstance(token_colors, list):
         return {}
 
-    # מילון צבעים לפי tag
+    theme = VSCodeTokenTheme(token_colors, default_foreground=_hex_or_none(default_foreground))
     colors_by_tag: dict[str, dict] = {}
-
-    for token in token_colors:
-        if not isinstance(token, dict):
+    for tag, stack in CM_TAG_REPRESENTATIVES.items():
+        resolved = _resolve_generic(theme, stack)
+        if not resolved.foreground:
             continue
-
-        scopes = token.get("scope", [])
-        if isinstance(scopes, str):
-            scopes = [scopes]
-        if not isinstance(scopes, list):
-            continue
-
-        settings = token.get("settings", {})
-        if not isinstance(settings, dict):
-            continue
-
-        foreground = settings.get("foreground")
-        font_style = settings.get("fontStyle", "") or ""
-
-        if not foreground or not is_valid_color(str(foreground)):
-            continue
-
-        for scope in scopes:
-            cm_tag = _find_cm_tag(str(scope))
-            if not cm_tag:
-                continue
-
-            # 🔑 אם כבר יש צבע לזה, נדלג (הראשון מנצח - בד"כ הספציפי יותר)
-            if cm_tag in colors_by_tag:
-                continue
-
-            style: dict[str, str] = {"color": str(foreground).strip()}
-
-            fs = str(font_style).lower()
-            if "italic" in fs:
-                style["fontStyle"] = "italic"
-            if "bold" in fs:
-                style["fontWeight"] = "bold"
-
-            colors_by_tag[cm_tag] = style
-
+        style: dict[str, str] = {"color": resolved.foreground}
+        if resolved.italic:
+            style["fontStyle"] = "italic"
+        if resolved.bold:
+            style["fontWeight"] = "bold"
+        if resolved.underline:
+            style["textDecoration"] = "underline"
+        colors_by_tag[tag] = style
     return colors_by_tag
-
-
-def _find_hljs_class(scope: str) -> str | None:
-    """
-    מוצא את ה-highlight.js class המתאים ל-scope.
-
-    Args:
-        scope: VS Code TextMate scope (e.g., "keyword.control.import")
-
-    Returns:
-        highlight.js CSS class (e.g., ".hljs-keyword") או None אם אין התאמה
-    """
-    if not scope or not isinstance(scope, str):
-        return None
-
-    # התאמה מדויקת - עדיפות ראשונה
-    if scope in TOKEN_TO_HLJS_MAP:
-        return TOKEN_TO_HLJS_MAP[scope]
-
-    # חיפוש ההתאמה הספציפית ביותר (הארוכה ביותר)
-    best_match: str | None = None
-    best_match_length = 0
-
-    for vs_scope, hljs_class in TOKEN_TO_HLJS_MAP.items():
-        if scope.startswith(vs_scope + ".") or scope == vs_scope:
-            if len(vs_scope) > best_match_length:
-                best_match = hljs_class
-                best_match_length = len(vs_scope)
-        elif vs_scope.startswith(scope + ".") or vs_scope == scope:
-            if len(scope) > best_match_length:
-                best_match = hljs_class
-                best_match_length = len(scope)
-
-    return best_match
 
 
 #: הבורר שכללי ``generate_hljs_css_from_tokens`` נכתבים תחתיו כברירת מחדל: ערכה מותאמת או משותפת באתר.
 HLJS_SITE_THEME_SELECTOR_PREFIX = ':root[data-theme-type="custom"]'
+
+
+def hljs_language_selector_suffix(class_names: tuple[str, ...]) -> str:
+    """הסיומת של כלל לפי שפה: ``:is(.language-python *, .language-py *)``.
+
+    הבלוק נושא ``language-<שם>`` על ה-``<code>`` (highlight.js מוסיף את השם הקנוני ב-``updateClassName``), והטוקן הוא
+    צאצא שלו. ``:is()`` מוסיף לספציפיות בדיוק מחלקה אחת — כך שהכלל גובר על הכלל הכללי של אותה מחלקה — והוא עובד באותה
+    צורה בקידומת של האתר (אב של הבלוק) ובזו של הייצוא (הבלוק עצמו).
+    """
+    return ":is(" + ", ".join(f".language-{name} *" for name in class_names) + ")"
 
 
 def generate_hljs_css_from_tokens(
@@ -1734,19 +1042,24 @@ def generate_hljs_css_from_tokens(
     default_foreground: str | None = None,
     default_background: str | None = None,
     selector_prefix: str = HLJS_SITE_THEME_SELECTOR_PREFIX,
+    *,
+    token_foreground: str | None = None,
 ) -> str:
     """
     ממיר tokenColors של VS Code ל-CSS עבור highlight.js.
 
-    🔑 אם יש כמה scopes שממופים לאותו hljs class,
-    הכלל הראשון מנצח (הספציפי יותר בד"כ מופיע קודם בקובץ VS Code).
+    לכל מחלקה, הצבע ש-VS Code נותן לטוקן שהיא צובעת (``HLJS_REPRESENTATIVES``). לפייתון ול-JavaScript יש גם כללים
+    לפי שפה (``HLJS_LANGUAGES``), שנכתבים רק כשהם שונים מהכלל הכללי — ולפניו, כדי שמחלקה מדויקת יותר (למשל
+    ``.hljs-title.function_.invoke__``) תגבר על כלל שפה של מחלקה כללית יותר בתיקו של ספציפיות.
 
     Args:
         token_colors: רשימת tokenColors מערכת VS Code
-        default_foreground: צבע ברירת מחדל לטקסט (editor.foreground)
-        default_background: צבע רקע לבלוקי קוד (editor.background)
+        default_foreground: צבע ברירת מחדל לטקסט (editor.foreground) — גם לכלל הבסיסי ``.hljs``
+        default_background: צבע רקע לבלוקי קוד (editor.background) — רק לכלל הבסיסי
         selector_prefix: הבורר שכל כלל נכתב תחתיו. ברירת המחדל היא ערכה של האתר; קובץ HTML מעוצב
             שאין בו את המאפיין הזה (הייצוא מהעורך הציבורי, ``EXPORT_PRESETS``) מעביר בורר משלו.
+        token_foreground: הצבע של טוקן ש-VS Code משאיר בצבע ברירת המחדל, כשאין ``default_foreground`` (ערכות הייצוא
+            מעבירות את צבע הטקסט של הבלוק). בלי אף אחד מהשניים, מחלקה כזו לא נכתבת.
 
     Returns:
         CSS string עם כללים בפורמט:
@@ -1755,8 +1068,7 @@ def generate_hljs_css_from_tokens(
     if not isinstance(token_colors, list):
         return ""
 
-    # שימוש ב-dict כדי לדדופ כללים לפי selector
-    css_by_selector: dict[str, str] = {}
+    css_rules: list[str] = []
 
     # 🆕 הוספת צבע ברירת מחדל עבור .hljs (טקסט שלא מסומן)
     # זה חשוב עבור משתנים, קבועים ואלמנטים ש-highlight.js לא מסמן
@@ -1764,54 +1076,27 @@ def generate_hljs_css_from_tokens(
         base_parts = [f"color: {str(default_foreground).strip()} !important"]
         if default_background and is_valid_color(str(default_background)):
             base_parts.append(f"background: {str(default_background).strip()} !important")
-        css_by_selector[".hljs"] = f'{selector_prefix} .hljs {{ {"; ".join(base_parts)}; }}'
+        css_rules.append(f'{selector_prefix} .hljs {{ {"; ".join(base_parts)}; }}')
 
-    for token in token_colors:
-        if not isinstance(token, dict):
-            continue
+    theme = VSCodeTokenTheme(
+        token_colors, default_foreground=_hex_or_none(token_foreground) or _hex_or_none(default_foreground)
+    )
+    general = {selector: _resolve_generic(theme, stack) for selector, stack in HLJS_REPRESENTATIVES.items()}
 
-        scopes = token.get("scope", [])
-        if isinstance(scopes, str):
-            scopes = [scopes]
-        if not isinstance(scopes, list):
-            continue
+    for language in HLJS_LANGUAGES.values():
+        suffix = hljs_language_selector_suffix(language.class_names)
+        for selector, stack in language.representatives.items():
+            resolved = theme.resolve((language.root_scope, *stack))
+            parts = _css_declarations(resolved)
+            if parts and resolved != general.get(selector):
+                css_rules.append(f'{selector_prefix} {selector}{suffix} {{ {"; ".join(parts)}; }}')
 
-        settings = token.get("settings", {})
-        if not isinstance(settings, dict):
-            continue
+    for selector, resolved in general.items():
+        parts = _css_declarations(resolved)
+        if parts:
+            css_rules.append(f'{selector_prefix} {selector} {{ {"; ".join(parts)}; }}')
 
-        foreground = settings.get("foreground")
-        font_style = settings.get("fontStyle", "") or ""
-
-        if not foreground or not is_valid_color(str(foreground)):
-            continue
-
-        for scope in scopes:
-            hljs_class = _find_hljs_class(str(scope))
-            if not hljs_class:
-                continue
-
-            # אם כבר יש כלל לזה, נדלג (הראשון מנצח)
-            if hljs_class in css_by_selector:
-                continue
-
-            # CSS עם !important כדי לדרוס hljs default styles
-            rule_parts = [f"color: {str(foreground).strip()} !important"]
-
-            fs = str(font_style).lower()
-            if "italic" in fs:
-                rule_parts.append("font-style: italic !important")
-            if "bold" in fs:
-                rule_parts.append("font-weight: bold !important")
-            if "underline" in fs:
-                rule_parts.append("text-decoration: underline !important")
-
-            # highlight.js classes need to work inside .hljs container
-            # תומך גם ב-custom וגם ב-shared themes
-            # הסלקטור צריך לעבוד כשה-theme הוא custom או shared
-            css_by_selector[hljs_class] = f'{selector_prefix} {hljs_class} {{ {"; ".join(rule_parts)}; }}'
-
-    return "\n".join(css_by_selector.values())
+    return "\n".join(css_rules)
 
 
 def _find_pygments_class(scope: str) -> str | None:
@@ -1912,107 +1197,24 @@ def generate_pygments_css_from_tokens(token_colors: list[dict]) -> str:
     return "\n".join(css_by_selector.values())
 
 
-def _find_codemirror_class(scope: str) -> str | None:
+def generate_codemirror_css_from_tokens(token_colors: list[dict], default_foreground: str | None = None) -> str:
     """
-    מוצא את ה-CodeMirror class המתאים ל-scope.
-    תומך בהתאמה חלקית (prefix matching) ומעדיף התאמה ספציפית יותר.
+    ממיר tokenColors של VS Code ל-CSS עבור CodeMirror (המחלקות של ``classHighlighter``).
 
-    לדוגמה: עבור "constant.numeric.integer.decimal":
-    - יתאים ל-"constant.numeric" (6 תווים prefix) ✓
-    - יתאים ל-"constant" (8 תווים prefix) ✓
-    - יחזיר "constant.numeric" כי הוא הספציפי ביותר (ארוך יותר)
-    """
-    if not scope or not isinstance(scope, str):
-        return None
-
-    # התאמה מדויקת - עדיפות ראשונה
-    if scope in TOKEN_TO_CODEMIRROR_MAP:
-        return TOKEN_TO_CODEMIRROR_MAP[scope]
-
-    # חיפוש ההתאמה הספציפית ביותר (הארוכה ביותר)
-    best_match: str | None = None
-    best_match_length = 0
-
-    for vs_scope, cm_class in TOKEN_TO_CODEMIRROR_MAP.items():
-        # בדיקה: האם ה-scope מתחיל ב-vs_scope
-        # לדוגמה: "constant.numeric.integer" מתחיל ב-"constant.numeric"
-        if scope.startswith(vs_scope + ".") or scope == vs_scope:
-            if len(vs_scope) > best_match_length:
-                best_match = cm_class
-                best_match_length = len(vs_scope)
-
-        # בדיקה הפוכה: האם vs_scope מתחיל ב-scope
-        # לדוגמה: "constant.numeric" מתחיל ב-"constant"
-        # (פחות שכיח אבל נשמר לתאימות)
-        elif vs_scope.startswith(scope + ".") or vs_scope == scope:
-            if len(scope) > best_match_length:
-                best_match = cm_class
-                best_match_length = len(scope)
-
-    return best_match
-
-
-def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
-    """
-    ממיר tokenColors של VS Code ל-CSS עבור CodeMirror.
-
-    🔑 אם יש כמה scopes שממופים לאותו CodeMirror class,
-    הכלל הראשון מנצח (הספציפי יותר בד"כ מופיע קודם בקובץ VS Code).
+    לכל מחלקה ב-``CM_CLASS_TAGS``, הצבע ש-VS Code נותן לטוקן של ה-tag שהיא מקבלת. ``default_foreground`` כמו ב-
+    ``generate_syntax_colors_from_tokens``.
     """
     if not isinstance(token_colors, list):
         return ""
 
-    # 🎨 שימוש ב-dict כדי לדדופ כללים לפי selector
-    # הכלל הראשון לכל selector מנצח
-    css_by_selector: dict[str, str] = {}
-
-    for token in token_colors:
-        if not isinstance(token, dict):
-            continue
-
-        scopes = token.get("scope", [])
-        if isinstance(scopes, str):
-            scopes = [scopes]
-        if not isinstance(scopes, list):
-            continue
-
-        settings = token.get("settings", {})
-        if not isinstance(settings, dict):
-            continue
-
-        foreground = settings.get("foreground")
-        font_style = settings.get("fontStyle", "") or ""
-
-        if not foreground or not is_valid_color(str(foreground)):
-            continue
-
-        for scope in scopes:
-            cm_class = _find_codemirror_class(str(scope))
-            if not cm_class:
-                continue
-
-            # 🔑 אם כבר יש כלל לזה, נדלג (הראשון מנצח)
-            if cm_class in css_by_selector:
-                continue
-
-            # 🎨 !important נדרש כדי לדרוס inline styles של CodeMirror themes
-            rule_parts = [f"color: {str(foreground).strip()} !important"]
-
-            fs = str(font_style).lower()
-            if "italic" in fs:
-                rule_parts.append("font-style: italic !important")
-            if "bold" in fs:
-                rule_parts.append("font-weight: bold !important")
-            if "underline" in fs:
-                rule_parts.append("text-decoration: underline !important")
-
-            # חשוב: אנחנו תומכים גם ב-Shared Themes, לכן משתמשים ב-data-theme-type="custom"
-            # (במקום data-theme="custom" הקשיח)
-            css_by_selector[cm_class] = (
-                f':root[data-theme-type="custom"] {cm_class} {{ {"; ".join(rule_parts)}; }}'
-            )
-
-    return "\n".join(css_by_selector.values())
+    theme = VSCodeTokenTheme(token_colors, default_foreground=_hex_or_none(default_foreground))
+    css_rules: list[str] = []
+    for cm_class, tag in CM_CLASS_TAGS.items():
+        parts = _css_declarations(_resolve_generic(theme, CM_TAG_REPRESENTATIVES[tag]))
+        if parts:
+            # 🎨 !important נדרש כדי לדרוס inline styles של CodeMirror themes; data-theme-type="custom" תופס גם Shared Themes
+            css_rules.append(f':root[data-theme-type="custom"] {cm_class} {{ {"; ".join(parts)}; }}')
+    return "\n".join(css_rules)
 
 
 # 🎨 הבוררים ש-``sanitize_codemirror_css`` מקבל: tok- (CodeMirror 6 classHighlighter) ו-cm- (legacy), גם משורשרים
@@ -2021,9 +1223,14 @@ _CODEMIRROR_SINGLE_CLASS = r'(\.tok-[a-zA-Z0-9_-]+|\.cm-[a-z0-9_-]+)'
 _CODEMIRROR_SELECTOR_RE = re.compile(f'^{_CODEMIRROR_SINGLE_CLASS}({_CODEMIRROR_SINGLE_CLASS}){{0,2}}$')
 
 # הבוררים של highlight.js ש-``generate_hljs_css_from_tokens`` כותב: מחלקה ``hljs-`` ועד שלוש מחלקות-המשך
-# (``.hljs-title.function_``, ‏``.hljs-title.class_.inherited__``). בלי ``.hljs`` לבד: הכלל הבסיסי של הערכה
-# (צבע ורקע לכל הבלוק) אינו כלל של טוקן.
-_HLJS_SELECTOR_RE = re.compile(r'^\.hljs-[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+){0,3}$')
+# (``.hljs-title.function_``, ‏``.hljs-title.class_.inherited__``), ואחריהן אולי הסיומת של כלל לפי שפה
+# (``hljs_language_selector_suffix``: ``:is(.language-python *, .language-py *)``). בלי ``.hljs`` לבד: הכלל הבסיסי
+# של הערכה (צבע ורקע לכל הבלוק) אינו כלל של טוקן.
+_HLJS_LANGUAGE_CLASS = r'\.language-[a-z0-9_+-]{1,40} \*'
+_HLJS_SELECTOR_RE = re.compile(
+    r'\.hljs-[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+){0,3}'
+    rf'(:is\({_HLJS_LANGUAGE_CLASS}(, {_HLJS_LANGUAGE_CLASS}){{0,7}}\))?'
+)
 
 #: הקידומת שכללי ערכה מותאמת או משותפת כתובים תחתיה בעמודי האתר — אותה קידומת של כללי highlight.js.
 _CUSTOM_THEME_RULE_PREFIX = HLJS_SITE_THEME_SELECTOR_PREFIX
@@ -2109,7 +1316,7 @@ def _sanitize_custom_theme_rules(css: str, selector_re: re.Pattern, output_prefi
             continue
         selector = rest
 
-        if not selector_re.match(selector):
+        if not selector_re.fullmatch(selector):
             continue
 
         decls = [d.strip() for d in body.split(";") if d.strip()]

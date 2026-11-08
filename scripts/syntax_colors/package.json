@@ -1,0 +1,11 @@
+{
+  "name": "syntax-colors-reference",
+  "private": true,
+  "type": "module",
+  "description": "התלויות של reference.mjs בלבד — לא של האתר. ראו README.md.",
+  "dependencies": {
+    "tm-grammars": "1.32.22",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
+  }
+}

@@ -475,125 +475,48 @@
 
    ערכה שאינה מצהירה על הטוקנים מרונדרת ללא שינוי, וכך גם התצוגה המקדימה של ערכה מובנית מתוך אשף הערכות: כל טוקן נקרא בכלל שצובע היום את הרכיב, עם fallback לערך שנצבע בו, והבורר של הכלל לא השתנה. במקומות שבהם ל-Rose Pine Dawn יש כלל משלה — השדות בעמודי העריכה וההעלאה, הפיד והפוש ושורת החיפוש — הכלל שלה ספציפי יותר וממשיך לגבור. בשורת החיפוש ה-fallback הוא ``transparent``, הגבול של הכלל הכללי, וכלל ה-``:focus-within`` ספציפי יותר מהכלל שקורא את הווו, ולכן בזמן הקלדה הגבול נשאר שלו. ``tests/services/test_theme_variables_light_import_hooks.py`` נועל את החוזה, כולל הדוגמה שלמעלה, וגם כאן ערכה שכבר קיימת בחשבון מקבלת את הטוקנים רק אחרי ייבוא מחדש. **מה נמדד ב-31.10.2026**, על הדוגמה שלמעלה עם הרקע של Pen Paper Coffee, מול הפיקסל האמיתי שמאחורי כל רכיב: הטקסט בתגים ובבאדג' עלה מניגודיות של 1.18–1.35 ל-5.75–7.18, והגבול של השדות מ-1.06 ל-1.51. בערכות שאינן מצהירות — Classic, Dark, Rose Pine Dawn, High Contrast, ערכה מיובאת כהה וערכה מיובאת בהירה — הרכיבים זהים למה שהיו לפני הווים, גם בפוקוס ובתצוגה המקדימה.
 
+.. _custom-themes-syntax-highlighting:
+
 הדגשת תחביר (Syntax Highlighting)
 ----------------------------------
 
-כאשר מייבאים ערכת VS Code עם ``tokenColors``, המערכת ממירה אותם אוטומטית להדגשת תחביר עבור CodeMirror ו-Pygments.
+כאשר מייבאים ערכת VS Code עם ``tokenColors``, המערכת ממירה אותם לכללי צבע של highlight.js (התצוגה החיה, תצוגת המסמך והייצוא ל-HTML מעוצב), של CodeMirror (העורך: ``syntax_colors`` ל-``HighlightStyle``, ומחלקות ``.tok-*``) ושל Pygments (הייצוא שבשרת).
 
-ארכיטקטורה
-~~~~~~~~~~
+כל מחלקה מקבלת את הצבע ש-VS Code נותן לטוקן שהיא צובעת
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-זרימת המרת צבעים מ-VS Code ל-CodeMirror:
+לכל מחלקה של highlight.js ולכל tag של CodeMirror יש נציג: שרשרת ה-scopes שטוקן כזה מקבל ב-VS Code. למשל, ``.hljs-comment`` מיוצג על ידי ``comment``, ו-``.hljs-built_in`` בפייתון על ידי ``meta.function-call.python support.function.builtin.python``. המחולל שואל את הערכה איזה צבע VS Code נותן לשרשרת הזו, ומכריע כמו vscode-textmate 9.3.2, הספרייה ש-VS Code צובע בה:
 
-.. code-block:: text
+- ``scope`` שכתוב כמחרוזת הוא רשימת בוררים מופרדים בפסיק, ו-``scope`` שכתוב כרשימה לא מפוצל.
+- בורר חל על ה-scope שלו ועל מה שמתחתיו בלבד: כלל ל-``variable.interpolation`` לא צובע את כל המשתנים.
+- הבורר המדויק יותר מנצח, ובתיקו — הכלל המאוחר בקובץ. צבע וגופן עוברים בירושה כל אחד בנפרד, מהבורר הכללי למדויק.
+- בורר עם הורה (``source.python constant.language``) חל רק בתוך ההורה.
 
-   tokenColors (VS Code)
-        │
-        ▼
-   VSCODE_TO_CM_TAG מיפוי
-        │
-        ▼
-   syntax_colors JSON
-        │
-        ▼
-   HighlightStyle.define() (CodeMirror)
+ההכרעה והנציגים נמצאים ב-``services/vscode_token_theme.py``, והמחוללים — ``generate_hljs_css_from_tokens``, ``generate_syntax_colors_from_tokens`` ו-``generate_codemirror_css_from_tokens`` — ב-``services/theme_parser_service.py``. Pygments נשאר עם המיפוי הקודם (``TOKEN_TO_PYGMENTS_MAP``), כי הוא משמש רק את הייצוא שבשרת.
 
-מיפוי VS Code Scopes ל-CodeMirror Tags
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**מחלקה ש-VS Code משאיר בצבע הטקסט מקבלת את** ``editor.foreground`` **במפורש.** אחרת, למשל, הביטוי בתוך ``{}`` של f-string היה יורש את הצבע של המחרוזת שסביבו. לכן ערכה מיובאת עם מעט ``tokenColors`` נראית כמו ב-VS Code: מה שהערכה לא צובעת מוצג בצבע הטקסט, ולא בפלטה שנגזרת מהמשתנים. הכלל הבסיסי ``.hljs`` — צבע ורקע לבלוק — נשאר כמו שהיה.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 40 40 20
+כללים לפי שפה
+~~~~~~~~~~~~~
 
-   * - VS Code Scope
-     - CodeMirror Tag
-     - הערות
-   * - ``comment``
-     - ``comment``
-     - הערות
-   * - ``comment.block.documentation``
-     - ``docComment``
-     - תיעוד
-   * - ``string``
-     - ``string``
-     - מחרוזות
-   * - ``string.regexp``
-     - ``regexp``
-     - Regex
-   * - ``keyword``
-     - ``keyword``
-     - מילות מפתח
-   * - ``keyword.control``
-     - ``controlKeyword``
-     - if, for, while
-   * - ``keyword.control.import``
-     - ``moduleKeyword``
-     - import, export
-   * - ``storage.type``
-     - ``definitionKeyword``
-     - def, class
-   * - ``entity.name.function``
-     - ``function(definition(variableName))``
-     - הגדרת פונקציה
-   * - ``meta.function-call``
-     - ``function(variableName)``
-     - קריאה לפונקציה
-   * - ``support.function.builtin``
-     - ``standard(function(variableName))``
-     - פונקציות מובנות
-   * - ``variable``
-     - ``variableName``
-     - משתנים
-   * - ``variable.parameter``
-     - ``local(variableName)``
-     - פרמטרים
-   * - ``variable.language.self``
-     - ``self``
-     - self, this
-   * - ``constant.numeric``
-     - ``number``
-     - מספרים
-   * - ``constant.language.boolean``
-     - ``bool``
-     - true, false
-   * - ``entity.name.class``
-     - ``definition(className)``
-     - שם מחלקה
-   * - ``entity.name.type``
-     - ``typeName``
-     - שם טיפוס
-   * - ``keyword.operator``
-     - ``operator``
-     - אופרטורים
-   * - ``entity.name.tag``
-     - ``tagName``
-     - תגיות HTML
-   * - ``entity.other.attribute-name``
-     - ``attributeName``
-     - מאפיינים
+לפייתון ול-JavaScript יש נציגים משלהם (``HLJS_LANGUAGES``), שנמדדו על הדקדוקים של VS Code. כשהצבע שונה מזה של הכלל הכללי, נכתב כלל שחל רק בבלוק של השפה, למשל ``.hljs-literal:is(.language-python *, .language-py *, …)``. כך ``True`` ו-``None`` מקבלים ב-Everforest Dark את הצבע של ``constant.language.python``. highlight.js מוסיף לבלוק את ``language-`` עם השם הקנוני של השפה. ``:is()`` מוסיף לספציפיות בדיוק מחלקה אחת, והכלל נכתב לפני הכללים הכלליים, כך שמחלקה מדויקת יותר עדיין גוברת עליו. ``rebase_hljs_css`` מעביר כללים כאלה לקידומת של הייצוא בלי שינוי. ב-CodeMirror אין סימון שפה על העורך, ולכן שם יש רק כללים כלליים.
 
-מנגנון Fallback
-~~~~~~~~~~~~~~~
+מה ש-highlight.js מאחד
+~~~~~~~~~~~~~~~~~~~~~~
 
-כאשר ערכה לא מגדירה צבע לתג ספציפי, המערכת יורשת מתגים הוריים:
+מחלקה שמכסה טוקנים ש-VS Code צובע אחרת מקבלת צבע אחד — של הנציג שלה. בפייתון, למשל, ``built_in`` כולל גם את ``print`` וגם את ``list``, והנציג הוא הפונקציות (החלטה, נובמבר 2026); הקידומת ``f`` והמרכאות הן חלק מהמחרוזת; ו-``import``, ``and`` ו-``if`` הם אותה מחלקה של מילת מפתח. טוקן ש-highlight.js לא מסמן בכלל — משתנה, אופרטור, פיסוק — מקבל את צבע הטקסט. הרשימה המלאה, לכל רינדור, היא ``MERGES`` ב-``tests/_syntax_colors_reference.py``.
 
-.. code-block:: text
+ערכה שכבר שמורה לא משתנה: הכללים נשמרים בזמן הייבוא, ו-``tokenColors`` עצמם לא נשמרים. ייבוא מחדש של הקובץ נותן את הכללים החדשים.
 
-   function(definition(variableName))
-        │
-        ├── יורש מ-definition(variableName)
-        │        │
-        │        └── יורש מ-variableName
-        │                 │
-        │                 └── יורש מ-name
-        │
-        └── יורש מ-function(variableName)
-                 │
-                 └── יורש מ-variableName
+הבדיקות
+~~~~~~~
 
-**דוגמה:**
+``tests/test_vscode_token_theme.py`` משווה את ההכרעה לתשובות של vscode-textmate עצמה, על כל שרשרת scopes שהדקדוקים של VS Code מייצרים בדוגמאות של ``scripts/syntax_colors/``. שם גם הסקריפט שמייצר את ``tests/fixtures/syntax_colors_vscode_reference.json``, וההסבר איך להריץ אותו. הטסט בודק גם שכל תו שיוצא בצבע אחר מ-VS Code הוא איחוד מוצהר, בערכות הייצוא שנבנו מערכת VS Code (morass, ‏Pen Paper Coffee ו-Everforest Dark), בפייתון וב-JavaScript, ב-highlight.js וב-CodeMirror. ``tests/test_syntax_colors_vscode_browser.py`` בודק את אותו דבר בדפדפן, בייצוא ובתצוגה החיה.
 
-אם הערכה מגדירה צבע רק ל-``variableName``, כל ההגדרות שיורשות ממנו יקבלו את אותו הצבע עד שתוגדר דריסה ספציפית.
+מנגנון Fallback של CodeMirror
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+ב-``webapp/static_build/codemirror.bundle.entry.mjs`` יש ``FALLBACK_MAP``: tag שאין לו צבע ב-``syntax_colors`` לוקח את הצבע של ה-tag הבסיסי שלו (למשל ``function(variableName)`` מ-``variableName``). ערכה שמיובאת עם ``editor.foreground`` מקבלת צבע לכל tag ב-``TAG_NAME_MAP``, ולכן ה-fallback חל בעיקר על ערכות שנשמרו לפני נובמבר 2026, ועל ערכה בלי ``editor.foreground``.
 
 CodeMirror CSS Classes
 ~~~~~~~~~~~~~~~~~~~~~~

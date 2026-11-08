@@ -2103,9 +2103,6 @@ hr {
             "--card-bg": "#485650",
         },
         "syntax_css": generate_pygments_css_from_tokens(_MORASS_TOKEN_COLORS),
-        "hljs_css": generate_hljs_css_from_tokens(
-            _MORASS_TOKEN_COLORS, selector_prefix=EXPORT_HLJS_SELECTOR_PREFIX
-        ),
     },
     "pen-paper-coffee": {
         "id": "pen-paper-coffee",
@@ -2133,9 +2130,6 @@ hr {
             "--card-bg": "#ebe8df",
         },
         "syntax_css": generate_pygments_css_from_tokens(_PEN_PAPER_COFFEE_TOKEN_COLORS),
-        "hljs_css": generate_hljs_css_from_tokens(
-            _PEN_PAPER_COFFEE_TOKEN_COLORS, selector_prefix=EXPORT_HLJS_SELECTOR_PREFIX
-        ),
     },
     # בקובץ הערכה אין ``terminal.background``, ולכן ``--code-bg`` הוא ברירת המחדל הכהה של הייבוא
     # (``FALLBACK_DARK`` ב-``services/theme_parser_service.py``) — מה שייבוא הקובץ כערכה נותן.
@@ -2165,11 +2159,22 @@ hr {
             "--card-bg": "#343f44",
         },
         "syntax_css": generate_pygments_css_from_tokens(_EVERFOREST_DARK_TOKEN_COLORS),
-        "hljs_css": generate_hljs_css_from_tokens(
-            _EVERFOREST_DARK_TOKEN_COLORS, selector_prefix=EXPORT_HLJS_SELECTOR_PREFIX
-        ),
     },
 }
+
+
+# כללי highlight.js של ערכות הייצוא שנבנו מערכת VS Code. צבע הטקסט של הבלוק (``--code-text``) הוא גם הצבע של טוקן
+# ש-VS Code משאיר בצבע ברירת המחדל — אחרת, למשל, ``{total}`` בתוך f-string יורש את הצבע של המחרוזת שסביבו.
+for _preset_id, _token_colors in (
+    ("morass", _MORASS_TOKEN_COLORS),
+    ("pen-paper-coffee", _PEN_PAPER_COFFEE_TOKEN_COLORS),
+    ("everforest-dark", _EVERFOREST_DARK_TOKEN_COLORS),
+):
+    EXPORT_PRESETS[_preset_id]["hljs_css"] = generate_hljs_css_from_tokens(
+        _token_colors,
+        selector_prefix=EXPORT_HLJS_SELECTOR_PREFIX,
+        token_foreground=EXPORT_PRESETS[_preset_id]["variables"]["--code-text"],
+    )
 
 
 def _theme_from_export_preset(preset_id: str) -> dict:
