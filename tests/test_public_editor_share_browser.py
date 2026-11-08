@@ -383,7 +383,13 @@ def test_the_share_page_shows_the_document_the_export_shows(browser, session, tm
     wait_rendered(page)
     shared = page.evaluate(PROBE_FILE)
     csp = page.evaluate("window.__csp")
-    notice = page.inner_text("[data-testid=public-editor-share-notice]")
+    # מה בא לפני המסמך: ``main`` הוא האלמנט הראשון ב-body, והכותרת של המסמך היא הראשונה ב-``main`` — בלי באנר ובלי הודעה
+    before_document = page.evaluate(
+        """() => ({ firstInBody: document.body.firstElementChild.tagName,
+                   // ``<noscript>`` של התבנית נשאר ב-DOM, מוסתר כש-JS פועל
+                   firstInMain: [...document.querySelector('main.container').children]
+                     .find((e) => e.tagName !== 'NOSCRIPT').textContent.trim() })"""
+    )
     title = page.title()
     status_line = page.query_selector("#ckShareStatus")
 
@@ -391,9 +397,9 @@ def test_the_share_page_shows_the_document_the_export_shows(browser, session, tm
     assert shared["katex"]["count"] == exported["katex"]["count"] == 5
     assert shared["katex"]["font"] == "KaTeX_Math" and shared["katex"]["pageScrollsSideways"] is False
     assert shared["mermaid"]["svgs"] == 3
-    # בלי באנר של שם קובץ, עם הכיתוב של העורך בתחתית, וההודעה שהתוכן של גולש
+    # בלי באנר של שם קובץ, בלי שום דבר לפני המסמך, ועם הכיתוב של העורך בתחתית
     assert shared["header"] is False and "Code Keeper" in shared["footer"] and "Bot" not in shared["footer"]
-    assert "גולש" in notice
+    assert before_document == {"firstInBody": "MAIN", "firstInMain": file_title}, before_document
     # שם העמוד — הכותרת הראשונה במסמך, כמו בקובץ שירד
     assert title == file_title and title != "מסמך"
     assert status_line is None

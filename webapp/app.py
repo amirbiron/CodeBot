@@ -22409,8 +22409,8 @@ def public_shared_styled(token: str):
     # נוסחה מתחילה תמיד ב-``$`` (``md-math-plugin.js``), ולכן בלי ``$`` אין נוסחה, וה-CSS של KaTeX לא נשלח
     katex_css = markdown_editor_katex_css() if is_markdown_share and '$' in markdown_text else ""
     if doc.get(STYLED_SHARE_ORIGIN_FIELD) == STYLED_SHARE_ORIGIN_PUBLIC_EDITOR:
-        # קישור שגולש יצר בעורך הציבורי: תמיד מהצורה השנייה. בלי באנר של שם קובץ, עם ההודעה שהתוכן של גולש, ובלי
-        # אינדקס — גם בכותרת, שחלה גם על סורק שלא קורא את התגית (``render_public_editor_share_page``)
+        # קישור שגולש יצר בעורך הציבורי: תמיד מהצורה השנייה. בלי באנר של שם קובץ, ובלי אינדקס — גם בכותרת, שחלה גם על
+        # סורק שלא קורא את התגית (``render_public_editor_share_page``)
         if not is_markdown_share:
             logger.warning("public editor share document has no renderable shape", extra={"format": doc.get('format')})
             return render_template('404.html'), 404

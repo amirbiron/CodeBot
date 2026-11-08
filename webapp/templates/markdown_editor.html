@@ -355,8 +355,8 @@
           הורד HTML
         </button>
       </div>
-      {# "צור קישור" (``markdown-editor-export.js``): הפעולה היחידה בעמוד ששולחת את הטקסט לשרת, ורק בלחיצה — ולכן ההסבר
-         כתוב תמיד ליד הכפתור. ``data-max-bytes`` הוא ``STYLED_SHARE_MAX_MARKDOWN_BYTES``, שהשרת אוכף; הבדיקה בדפדפן רק
+      {# "צור קישור" (``markdown-editor-export.js``): הפעולה היחידה בעמוד ששולחת את הטקסט לשרת, ורק בלחיצה. התיאור ליד הכפתור
+         אומר שזה קישור ציבורי, כלומר שכל מי שיקבל אותו יראה את העמוד. ``data-max-bytes`` הוא ``STYLED_SHARE_MAX_MARKDOWN_BYTES``, שהשרת אוכף; הבדיקה בדפדפן רק
          חוסכת שליחה שתידחה. הקישור והמחיקה: ``markdown_editor_create_share`` ו-``markdown_editor_delete_share`` ב-``webapp/app.py``. #}
       <div class="md-editor-share" data-md-editor-share data-share-url="{{ url_for('markdown_editor_create_share') }}" data-delete-url="{{ url_for('markdown_editor_delete_share') }}" data-max-bytes="{{ share_max_bytes }}">
         <div class="md-editor-share__intro">
@@ -364,7 +364,7 @@
             <i class="fas fa-link" aria-hidden="true"></i>
             צור קישור
           </button>
-          <p class="md-editor-share__note">הקישור שומר את הטקסט בשרת, וכל מי שיקבל אותו יוכל לקרוא את המסמך בערכה שבחרת. הוא לא פג: הוא נשאר עד שמוחקים אותו.</p>
+          <p class="md-editor-share__note">קישור ציבורי (של עמוד ה-HTML המעוצב) לשיתוף</p>
         </div>
         <div class="md-editor-share__result" data-md-editor-share-result hidden>
           <div class="md-editor-share__field">

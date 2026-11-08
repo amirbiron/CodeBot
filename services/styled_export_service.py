@@ -2823,8 +2823,8 @@ def styled_share_page_csp() -> str:
 def _share_source(theme: dict, markdown: str, *, public_editor: bool) -> dict:
     """מה שעמוד קישור השיתוף מרנדר בעצמו (``share_source`` בתבנית, ``#ckShareSource`` ב-``styled-share-view.js``).
 
-    ``publicEditor`` — קישור שגולש יצר בעורך הציבורי: התבנית מוסיפה ``noindex`` ואת ההודעה שהתוכן של גולש, והסקריפט
-    נותן לעמוד את הכותרת הראשונה במסמך ומסמן את הקישורים שבו כתוכן של גולש. דגל אחד לשלושתם, כדי שלא ייפרדו.
+    ``publicEditor`` — קישור שגולש יצר בעורך הציבורי: התבנית מוסיפה ``noindex``, והסקריפט נותן לעמוד את הכותרת
+    הראשונה במסמך ומסמן את הקישורים שבו כתוכן של גולש. דגל אחד לכל אלה, כדי שלא ייפרדו.
     """
     source = {
         "markdown": markdown,
@@ -2857,10 +2857,10 @@ def render_styled_share_page(theme: dict, title: str, *, markdown: str, katex_cs
 def render_public_editor_share_page(theme: dict, *, markdown: str, katex_css: str = "", hljs_fallback_css: str = "") -> str:
     """עמוד הקישור שגולש יצר בעורך הציבורי (``origin`` = ``STYLED_SHARE_ORIGIN_PUBLIC_EDITOR`` ב-``styled_shares.py``).
 
-    אותו עמוד כמו ``render_styled_share_page``, באותו מנוע ובאותו CSP, ובשלושה הבדלים: אין באנר עליון, כי לטקסט אין שם
-    קובץ — הכותרת, והכיתוב בתחתית (``EDITOR_EXPORT_FOOTER``), כמו בקובץ שיוצא מהעורך; בראש העמוד הודעה שהתוכן נכתב על
-    ידי גולש ולא על ידי האתר — עמוד בדומיין שלנו שכל אחד יכול לכתוב, ולכן גם כלי לפישינג; ו-``noindex``, בתגית ובכותרת
-    ``X-Robots-Tag`` שהראוט מוסיף.
+    אותו עמוד כמו ``render_styled_share_page``, באותו מנוע ובאותו CSP, ובשני הבדלים: אין באנר עליון, כי לטקסט אין שם
+    קובץ — הכותרת, והכיתוב בתחתית (``EDITOR_EXPORT_FOOTER``), כמו בקובץ שיוצא מהעורך; ו-``noindex``, בתגית ובכותרת
+    ``X-Robots-Tag`` שהראוט מוסיף. אין בעמוד הודעה שהתוכן נכתב על ידי גולש: הקישור נועד לשלוח עמוד מעוצב למי שצריך
+    אותו, והודעה בראשו פוגעת בעמוד — החלטה של בעל הפרויקט (8.11.2026).
     """
     return _render_browser_export_skeleton(
         theme,

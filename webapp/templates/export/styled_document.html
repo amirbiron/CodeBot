@@ -381,20 +381,6 @@
             margin: 2rem 0;
         }
 
-        {% if share_source.publicEditor -%}
-        {#- ההודעה בראש עמוד של קישור מהעורך הציבורי: בצבעים של התראת אזהרה בערכה, ובמאפיינים לוגיים — הפס בצד שהטקסט
-            מתחיל בו, מימין בעברית. #}
-        .ck-share-notice {
-            margin: 1.5rem 0 2rem;
-            padding: 0.75rem 1rem;
-            border-inline-start: 5px solid var(--alert-warning-border, var(--warning));
-            border-radius: 10px;
-            background: var(--alert-warning-bg, var(--bg-secondary));
-            color: var(--text-primary);
-            font-size: 0.95rem;
-        }
-
-        {% endif -%}
         {% endif -%}
         footer {
             text-align: center;
@@ -562,9 +548,6 @@
         {% if share_source -%}
         {#- עמוד קישור השיתוף (``share_source``): המסמך מרונדר כאן, בדפדפן, ועד אז מוצגת שורת מצב. ``styled-share-view.js``
             מחליף את ההערה במסמך ומסיר את השורה, או כותב בה שהרינדור נכשל. #}
-        {% if share_source.publicEditor -%}
-        <p class="ck-share-notice" role="note" data-testid="public-editor-share-notice">המסמך הזה נכתב על ידי גולש בעורך ה-Markdown הציבורי של CodeKeeper. CodeKeeper לא כתב אותו ולא בדק אותו, ולכן אל תמסרו בעקבותיו סיסמאות, קודים או פרטי תשלום.</p>
-        {% endif -%}
         <p class="ck-share-status" id="ckShareStatus" role="status">טוען את המסמך…</p>
         <noscript><p class="ck-share-status">כדי להציג את המסמך צריך JavaScript.</p></noscript>
         {% endif -%}
