@@ -94,6 +94,16 @@ MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2.0
 REQUEST_TIMEOUT = 30.0
 
+
+def _retry_backoff_seconds(attempt: int) -> float:
+    """כמה לחכות אחרי ניסיון מספר ``attempt`` (מאפס) שנכשל, לפני הניסיון הבא.
+
+    ``RETRY_DELAY_SECONDS``, ומוכפל בכל ניסיון. משותף ל-429 ול-5xx ב-
+    :meth:`EmbeddingService.generate_embedding_with_status`, כדי שלשניהם תהיה אותה הסלמה.
+    """
+    return RETRY_DELAY_SECONDS * (2 ** attempt)
+
+
 # שער הקצב של קריאות ההטמעה: מרווח מינימלי בין בקשות, ואחרי 429 הוא נדחף קדימה כך שכל
 # הקוראים נסוגים יחד. **השער הוא של התהליך, ולא של המערכת:** הבוט (ה-worker של הסניפטים)
 # והוובאפ (מעבר התיעוד) הם שני תהליכים, וכל אחד מהם סופר לעצמו ולא יודע על השני.
@@ -337,6 +347,17 @@ class EmbeddingService:
         """
         Embed text with an explicit (model, api_version, dimensions) and return (embedding, status, body).
         Intended for health-check / upgrade logic.
+
+        **ניסיון חוזר.** עד :data:`MAX_RETRIES` ניסיונות בסך הכול, על שלושה סוגי כשל: 429,
+        timeout, וכל ``5xx``. אחרי 429 ו-``5xx`` ההמתנה היא :func:`_retry_backoff_seconds`, והיא
+        גדלה מניסיון לניסיון; אחרי timeout היא :data:`RETRY_DELAY_SECONDS` קבוע. כשהניסיונות
+        נגמרים חוזר הסטטוס של הניסיון האחרון — 429 או ה-``5xx`` עצמו, ו-``0`` ל-timeout — כדי
+        שהקורא יסווג אותו כמו שהוא (:func:`classify_embedding_status`). כל סטטוס אחר — 400,
+        404, 403 ושאר ה-``4xx`` — חוזר מיד, בלי ניסיון חוזר: אותה בקשה תקבל את אותה תשובה.
+
+        ``5xx`` נוסף ל-8.11.2026. עד אז 503 רגעי אחד חזר מיד, וה-worker של הקבצים
+        (``services/embedding_worker.py``) החזיר את הקובץ לתור — כלומר בסבב הבא כל הצ'אנקים
+        שלו נשלחו שוב, גם אלה שכבר הצליחו.
         """
         if not self.is_available():
             return None, 0, EMBEDDING_DETAIL_MISSING_API_KEY
@@ -413,7 +434,7 @@ class EmbeddingService:
                     return None, 200, last_body
 
                 if response.status_code == 429:
-                    wait_time = RETRY_DELAY_SECONDS * (2**attempt)
+                    wait_time = _retry_backoff_seconds(attempt)
                     logger.warning("Rate limited, waiting %ss...", wait_time)
                     await _extend_cooldown_after_429()
                     if attempt >= MAX_RETRIES - 1:
@@ -422,6 +443,27 @@ class EmbeddingService:
                         # נראתה בדיוק כמו timeout — ולכן ה-worker המשיך
                         # לקובץ הבא ושרף עליו עוד שלוש קריאות.
                         return None, 429, last_body
+                    await asyncio.sleep(wait_time)
+                    continue
+
+                if 500 <= response.status_code <= 599:
+                    # תקלה בצד של הספק (503 = עומס). השער המשותף לא נדחף קדימה כמו
+                    # ב-429: זו לא מכסה שכל הקוראים בתהליך חולקים, אלא בקשה שנכשלה.
+                    if attempt >= MAX_RETRIES - 1:
+                        logger.error(
+                            "Gemini API error %s after %s attempts: %s",
+                            response.status_code,
+                            MAX_RETRIES,
+                            last_body,
+                        )
+                        return None, int(response.status_code), last_body
+                    wait_time = _retry_backoff_seconds(attempt)
+                    logger.warning(
+                        "Gemini API error %s on attempt %s, retrying in %ss",
+                        response.status_code,
+                        attempt + 1,
+                        wait_time,
+                    )
                     await asyncio.sleep(wait_time)
                     continue
 

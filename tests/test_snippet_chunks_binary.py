@@ -123,22 +123,34 @@ def test_save_snippet_chunks_stores_binary(fake_db):
     assert list(stored.as_vector().data) == pytest.approx([0.25] * 768)
 
 
-def test_update_snippet_embedding_status_stores_binary(fake_db):
+def test_update_snippet_embedding_status_writes_no_metadata_vector(fake_db):
+    """``snippetEmbedding`` לא נכתב יותר, ואין פרמטר שאפשר לכתוב אותו דרכו.
+
+    אף קוד בריפו לא קרא את השדה — ראו ``SNIPPET_SEMANTIC_FIELDS`` ב-``database/schemas.py``.
+    """
     ok = asyncio.run(
         manager_mod.update_snippet_embedding_status(
             snippet_id="s1",
             content_hash="h",
             chunk_count=1,
-            snippet_embedding=[0.75] * 768,
             chunker_version=2,
         )
     )
 
     assert ok is True
     update = fake_db.code_snippets.updates[-1][1]["$set"]
-    assert isinstance(update["snippetEmbedding"], Binary)
-    assert update["snippetEmbedding"].subtype == 9
+    assert "snippetEmbedding" not in update
     assert update["chunkerVersion"] == 2
+
+    with pytest.raises(TypeError):
+        asyncio.run(
+            manager_mod.update_snippet_embedding_status(
+                snippet_id="s1",
+                content_hash="h",
+                chunk_count=1,
+                snippet_embedding=[0.75] * 768,
+            )
+        )
 
 
 def test_chunker_version_is_written_only_when_given(fake_db):

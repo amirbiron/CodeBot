@@ -9,6 +9,7 @@
 הלקוח — כדי שבניית ה-payload והכותרות יישארו המסלול האמיתי.
 """
 
+import asyncio
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -179,3 +180,125 @@ async def test_input_within_budget_is_sent_whole(service_factory, monkeypatch):
     )
 
     assert rec.seen["body"]["content"]["parts"][0]["text"] == text
+
+
+# ---------------------------------------------------------------------------
+# ניסיון חוזר על 5xx
+# ---------------------------------------------------------------------------
+#
+# הרקע (8.11.2026): בלוגים נראתה ריצה של ה-worker שבה 13 בקשות עברו והבקשה ה-14 קיבלה 503
+# מ-Gemini. עד אז ``generate_embedding_with_status`` ניסה שוב רק אחרי 429 ו-timeout, וכל
+# סטטוס אחר חזר מיד; ה-worker מסווג 5xx ככשל זמני ומחזיר את הקובץ לתור, ולכן 503 רגעי אחד
+# גרם בסבב הבא לשלוח שוב את כל הצ'אנקים של הקובץ, גם את אלה שכבר הצליחו.
+
+
+class _SleepRecorder:
+    """עומד במקום ``asyncio`` של המודול: ``sleep`` נרשם ואינו ממתין, וכל השאר עובר ל-``asyncio``.
+
+    ההחלפה היא רק בשם ``asyncio`` שבתוך ``services.embedding_service``, ולא ב-``asyncio.sleep``
+    הגלובלי — httpx והלולאה ממשיכים לעבוד מול הפונקציה האמיתית.
+    """
+
+    def __init__(self):
+        self.waits = []
+
+    async def sleep(self, seconds):
+        self.waits.append(seconds)
+
+    def __getattr__(self, name):
+        return getattr(asyncio, name)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("server_error", [500, 502, 503, 504])
+async def test_5xx_then_success_is_retried(service_factory, server_error):
+    """שגיאה רגעית בצד של הספק נפתרת בתוך הקריאה, ולא חוזרת לקורא ככשל."""
+    make, _mod, rec = service_factory
+    rec.status_queue = [server_error, 200]
+
+    embedding, status, _ = await make().generate_embedding_with_status(
+        "hello", model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+
+    assert status == 200 and embedding and len(embedding) == 768
+    assert rec.request_count == 2
+
+
+@pytest.mark.asyncio
+async def test_exhausted_5xx_reports_the_provider_status(service_factory):
+    """אחרי ``MAX_RETRIES`` ניסיונות חוזר ה-5xx עצמו, ולא ``0``.
+
+    הסטטוס הוא מה שהקורא מסווג לפיו (``classify_embedding_status``), ו-``0`` שמור לבקשה
+    שלא קיבלה תשובת HTTP בכלל.
+    """
+    make, mod, rec = service_factory
+    rec.status_queue = [503] * mod.MAX_RETRIES
+
+    embedding, status, _ = await make().generate_embedding_with_status(
+        "hello", model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+
+    assert embedding is None
+    assert status == 503
+    assert rec.request_count == mod.MAX_RETRIES
+
+
+@pytest.mark.asyncio
+async def test_5xx_backoff_grows_between_attempts(service_factory, monkeypatch):
+    """ההמתנה בין הניסיונות גדלה, ואין המתנה אחרי הניסיון האחרון."""
+    make, mod, rec = service_factory
+    monkeypatch.setattr(mod, "RETRY_DELAY_SECONDS", 1.0)
+    sleeps = _SleepRecorder()
+    monkeypatch.setattr(mod, "asyncio", sleeps)
+    rec.status_queue = [503] * mod.MAX_RETRIES
+
+    await make().generate_embedding_with_status(
+        "hello", model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+
+    expected = [mod._retry_backoff_seconds(a) for a in range(mod.MAX_RETRIES - 1)]
+    assert sleeps.waits == expected
+    assert all(later > earlier for earlier, later in zip(expected, expected[1:]))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client_error", [400, 401, 403, 404])
+async def test_4xx_is_not_retried(service_factory, client_error):
+    """אותה בקשה תקבל את אותה תשובה, ו-404 מפעיל אצל הקוראים self-heal ולא ניסיון חוזר.
+
+    הטסט עובר גם על הקוד שלפני השינוי: הוא שומר שהניסיון החוזר נוסף ל-5xx בלבד.
+    """
+    make, _mod, rec = service_factory
+    rec.status_queue = [client_error, 200]
+
+    embedding, status, _ = await make().generate_embedding_with_status(
+        "hello", model="gemini-embedding-001", api_version="v1beta", dimensions=768
+    )
+
+    assert embedding is None
+    assert status == client_error
+    assert rec.request_count == 1
+
+
+@pytest.mark.asyncio
+async def test_query_embedding_gives_up_after_bounded_5xx_retries(service_factory, monkeypatch):
+    """החיפוש של המשתמש (``semantic_search``, דרך ``generate_embedding``) עדיין נופל לחיפוש טקסט.
+
+    ב-5xx מתמשך הוא מקבל ``None`` אחרי ``MAX_RETRIES`` בקשות בדיוק — 5xx לא מפעיל את
+    ה-fallback ל-v1 ולא את ה-self-heal, ששמורים ל-404 — וההמתנה הנוספת היא סכום
+    ההמתנות של ``_retry_backoff_seconds``, בלי שום המתנה אחרת.
+    """
+    make, mod, rec = service_factory
+    monkeypatch.setattr(mod, "RETRY_DELAY_SECONDS", 1.0)
+    monkeypatch.setattr(mod, "get_embedding_settings_cached", lambda **_kw: None)
+    sleeps = _SleepRecorder()
+    monkeypatch.setattr(mod, "asyncio", sleeps)
+    rec.status_queue = [503] * mod.MAX_RETRIES
+
+    embedding = await make().generate_embedding("open a file")
+
+    assert embedding is None
+    assert rec.request_count == mod.MAX_RETRIES
+    assert sum(sleeps.waits) == sum(
+        mod._retry_backoff_seconds(a) for a in range(mod.MAX_RETRIES - 1)
+    )

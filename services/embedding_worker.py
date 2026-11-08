@@ -284,7 +284,6 @@ class EmbeddingWorker:
             *,
             content_hash: str,
             chunk_count: int,
-            snippet_embedding: Optional[List[float]] = None,
             needs_embedding: Optional[bool] = None,
             needs_chunking: Optional[bool] = None,
         ) -> None:
@@ -298,7 +297,6 @@ class EmbeddingWorker:
                 snippet_id=snippet_id,
                 content_hash=content_hash,
                 chunk_count=chunk_count,
-                snippet_embedding=snippet_embedding,
                 needs_embedding=needs_embedding,
                 needs_chunking=needs_chunking,
                 embedding_model_key=effective_key,
@@ -450,8 +448,10 @@ class EmbeddingWorker:
                     continue
                 # second failure: give up for now (leave needs_embedding True)
                 logger.warning("Snippet %s: 404 during chunk processing (attempt 1), giving up", snippet_id)
-                # Clear any orphaned chunks from a previous attempt that may have saved chunks
-                # before the metadata embedding triggered a restart.
+                # צ'אנקים שנשארו מעיבוד קודם של הקובץ נמחקים, כדי שיתאימו ל-``chunk_count=0``
+                # שנכתב מיד אחרי. עד 8.11.2026 ההערה כאן נימקה את המחיקה בצ'אנקים שנשמרו לפני
+                # שהטמעת המטא-דאטה הפעילה restart; ההטמעה הזו הוסרה, ו-restart קורה עכשיו רק
+                # בתוך לולאת הצ'אנקים, לפני ``save_snippet_chunks``.
                 await save_snippet_chunks(user_id=user_id, snippet_id=snippet_id, chunks=[])
                 await update_snippet_embedding_status(
                     snippet_id=snippet_id,
@@ -480,50 +480,21 @@ class EmbeddingWorker:
 
             await save_snippet_chunks(user_id=user_id, snippet_id=snippet_id, chunks=chunk_docs)
 
-            metadata_text = create_embedding_text(
-                code_chunk="",
-                title=snippet.get("file_name"),
-                description=snippet.get("description"),
-                tags=snippet.get("tags", []),
-                language=snippet.get("programming_language"),
-            )
-            snippet_embedding: Optional[List[float]] = None
-            metadata_failure: Optional[str] = None
-            if metadata_text.strip():
-                try:
-                    snippet_embedding, metadata_failure = await _embed_with_settings(metadata_text)
-                except _RestartSnippetProcessing:
-                    if attempt == 0:
-                        logger.info(
-                            "Snippet %s: 404 during metadata embed (attempt 0), restart",
-                            snippet_id)
-                        continue
-                    logger.warning(
-                        "Snippet %s: 404 during metadata embed (attempt 1), skipping",
-                        snippet_id)
-                    snippet_embedding = None
-                if metadata_failure == FAILURE_QUOTA:
-                    raise EmbeddingQuotaExhausted()
-            # מטא-דאטה ריקה (קובץ בלי שם/תיאור/תגיות/שפה) אינה כשל: אין מה
-            # להטמיע. עד כה היא נספרה ככשל והחזירה את הקובץ לתור בלי סוף.
-            #
-            # וגם 404 מתמשך על המטא-דאטה (אחרי ה-restart) אינו מחזיר את הקובץ
-            # לתור, בכוונה. ``snippetEmbedding`` הוא **write-only**: הוא נכתב
-            # ב-``update_snippet_embedding_status``, מוחרג מכל היטלה
-            # (``_HEAVY_FIELDS_EXCLUDE_PROJECTION``, ``webapp/app.py``), ומנופה
-            # ב-``mcp_server/backend.py`` — ואין בריפו אף קורא שלו. ה-
-            # ``$vectorSearch`` היחיד רץ על ``chunkEmbedding``. לכן 404 כאן
-            # (בפועל: שם מודל שגוי בקונפיג) לא פוגע בשום תוצאת חיפוש, ואילו
-            # החזרה לתור הייתה יוצרת לולאה אינסופית על משהו חסר השפעה. הכשל
-            # מדווח בלוג ובאירוע, ושם הוא נראה.
+            # אין הטמעה של המטא-דאטה (שם, תיאור, תגיות ושפה בלי קוד). עד 8.11.2026 היא נשלחה
+            # כבקשה נוספת אחרי הצ'אנקים ונשמרה ב-``snippetEmbedding``, ואף קוד בריפו לא קרא
+            # את השדה: ה-``$vectorSearch`` היחיד על הקבצים רץ על ``chunkEmbedding``
+            # (``_build_hybrid_search_pipeline`` ב-``search_engine.py``), והמטא-דאטה כבר
+            # נכנסת לכל צ'אנק דרך ``create_embedding_text``. הבקשה עלתה קריאה ל-Gemini לכל
+            # קובץ, וכשל זמני בה החזיר לתור קובץ שכל הצ'אנקים שלו כבר נשמרו. מסמכים שעובדו
+            # לפני כן עדיין נושאים את השדה — ראו ``SNIPPET_SEMANTIC_FIELDS`` ב-
+            # ``database/schemas.py``.
 
             # רק כשל **זמני** מחזיר את הקובץ לתור. צ'אנק שנדחה לצמיתות כבר
             # דווח באירוע משלו, וקובץ שלם לא ייתקע בגללו.
-            should_retry = bool(transient_failures) or metadata_failure == FAILURE_TRANSIENT
+            should_retry = bool(transient_failures)
             await _finish(
                 content_hash=current_hash,
                 chunk_count=len(chunk_docs),
-                snippet_embedding=snippet_embedding,
                 needs_embedding=should_retry,
                 needs_chunking=False,
             )

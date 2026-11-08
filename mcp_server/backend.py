@@ -129,11 +129,12 @@ _HEAVY_FIELDS = ("code", "content", "raw_data", "raw_content")
 #: ההפך ממה ש-``lines`` נועד לחסוך. השאר קטנים, אבל אף אחד מהם אינו אומר דבר
 #: לצרכן — הם הנהלת חשבונות של ה-EmbeddingWorker.
 #:
-#: **אף אחד מהם לא נשלף מכאן.** הווקטור נקרא אך ורק בתוך מונגו, ב-
-#: ``$vectorSearch`` (``search_engine.py``); שום קוד פייתון לא קורא אותו חזרה
-#: ממסמך. את דגלי העיבוד (``needs_embedding``, ``contentHash``, ``chunkCount``
-#: וכו׳) שולף ``services/embedding_worker.py`` דרך projection ייעודי משלו
-#: (``database/manager.py``), ולא דרך הכלים כאן.
+#: **אף אחד מהם לא נשלף מכאן.** ``snippetEmbedding`` כבר לא נכתב, ונשאר רק
+#: במסמכים שעובדו לפני כן (ההסבר ליד ``SNIPPET_SEMANTIC_FIELDS``); הווקטור
+#: שהחיפוש קורא הוא ``chunkEmbedding`` באוסף ``snippet_chunks``, בתוך
+#: ``$vectorSearch`` (``search_engine.py``). את דגלי העיבוד (``needs_embedding``,
+#: ``contentHash``, ``chunkCount`` וכו׳) שולף ``services/embedding_worker.py``
+#: דרך projection ייעודי משלו (``database/manager.py``), ולא דרך הכלים כאן.
 #:
 #: **הרשימה משוכפלת במכוון מ-``SNIPPET_SEMANTIC_FIELDS`` שב-``database/schemas.py``.**
 #: ייבוא ישיר היה מריץ את ``database/__init__.py``, שבונה ``DatabaseManager()``

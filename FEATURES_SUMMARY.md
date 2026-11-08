@@ -1409,7 +1409,7 @@ CodeBot/
 #### Collections ושדות ב-MongoDB
 
 - **`snippet_chunks`** — ה-chunks לחיפוש: `codeChunk`, `chunkEmbedding` (הווקטור, נשמר כ-BSON BinData subtype 9 / float32 — פי 3.2 קטן ממערך doubles), `userId`, `snippetId`, `startLine`/`endLine`, ומטא-דאטת מודל (`embeddingModelKey`). אינדקס `(userId, snippetId)` נוצר באתחול, וג'וב יומי מנקה צ'אנקים של קבצים שנמחקו או של גרסאות שהוחלפו.
-- **`code_snippets`** — כולל `snippetEmbedding` (embedding מטא-דאטה) ודגלי עיבוד (`needs_embedding`, `needs_chunking`, `contentHash`, `chunkerVersion`).
+- **`code_snippets`** — דגלי עיבוד (`needs_embedding`, `needs_chunking`, `contentHash`, `chunkerVersion`). מסמכים שעובדו לפני 8.11.2026 נושאים גם את `snippetEmbedding` (embedding של המטא-דאטה), שכבר לא נכתב ואף קוד לא קורא אותו — ראו `SNIPPET_SEMANTIC_FIELDS` ב-`database/schemas.py`.
 - **`system_config`** — קונפיג המודל הדינמי.
 - **אינדקסי Atlas** נדרשים: `default` (Search) ו-`vector_index` (Vector) — נוצרים **ידנית** ב-Atlas UI.
 

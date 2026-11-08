@@ -596,7 +596,6 @@ async def update_snippet_embedding_status(
     snippet_id: ObjectId,
     content_hash: str,
     chunk_count: int,
-    snippet_embedding: Optional[List[float]] = None,
     *,
     needs_embedding: Optional[bool] = None,
     needs_chunking: Optional[bool] = None,
@@ -613,6 +612,9 @@ async def update_snippet_embedding_status(
     בנתיבים שבהם הטיפול במסמך באמת הסתיים. זו הנקודה שמונעת "רשומה שמתארת
     מצב שלא קרה": אם היינו כותבים אותו בכל עדכון, קובץ שנכשל היה נראה
     כאילו נחתך בגרסה החדשה ולא היה נבחר שוב לעולם.
+
+    ``snippetEmbedding`` לא נכתב מכאן מאז 8.11.2026 — ראו ``SNIPPET_SEMANTIC_FIELDS`` ב-
+    ``database/schemas.py``.
     """
     raw_db = _get_raw_db()
     if raw_db is None:
@@ -633,8 +635,6 @@ async def update_snippet_embedding_status(
                 "embeddingUpdatedAt": datetime.now(timezone.utc),
             }
         }
-        if snippet_embedding:
-            update_doc["$set"]["snippetEmbedding"] = _to_binary_vector(snippet_embedding)
         # Optional semantic metadata
         if embedding_model_key:
             update_doc["$set"]["embeddingModelKey"] = str(embedding_model_key)
