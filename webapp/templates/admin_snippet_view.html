@@ -34,9 +34,14 @@
 
 {% block extra_js %}
 <script defer src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
+{# ההדגשה עוברת דרך ``SafeHighlight``, כמו בספריית הסניפטים: בלי זיהוי שגוי כ-diff, והערות ומחרוזות
+   עבריות מקבלות כיוון משלהן (``RtlCode.isolateHebrewTokens``, שנקרא מ-``highlightBlock``). סקריפט דחוי
+   רץ לפני ``DOMContentLoaded``, ולכן שלושתם כבר טעונים כשהמאזין רץ. #}
+<script defer src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
+<script defer src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}?v={{ static_version }}"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function(){
-    if (window.hljs){ document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} }); }
+    if (window.SafeHighlight) window.SafeHighlight.highlightAllBlocks(document);
   });
 </script>
 {% endblock %}

@@ -1,6 +1,6 @@
 /**
  * הדגשת תחביר בטוחה לבלוקי קוד – מונעת זיהוי שגוי כ-diff.
- * משותף ל-live-preview, repo-browser, snippets ו-md_preview.
+ * משותף ל-live-preview, repo-browser, snippets, md_preview ו-admin_snippet_view.
  *
  * כש-highlight.js מפעיל highlightAuto על בלוק ללא שפה מוגדרת,
  * שורות שמתחילות ב-מקף ("-") מזוהות בטעות כ-diff ונצבעות באדום.
@@ -79,6 +79,32 @@
   // ─── פונקציות עזר (נשארות לתאימות אחורה) ───
 
   /**
+   * הערות ומחרוזות עבריות בבלוק שנצבע מקבלות כיוון משלהן
+   * (``RtlCode.isolateHebrewTokens`` ב-``utils/rtl-code.js``).
+   *
+   * **כאן ולא אצל כל צרכן:** כל המסלולים שמדגישים בלוק עוברים דרך
+   * ``highlightBlock``, וההדגשה בונה את תוכן הבלוק מחדש. העטיפה חייבת לרוץ
+   * אחריה, ומקום אחד שרץ אחריה מכסה את כולם.
+   *
+   * **היעדר ``window.RtlCode`` הוא היעדר יכולת סטטי, לא נפילה למסלול גרוע**
+   * — אותה הכרעה כמו ב-``sticky-notes.js``: ``tests/sticky-notes-target.test.js``
+   * בודק שכל תבנית שטוענת את ``safe-highlight.js`` טוענת גם את ``rtl-code.js``.
+   *
+   * **``try`` משלו, ורחב בכוונה:** אין כאן תקלה צפויה — חריגה היא באג, והיא
+   * נרשמת במלואה ובשם שלה. בלעדיו היא הייתה עולה לצרכן ונרשמת בתווית שלו
+   * ("hljs highlight failed" בתצוגה החיה, שגם מוותרת אז על כפתור ההעתקה של
+   * הבלוק). איתו הבלוק נשאר צבוע, בלי העטיפה — כמו לפניה.
+   */
+  function isolateHebrew(block) {
+    if (!window.RtlCode) return;
+    try {
+      window.RtlCode.isolateHebrewTokens(block);
+    } catch (err) {
+      console.warn('isolateHebrewTokens failed', err);
+    }
+  }
+
+  /**
    * מדגיש בלוק קוד בודד באופן בטוח.
    *
    * @param {HTMLElement} block  אלמנט <code> בתוך <pre>
@@ -99,6 +125,7 @@
       block.classList.add('hljs');
       block.dataset.highlighted = 'yes';
     }
+    isolateHebrew(block);
   }
 
   /**
