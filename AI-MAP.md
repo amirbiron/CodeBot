@@ -67,7 +67,7 @@
 - `docs/testing.rst` — **Testing Guide**: Quickstart להרצת טסטים, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, עבודה עם tmp_path ומתכון מחיקה מוגבל ל-allowlist, mocking של HTTP, בדיקות מול מונגו אמיתי, ואימות ביטוי aggregation או סינון מול גרסת הייצור בקריאה בלבד.
 - `docs/testing-rate-limit-examples.rst` — **דוגמאות טסטים – Rate Limiting ואסינכרוניות**: קטעי דוגמה לכתיבת טסטים ל-Rate Limiting מול Redis מדומה ולקוד אסינכרוני. הקטעים אינם ניתנים להרצה כמות שהם — הם מדלגים על הקשר עם ``...`` ומניחים פונקציות מקומיות.
 - `docs/performance-tests.rst` — **בדיקות ביצועים (Performance Tests)**: להריץ בדיקות ביצועים בצורה בטוחה וגמישה: ברירת מחדל מריצים את כולן; ב‑PR Draft עם תווית מתאימה מריצים רק "קלים".
-- `docs/ci-cd.rst` — **CI/CD Guide**: מדריך ה-CI/CD: החוקים הקשיחים, הסטטוסים הנדרשים ב-PR, ריכוז ה-workflows, הפואמה שנכתבת על כל PR, הבדיקות המומלצות ובניית התיעוד.
+- `docs/ci-cd.rst` — **CI/CD Guide**: החוקים הקשיחים, הסטטוסים הנדרשים ב-PR, ריכוז ה-workflows, הפואמה שנכתבת על כל PR, האישו שנפתח על כשל אחרי מיזוג, הבדיקות המומלצות ובניית התיעוד.
 - `docs/conversation-handlers.rst` — **Conversation Handlers & States**: מסמך זה מרכז את הזרימות העיקריות של ה‑ConversationHandlers וה‑states.
 - `docs/advisor.rst` — **מצב היועץ (/advisor)**: שיחה עם מודל שפה שעונה אם CodeKeeper מתאים לאופן העבודה של הגולש: כניסה ויציאה, ניתוב שלא מגיע לשמירת קוד, זיכרון השיחה והמכסה היומית במונגו, וההגדרות.
 - `docs/troubleshooting.rst` — **Troubleshooting Guide**: מדריך פתרון תקלות: שגיאות ייבוא בזמן טסטים, שגיאות parse_mode, בעיות event loop של asyncio, וכלים לדיבוג מהיר כולל בדיקת חיבור ל-MongoDB.

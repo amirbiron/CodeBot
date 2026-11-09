@@ -2,7 +2,11 @@ name: Notify on post-merge test failures (Issues)
 
 on:
   workflow_run:
-    workflows: ["CI/CD Pipeline"]
+    # לפי השדה name: של כל workflow, בדיוק כמו שהוא כתוב שם. ci.yml מריץ את הטסטים במקביל
+    # (xdist) ו-deploy.yml מריץ אותם ברצף, אחד אחרי השני. כשל שתלוי בסדר הטסטים, כמו טסט
+    # שמשאיר מצב שמשפיע על הטסט שאחריו, מופיע רק בריצה ברצף, ולכן צריך להאזין לשניהם.
+    # לכל workflow יש אישו משלו (השם שלו בכותרת), וריצה מוצלחת סוגרת רק את האישו של אותו workflow.
+    workflows: ["CI/CD Pipeline", "🚀 Code Keeper Bot CI/CD"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -15,6 +19,17 @@ permissions:
   contents: read
   actions: read
   issues: write
+
+env:
+  # הג'ובים שנחשבים כשל בריצה שנבדקת: כל מי שה-conclusion שלו אינו success ואינו skipped.
+  # כאן מוגדר מה זה כשל, פעם אחת, ושני הג'ובים למטה (הפתיחה והסגירה) משתמשים בזה.
+  # skipped הוא ג'וב שלא רץ: ה-if שלו לא התקיים, או שג'וב שהוא תלוי בו (needs) לא רץ או נכשל.
+  # ב-deploy.yml יש כאלה בכל ריצה על main, גם בריצה מוצלחת: unit-tests-gate רץ רק על pull_request,
+  # deploy-staging רץ רק על develop, ו-deploy-production תלוי ב-deploy-staging ומדולג יחד איתו.
+  # אם skipped נספר ככשל, כל מיזוג תקין פותח אישו, ואף אישו לא נסגר. ג'וב שדולג כי ג'וב שהוא
+  # תלוי בו נכשל לא מסתיר כלום: הג'וב שנכשל נספר בעצמו.
+  # הערכים האפשריים של conclusion: https://docs.github.com/en/rest/actions/workflow-jobs
+  FAILED_JOBS_JQ: '[(.jobs // [])[] | select((.conclusion // "unknown") as $c | $c != "success" and $c != "skipped")]'
 
 jobs:
   open-issue-on-failure:
@@ -38,7 +53,7 @@ jobs:
           # 1) Detect failed jobs via Actions API
           jobs_url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/jobs?per_page=100"
           jobs_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$jobs_url")
-          failed_jobs=$(printf '%s' "$jobs_json" | jq -r '.jobs // [] | map(select((.conclusion // "unknown") != "success"))')
+          failed_jobs=$(printf '%s' "$jobs_json" | jq -r "$FAILED_JOBS_JQ")
           failed_jobs_count=$(printf '%s' "$failed_jobs" | jq -r 'length')
           failed_jobs_text=$(printf '%s' "$failed_jobs" | jq -r 'if length>0 then (map("- " + (.name // "job") + ": " + (.html_url // "")) | join("\n")) else "" end')
 
@@ -168,7 +183,7 @@ jobs:
 
           jobs_url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/jobs?per_page=100"
           jobs_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$jobs_url")
-          failed_jobs_count=$(printf '%s' "$jobs_json" | jq -r '([.jobs[] | select((.conclusion // "unknown") != "success")] | length) // 0') || echo 0
+          failed_jobs_count=$(printf '%s' "$jobs_json" | jq -r "$FAILED_JOBS_JQ | length") || echo 0
 
           arts_url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/artifacts?per_page=100"
           arts_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$arts_url")
