@@ -1,12 +1,15 @@
-:summary: ברוכים הבאים לתיעוד ה-API של Code Keeper Bot!
+:summary: ברוכים הבאים לתיעוד ה-API של CodeKeeper!
 
-.. Code Keeper Bot documentation master file
+.. CodeKeeper documentation master file
 
-Code Keeper Bot - תיעוד API
-============================
+.. התווית שמתחת היא העוגן של הכותרת מלפני שינוי השם ל-CodeKeeper (Code Keeper Bot - תיעוד API), כדי שקישור ישן ל-#code-keeper-bot-api ימשיך להגיע לכותרת, לפי docs/versioning-stable-anchors.rst. היא חייבת להיות צמודה לכותרת: הערה ביניהן הייתה מנתקת אותה מהסעיף (PropagateTargets ב-docutils לא מעביר מזהה לאלמנט בלתי נראה).
 
-בוט זה מספק ממשק טלגרם מתקדם לניהול ושמירת קטעי קוד, עם תמיכה בשפות תכנות מרובות,
-אינטגרציה עם GitHub, וכלי ניהול מתקדמים.
+.. _code-keeper-bot-api:
+
+CodeKeeper - תיעוד API
+======================
+
+אתר זה מספק ממשק לניהול קבצי קוד ומסמכי מארקדאון, לוחות פתקים דביקים, וחיבור MCP המאפשר לסוכן ה-AI לעבוד איתם (לקרוא, לחפש ולכתוב בהם) & בוט טלגרם לגיבוי ריפוזיטורי.
 
 .. toctree::
    :maxdepth: 2
@@ -222,7 +225,7 @@ Code Keeper Bot - תיעוד API
 סקירה כללית
 ------------
 
-**Code Keeper Bot** הוא בוט טלגרם מתקדם המאפשר:
+**CodeKeeper** הוא אתר לניהול קוד & בוט טלגרם המאפשרים:
 
 * 💾 שמירה וניהול של קטעי קוד
 * 🔍 חיפוש מתקדם בקוד

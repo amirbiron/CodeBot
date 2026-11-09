@@ -1,6 +1,6 @@
 {% extends "base_boards.html" %}
 
-{% block title %}לוח פתקים - Code Keeper Bot{% endblock %}
+{% block title %}לוח פתקים - CodeKeeper{% endblock %}
 
 {% block extra_head %}
 {% set note_font_surface = 'board' %}
@@ -269,7 +269,7 @@
     const board = allBoards.find(function (b) { return String(b.id) === String(BOARD_ID); });
     if (board) {
       titleInput.value = board.name;
-      document.title = board.name + ' - Code Keeper Bot';
+      document.title = board.name + ' - CodeKeeper';
     }
   }
 

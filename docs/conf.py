@@ -27,7 +27,7 @@ os.environ.setdefault('BOT_TOKEN', 'dummy_bot_token_for_docs')
 os.environ.setdefault('MONGODB_URL', 'mongodb://localhost:27017/test')
 
 # -- Project information -----------------------------------------------------
-project = 'Code Keeper Bot'
+project = 'CodeKeeper'
 copyright = f'{datetime.now().year}, Development Team'
 author = 'Development Team'
 release = '1.0.0'

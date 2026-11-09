@@ -32,7 +32,7 @@
 
 ## מדריכים בסיסיים
 
-- `docs/installation.rst` — **התקנה והגדרה**: דף זה מכיל הוראות התקנה מפורטות עבור Code Keeper Bot.
+- `docs/installation.rst` — **התקנה והגדרה**: דף זה מכיל הוראות התקנה מפורטות עבור CodeKeeper.
 - `docs/configuration.rst` — **Rate Limiting**: רפרנס הקונפיגורציה של המערכת: Rate Limiting, משתני סביבה, Pooling ו-Timeouts למסדי הנתונים ול-Redis, לקוחות ה-HTTP הסינכרוני והאסינכרוני, Flask, הבוט והמדדים.
 - `docs/environment-variables.rst` — **משתני סביבה - רפרנס**: רפרנס משתני הסביבה: הטבלה המרכזית, משתני התראות וניטור, מדדים ו-OTEL, תפעול ואינטגרציות, דגלי בדיקות, ודוגמאות קונפיגורציה כולל טבלת ה-Scopes של GitHub.
 - `docs/performance-bible.md` — **🚀 The Performance Bible: CodeKeeper Optimization Guide**: עקרונות הביצועים של המערכת אחרי הרפקטור שהוריד את ה-p95 מ-1.8 שניות ל-200ms: Cache First, Projection, חישוב ב-DB, אינדקסים מורכבים, ו-Lazy Loading.
@@ -42,7 +42,7 @@
 
 ## API Reference
 
-- `docs/api/index.rst` — **API Reference**: תיעוד מלא של ה-API של Code Keeper Bot.
+- `docs/api/index.rst` — **API Reference**: תיעוד מלא של ה-API של CodeKeeper.
   - `docs/api/handlers.documents.rst` — **handlers.documents module**: מנתב קבצים שנשלחים לבוט לפי ``upload_mode``: שחזור ZIP לריפו GitHub, ייבוא ZIP, וקבצי טקסט שנשמרים דרך שכבת הקבצים. כולל ולידציה והגנות מפני 'פצצת ZIP'.
   - `docs/api/modules.rst` — **workspace**: אינדקס המודולים של התיעוד האוטומטי — נקודת הכניסה לעמודי ה-API שנוצרים מ-autodoc בזמן הבנייה.
     - `docs/api/refactoring_engine.rst` — **refactoring\_engine module**: מנוע הרפקטורינג: המדיניות והקונפיגורציה, קיבוץ לפי קוהזיה שמונע Oversplitting ו-God Class, והמקרה המיוחד של פירוק בטוח ל-models.py.
@@ -63,7 +63,7 @@
 
 ## עזרה ודוגמאות
 
-- `docs/examples.rst` — **דוגמאות שימוש**: דף זה מכיל דוגמאות קוד לשימוש ב-API של Code Keeper Bot.
+- `docs/examples.rst` — **דוגמאות שימוש**: דף זה מכיל דוגמאות קוד לשימוש ב-API של CodeKeeper.
 - `docs/testing.rst` — **Testing Guide**: Quickstart להרצת טסטים, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, עבודה עם tmp_path ומתכון מחיקה מוגבל ל-allowlist, mocking של HTTP, בדיקות מול מונגו אמיתי, ואימות ביטוי aggregation או סינון מול גרסת הייצור בקריאה בלבד.
 - `docs/testing-rate-limit-examples.rst` — **דוגמאות טסטים – Rate Limiting ואסינכרוניות**: קטעי דוגמה לכתיבת טסטים ל-Rate Limiting מול Redis מדומה ולקוד אסינכרוני. הקטעים אינם ניתנים להרצה כמות שהם — הם מדלגים על הקשר עם ``...`` ומניחים פונקציות מקומיות.
 - `docs/performance-tests.rst` — **בדיקות ביצועים (Performance Tests)**: להריץ בדיקות ביצועים בצורה בטוחה וגמישה: ברירת מחדל מריצים את כולן; ב‑PR Draft עם תווית מתאימה מריצים רק "קלים".
