@@ -2,6 +2,10 @@
 
 .. CodeKeeper documentation master file
 
+.. התווית שמתחת היא העוגן של הכותרת מלפני שינוי השם ל-CodeKeeper (Code Keeper Bot - תיעוד API), כדי שקישור ישן ל-#code-keeper-bot-api ימשיך להגיע לכותרת, לפי docs/versioning-stable-anchors.rst. היא חייבת להיות צמודה לכותרת: הערה ביניהן הייתה מנתקת אותה מהסעיף (PropagateTargets ב-docutils לא מעביר מזהה לאלמנט בלתי נראה).
+
+.. _code-keeper-bot-api:
+
 CodeKeeper - תיעוד API
 ======================
 

@@ -1,4 +1,4 @@
-:summary: תיעוד מלא של ה-API של Code Keeper Bot.
+:summary: תיעוד מלא של ה-API של CodeKeeper.
 
 API Reference
 =============

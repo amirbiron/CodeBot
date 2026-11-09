@@ -3,7 +3,7 @@
 עובדי Push
 ===========
 
-ל-Code Keeper Bot יש שני מסלולים לשליחת Web Push:
+ל-CodeKeeper יש שני מסלולים לשליחת Web Push:
 
 1. **מסלול מקומי (ברירת מחדל)** – ה-WebApp שולח ישירות עם ``pywebpush``. זה המסלול הפעיל בפרודקשן.
 2. **Node Push Worker** (``/push_worker``) – תהליך נפרד שרץ לצד הבוט (Render/Docker/VM), למי שרוצה להפריד את המפתח הפרטי מתהליך ה-Flask.
