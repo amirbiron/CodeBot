@@ -5131,8 +5131,16 @@ def _add_default_csp(resp):
                     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
                     # Fonts: local + Google Fonts + Font Awesome webfonts + data: (icons)
                     "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; "
-                    # Images: local + data/blob (thumbnails, inline previews)
-                    "img-src 'self' data: blob: https://telegram.org; "
+                    # תמונות: מהאתר, ‏data/blob (תמונות ממוזערות ותצוגות מקדימות), ומכל כתובת http/https. תמונה
+                    # שהמשתמש כתב במסמך Markdown (``![alt](url)``) היא חלק מהמסמך, ו-markdown-it מרנדר אותה ל-``<img>``
+                    # בכל עמוד שמציג Markdown של המשתמש — ``md_preview.html`` ו-``MarkdownLiveRenderer`` ב-
+                    # ``webapp/static/js/live-preview.js``, שמשמש כמה עמודים. כשהמדיניות התירה רק את האתר עצמו, תמונה מאתר
+                    # אחר נחסמה בדפדפן בלי שום עקבה בשרת, בכל העמודים האלה. זו אותה החלטה כמו בייצוא ובקישור השיתוף
+                    # המעוצב (``editor_export_meta_csp`` ו-``styled_share_page_csp`` ב-``services/styled_export_service.py``).
+                    # ההיתר כאן ולא לכל עמוד לחוד, כי ההגבלה לא הגנה על שום עמוד: עם ``'unsafe-inline'`` ב-``script-src``
+                    # ובלי ``form-action`` במדיניות הזו, מי שמזריק HTML כבר יכול להריץ קוד ולשלוח מידע החוצה בלי תמונה,
+                    # ורשימת עמודים הייתה נשכחת בעמוד ה-Markdown הבא.
+                    "img-src 'self' data: blob: http: https:; "
                     # XHR/fetch for ESM modules and assets
                     "connect-src 'self' https://cdn.jsdelivr.net https://unpkg.com https://esm.sh https://oauth.telegram.org https://telegram.org; "
                     # Frames: allow Telegram OAuth widget iframes

@@ -51,8 +51,9 @@
 
 **מה מוסר מהסעיף לפני ההמרה, ולמה.** בלוקים שנוצרו מהקוד (``dl.py``, של autodoc)
 יוצאים, כמו עמודי ``api/`` כולם (:data:`EXCLUDED_TOP_DIRS`). כל קישור הופך לכתובת
-מלאה באתר, כדי שקישור בתוך כרטיס בוובאפ יוביל לאתר. ותמונה הופכת לקישור "תמונה: …",
-כי ה-CSP של הוובאפ (``_add_default_csp`` ב-``webapp/app.py``) לא מתיר תמונות מהאתר.
+מלאה באתר, כדי שקישור בתוך כרטיס בוובאפ יוביל לאתר, וגם הכתובת של כל תמונה, כדי שהיא
+תיטען מהאתר. התמונה נשארת תמונה (``![alt](כתובת)``): ה-CSP של הוובאפ (``_add_default_csp`` ב-
+``webapp/app.py``) מתיר תמונות מכל כתובת https.
 
 **שלמות.** עמוד אחד שנכשל מכשיל את כל הייצוא, ואז לא נשאר קובץ בכלל: קבצים מהרצה
 קודמת (הראשי וכל עותק לפי קומיט) מוסרים כבר בתחילת ההרצה, והחדשים נכתבים לקבצים זמניים
@@ -174,13 +175,22 @@ _EXTRACT_SECTIONS_JS = r"""
     clone.querySelectorAll('a[href]').forEach((link) => {
       link.setAttribute('href', absolute(link.getAttribute('href')));
     });
-    clone.querySelectorAll('img').forEach((img) => {
-      const src = img.getAttribute('src') || '';
-      const label = (img.getAttribute('alt') || '').trim() || src.split('/').pop();
-      const link = document.createElement('a');
-      link.setAttribute('href', absolute(src));
-      link.textContent = `תמונה: ${label}`;
-      img.replaceWith(link);
+    // תמונה נשארת תמונה, בכתובת מלאה באתר. ``rules.image`` של Turndown 7.2.2
+    // (``docs/_static/vendor/turndown.umd.js``) כותב את ה-alt, את ה-src ואת ה-title כמו שהם, בלי escape — בשונה מטקסט
+    // ומקישור — ולכן הם מוכנים כאן: סוגר מרובע ב-alt היה סוגר את התמונה, סוגריים ב-src את הכתובת, וגרשיים ב-title את
+    // הכותרת. ב-src וב-title התצוגה בוובאפ מראה את התו עצמו. ב-alt לא: markdown-it 14.1.0, שהבאנדל של הוובאפ בנוי
+    // ממנו, משמיט מה-alt כל תו שעבר escape — ``text_join`` (``lib/rules_core/text_join.mjs``) הופך ``text_special``
+    // לטקסט רק ברמה העליונה של השורה ולא בתוך תמונה, ו-``renderInlineAsText`` (``lib/renderer.mjs``) מדלג עליו. לכן
+    // ה-escape כאן הוא רק מה שהמבנה צריך: ``\``, ``[`` ו-``]``.
+    clone.querySelectorAll('img[src]').forEach((img) => {
+      const src = absolute(img.getAttribute('src')).replace(/\(/g, '%28').replace(/\)/g, '%29');
+      img.setAttribute('src', src);
+      if (img.hasAttribute('alt')) {
+        img.setAttribute('alt', img.getAttribute('alt').replace(/[\\[\]]/g, '\\$&'));
+      }
+      if (img.hasAttribute('title')) {
+        img.setAttribute('title', img.getAttribute('title').replace(/[\\"]/g, '\\$&'));
+      }
     });
     // הכותרת יוצאת מהעותק אחרי שהקישורים והתמונות שבו הוסבו, כדי שקישור בכותרת יוביל לאתר כמו
     // קישור בגוף.

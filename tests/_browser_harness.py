@@ -12,7 +12,9 @@
 from __future__ import annotations
 
 import json
+import struct
 import time
+import zlib
 from urllib.parse import urlsplit
 
 #: כמה מחכים לתנאי שתלוי ברשת, ברינדור או בגלילה חלקה. ``wait_for_function`` חסום:
@@ -135,6 +137,17 @@ def top_note_in_overlap(page, a: str, b: str) -> dict:
     res = page.evaluate(TOP_NOTE_IN_OVERLAP_JS, [a, b])
     assert res["ok"], f"בקרה: {res}"
     return res
+
+
+def png_bytes(width: int, height: int) -> bytes:
+    """PNG אדום בגודל נתון, בלי ספרייה — לתמונה ש-``route`` מגיש מ"אתר אחר": חתימה, ‏IHDR, ‏IDAT ו-IEND."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    rows = b"".join(b"\x00" + b"\xff\x00\x00" * width for _ in range(height))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
 
 
 def open_admin_page(browser, server, path: str, *, viewport: dict, local_storage: dict | None = None):

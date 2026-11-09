@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 import pytest
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _browser_harness import open_admin_page, poll
+from _browser_harness import WAIT_S, open_admin_page, png_bytes, poll
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
@@ -263,6 +263,60 @@ def test_a_long_section_is_collapsed_until_asked_and_a_short_one_is_not(
     assert long_card == {"collapsed": True, "cut": True, "button": True, "expanded": "false"}, long_card
     assert short_card["collapsed"] is False and short_card["button"] is False, short_card
     assert after[0]["collapsed"] is False and after[0]["cut"] is False and after[0]["expanded"] == "true", after[0]
+
+
+#: סעיף קצר עם תמונה מאתר אחר (``img.test``). לפני שהתמונה נטענת הסעיף נכנס בחלון המקופל.
+IMAGE_URL = "https://img.test/docs/diagram.png"
+IMAGE_SECTION = f"סעיף קצר עם תרשים.\n\n![תרשים]({IMAGE_URL})\n"
+
+#: הקיפול של הכרטיס הראשון, מרגע שהתמונה שבו כבר בעמוד.
+CLIP_WITH_IMAGE_JS = """() => {
+  const card = document.querySelector('[data-testid="docs-result"]');
+  const clip = card && card.querySelector('[data-docs-clip]');
+  const img = clip && clip.querySelector('img');
+  if (!img) return 'no <img> yet';
+  return {ok: true, collapsed: clip.classList.contains('is-collapsed'),
+          button: !card.querySelector('[data-docs-expand]').hidden,
+          cut: clip.scrollHeight > clip.clientHeight, loaded: img.complete && img.naturalWidth > 0};
+}"""
+
+
+@pytest.mark.parametrize(
+    "image_height, folded",
+    [(800, True), (40, False)],
+    ids=["taller-than-the-card", "fits-in-the-card"],
+)
+def test_a_short_section_is_measured_again_when_its_image_loads(
+        admin_live_server, chromium_executable, wired_mongo, image_height, folded):
+    """הסעיף נמדד כשהוא מרונדר, ותמונה מקבלת גובה רק כשהיא נטענת — אחרי המדידה. עד התיקון לא הייתה מדידה
+    נוספת, וסעיף קצר עם תמונה גבוהה נשאר פתוח לכל גובהה, בלי קיפול ובלי כפתור. הבקשה לתמונה מוחזקת עד אחרי
+    המדידה הראשונה, כדי שהסדר יהיה זה של רשת איטית ולא מקרה. וכשהתמונה נכנסת בחלון, הסעיף נשאר פתוח."""
+    held = []
+    api = DocsApi((200, ok_response([dict(RESULTS[1], markdown=IMAGE_SECTION)])))
+    with files_page(admin_live_server, chromium_executable, api) as page:
+        # נרשם אחרי הראוט הכללי של ``open_admin_page``, שקוטע כל מארח אחר, ולכן גובר עליו בכתובת הזו.
+        page.route(IMAGE_URL, held.append)
+        search_docs(page, "תרשים")
+        before = poll(page, CLIP_WITH_IMAGE_JS, "הסעיף מרונדר והתמונה בתוכו")
+        deadline = time.monotonic() + WAIT_S
+        while not held and time.monotonic() < deadline:
+            page.wait_for_timeout(100)
+        assert held, "הבקשה לתמונה לא יצאה (ה-CSP של העמוד חוסם אותה?)"
+        held[0].fulfill(status=200, body=png_bytes(400, image_height), headers={"Content-Type": "image/png"})
+        after = poll(
+            page,
+            f"() => {{ const s = ({CLIP_WITH_IMAGE_JS})(); return s.loaded ? s : 'image still loading'; }}",
+            "התמונה נטענה",
+        )
+        if folded:
+            after = poll(
+                page,
+                f"() => {{ const s = ({CLIP_WITH_IMAGE_JS})(); return s.button ? s : 'no expand button yet'; }}",
+                "הכרטיס התקפל אחרי שהתמונה נטענה",
+            )
+
+    assert (before["collapsed"], before["button"], before["loaded"]) == (False, False, False), before
+    assert (after["collapsed"], after["button"], after["cut"]) == (folded, folded, folded), after
 
 
 #: מה שכפתור ההרחבה של הכרטיס הראשון מראה, לצד המצב של הסעיף עצמו.
