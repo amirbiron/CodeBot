@@ -5,7 +5,8 @@ on:
     # לפי השדה name: של כל workflow, בדיוק כמו שהוא כתוב שם. ci.yml מריץ את הטסטים במקביל
     # (xdist) ו-deploy.yml מריץ אותם ברצף, אחד אחרי השני. כשל שתלוי בסדר הטסטים, כמו טסט
     # שמשאיר מצב שמשפיע על הטסט שאחריו, מופיע רק בריצה ברצף, ולכן צריך להאזין לשניהם.
-    # לכל workflow יש אישו משלו (השם שלו בכותרת), וריצה מוצלחת סוגרת רק את האישו של אותו workflow.
+    # לכל workflow יש אישו משלו (השם שלו בכותרת). ריצה מוצלחת סוגרת רק אישו של אותו workflow, ורק
+    # כשהקומיט שלה מכיל את הקומיט שנכשל (הבדיקה בג'וב הסגירה, למטה).
     workflows: ["CI/CD Pipeline", "🚀 Code Keeper Bot CI/CD"]
     types: [completed]
   workflow_dispatch:
@@ -30,6 +31,9 @@ env:
   # תלוי בו נכשל לא מסתיר כלום: הג'וב שנכשל נספר בעצמו.
   # הערכים האפשריים של conclusion: https://docs.github.com/en/rest/actions/workflow-jobs
   FAILED_JOBS_JQ: '[(.jobs // [])[] | select((.conclusion // "unknown") as $c | $c != "success" and $c != "skipped")]'
+  # שם הסימון הנסתר בגוף האישו, שנושא את ה-SHA המלא של הקומיט שנכשל: <!-- post-merge-sha: <sha> -->.
+  # הפתיחה כותבת אותו, והסגירה קוראת אותו כדי לבדוק שהקומיט שהצליח מכיל את הקומיט שנכשל.
+  POST_MERGE_SHA_MARKER: post-merge-sha
 
 jobs:
   open-issue-on-failure:
@@ -126,7 +130,9 @@ jobs:
               failedJobsText ? '\nJobs שנכשלו:\n' + failedJobsText : '',
               Number.isFinite(testsFailedTotal) && testsFailedTotal > 0 ? `\nסך בדיקות שנכשלו: ${testsFailedTotal}` : ''
             ].filter(Boolean);
-            const body = bodyLines.join('\n');
+            // הסימון לא מוצג באישו. הסגירה קוראת ממנו את הקומיט שנכשל (בכותרת יש רק 7 תווים).
+            const shaMarker = `<!-- ${process.env.POST_MERGE_SHA_MARKER}: ${run.head_sha} -->`;
+            const body = bodyLines.join('\n') + '\n\n' + shaMarker;
 
             // Try to find an existing open issue with the same title
             const existing = await github.paginate(github.rest.issues.listForRepo, {
@@ -238,6 +244,31 @@ jobs:
             // close the most recent
             candidates.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
             const issue = candidates[0];
+
+            // סוגרים רק כשהקומיט שהצליח מכיל את הקומיט שנכשל (אותו קומיט או צאצא שלו), לפי ההיסטוריה
+            // ולא לפי סדר הגעת האירועים. ל-deploy.yml אין concurrency, אז ריצות של קומיטים סמוכים רצות
+            // במקביל, וריצה שנכשלת מסתיימת לפני ריצה מוצלחת כי היא עוצרת בכשל הראשון. בלי הבדיקה, הצלחה
+            // של קומיט ישן שמגיעה אחרי הכשל הייתה סוגרת את האישו של קומיט חדש יותר שעדיין שבור.
+            const shaPattern = /^[0-9a-f]{40}$/;
+            const marker = new RegExp(`<!-- ${process.env.POST_MERGE_SHA_MARKER}: ([0-9a-f]{40}) -->`);
+            const found = typeof issue.body === 'string' ? issue.body.match(marker) : null;
+            if (!found || typeof run.head_sha !== 'string' || !shaPattern.test(run.head_sha)) {
+              core.info(`Issue #${issue.number}: no failing-commit marker (or no head_sha on the run); ` +
+                `cannot verify that ${run.head_sha} contains it, leaving the issue open.`);
+              return;
+            }
+            const failedSha = found[1];
+            // merge base של שני קומיטים הוא הראשון בדיוק כשהוא בהיסטוריה של השני (git merge-base).
+            // אין כאן catch בכוונה: קריאה שנכשלת מפילה את הצעד, והאישו נשאר פתוח.
+            const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${failedSha}...${run.head_sha}`
+            });
+            const mergeBase = comparison && comparison.merge_base_commit ? comparison.merge_base_commit.sha : undefined;
+            if (mergeBase !== failedSha) {
+              core.info(`Issue #${issue.number}: ${run.head_sha} does not contain the failing commit ${failedSha} ` +
+                `(status: ${comparison && comparison.status}, merge base: ${mergeBase}); leaving the issue open.`);
+              return;
+            }
             await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: '✅ הריצה האחרונה על main עברה בהצלחה. סוגר את התקלה האחרונה.' });
             await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
             core.info(`Closed latest failure issue #${issue.number}`);
