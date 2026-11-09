@@ -142,7 +142,9 @@ def _open(tmp_path, sha, open_issues=()):
         _script("open-issue-on-failure", "Create/Update"),
         step_env={
             "HAS_FAILURES": "1",
-            "FAILED_JOBS_TEXT": "- Unit Tests (3.11): https://example.invalid/job",
+            # שם ג'וב לדוגמה. לא שם של סטטוס אמיתי, כדי שלא ייראה כמו עותק של רשימת הבדיקות החובה
+            # (tests/test_required_checks_are_listed.py מחפש עותקים כאלה בכל הריפו).
+            "FAILED_JOBS_TEXT": "- example-job: https://example.invalid/job",
             "TESTS_FAILED_TOTAL": "0",
         },
         workflow_run=_workflow_run(sha),
