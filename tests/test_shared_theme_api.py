@@ -157,3 +157,89 @@ def test_apply_shared_theme_sets_ui_pref(client, stub_db, monkeypatch):
     update_calls = [c for c in stub_db.users.calls if c[0] == "update_one"]
     assert any(call[2].get("$set", {}).get("ui_prefs.theme") == "shared:cyber" for call in update_calls)
 
+
+
+# ============= syntax_css בפרסום =============
+
+
+def _publish(client, monkeypatch, **extra):
+    _login(client, user_id=6865105071)
+    monkeypatch.setattr(webapp_app, "is_admin", lambda *_: True)
+    body = {"slug": "morass", "name": "morass", "colors": {"--primary": "#fdec5a"}, **extra}
+    return client.post("/api/themes/publish", json=body)
+
+
+def test_publish_reports_how_many_syntax_rules_did_not_pass(client, stub_db, monkeypatch):
+    resp = _publish(
+        client,
+        monkeypatch,
+        syntax_css=(
+            ':root[data-theme-type="custom"] .hljs-string { color: #ce9178 !important; }\n'
+            ':root[data-theme-type="custom"] .source .k { color: #c586c0 !important; }'
+        ),
+    )
+    data = resp.get_json()
+    assert resp.status_code == 200, data
+    assert data["syntax_rules_dropped"] == 1
+    doc = next(doc for doc in stub_db.shared_themes.docs if doc.get("_id") == "morass")
+    assert (
+        doc["syntax_css"]
+        == ':root[data-theme-type="custom"] .hljs-string { color: #ce9178 !important; }'
+    )
+
+
+def test_publish_with_syntax_css_that_is_not_a_string_is_a_400(client, stub_db, monkeypatch):
+    resp = _publish(client, monkeypatch, syntax_css=["x"])
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_syntax_css"
+    assert stub_db.shared_themes.docs == []
+
+
+def test_publish_with_syntax_css_over_the_ceiling_is_a_400_with_max(client, stub_db, monkeypatch):
+    from services.shared_theme_service import MAX_SYNTAX_CSS_LENGTH
+
+    resp = _publish(client, monkeypatch, syntax_css="a" * (MAX_SYNTAX_CSS_LENGTH + 1))
+    data = resp.get_json()
+    assert resp.status_code == 400
+    assert data["error"] == "syntax_css_too_long"
+    assert data["max"] == MAX_SYNTAX_CSS_LENGTH
+    assert stub_db.shared_themes.docs == []
+
+
+def test_update_shared_theme_with_syntax_css_that_is_not_a_string_is_a_400(
+    client, stub_db, monkeypatch
+):
+    _login(client, user_id=6865105071)
+    monkeypatch.setattr(webapp_app, "is_admin", lambda *_: True)
+    stub_db.shared_themes.docs = [
+        {"_id": "morass", "name": "morass", "is_active": True, "syntax_css": "kept"}
+    ]
+    resp = client.put("/api/themes/shared/morass", json={"syntax_css": 7})
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_syntax_css"
+    assert not any(call[0] == "update_one" for call in stub_db.shared_themes.calls)
+
+
+def test_publish_keeps_the_json_colors_of_the_personal_theme(client, stub_db, monkeypatch):
+    """הבאג שהתגלה: בלוק JSON ב-Markdown בערכה הציבורית איבד את התכלת של המפתחות ואת החום של המחרוזות."""
+    from services.styled_export_service import _MORASS_TOKEN_COLORS
+    from services.theme_parser_service import parse_vscode_theme
+
+    personal = parse_vscode_theme(
+        {
+            "name": "morass",
+            "colors": {
+                "editor.background": "#313a36",
+                "editor.foreground": "#e4e3e1",
+                "sideBar.background": "#485650",
+            },
+            "tokenColors": _MORASS_TOKEN_COLORS,
+        }
+    )["syntax_css"]
+    resp = _publish(client, monkeypatch, syntax_css=personal)
+    assert resp.status_code == 200, resp.get_json()
+    saved = next(doc for doc in stub_db.shared_themes.docs if doc.get("_id") == "morass")[
+        "syntax_css"
+    ]
+    assert ':root[data-theme-type="custom"] .hljs-attr { color: #9cdcfe !important; }' in saved
+    assert ':root[data-theme-type="custom"] .hljs-string { color: #ce9178 !important; }' in saved

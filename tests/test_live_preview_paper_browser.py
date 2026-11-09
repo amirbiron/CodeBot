@@ -53,6 +53,8 @@ from test_live_preview_blockquote_browser import (  # noqa: E402
     build_head,
     build_page,
     custom_theme,
+    html_theme_attributes,
+    shared_theme,
 )
 
 MD_PREVIEW_TEMPLATE = TEMPLATES_DIR / "md_preview.html"
@@ -75,7 +77,8 @@ LIGHT_VSCODE_THEME = {
     ],
 }
 
-#: הערכות שנמדדות: כל המובנות, ערכה מיובאת כהה וערכה מיובאת בהירה. ``(data-theme, ערכה מיובאת)``.
+#: הערכות שנמדדות: כל המובנות, ערכה מיובאת כהה וערכה מיובאת בהירה, והכהה אחרי פרסום לציבורית (``shared``).
+#: ``(data-theme, ערכה מיובאת)``.
 THEMES = {
     "classic": ("classic", None),
     "ocean": ("ocean", None),
@@ -86,6 +89,7 @@ THEMES = {
     "high-contrast": ("high-contrast", None),
     "custom-dark": ("custom", CUSTOM_VSCODE_THEME),
     "custom-light": ("custom", LIGHT_VSCODE_THEME),
+    "shared-dark": ("shared", CUSTOM_VSCODE_THEME),
 }
 
 MARKDOWN = (
@@ -221,7 +225,9 @@ DOC_JS = """() => (%s)(document.getElementById('md-content'))""" % _STYLES_JS
 
 def _theme(name: str) -> tuple[str, dict | None]:
     attr, vscode = THEMES[name]
-    return attr, (custom_theme(vscode) if vscode else None)
+    if not vscode:
+        return attr, None
+    return attr, (shared_theme(vscode) if attr == "shared" else custom_theme(vscode))
 
 
 def _document_page(name: str, html: str) -> str:
@@ -230,10 +236,14 @@ def _document_page(name: str, html: str) -> str:
     ``build_head`` עם ``md_preview.html``: ה-``<head>`` של ``base.html``, ו-``extra_css`` של התבנית במקומו.
     """
     attr, theme = _theme(name)
-    theme_type = ' data-theme-type="custom"' if attr == "custom" else ""
+    head = (
+        build_head(shared=theme, template=MD_PREVIEW_TEMPLATE)
+        if attr == "shared"
+        else build_head(theme, MD_PREVIEW_TEMPLATE)
+    )
     return (
-        f'<!doctype html><html dir="rtl" lang="he" data-theme="{attr}"{theme_type}>'
-        f'<head><meta charset="utf-8">{build_head(theme, MD_PREVIEW_TEMPLATE)}</head>'
+        f'<!doctype html><html dir="rtl" lang="he" {html_theme_attributes(attr)}>'
+        f'<head><meta charset="utf-8">{head}</head>'
         f'<body><div id="md-root"><div id="md-content">{html}</div></div></body></html>'
     )
 
@@ -295,7 +305,7 @@ def test_the_preview_is_on_the_document_paper(measured, name):
     ]
 
 
-@pytest.mark.parametrize("name", ["custom-dark", "custom-light"])
+@pytest.mark.parametrize("name", ["custom-dark", "custom-light", "shared-dark"])
 def test_an_imported_theme_shows_its_own_background(measured, name):
     """ערכה מיובאת — ``editor.background`` שלה, ולא ``--split-preview-bg`` שהמייבא נותן לכל ערכה.
 

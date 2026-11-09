@@ -65,12 +65,15 @@ STATIC_URL_RE = re.compile(r"""\{\{\s*url_for\('static',\s*filename='([^']+)'\)\
 #: ``<style>`` בלי מאפיינים, קישור ל-CSS מקומי, המקום שבו נכנס ``extra_css``,
 #: ובלוקי ``user-custom-theme`` ו-``user-custom-syntax`` — Jinja שמזריק את משתני
 #: הערכה המותאמת הפעילה ואת צבעי התחביר שלה. הבלוק השני נוגע בתצוגה החיה מאז שיש בה
-#: הדגשה: הוא צובע את ``.hljs`` ברקע של הערכה, ב-``!important``. בלוקי הערכה המשותפת
-#: (``shared-theme-*``) אינם נמדדים כאן.
+#: הדגשה: הוא צובע את ``.hljs`` ברקע של הערכה, ב-``!important``. ובלוקי הערכה הציבורית,
+#: ``shared-theme-override`` ו-``shared-theme-syntax``, שמזריקים את אותם שני דברים לערכה
+#: שפורסמה (``shared``).
 HEAD_PART_RE = re.compile(
     r"<style>(?P<style>.*?)</style>"
     r"|(?P<custom><style id=\"user-custom-theme\">.*?</style>)"
     r"|(?P<syntax><style id=\"user-custom-syntax\">.*?</style>)"
+    r"|(?P<shared><style id=\"shared-theme-override\">.*?</style>)"
+    r"|(?P<shared_syntax><style id=\"shared-theme-syntax\">.*?</style>)"
     r"|<link rel=\"stylesheet\" href=\"\{\{ url_for\('static', filename='(?P<css>css/[^']+)'\) \}\}[^\"]*\">"
     r"|(?P<extra>\{% block extra_css %\}\{% endblock %\})",
     re.S,
@@ -78,8 +81,21 @@ HEAD_PART_RE = re.compile(
 
 #: הערכות שנמדדות. כל אחת מגיעה לציטוט דרך מסלול טוקנים אחר ב-``split-view.css``:
 #: ברירת המחדל, בלוק כהה משותף, בלוקים ייעודיים, ערכה בהירה, ניגודיות גבוהה
-#: (שאין לה בלוק ב-``base.html``), וערכה מותאמת שנגזרת מטוקנים סמנטיים.
-THEMES = ["classic", "dark", "ocean", "forest", "rose-pine-dawn", "high-contrast", "custom"]
+#: (שאין לה בלוק ב-``base.html``), וערכה מותאמת שנגזרת מטוקנים סמנטיים — אישית (``custom``),
+#: וזו שפורסמה ממנה לציבורית (``shared``, ``data-theme="shared:<slug>"``).
+THEMES = [
+    "classic",
+    "dark",
+    "ocean",
+    "forest",
+    "rose-pine-dawn",
+    "high-contrast",
+    "custom",
+    "shared",
+]
+
+#: ה-slug של הערכה הציבורית שהבדיקה מפרסמת.
+SHARED_THEME_SLUG = "live_preview_test"
 
 #: הערכה המיובאת שמוזרקת לעמוד של ``custom``. הצבעים שונים מכל ברירת מחדל,
 #: כדי ש-``test_the_custom_page_runs_on_the_injected_theme`` יוכל להבחין בין
@@ -164,25 +180,67 @@ def custom_theme(vscode_theme: dict) -> dict:
     }
 
 
-def _render_custom_theme_block(block: str, theme: dict) -> str:
+class _PublishedThemes:
+    """אוסף בזיכרון שמספיק ל-``SharedThemeService.create``: בדיקת slug תפוס, ושמירה."""
+
+    def __init__(self):
+        self.docs: list[dict] = []
+
+    def find_one(self, query, *args, **kwargs):
+        return next((doc for doc in self.docs if doc.get("_id") == query.get("_id")), None)
+
+    def insert_one(self, doc):
+        self.docs.append(doc)
+
+
+def shared_theme(vscode_theme: dict) -> dict:
+    """הערכה הציבורית כפי ש-``base.html`` מקבל אותה, אחרי פרסום של הערכה האישית ``custom_theme(vscode_theme)``.
+
+    אותו מסלול כמו כפתור הפרסום בבונה הערכות: ה-``variables`` וה-``syntax_css`` של הערכה האישית נשלחים ל-
+    ``SharedThemeService.create``, והמסמך שנשמר עובר דרך ``_shared_theme_from_doc`` של ``webapp/app.py`` — המבנה
+    שהתבנית מקבלת בבקשה אמיתית. כך נבדק מה שהפרסום באמת שומר, ולא עותק של ה-CSS של הערכה האישית.
+    """
+    import types
+
+    from services.shared_theme_service import SharedThemeService
+    from webapp.app import _shared_theme_from_doc
+
+    personal = custom_theme(vscode_theme)
+    db = types.SimpleNamespace(shared_themes=_PublishedThemes())
+    SharedThemeService(db).create(
+        slug=SHARED_THEME_SLUG,
+        name=vscode_theme["name"],
+        colors=personal["variables"],
+        created_by=1,
+        syntax_css=personal["syntax_css"],
+    )
+    assert len(db.shared_themes.docs) == 1, "הפרסום לא נשמר"
+    theme = _shared_theme_from_doc(db.shared_themes.docs[0])
+    assert theme and theme["colors"], f"מסמך הערכה הציבורית לא תקין: {theme}"
+    return theme
+
+
+def _render_head_block(block: str, **context) -> str:
     """מרנדר בלוק Jinja אמיתי מ-``base.html``, עם autoescape כמו ב-Flask."""
     from jinja2 import Environment
 
-    return Environment(autoescape=True).from_string(block).render(custom_theme=theme)
+    return Environment(autoescape=True).from_string(block).render(**context)
 
 
-def build_head(theme: dict | None = None, template: Path = EDIT_TEMPLATE) -> str:
+def build_head(
+    theme: dict | None = None, template: Path = EDIT_TEMPLATE, *, shared: dict | None = None
+) -> str:
     """ה-CSS של העמוד, בסדר שבו ``base.html`` + העמוד (``edit_file.html`` כברירת מחדל) מרכיבים אותו.
 
-    ``theme`` — ערכה מותאמת פעילה (``custom_theme``). בלעדיה בלוקי הערכה אינם מרונדרים,
-    בדיוק כמו ב-``base.html`` כשאין ערכה מותאמת פעילה.
+    ``theme`` — ערכה מותאמת פעילה (``custom_theme``), ו-``shared`` — ערכה ציבורית (``shared_theme``). בלעדיהן
+    בלוקי הערכה אינם מרונדרים, בדיוק כמו ב-``base.html`` כשאין ערכה כזו.
     """
     base = BASE_TEMPLATE.read_text(encoding="utf-8")
     head = base[base.index("<head>") : base.index("</head>")]
     extra_css = _render_fragment(_block(template, "extra_css"))
 
     parts: list[str] = []
-    saw_extra = saw_custom = saw_syntax = False
+    saw_extra = saw_custom = saw_syntax = saw_shared = saw_shared_syntax = False
     for match in HEAD_PART_RE.finditer(head):
         if match.group("style") is not None:
             assert "{{" not in match.group("style") and "{%" not in match.group("style"), (
@@ -192,11 +250,19 @@ def build_head(theme: dict | None = None, template: Path = EDIT_TEMPLATE) -> str
         elif match.group("custom") is not None:
             saw_custom = True
             if theme:
-                parts.append(_render_custom_theme_block(match.group("custom"), theme))
+                parts.append(_render_head_block(match.group("custom"), custom_theme=theme))
         elif match.group("syntax") is not None:
             saw_syntax = True
             if theme:
-                parts.append(_render_custom_theme_block(match.group("syntax"), theme))
+                parts.append(_render_head_block(match.group("syntax"), custom_theme=theme))
+        elif match.group("shared") is not None:
+            saw_shared = True
+            if shared:
+                parts.append(_render_head_block(match.group("shared"), shared_theme=shared))
+        elif match.group("shared_syntax") is not None:
+            saw_shared_syntax = True
+            if shared:
+                parts.append(_render_head_block(match.group("shared_syntax"), shared_theme=shared))
         elif match.group("css") is not None:
             parts.append(f'<link rel="stylesheet" href="/{match.group("css")}">')
         else:
@@ -205,7 +271,21 @@ def build_head(theme: dict | None = None, template: Path = EDIT_TEMPLATE) -> str
     assert saw_extra, "לא נמצא המקום של extra_css ב-<head> של base.html"
     assert saw_custom, "לא נמצא בלוק user-custom-theme ב-<head> של base.html"
     assert saw_syntax, "לא נמצא בלוק user-custom-syntax ב-<head> של base.html"
+    assert saw_shared, "לא נמצא בלוק shared-theme-override ב-<head> של base.html"
+    assert saw_shared_syntax, "לא נמצא בלוק shared-theme-syntax ב-<head> של base.html"
     return "\n".join(parts)
+
+
+def html_theme_attributes(theme_name: str) -> str:
+    """המאפיינים שהסקריפט בראש ``base.html`` מציב על ``<html>``: ``data-theme``, ולערכה מותאמת או ציבורית
+    גם ``data-theme-type="custom"`` — ה-``syntax_css`` של שתיהן נשען עליו
+    (``:root[data-theme-type="custom"] .hljs``).
+    """
+    if theme_name == "shared":
+        return f'data-theme="shared:{SHARED_THEME_SLUG}" data-theme-type="custom"'
+    if theme_name == "custom":
+        return 'data-theme="custom" data-theme-type="custom"'
+    return f'data-theme="{theme_name}"'
 
 
 def build_body(template: Path = EDIT_TEMPLATE) -> str:
@@ -235,12 +315,14 @@ def build_body(template: Path = EDIT_TEMPLATE) -> str:
 
 
 def build_page(theme_name: str, theme: dict | None = None, template: Path = EDIT_TEMPLATE) -> str:
-    # ``data-theme-type="custom"`` — מה שהסקריפט בראש ``base.html`` מציב לצד ``data-theme="custom"``.
-    # ה-``syntax_css`` של ערכה מיובאת נשען עליו (``:root[data-theme-type="custom"] .hljs``).
-    theme_type = ' data-theme-type="custom"' if theme_name == "custom" else ""
+    """``theme`` — ``custom_theme`` כש-``theme_name`` הוא ``custom``, ו-``shared_theme`` כשהוא ``shared``."""
+    if theme_name == "shared":
+        head = build_head(shared=theme, template=template)
+    else:
+        head = build_head(theme, template)
     return (
-        f'<!doctype html><html dir="rtl" lang="he" data-theme="{theme_name}"{theme_type}>'
-        f'<head><meta charset="utf-8">{build_head(theme, template)}</head>'
+        f'<!doctype html><html dir="rtl" lang="he" {html_theme_attributes(theme_name)}>'
+        f'<head><meta charset="utf-8">{head}</head>'
         f"<body>{build_body(template)}</body></html>"
     )
 
@@ -355,10 +437,21 @@ def imported_theme():
 
 
 @pytest.fixture(scope="module")
-def measured(chromium_executable, imported_theme):
+def published_theme():
+    """הערכה המיובאת אחרי פרסום לציבורית — מה שעמוד של ``shared`` מקבל."""
+    return shared_theme(CUSTOM_VSCODE_THEME)
+
+
+def _theme_for(name: str, imported: dict, published: dict) -> dict | None:
+    return {"custom": imported, "shared": published}.get(name)
+
+
+@pytest.fixture(scope="module")
+def measured(chromium_executable, imported_theme, published_theme):
     """מרנדר את אותו Markdown בכל ערכה, דרך הכפתור, ומחזיר את מה שנמדד."""
     pages = {
-        theme: build_page(theme, imported_theme if theme == "custom" else None) for theme in THEMES
+        theme: build_page(theme, _theme_for(theme, imported_theme, published_theme))
+        for theme in THEMES
     }
     results = _measure_pages(chromium_executable, pages, MARKDOWN, MEASURE_JS)
     for theme in THEMES:
@@ -541,6 +634,7 @@ MEASURE_CODE_JS = """() => {
             margin: ss ? [parseFloat(ss.marginTop), parseFloat(ss.marginBottom)] : [0, 0],
             padding: [ps.paddingTop, ps.paddingRight, ps.paddingBottom, ps.paddingLeft].map(parseFloat),
             codeBg: cs.backgroundColor,
+            codeColor: cs.color,
             codePadding: [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map(parseFloat),
             spans: code.querySelectorAll('[class^="hljs-"], [class*=" hljs-"]').length,
             keywordColor: keyword ? getComputedStyle(keyword).color : null,
@@ -575,12 +669,14 @@ CODE_CASES = [f"{page}-{theme}" for page in PAGES for theme in THEMES]
 
 
 @pytest.fixture(scope="module")
-def code_measured(chromium_executable, imported_theme):
+def code_measured(chromium_executable, imported_theme, published_theme):
     """אותם ארבעה בלוקים בשני העמודים ובכל ערכה."""
     pages = {}
     for page, template in PAGES.items():
         for theme in THEMES:
-            pages[f"{page}-{theme}"] = build_page(theme, imported_theme if theme == "custom" else None, template)
+            pages[f"{page}-{theme}"] = build_page(
+                theme, _theme_for(theme, imported_theme, published_theme), template
+            )
     return _measure_pages(chromium_executable, pages, CODE_MARKDOWN, MEASURE_CODE_JS)
 
 
@@ -632,6 +728,24 @@ def test_an_imported_theme_keeps_its_own_syntax_colors(code_measured, imported_t
     for page in PAGES:
         python = _blocks(code_measured, f"{page}-custom")[0]
         assert python["keywordColor"] == _hex_to_rgb("#ff79c6"), python["keywordColor"]
+
+
+def test_the_published_theme_paints_code_like_the_personal_one(code_measured):
+    """ערכה שפורסמה לציבורית צובעת את בלוק הקוד בדיוק כמו הערכה האישית שממנה פורסמה.
+
+    עד התיקון הפרסום שמר רק את כללי CodeMirror מה-``syntax_css``: מילת המפתח קיבלה את ``--hljs-keyword`` שנגזר
+    מ-``--primary``, וטקסט שלא סומן את ``--hljs-text``, במקום הצבעים של הערכה. והרקע של הכלל הבסיסי ``.hljs``, שעובר
+    עכשיו גם בפרסום, לא מצייר בלוק בתוך הבלוק גם בציבורית (``test_the_code_element_draws_no_box_of_its_own``).
+    """
+    for page in PAGES:
+        personal = _blocks(code_measured, f"{page}-custom")
+        published = _blocks(code_measured, f"{page}-shared")
+        assert published[0]["keywordColor"] == _hex_to_rgb("#ff79c6"), published[0]["keywordColor"]
+        for i, (mine, public) in enumerate(zip(personal, published, strict=True)):
+            for key in ("keywordColor", "codeColor", "codeBg", "bg"):
+                assert (
+                    public[key] == mine[key]
+                ), f"{page}, בלוק {i}, {key}: ציבורית {public[key]} מול אישית {mine[key]}"
 
 
 @pytest.mark.parametrize("case", CODE_CASES)
