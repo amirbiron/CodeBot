@@ -307,6 +307,15 @@ def test_the_headline_is_the_bold_run_that_opens_the_update(update, title, body)
         # תחביר של קישור בתוך קוד, או עם escape, מוצג בעמוד כמו שהוא.
         ("**fix: התחביר** `[טקסט](כתובת)` **נשמר.** עוד.", "fix: התחביר [טקסט](כתובת) נשמר."),
         (r"**fix: \[טקסט\](כתובת) נשמר.** עוד.", "fix: [טקסט](כתובת) נשמר."),
+        # תמונה ← כלום, בצורה שסקריפט הייצוא כותב: escape לסוגר מרובע ב-alt, סוגריים בכתובת כ-%28/%29, ו-title.
+        (
+            r'**fix: הסמל ![סמל \[ישן\]](https://x.example/a%28b%29.svg "הסבר \"קצר\"") מוצג.** עוד.',
+            "fix: הסמל מוצג.",
+        ),
+        # תמונה בתוך קישור (Sphinx עוטף תמונה מוקטנת בקישור לתמונה המלאה) — גם הקישור לא מוסיף טקסט.
+        (r"**fix: התרשים [![תרשים](https://x.example/a.svg)](https://x.example/a.svg) מוצג.** עוד.", "fix: התרשים מוצג."),
+        # ``![`` שלא נסגר בתמונה הוא טקסט, כמו ``[`` שלא נסגר.
+        (r"**fix: הסימן ![ נשמר.** עוד.", "fix: הסימן ![ נשמר."),
     ],
 )
 def test_the_headline_is_the_text_the_page_shows(update, title):
@@ -333,6 +342,16 @@ def test_a_headline_that_repeats_on_the_page_is_a_label_and_its_update_goes_unde
         ("feat: חלון זמן אחד.", (TOP, "2026-09-06", "feat: חלון זמן אחד."), "עוד.", "feat: חלון זמן אחד."),
         ("2026-08-31", (TOP, "2026-08-31"), "**מגבלה ידועה:** אין מיגרציה.", ""),
     ]
+
+
+def test_the_alt_of_an_image_is_not_page_text_and_does_not_make_a_headline_repeat():
+    """בעמוד תמונה אינה טקסט, ולכן ה-alt שלה לא נספר כהופעה של הפתיח — גם כשהוא זהה לו."""
+    day = _updates(
+        "ראו את התרשים: ![fix: parser order.](https://x.example/flow.svg)",
+        "**fix: parser order.** גוף העדכון.",
+    )
+    sections, _chunks = _records([_log_page(("id25", "2026-09-06", day))])
+    assert [s.link_text for s in sections] == ["", "fix: parser order."]
 
 
 def test_a_headline_quoted_in_another_update_is_not_unique_either():

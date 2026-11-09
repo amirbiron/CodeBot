@@ -86,6 +86,7 @@ _INDEX_BODY = """<section id="guide">
 <p>זהירות בדרך.</p>
 </div>
 <p><img alt="תרשים זרימה" src="_images/flow.svg" style="width: 520px;" /></p>
+<p><img alt="סמל [ישן]" src="_images/icon(1).png" title='הסבר "קצר"' /></p>
 <pre class="mermaid">
         graph TD
   A--&gt;B
@@ -210,7 +211,11 @@ def test_every_content_section_is_exported_on_its_own(chromium_executable, tmp_p
 
     first = sections["id1"]["markdown"]
     assert "::: warning\nזהירות בדרך.\n:::" in first
-    assert f"[תמונה: תרשים זרימה]({SITE_URL}_images/flow.svg)" in first
+    # תמונה נשארת תמונה, בכתובת מלאה באתר. ה-alt, ה-src וה-title מוכנים לפני ההמרה, כי ``rules.image`` של
+    # Turndown כותב אותם בלי escape (ההסבר בסקריפט); מה שהוובאפ מרנדר מזה — ב-``test_an_exported_image_renders_as_the_image``.
+    assert f"![תרשים זרימה]({SITE_URL}_images/flow.svg)" in first
+    assert f'![סמל \\[ישן\\]]({SITE_URL}_images/icon%281%29.png "הסבר \\"קצר\\"")' in first
+    assert "תמונה:" not in first
     assert "```mermaid\ngraph TD\nA-->B\n```" in first
     assert f"[לעומק]({SITE_URL}index.html#deep)" in first
     assert "טקסט שנוצר מהקוד" not in first and "func" not in first
@@ -226,6 +231,50 @@ def test_every_content_section_is_exported_on_its_own(chromium_executable, tmp_p
         ("היעד x_y", "היעד `x_y`"),
     ]
     assert [s["title_markdown"] for s in sections.values()] == ["מדריך", "סעיף ראשון", "עמוק"]
+
+
+#: הבאנדל שהוובאפ מגיש, עם ה-markdown-it שבתוכו (``window.markdownit`` ב-``webapp/static_build/md-preview-entry.js``).
+#: ממנו מרנדר ``MarkdownLiveRenderer`` את התצוגה של דפדפן הקוד ואת כרטיסי החיפוש בתיעוד.
+MD_PREVIEW_BUNDLE = ROOT / "webapp" / "static" / "js" / "md_preview.bundle.js"
+
+_RENDERED_IMAGES = """(markdown) => {
+  const host = document.createElement('div');
+  host.innerHTML = window.markdownit({ html: false }).render(markdown);
+  return Array.from(host.querySelectorAll('img'), (img) => [img.getAttribute('alt'), img.getAttribute('src'),
+    img.getAttribute('title')]);
+}"""
+
+
+def test_an_exported_image_renders_as_the_image(chromium_executable, tmp_path):
+    """הצרכן של הייצוא הוא markdown-it בוובאפ: תמונה שיצאה ממנו צריכה לחזור לתמונה, עם הכתובת וה-title של העמוד —
+    גם כשיש בכתובת סוגריים וב-title גרשיים — ובלי שסוגר מרובע ב-alt ישבור אותה.
+
+    **ה-alt מאבד את הסוגריים המרובעים, וזו התנהגות של markdown-it 14.1.0 ולא של הייצוא:** תו שעבר escape בתוך alt
+    נשמט ממנו (ההסבר המלא ליד ה-escape ב-``scripts/docs_export_sections.py``). הטסט מקבע את זה, כדי ששדרוג שמתקן
+    את זה ייראה כאן.
+    """
+    exported = _export(_site(tmp_path), chromium_executable)
+    index_page = next(page for page in exported["pages"] if page["path"] == "index.html")
+    first = next(section for section in index_page["sections"] if section["anchor"] == "id1")["markdown"]
+
+    with sync_playwright() as p:
+        try:
+            browser = (
+                p.chromium.launch(executable_path=chromium_executable) if chromium_executable else p.chromium.launch()
+            )
+        except Exception as exc:  # noqa: BLE001 — כל כשל השקה פירושו אין דפדפן
+            pytest.skip(f"אין Chromium זמין: {exc}")
+        try:
+            page = browser.new_page()
+            page.add_script_tag(path=str(MD_PREVIEW_BUNDLE))
+            images = page.evaluate(_RENDERED_IMAGES, first)
+        finally:
+            browser.close()
+
+    assert images == [
+        ["תרשים זרימה", f"{SITE_URL}_images/flow.svg", None],
+        ["סמל ישן", f"{SITE_URL}_images/icon%281%29.png", 'הסבר "קצר"'],
+    ]
 
 
 def test_to_markdown_is_what_the_copy_button_copies(chromium_executable, tmp_path):

@@ -575,6 +575,24 @@
     const card = body.closest('.search-result-card--docs');
     const expandBtn = card ? card.querySelector('[data-docs-expand]') : null;
     if (!clip || !expandBtn) return;
+    settleDocsClip(clip, expandBtn);
+    // תמונה בסעיף מקבלת גובה רק כשהיא נטענת — אחרי המדידה שלמעלה, ובטעינה עצלה (``lazyLoadImages`` ב-
+    // ``live-preview.js``) אולי רק כשהכרטיס מתקרב למסך. לכן כל תמונה שנטענת, או שנכשלת ומוצג במקומה הסמל
+    // של תמונה שבורה, מודדת שוב.
+    body.querySelectorAll('img').forEach(function(img){
+      if (img.complete) return;
+      const remeasure = function(){ settleDocsClip(clip, expandBtn); };
+      img.addEventListener('load', remeasure, { once: true });
+      img.addEventListener('error', remeasure, { once: true });
+    });
+  }
+
+  // סעיף שגבוה מהחלון המקופל נשאר מקופל, עם כפתור ההרחבה; סעיף שנכנס בו נפתח, ואין כפתור. המדידה נעשית במצב
+  // המקופל, ולכן ``is-collapsed`` חוזר לפניה. אחרי שהכפתור הוצג המצב שייך לגולש, ותמונה שנטענת אחר כך לא
+  // משנה אותו.
+  function settleDocsClip(clip, expandBtn){
+    if (!expandBtn.hidden) return;
+    clip.classList.add('is-collapsed');
     if (clip.scrollHeight > clip.clientHeight) {
       syncDocsExpandButton(expandBtn, clip);
       expandBtn.hidden = false;

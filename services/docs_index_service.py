@@ -617,7 +617,9 @@ def _headline(update: str) -> Tuple[Optional[str], str]:
 #: מה שבא אחרי ``]`` של קישור ש-Turndown 7.2.2 כותב: ``(`` כתובת ``)``, ואם לקישור יש ``title`` — גם הוא,
 #: ``(כתובת "title")``. בכתובת Turndown מוסיף escape לסוגריים, וב-``title`` ל-``"`` (``rules.inlineLink`` ב-
 #: ``docs/_static/vendor/turndown.umd.js``). Sphinx נותן ``title`` למשל להפניה ל-``:py:mod:``. כתובת בלי
-#: רווחים, כמו ב-``_MD_LINK``.
+#: רווחים, כמו ב-``_MD_LINK``. לתמונה אותה צורה: ``rules.image`` כותב את ה-src ואת ה-title בלי escape, וסקריפט
+#: הייצוא מכין אותם לפני ההמרה — סוגריים ב-src כ-``%28``/``%29``, ו-escape ל-``"`` ב-title
+#: (``scripts/docs_export_sections.py``).
 _LINK_TARGET_RE = re.compile(r'\((?:\\.|[^\\()\s])+(?: "(?:\\.|[^"\\])*")?\)')
 
 
@@ -633,12 +635,17 @@ def _shown_text(markdown: str) -> str:
 
     קישור מזוהה באותה סריקה, ולכן רק מחוץ לקטע קוד ורק בסוגר מרובע בלי escape: Turndown מוסיף escape
     ל-``[`` ול-``]`` שבטקסט, כך שסוגר מרובע אחר הוא תמיד חלק מקישור. ``[טקסט](כתובת)`` בתוך קוד, או
-    ``\\[טקסט\\](כתובת)`` בטקסט, מוצגים בעמוד כמו שהם. ``!`` לפני קישור הוא תו בטקסט ולא תמונה: סקריפט
-    הייצוא מחליף כל תמונה בקישור "תמונה: …" לפני ההמרה (``scripts/docs_export_sections.py``).
+    ``\\[טקסט\\](כתובת)`` בטקסט, מוצגים בעמוד כמו שהם.
+
+    תמונה (``![alt](כתובת)``) ← כלום: בעמוד היא תמונה ולא טקסט. סקריפט הייצוא משאיר תמונות כתמונות, ומוסיף
+    escape לסוגר מרובע שב-alt (``scripts/docs_export_sections.py``), ולכן הסוגר שסוגר את ה-alt הוא הראשון שאין
+    לפניו escape. כמו ב-CommonMark, ``!`` שצמוד לקישור פותח תמונה: Turndown אינו מוסיף escape ל-``!``, ולכן
+    טקסט שנגמר ב-``!`` וצמוד לקישור ייקרא כתמונה — כאן וגם בתצוגה של הוובאפ, שמרנדרת אותו ב-markdown-it.
     """
     out: List[str] = []
-    #: המקום בפלט של כל ``[`` שעוד לא נסגר. ``[`` שלא נסגר בקישור נשאר בטקסט כמו שהוא.
-    opened: List[int] = []
+    #: לכל ``[`` שעוד לא נסגר: המקום שלו בפלט, והאם הוא פותח תמונה (``![``, שנכנס לפלט כפריט אחד). ``[`` שלא
+    #: נסגר בקישור נשאר בטקסט כמו שהוא, וכך גם ``![`` שלא נסגר.
+    opened: List[Tuple[int, bool]] = []
     index, size = 0, len(markdown)
     while index < size:
         char = markdown[index]
@@ -661,13 +668,22 @@ def _shown_text(markdown: str) -> str:
             # סימן של הדגשה (``**``) או של הטה (``*``, ``emDelimiter`` ב-``docs/_static/copy-page.js``): Turndown
             # מוסיף escape לכל ``*`` שבטקסט, ולכן ``*`` בלי escape מחוץ לקוד אינו טקסט בעמוד.
             index += 1
+        elif char == "!" and markdown.startswith("[", index + 1):
+            opened.append((len(out), True))
+            out.append("![")
+            index += 2
         elif char == "[":
-            opened.append(len(out))
+            opened.append((len(out), False))
             out.append(char)
             index += 1
         elif char == "]" and opened and (target := _LINK_TARGET_RE.match(markdown, index + 1)) is not None:
-            # סוף קישור: הטקסט שלו כבר בפלט, ונשאר רק להוריד את ה-``[`` שפתח אותו.
-            del out[opened.pop()]
+            start, is_image = opened.pop()
+            if is_image:
+                # סוף תמונה: ה-``![`` וה-alt שאחריו יוצאים מהפלט.
+                del out[start:]
+            else:
+                # סוף קישור: הטקסט שלו כבר בפלט, ונשאר רק להוריד את ה-``[`` שפתח אותו.
+                del out[start]
             index = target.end()
         else:
             out.append(char)
