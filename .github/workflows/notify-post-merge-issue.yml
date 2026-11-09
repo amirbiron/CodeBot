@@ -153,6 +153,14 @@ jobs:
             if (dup) {
               // Update existing issue with a new comment and ensure labels/assignee
               await github.rest.issues.createComment({ owner, repo, issue_number: dup.number, body });
+              // הסגירה קוראת את הסימון רק מגוף האישו, לא מהתגובות. אישו שנפתח לפני שהיה סימון, או שהסימון
+              // נמחק ממנו בעריכה, מקבל אותו כאן. אותה כותרת היא אותו קומיט, כי ה-SHA המקוצר שלו בכותרת.
+              const dupBody = typeof dup.body === 'string' ? dup.body : '';
+              const markerPattern = new RegExp(`<!-- ${process.env.POST_MERGE_SHA_MARKER}: [0-9a-f]{40} -->`);
+              if (!markerPattern.test(dupBody)) {
+                const bodyWithMarker = dupBody + '\n\n' + shaMarker;
+                await github.rest.issues.update({ owner, repo, issue_number: dup.number, body: bodyWithMarker });
+              }
               try { await github.rest.issues.addLabels({ owner, repo, issue_number: dup.number, labels: desiredLabels }); } catch (e) {}
               try { await github.rest.issues.addAssignees({ owner, repo, issue_number: dup.number, assignees: ['amirbiron'] }); } catch (e) {}
               core.info(`Updated existing issue #${dup.number}`);
