@@ -283,7 +283,7 @@ Markdown Viewer ו‑Split View
 
    **Whitelist חיוני לכל ערכה — אישית וציבורית כאחת**
 
-   ``ALLOWED_VARIABLES_WHITELIST`` (ב-``services/theme_parser_service.py``) מסנן את הטוקנים בכל המסלולים: ייבוא ערכה אישית, יצירה ועדכון של ערכה קיימת, ופרסום ערכה ציבורית. טוקן שאינו ברשימה נזרק. אזהרה בלוג נרשמת רק כשהסינון עובר דרך ``validate_and_sanitize_theme_variables`` (ייבוא קובץ והוספת ערכה מוכנה); בפרסום (``SharedThemeService._filter_and_validate_colors``) וביצירה, בעדכון ובשמירה דרך ``webapp/themes_api.py`` הטוקן נזרק בלי לוג.
+   ``ALLOWED_VARIABLES_WHITELIST`` (ב-``services/theme_parser_service.py``) מסנן את הטוקנים בכל המסלולים: ייבוא ערכה אישית, יצירה ועדכון של ערכה קיימת, ופרסום ערכה ציבורית. טוקן שאינו ברשימה נזרק. אזהרה בלוג נרשמת רק כשהסינון עובר דרך ``validate_and_sanitize_theme_variables``: ייבוא קובץ (``import_theme`` ב-``webapp/themes_api.py``, בשני הפורמטים) והוספת ערכה מוכנה (``apply_preset_to_user``). בלולאות שבודקות מול הרשימה ישירות הטוקן נזרק בלי לוג: ``create_theme``, ``update_theme`` ו-``save_custom_theme`` ב-``webapp/themes_api.py``, ופרסום ועדכון של ערכה ציבורית (``SharedThemeService._filter_and_validate_colors``).
 
    אם מוסיפים טוקן חדש שערכה אמורה להיות מסוגלת לקבוע — מספיק לעדכן את ה-whitelist: הרשימה ב-:doc:`/webapp/custom_themes_guide` נמשכת ממנו בכל בנייה.
 
