@@ -277,49 +277,15 @@
 
 .. important::
 
-   רק משתנים שנמצאים ברשימה זו יישמרו בעת פרסום ערכה לציבורית.
-   משתנים שאינם ברשימה יסוננו אוטומטית מטעמי אבטחה.
-   הרשימה מוגדרת ב-``services/theme_parser_service.py`` (``ALLOWED_VARIABLES_WHITELIST``).
+   רק משתנים שנמצאים ברשימה זו נשמרים — בייבוא, ביצירה ובעדכון של ערכה אישית, ובפרסום ערכה לציבורית. משתנים שאינם ברשימה מסוננים מטעמי אבטחה.
 
-.. code-block:: text
+הרשימה כאן נמשכת מהקוד, ``ALLOWED_VARIABLES_WHITELIST`` ב-``services/theme_parser_service.py``, בכל בנייה של התיעוד. עד נובמבר 2026 היא הייתה עותק ידני, וטוקני ה-Level 3 של ערכה מיובאת בהירה (:ref:`theme-variables-light-import-hooks`) חסרו בו.
 
-   # Level 1 - Primitives
-   --primary, --primary-hover, --primary-light
-   --secondary
-   --success, --warning, --error
-   --danger-bg, --danger-border, --text-on-warning
-   --glass, --glass-blur, --glass-border, --glass-hover
-
-   # Level 2 - Semantic Tokens
-   --bg-primary, --bg-secondary, --bg-tertiary
-   --text-primary, --text-secondary, --text-muted
-   --border-color, --shadow-color
-   --card-bg, --card-border
-   --navbar-bg
-   --input-bg, --input-border
-   --link-color
-   --code-bg, --code-text, --code-border
-   --btn-primary-bg, --btn-primary-color, --btn-primary-border
-   --btn-primary-shadow, --btn-primary-hover-bg, --btn-primary-hover-color
-   --md-surface, --md-text
-   --split-preview-bg, --split-preview-meta, --split-preview-placeholder
-
-   # Level 2 - Markdown Enhanced (inline code, tables, mermaid)
-   --md-inline-code-bg, --md-inline-code-border, --md-inline-code-color
-   --md-table-bg, --md-table-border, --md-table-header-bg
-   --md-mermaid-bg
-
-   # Level 3 - Collections
-   --collections-link-override
-
-   # Level 3 - Global Search
-   --search-suggestion-text-override
-
-   # Level 3 - Repo Browser (Markdown preview)
-   --repo-md-code-block-bg-override, --repo-md-code-block-border-override
-
-   # Level 3 - Primary buttons
-   --btn-primary-text-override
+.. literalinclude:: ../../services/theme_parser_service.py
+   :language: python
+   :start-after: # docs:theme-variables-whitelist:start
+   :end-before: # docs:theme-variables-whitelist:end
+   :caption: services/theme_parser_service.py – ALLOWED_VARIABLES_WHITELIST
 
 .. _theme-variables-override-hook:
 
@@ -478,7 +444,7 @@
 הדגשת תחביר (Syntax Highlighting)
 ----------------------------------
 
-כאשר מייבאים ערכת VS Code עם ``tokenColors``, המערכת ממירה אותם אוטומטית להדגשת תחביר עבור CodeMirror ו-Pygments.
+כאשר מייבאים ערכת VS Code עם ``tokenColors``, ``parse_vscode_theme`` ממיר אותם אוטומטית ל-``syntax_css`` עם שלוש קבוצות כללים, אחת לכל מנוע צביעה: CodeMirror בעורך (``generate_codemirror_css_from_tokens``), highlight.js בבלוקי הקוד של Markdown (``generate_hljs_css_from_tokens``), ו-Pygments (``generate_pygments_css_from_tokens``). מה שעובר מהן בפרסום לציבורית — :ref:`shared-theme-syntax-css`.
 
 ארכיטקטורה
 ~~~~~~~~~~
@@ -940,7 +906,7 @@ Endpoints
        "--bg-primary": "#0d0221",
        "--primary": "#7b2cbf"
      },
-     "syntax_css": "/* CodeMirror */", // CSS להדגשת תחביר
+     "syntax_css": "...",             // CSS להדגשת תחביר, אחרי sanitize_syntax_css
      "syntax_colors": {               // מילון צבעים ל-HighlightStyle דינמי
        "keyword": {"color": "#7b2cbf"}
      },
@@ -978,6 +944,18 @@ Endpoints
    משתנים כמו ``--link-color`` ו-``--code-bg`` אינם בטופס אך נשמרים
    מהערכה המקורית, כך שצבעי קישורים וקוד לא נאבדים בפרסום.
 
+.. _shared-theme-syntax-css:
+
+הדגשת התחביר בפרסום
+~~~~~~~~~~~~~~~~~~~~
+
+ה-``syntax_css`` של הערכה האישית נשלח עם הפרסום, וגם בעדכון של ערכה ציבורית, ו-``SharedThemeService`` מנקה אותו ב-``sanitize_syntax_css`` לפני שמירה. הניקוי מקבל את שלוש הקבוצות ש-``parse_vscode_theme`` מייצר, כל אחת בבורר שהמחולל שלה כותב, ואת הכלל הבסיסי ``.hljs`` עם הרקע של העורך — כך שערכה ציבורית נצבעת כמו הערכה האישית שממנה פורסמה. ``tests/services/test_sanitize_syntax_css.py`` מריץ את המחוללים על כל ה-scopes שבמפות שלהם, ונכשל אם כלל שהם כותבים לא עובר.
+
+- **כלל שלא עבר** — מערכה ישנה בפורמט קודם, או מ-CSS שנערך ביד — לא נשמר. הפרסום מצליח, והתשובה מחזירה כמה כללים לא עברו (``syntax_rules_dropped``). בונה הערכות מציג אז אזהרה במקום הודעת הצלחה, ובלוג נרשמת אזהרה.
+- ``syntax_css`` **שאינו מחרוזת** ← ``400 invalid_syntax_css``, ו-``syntax_css`` **ארוך מ-**\ ``MAX_SYNTAX_CSS_LENGTH`` ← ``400 syntax_css_too_long`` עם ``max``. בשני המקרים לא נשמר דבר — לא CSS ריק ולא CSS קטוע.
+
+עד נובמבר 2026 הפרסום עבר דרך ``sanitize_codemirror_css``, שמכיר רק את כללי CodeMirror. ערכה ציבורית איבדה בשקט את כללי highlight.js ו-Pygments, ובלוקי קוד ב-Markdown נצבעו בפלטה שנגזרת ממשתני הממשק (``md-content-colors.css``) במקום בצבעים של הערכה. ערכה ציבורית שפורסמה לפני התיקון נשארת כך עד שמפרסמים אותה מחדש מהערכה האישית: ``tokenColors`` לא נשמרים עם הערכה, ולכן אין ממה לשחזר את הכללים.
+
 פתרון בעיות (Troubleshooting)
 -----------------------------
 
@@ -1001,6 +979,7 @@ Endpoints
 - ודאו שהערכה מיובאת מ-VS Code ומכילה ``tokenColors``
 - ערכות שנוצרו ידנית לא כוללות הדגשת תחביר ייחודית
 - בדקו שה-``syntax_colors`` נשמר כראוי
+- בערכה ציבורית: בדקו אם בפרסום הופיעה אזהרה על כללי הדגשה שלא נשמרו (:ref:`shared-theme-syntax-css`)
 
 **הערכה לא נשמרת:**
 

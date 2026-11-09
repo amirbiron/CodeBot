@@ -803,6 +803,11 @@
     color: white;
 }
 
+.theme-toast.warning {
+    background: var(--warning);
+    color: var(--text-on-warning);
+}
+
 /* Modal (Publish)
    ⚠️ לא משתמשים במחלקה .modal כדי להימנע מקונפליקט עם smooth-scroll.css שמסתיר .modal עם !important
 */
@@ -1871,7 +1876,17 @@
                 }
 
                 hidePublishModal();
-                showToast(`הערכה "${name}" פורסמה בהצלחה!`, 'success');
+                // ``syntax_rules_dropped``: כללי הדגשה שלא עברו את הניקוי בשרת. הפרסום הצליח, אבל הערכה הציבורית
+                // לא תיצבע כמו האישית, ולכן מודיעים במקום להציג הצלחה נקייה.
+                const droppedRules = Number(data.syntax_rules_dropped) || 0;
+                if (droppedRules > 0) {
+                    const droppedText = droppedRules === 1
+                        ? 'כלל הדגשת תחביר אחד לא נשמר'
+                        : `${droppedRules} כללי הדגשת תחביר לא נשמרו`;
+                    showToast(`הערכה "${name}" פורסמה, אבל ${droppedText}`, 'warning');
+                } else {
+                    showToast(`הערכה "${name}" פורסמה בהצלחה!`, 'success');
+                }
             } catch (err) {
                 console.error('Publish failed:', err);
                 showToast(err?.message || 'שגיאה בפרסום הערכה', 'error');

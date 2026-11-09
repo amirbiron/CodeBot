@@ -12,12 +12,13 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from services.theme_parser_service import (
     ALLOWED_VARIABLES_WHITELIST,
+    SanitizedSyntaxCss,
     is_valid_color,
-    sanitize_codemirror_css,
+    sanitize_syntax_css,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,25 @@ _VALID_PX_REGEX = re.compile(r"^\d{1,3}(\.\d{1,2})?px$")
 
 MAX_NAME_LENGTH = 50
 MAX_DESCRIPTION_LENGTH = 200
-MAX_SYNTAX_CSS_LENGTH = 200_000
+
+#: התקרה על ``syntax_css`` שנשלח לפרסום או לעדכון, בתווים. מעליה הבקשה נדחית ב-``syntax_css_too_long`` — לא נחתכת:
+#: חיתוך באמצע היה משאיר כלל קטוע ונשמר כאילו הצליח. המספר הוא פעמיים ה-``syntax_css`` ש-``parse_vscode_theme``
+#: מייצר היום לערכה שנותנת לכל scope שבשלוש מפות המחוללים צבע ``rgba`` באורך 26 תווים (ארוך מכל צבע hex של VS Code)
+#: ואת כל הסגנונות: 18,359 תווים ב-9.11.2026. ``test_max_syntax_css_length_is_twice_the_largest_generated_css``
+#: (``tests/services/test_sanitize_syntax_css.py``) מחשב אותו מחדש ונכשל כשהמחוללים גדלים מעבר למחצית התקרה.
+MAX_SYNTAX_CSS_LENGTH = 36_718
+
+
+class SharedThemeWriteResult(NamedTuple):
+    """התוצאה של ``create`` / ``update``.
+
+    ``result`` — ה-slug בהצלחה של ``create``, ``"ok"`` בהצלחה של ``update``, או קוד השגיאה. ``syntax_rules_dropped`` —
+    כמה כללים ב-``syntax_css`` שנשלח לא עברו את ``sanitize_syntax_css`` (אפס כשלא נשלח ``syntax_css``).
+    """
+
+    ok: bool
+    result: str
+    syntax_rules_dropped: int = 0
 
 
 # ערכות מובנות (Built-in) – קבועות בקוד (זהות למדריך)
@@ -167,19 +186,32 @@ class SharedThemeService:
 
         return True, filtered, None
 
-    def _normalize_syntax_css(self, syntax_css: Optional[str]) -> str:
-        if not syntax_css or not isinstance(syntax_css, str):
-            return ""
+    def _normalize_syntax_css(
+        self, syntax_css: Any
+    ) -> Tuple[Optional[SanitizedSyntaxCss], Optional[str]]:
+        """``syntax_css`` מהבקשה, מנוקה לשמירה: ``(תוצאה, None)``, או ``(None, קוד שגיאה)``.
+
+        ``None`` — לא נשלח CSS, ונשמר ריק. סוג שאינו מחרוזת ← ``invalid_syntax_css``, ומעל ``MAX_SYNTAX_CSS_LENGTH`` ←
+        ``syntax_css_too_long``: שניהם נדחים ולא נשמרים כ-CSS ריק או קטוע. הניקוי עצמו (``sanitize_syntax_css``) הוא
+        עיבוד מחרוזת בלבד, ולכן אינו עטוף: חריגה ממנו היא באג, והיא עולה.
+        """
+        if syntax_css is None:
+            return SanitizedSyntaxCss("", 0), None
+        if not isinstance(syntax_css, str):
+            return None, "invalid_syntax_css"
         css = syntax_css.strip()
-        if not css:
-            return ""
         if len(css) > MAX_SYNTAX_CSS_LENGTH:
-            css = css[:MAX_SYNTAX_CSS_LENGTH]
-        try:
-            return sanitize_codemirror_css(css)
-        except Exception:
-            # fallback בטוח: אם הניקוי נכשל, לא נשמור CSS
-            return ""
+            return None, "syntax_css_too_long"
+        return sanitize_syntax_css(css), None
+
+    @staticmethod
+    def _log_dropped_syntax_rules(theme_id: str, dropped: int) -> None:
+        if dropped:
+            logger.warning(
+                "Shared theme %s: %d syntax_css rules did not pass sanitize_syntax_css and were not saved",
+                theme_id,
+                dropped,
+            )
 
     # ============= CRUD Operations =============
 
@@ -294,35 +326,39 @@ class SharedThemeService:
         is_featured: bool = False,
         syntax_css: Optional[str] = None,
         syntax_colors: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[bool, str]:
+    ) -> SharedThemeWriteResult:
         """יצירת ערכה ציבורית חדשה."""
         if self.collection is None:
-            return False, "database_unavailable"
+            return SharedThemeWriteResult(False, "database_unavailable")
 
         slug = (slug or "").strip().lower()
         if not self._validate_slug(slug):
-            return False, "invalid_slug"
+            return SharedThemeWriteResult(False, "invalid_slug")
 
         name = (name or "").strip()
         if not name:
-            return False, "missing_name"
+            return SharedThemeWriteResult(False, "missing_name")
         if len(name) > MAX_NAME_LENGTH:
-            return False, "name_too_long"
+            return SharedThemeWriteResult(False, "name_too_long")
 
         ok, filtered_colors, error_field = self._filter_and_validate_colors(colors)
         if not ok:
             if error_field and error_field != "colors_not_dict":
-                return False, f"invalid_color:{error_field}"
-            return False, "invalid_colors"
+                return SharedThemeWriteResult(False, f"invalid_color:{error_field}")
+            return SharedThemeWriteResult(False, "invalid_colors")
+
+        clean_syntax, syntax_error = self._normalize_syntax_css(syntax_css)
+        if clean_syntax is None:
+            return SharedThemeWriteResult(False, syntax_error or "invalid_syntax_css")
 
         # בדיקת slug תפוס
         try:
             existing = self.collection.find_one({"_id": slug})
             if existing:
-                return False, "slug_exists"
+                return SharedThemeWriteResult(False, "slug_exists")
         except Exception as e:
             logger.exception("SharedThemeService.create existing check failed: %s", e)
-            return False, "database_error"
+            return SharedThemeWriteResult(False, "database_error")
 
         now = datetime.now(timezone.utc)
         doc: Dict[str, Any] = {
@@ -330,7 +366,7 @@ class SharedThemeService:
             "name": name,
             "description": (description or "").strip()[:MAX_DESCRIPTION_LENGTH],
             "colors": filtered_colors,
-            "syntax_css": self._normalize_syntax_css(syntax_css),
+            "syntax_css": clean_syntax.css,
             "syntax_colors": syntax_colors if isinstance(syntax_colors, dict) else {},
             "created_by": int(created_by),
             "created_at": now,
@@ -344,10 +380,11 @@ class SharedThemeService:
             self.collection.insert_one(doc)
             self.invalidate_cache()
             logger.info("Created shared theme %s by user %s", slug, created_by)
-            return True, slug
         except Exception as e:
             logger.exception("SharedThemeService.create failed: %s", e)
-            return False, "database_error"
+            return SharedThemeWriteResult(False, "database_error")
+        self._log_dropped_syntax_rules(slug, clean_syntax.dropped)
+        return SharedThemeWriteResult(True, slug, clean_syntax.dropped)
 
     def update(
         self,
@@ -360,28 +397,28 @@ class SharedThemeService:
         is_active: Optional[bool] = None,
         syntax_css: Optional[str] = None,
         syntax_colors: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[bool, str]:
-        """עדכון ערכה קיימת."""
+    ) -> SharedThemeWriteResult:
+        """עדכון ערכה קיימת. ``syntax_css=None`` משאיר את ה-CSS השמור כמו שהוא."""
         if not theme_id or self.collection is None:
-            return False, "theme_not_found"
+            return SharedThemeWriteResult(False, "theme_not_found")
 
         # בדיקה קיימת
         try:
             existing = self.collection.find_one({"_id": str(theme_id)})
             if not existing:
-                return False, "theme_not_found"
+                return SharedThemeWriteResult(False, "theme_not_found")
         except Exception as e:
             logger.exception("SharedThemeService.update existing check failed: %s", e)
-            return False, "database_error"
+            return SharedThemeWriteResult(False, "database_error")
 
         update_fields: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
 
         if name is not None:
             nm = (name or "").strip()
             if not nm:
-                return False, "missing_name"
+                return SharedThemeWriteResult(False, "missing_name")
             if len(nm) > MAX_NAME_LENGTH:
-                return False, "name_too_long"
+                return SharedThemeWriteResult(False, "name_too_long")
             update_fields["name"] = nm
 
         if description is not None:
@@ -391,12 +428,17 @@ class SharedThemeService:
             ok, filtered, error_field = self._filter_and_validate_colors(colors)
             if not ok:
                 if error_field and error_field != "colors_not_dict":
-                    return False, f"invalid_color:{error_field}"
-                return False, "invalid_colors"
+                    return SharedThemeWriteResult(False, f"invalid_color:{error_field}")
+                return SharedThemeWriteResult(False, "invalid_colors")
             update_fields["colors"] = filtered
 
+        syntax_rules_dropped = 0
         if syntax_css is not None:
-            update_fields["syntax_css"] = self._normalize_syntax_css(syntax_css)
+            clean_syntax, syntax_error = self._normalize_syntax_css(syntax_css)
+            if clean_syntax is None:
+                return SharedThemeWriteResult(False, syntax_error or "invalid_syntax_css")
+            update_fields["syntax_css"] = clean_syntax.css
+            syntax_rules_dropped = clean_syntax.dropped
 
         if syntax_colors is not None:
             update_fields["syntax_colors"] = syntax_colors if isinstance(syntax_colors, dict) else {}
@@ -410,12 +452,13 @@ class SharedThemeService:
         try:
             result = self.collection.update_one({"_id": str(theme_id)}, {"$set": update_fields})
             if getattr(result, "modified_count", 0) == 0:
-                return False, "no_changes"
+                return SharedThemeWriteResult(False, "no_changes")
             self.invalidate_cache()
-            return True, "ok"
         except Exception as e:
             logger.exception("SharedThemeService.update failed: %s", e)
-            return False, "database_error"
+            return SharedThemeWriteResult(False, "database_error")
+        self._log_dropped_syntax_rules(str(theme_id), syntax_rules_dropped)
+        return SharedThemeWriteResult(True, "ok", syntax_rules_dropped)
 
     def delete(self, theme_id: str) -> Tuple[bool, str]:
         """מחיקה קשה של ערכה."""

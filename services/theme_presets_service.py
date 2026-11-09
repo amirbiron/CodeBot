@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from services.theme_parser_service import validate_and_sanitize_theme_variables
-from services.theme_parser_service import sanitize_codemirror_css
+from services.theme_parser_service import sanitize_syntax_css
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,17 @@ def apply_preset_to_user(user_id: int, preset_id: str, db) -> dict:
     variables = validate_and_sanitize_theme_variables(raw_vars)
 
     raw_syntax_css = preset.get("syntax_css", "") if isinstance(preset, dict) else ""
-    syntax_css = sanitize_codemirror_css(raw_syntax_css) if isinstance(raw_syntax_css, str) else ""
+    syntax_css = ""
+    if isinstance(raw_syntax_css, str):
+        # אותו ניקוי של פרסום ערכה ציבורית, כדי שכל קבוצה ש-``parse_vscode_theme`` מייצר תעבור גם כאן
+        clean_syntax = sanitize_syntax_css(raw_syntax_css)
+        syntax_css = clean_syntax.css
+        if clean_syntax.dropped:
+            logger.warning(
+                "Preset %s: %d syntax_css rules did not pass sanitize_syntax_css and were not saved",
+                preset_id,
+                clean_syntax.dropped,
+            )
 
     new_theme = {
         "id": str(uuid.uuid4()),

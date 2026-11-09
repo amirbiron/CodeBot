@@ -12,7 +12,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from functools import wraps
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from flask import Blueprint, Response, jsonify, request, session
 
@@ -31,7 +31,7 @@ from services.theme_parser_service import (
     validate_theme_json,
 )
 from services.theme_presets_service import apply_preset_to_user, get_preset_by_id, list_presets
-from services.shared_theme_service import get_shared_theme_service
+from services.shared_theme_service import MAX_SYNTAX_CSS_LENGTH, get_shared_theme_service
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,20 @@ THEME_SCOPE_DEVICE = "device"
 _THEME_SCOPE_VALUES = {THEME_SCOPE_GLOBAL, THEME_SCOPE_DEVICE}
 _THEME_ID_SAFE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 _COOKIE_THEME_ID_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
+
+#: קודי השגיאה של ``syntax_css`` שהשירות של הערכות הציבוריות מחזיר (``SharedThemeService._normalize_syntax_css``).
+_SYNTAX_CSS_ERRORS = {
+    "invalid_syntax_css": "syntax_css חייב להיות מחרוזת",
+    "syntax_css_too_long": f"ה-CSS של הדגשת התחביר ארוך מדי (עד {MAX_SYNTAX_CSS_LENGTH} תווים)",
+}
+
+
+def _syntax_css_error_response(code: str):
+    """400 לשגיאת ``syntax_css``, עם קוד משלה. בתקרת האורך — גם ``max``, כדי שהקורא ידע מה הגבול."""
+    body: Dict[str, Any] = {"ok": False, "error": code, "message": _SYNTAX_CSS_ERRORS[code]}
+    if code == "syntax_css_too_long":
+        body["max"] = MAX_SYNTAX_CSS_LENGTH
+    return jsonify(body), 400
 
 
 # ==========================================
@@ -291,7 +305,8 @@ def publish_shared_theme():
     colors = data.get("colors") or {}
     description = data.get("description", "")
     is_featured = bool(data.get("is_featured", False))
-    syntax_css = data.get("syntax_css")  # optional
+    # optional. סוג שאינו מחרוזת עובר כמו שהוא, ו-``create`` דוחה אותו ב-``invalid_syntax_css`` — במקום לפרסם בלי CSS.
+    syntax_css = data.get("syntax_css")
     syntax_colors = data.get("syntax_colors")  # optional - dict for dynamic HighlightStyle
 
     if not slug:
@@ -303,21 +318,24 @@ def publish_shared_theme():
 
     try:
         service = get_shared_theme_service()
-        success, result = service.create(
+        outcome = service.create(
             slug=slug,
             name=name,
             colors=colors,
             created_by=int(user_id),
             description=description,
             is_featured=is_featured,
-            syntax_css=str(syntax_css) if isinstance(syntax_css, str) else None,
+            syntax_css=syntax_css,
             syntax_colors=syntax_colors if isinstance(syntax_colors, dict) else None,
         )
+        result = outcome.result
 
-        if not success:
+        if not outcome.ok:
             if result.startswith("invalid_color:"):
                 field = result.split(":", 1)[1]
                 return jsonify({"ok": False, "error": "invalid_color", "field": field}), 400
+            if result in _SYNTAX_CSS_ERRORS:
+                return _syntax_css_error_response(result)
 
             error_map = {
                 "invalid_slug": ("slug חייב להיות 3-30 תווים באנגלית קטנה", 400),
@@ -329,10 +347,18 @@ def publish_shared_theme():
             msg, status = error_map.get(result, ("שגיאה לא ידועה", 500))
             return jsonify({"ok": False, "error": result, "message": msg}), status
 
-        return jsonify({"ok": True, "theme_id": result, "message": "הערכה פורסמה בהצלחה!"})
+        return jsonify(
+            {
+                "ok": True,
+                "theme_id": result,
+                "message": "הערכה פורסמה בהצלחה!",
+                "syntax_rules_dropped": outcome.syntax_rules_dropped,
+            }
+        )
     except Exception as e:
+        # כשלי מסד ``create`` מחזיר בעצמו כ-``database_error``; מה שמגיע לכאן הוא באג, ולכן לא מתויג כתקלת מסד.
         logger.exception("publish_shared_theme failed: %s", e)
-        return jsonify({"ok": False, "error": "database_error"}), 500
+        return jsonify({"ok": False, "error": "internal_error"}), 500
 
 
 @themes_bp.route("/shared/<theme_id>", methods=["PUT"])
@@ -345,7 +371,7 @@ def update_shared_theme(theme_id: str):
     data = request.get_json(silent=True) or {}
     try:
         service = get_shared_theme_service()
-        success, result = service.update(
+        outcome = service.update(
             theme_id,
             name=data.get("name"),
             description=data.get("description"),
@@ -355,17 +381,27 @@ def update_shared_theme(theme_id: str):
             syntax_css=data.get("syntax_css"),
             syntax_colors=data.get("syntax_colors"),
         )
-        if not success:
+        result = outcome.result
+        if not outcome.ok:
             if result == "theme_not_found":
                 return jsonify({"ok": False, "error": result}), 404
             if result.startswith("invalid_color:"):
                 field = result.split(":", 1)[1]
                 return jsonify({"ok": False, "error": "invalid_color", "field": field}), 400
+            if result in _SYNTAX_CSS_ERRORS:
+                return _syntax_css_error_response(result)
             return jsonify({"ok": False, "error": result}), 400
-        return jsonify({"ok": True, "message": "הערכה עודכנה"})
+        return jsonify(
+            {
+                "ok": True,
+                "message": "הערכה עודכנה",
+                "syntax_rules_dropped": outcome.syntax_rules_dropped,
+            }
+        )
     except Exception as e:
+        # כשלי מסד ``update`` מחזיר בעצמו כ-``database_error``; מה שמגיע לכאן הוא באג, ולכן לא מתויג כתקלת מסד.
         logger.exception("update_shared_theme failed: %s", e)
-        return jsonify({"ok": False, "error": "database_error"}), 500
+        return jsonify({"ok": False, "error": "internal_error"}), 500
 
 
 @themes_bp.route("/shared/<theme_id>", methods=["DELETE"])

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Optional
+from typing import NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,7 @@ _VALID_PX_REGEX = re.compile(r'^\d{1,3}(\.\d{1,2})?px$')
 
 # רשימה לבנה של משתני CSS מותרים - אל תוסיף משתנים ללא בדיקה
 # ⚠️ הרשימה מסונכרנת עם מסמך הארכיטקטורה: docs/webapp/theming_and_css.rst
+# docs:theme-variables-whitelist:start — הרשימה מוטמעת בתיעוד (docs/webapp/custom_themes_guide.rst); אל תסיר את הסימון
 ALLOWED_VARIABLES_WHITELIST = frozenset([
     # Level 1 - Primitives
     "--primary", "--primary-hover", "--primary-light",
@@ -120,6 +121,7 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     "--status-pill-text-override",
     "--md-search-capsule-border-override",
 ])
+# docs:theme-variables-whitelist:end
 
 
 # מיפוי בין VS Code keys לבין CSS Variables שלנו
@@ -2015,18 +2017,66 @@ def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
     return "\n".join(css_by_selector.values())
 
 
-# 🎨 הבוררים ש-``sanitize_codemirror_css`` מקבל: tok- (CodeMirror 6 classHighlighter) ו-cm- (legacy), גם משורשרים
-# — עד 3 classes (לדוג' ``.tok-variableName.tok-definition.tok-local``).
+# 🎨 הבוררים של CodeMirror ש-``sanitize_codemirror_css`` ו-``sanitize_syntax_css`` מקבלים: tok- (CodeMirror 6
+# classHighlighter) ו-cm- (legacy), גם משורשרים — עד 3 classes (לדוג' ``.tok-variableName.tok-definition.tok-local``).
 _CODEMIRROR_SINGLE_CLASS = r'(\.tok-[a-zA-Z0-9_-]+|\.cm-[a-z0-9_-]+)'
 _CODEMIRROR_SELECTOR_RE = re.compile(f'^{_CODEMIRROR_SINGLE_CLASS}({_CODEMIRROR_SINGLE_CLASS}){{0,2}}$')
 
 # הבוררים של highlight.js ש-``generate_hljs_css_from_tokens`` כותב: מחלקה ``hljs-`` ועד שלוש מחלקות-המשך
 # (``.hljs-title.function_``, ‏``.hljs-title.class_.inherited__``). בלי ``.hljs`` לבד: הכלל הבסיסי של הערכה
-# (צבע ורקע לכל הבלוק) אינו כלל של טוקן.
+# (צבע ורקע לכל הבלוק) אינו כלל של טוקן. ``rebase_hljs_css`` מקבל רק את הבוררים האלה, ו-``sanitize_syntax_css``
+# מקבל בנוסף את הכלל הבסיסי (``_HLJS_BASE_SELECTOR``).
 _HLJS_SELECTOR_RE = re.compile(r'^\.hljs-[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+){0,3}$')
+
+#: הכלל הבסיסי ש-``generate_hljs_css_from_tokens`` כותב לכל הבלוק: צבע הטקסט ש-highlight.js לא סימן, ורקע העורך.
+#: הוא הכלל היחיד שמותר בו ``background``.
+_HLJS_BASE_SELECTOR = ".hljs"
+
+#: הבוררים של Pygments ש-``generate_pygments_css_from_tokens`` כותב: ``.highlight`` ואחריו מחלקת טוקן קצרה של
+#: Pygments (``.k``, ‏``.s2``, ‏``.nt``). המחולל כותב אותם **בלי** הקידומת של ערכה מותאמת, וכך גם ערכה אישית מקבלת
+#: אותם, ולכן ``sanitize_syntax_css`` מקבל אותם רק בלי קידומת.
+_PYGMENTS_SELECTOR_RE = re.compile(r"^\.highlight \.[a-z][a-z0-9]{0,2}$")
 
 #: הקידומת שכללי ערכה מותאמת או משותפת כתובים תחתיה בעמודי האתר — אותה קידומת של כללי highlight.js.
 _CUSTOM_THEME_RULE_PREFIX = HLJS_SITE_THEME_SELECTOR_PREFIX
+
+#: הקידומות שמתקבלות בקלט: הפורמט הישן (``data-theme="custom"``) והחדש (``data-theme-type="custom"``), כדי לשמור
+#: תאימות לאחור לערכות קיימות. כלל תקין יוצא תמיד תחת ``_CUSTOM_THEME_RULE_PREFIX``.
+_CUSTOM_THEME_INPUT_PREFIXES = (
+    ':root[data-theme="custom"]',
+    ':root[data-theme-type="custom"]',
+)
+
+#: תבניות שחוסמות שורה שלמה, לפני כל ניתוח שלה.
+_RULE_DANGEROUS_PATTERNS = (
+    "url(",
+    "expression(",
+    "javascript:",
+    "data:",
+    "behavior:",
+    "binding:",
+    "@import",
+    "@charset",
+    "<",
+    ">",
+    "/*",
+    "*/",
+    "\\",
+)
+
+#: 🔒 הגנה מפני ReDoS / קלט חריג: שורה ארוכה מזה אינה נבדקת בכלל.
+_MAX_RULE_LINE_LENGTH = 500
+
+#: שורה שכולה הערה, כמו הכותרות ש-``parse_vscode_theme`` כותב בין הקבוצות (``/* CodeMirror syntax highlighting */``).
+#: היא אינה כלל, ולכן ``sanitize_syntax_css`` משמיט אותה בלי לספור אותה ככלל שנזרק.
+_COMMENT_ONLY_LINE_RE = re.compile(r"^/\*[^*]*\*/$")
+
+
+class SanitizedSyntaxCss(NamedTuple):
+    """התוצאה של ``sanitize_syntax_css``: ה-CSS הנקי, וכמה כללים בקלט לא עברו."""
+
+    css: str
+    dropped: int
 
 
 def sanitize_codemirror_css(css: str) -> str:
@@ -2039,6 +2089,68 @@ def sanitize_codemirror_css(css: str) -> str:
     תומך גם ב-tok- classes (CodeMirror 6 classHighlighter) וגם ב-cm- classes (legacy).
     """
     return _sanitize_custom_theme_rules(css, _CODEMIRROR_SELECTOR_RE, _CUSTOM_THEME_RULE_PREFIX)
+
+
+def sanitize_syntax_css(css: str) -> SanitizedSyntaxCss:
+    """🔒 מנקה ``syntax_css`` שלם של ערכה לפני שמירה: כל קבוצות הכללים ש-``parse_vscode_theme`` מייצר, ורק אותן.
+
+    ``parse_vscode_theme`` כותב שלוש קבוצות, אחת לכל מנוע צביעה, וכל אחת עוברת כאן עם הבורר שהמחולל שלה כותב:
+
+    - CodeMirror (``generate_codemirror_css_from_tokens``): תחת הקידומת של ערכה מותאמת, בורר ``_CODEMIRROR_SELECTOR_RE``.
+    - highlight.js (``generate_hljs_css_from_tokens``): תחת אותה קידומת, בורר ``_HLJS_SELECTOR_RE``, וגם הכלל הבסיסי
+      ``_HLJS_BASE_SELECTOR`` — הכלל היחיד שמותר בו ``background``.
+    - Pygments (``generate_pygments_css_from_tokens``): בלי קידומת, בורר ``_PYGMENTS_SELECTOR_RE``.
+
+    ההצהרות ברשימה הסגורה של ``_clean_rule_declarations``, וכל צבע עובר את ``sanitize_css_value``. כלל תקין יוצא בפורמט
+    שהמחולל כותב, כך שערכה ציבורית מקבלת את מה שהערכה האישית שממנה פורסמה מקבלת.
+
+    ``dropped`` סופר כל שורה שאינה ריקה, אינה הערה בלבד (``_COMMENT_ONLY_LINE_RE``) ולא עברה. על הפלט של
+    ``parse_vscode_theme`` הוא אפס (``tests/services/test_sanitize_syntax_css.py``), ולכן ערך חיובי אומר שהקלט לא נוצר
+    במחולל של היום: ערכה ישנה בפורמט קודם, או טקסט שנערך ביד.
+
+    ערוץ הכשל היחיד הוא ``TypeError`` על קלט שאינו מחרוזת: הקוראים בודקים את הסוג לפני כן, וסוג אחר כאן הוא באג.
+    """
+    if not isinstance(css, str):
+        raise TypeError(f"sanitize_syntax_css expects str, got {type(css).__name__}")
+
+    safe_rules: list[str] = []
+    dropped = 0
+    for raw_line in css.splitlines():
+        line = raw_line.strip()
+        if not line or _COMMENT_ONLY_LINE_RE.match(line):
+            continue
+        rule = _sanitize_syntax_rule(line)
+        if rule is None:
+            dropped += 1
+            continue
+        safe_rules.append(rule)
+    return SanitizedSyntaxCss("\n".join(safe_rules), dropped)
+
+
+def _sanitize_syntax_rule(line: str) -> str | None:
+    """כלל אחד של ``sanitize_syntax_css``, או ``None`` כשהוא לא שייך לאף קבוצה או שהצהרה בו פסולה."""
+    parts = _split_rule_line(line)
+    if parts is None:
+        return None
+    prefix, selector, body = parts
+
+    allow_background = False
+    if prefix is None:
+        if not _PYGMENTS_SELECTOR_RE.match(selector):
+            return None
+        out_selector = selector
+    elif _CODEMIRROR_SELECTOR_RE.match(selector) or _HLJS_SELECTOR_RE.match(selector):
+        out_selector = f"{_CUSTOM_THEME_RULE_PREFIX} {selector}"
+    elif selector == _HLJS_BASE_SELECTOR:
+        out_selector = f"{_CUSTOM_THEME_RULE_PREFIX} {selector}"
+        allow_background = True
+    else:
+        return None
+
+    decls = _clean_rule_declarations(body, allow_background=allow_background)
+    if decls is None:
+        return None
+    return _format_rule(out_selector, decls)
 
 
 def rebase_hljs_css(css: str, selector_prefix: str) -> str:
@@ -2062,111 +2174,107 @@ def _sanitize_custom_theme_rules(css: str, selector_re: re.Pattern, output_prefi
         return ""
 
     safe_rules: list[str] = []
-    max_line_length = 500  # 🔒 הגנה מפני ReDoS / קלט חריג
-
     for raw_line in css.splitlines():
         line = raw_line.strip()
         if not line:
             continue
-        if len(line) > max_line_length:
+        parts = _split_rule_line(line)
+        if parts is None:
             continue
-
-        # חסימת תבניות מסוכנות במפורש
-        lower = line.lower()
-        dangerous_patterns = [
-            "url(", "expression(", "javascript:",
-            "data:", "behavior:", "binding:",
-            "@import", "@charset", "<", ">",
-            "/*", "*/", "\\",
-        ]
-        if any(p in lower for p in dangerous_patterns):
+        prefix, selector, body = parts
+        if prefix is None or not selector_re.match(selector):
             continue
-
-        # 🔒 אבטחה/ביצועים: הימנעות מ-Regex כבד על קלט לא נשלט (ReDoS)
-        # תומך גם בפורמט הישן (data-theme="custom") וגם בחדש (data-theme-type="custom")
-        # כדי לשמור תאימות לאחור לערכות קיימות.
-        allowed_prefixes = (
-            ':root[data-theme="custom"]',
-            ':root[data-theme-type="custom"]',
-        )
-        prefix = next((p for p in allowed_prefixes if line.startswith(p)), None)
-        if not prefix:
+        decls = _clean_rule_declarations(body, allow_background=False)
+        if decls is None:
             continue
-
-        open_idx = line.find("{")
-        close_idx = line.rfind("}")
-        if open_idx == -1 or close_idx == -1 or close_idx < open_idx:
-            continue
-
-        before = line[:open_idx].strip()
-        body = line[open_idx + 1 : close_idx].strip()
-        after = line[close_idx + 1 :].strip()
-        if after:
-            continue
-
-        rest = before[len(prefix) :].strip()
-        if not rest:
-            continue
-        selector = rest
-
-        if not selector_re.match(selector):
-            continue
-
-        decls = [d.strip() for d in body.split(";") if d.strip()]
-        if not decls:
-            continue
-
-        out_parts: list[str] = []
-        ok = True
-
-        for d in decls:
-            if ":" not in d:
-                ok = False
-                break
-            prop, val = d.split(":", 1)
-            prop = prop.strip().lower()
-            val = val.strip()
-            # 🎨 הסר !important לצורך וולידציה, נוסיף אותו בחזרה אחר כך
-            has_important = val.lower().endswith("!important")
-            if has_important:
-                val = val[: -len("!important")].strip()
-
-            if prop == "color":
-                clean = sanitize_css_value(val)
-                if not clean:
-                    ok = False
-                    break
-                out_parts.append(f"color: {clean} !important")
-            elif prop == "font-style":
-                if val.strip().lower() != "italic":
-                    ok = False
-                    break
-                out_parts.append("font-style: italic !important")
-            elif prop == "font-weight":
-                if val.strip().lower() != "bold":
-                    ok = False
-                    break
-                out_parts.append("font-weight: bold !important")
-            elif prop == "text-decoration":
-                if val.strip().lower() != "underline":
-                    ok = False
-                    break
-                out_parts.append("text-decoration: underline !important")
-            else:
-                ok = False
-                break
-
-        if not ok:
-            continue
-
-        # חייב להיות לפחות color
-        if not any(p.startswith("color:") for p in out_parts):
-            continue
-
         # ``sanitize_codemirror_css`` מנרמל תמיד לפורמט החדש, כדי שיתפוס גם custom וגם shared (דרך data-theme-type).
-        safe_rules.append(f'{output_prefix} {selector} {{ {"; ".join(out_parts)}; }}')
+        safe_rules.append(_format_rule(f"{output_prefix} {selector}", decls))
 
     return "\n".join(safe_rules)
+
+
+def _split_rule_line(line: str) -> tuple[str | None, str, str] | None:
+    """מפרק שורה לכלל אחד: ``(קידומת או None, בורר, גוף)``. ``None`` כשהשורה אינה כלל בטוח בשורה אחת.
+
+    הקידומת היא אחת מ-``_CUSTOM_THEME_INPUT_PREFIXES``, או ``None`` כשהשורה לא מתחילה באף אחת מהן — ואז הבורר הוא
+    כל מה שלפני ``{``. כל קורא מחליט בעצמו אילו בוררים הוא מקבל עם קידומת ובלעדיה.
+    """
+    if len(line) > _MAX_RULE_LINE_LENGTH:
+        return None
+
+    # חסימת תבניות מסוכנות במפורש
+    lower = line.lower()
+    if any(p in lower for p in _RULE_DANGEROUS_PATTERNS):
+        return None
+
+    # 🔒 אבטחה/ביצועים: הימנעות מ-Regex כבד על קלט לא נשלט (ReDoS)
+    open_idx = line.find("{")
+    close_idx = line.rfind("}")
+    if open_idx == -1 or close_idx == -1 or close_idx < open_idx:
+        return None
+    if line[close_idx + 1 :].strip():
+        return None
+
+    before = line[:open_idx].strip()
+    body = line[open_idx + 1 : close_idx].strip()
+
+    prefix = next((p for p in _CUSTOM_THEME_INPUT_PREFIXES if before.startswith(p)), None)
+    selector = before[len(prefix) :].strip() if prefix else before
+    if not selector:
+        return None
+    return prefix, selector, body
+
+
+def _clean_rule_declarations(body: str, *, allow_background: bool) -> list[str] | None:
+    """ההצהרות של כלל, מנורמלות ועם ``!important``, או ``None`` כשאחת מהן מחוץ לרשימה הסגורה.
+
+    הרשימה: ``color`` (חובה), ``font-style: italic``, ``font-weight: bold``, ``text-decoration: underline``, ו-
+    ``background`` רק כש-``allow_background``. כל צבע עובר את ``sanitize_css_value``.
+    """
+    decls = [d.strip() for d in body.split(";") if d.strip()]
+    if not decls:
+        return None
+
+    out_parts: list[str] = []
+    for d in decls:
+        if ":" not in d:
+            return None
+        prop, val = d.split(":", 1)
+        prop = prop.strip().lower()
+        val = val.strip()
+        # 🎨 הסר !important לצורך וולידציה, נוסיף אותו בחזרה אחר כך
+        if val.lower().endswith("!important"):
+            val = val[: -len("!important")].strip()
+
+        if prop == "color" or (prop == "background" and allow_background):
+            clean = sanitize_css_value(val)
+            if not clean:
+                return None
+            out_parts.append(f"{prop}: {clean} !important")
+        elif prop == "font-style":
+            if val.lower() != "italic":
+                return None
+            out_parts.append("font-style: italic !important")
+        elif prop == "font-weight":
+            if val.lower() != "bold":
+                return None
+            out_parts.append("font-weight: bold !important")
+        elif prop == "text-decoration":
+            if val.lower() != "underline":
+                return None
+            out_parts.append("text-decoration: underline !important")
+        else:
+            return None
+
+    # חייב להיות לפחות color
+    if not any(p.startswith("color:") for p in out_parts):
+        return None
+    return out_parts
+
+
+def _format_rule(selector: str, decls: list[str]) -> str:
+    """כלל בשורה אחת, בפורמט שהמחוללים כותבים."""
+    return f'{selector} {{ {"; ".join(decls)}; }}'
 
 
 def export_theme_to_json(theme: dict) -> str:
