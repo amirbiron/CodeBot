@@ -3,8 +3,10 @@
 **הבאג.** בלוק קוד שהתוכן שלו עברי מקבל ``direction: rtl`` (``applyRtlIfHebrew`` ב-
 ``webapp/static/js/utils/rtl-code.js``). כשבתוכו יש דוגמה עם גדרות משלה, הכיוון חל גם
 עליה: ``` ```python ``` הוצג כ-``python``` ``, והשורה המוזחת התחילה משמאל לשורה שמעליה.
-התיקון עוטף כל קטע שמתחיל בגדר פנימית ונגמר בגדר הסוגרת שלה ב-``.rtl-code-ltr``
-(``wrapInnerFences``), אחרי ההדגשה, וכל שאר השורות נשארות כמו שהיו.
+התיקון עוטף כל דוגמת קוד — גדר פנימית עד הגדר הסוגרת שלה — ב-``.rtl-code-ltr``
+(``wrapInnerFences``), אחרי ההדגשה, וכל שאר השורות נשארות כמו שהיו. גדר פנימית שהיא
+טקסט לפי הכלל של בלוק רגיל — בלי שם שפה או עם שם מ-``PLAIN_LANGUAGE_NAMES``, ותוכן שעובר
+את ``isHebrewMajority`` — אינה דוגמת קוד ואינה נעטפת (``innerFences``).
 
 **שלושת המשטחים, בעמודים האמיתיים** (``TESTING-PATTERNS.md`` T1): תצוגת ה-Markdown
 (``/md/<id>``), התצוגה החיה בעמוד העריכה (``/edit/<id>``, דרך הכפתור), ודפדפן הריפו
@@ -21,7 +23,8 @@
 **מה נבדק:** הקטע הפנימי הוא אלמנט אחד מגדר לגדר; שורת הגדר בסדר הנכון ומשמאל; שורה
 מוזחת נשארת מוזחת; גדר שלא נסגרה נמשכת עד סוף הבלוק; ```` לא נסגרת ב-``` שבתוכה;
 שורה ארוכה — ההתחלה גלויה מיד והסוף נגיש בגלילה; וכפתור ההעתקה מעתיק בדיוק את המקור.
-**ומה לא נשבר:** השורות העבריות מימין, השורות הריקות סביב הקטע, הרשימה מ"המיפוי השלם
+גדר פנימית שהיא טקסט — בלי שם שפה, ועם ``md`` — נשארת מימין, והגרשיים שלה בתחילת השורה,
+בקצה הימני; ובתוך טקסט כזה דוגמת קוד שוב משמאל. **ומה לא נשבר:** השורות העבריות מימין, השורות הריקות סביב הקטע, הרשימה מ"המיפוי השלם
 בייבוא ערכת VS Code", ובלוק עם שפה מוצהרת.
 
 **מה לא נבדק כאן:** ספארי ופיירפוקס — יש כאן רק כרומיום. הפתקים — יש להם רנדרר משלהם,
@@ -76,8 +79,21 @@ LONG_INNER = "\n".join([
     "שורה עברית ראשונה בדוגמה", "שורה עברית שנייה בדוגמה", "שורה עברית שלישית בדוגמה",
     "```js", LONG_LINE, "```", "שורה עברית אחרונה בדוגמה",
 ]) + "\n"
+#: התוכן של ````md לועזי בכוונה: עם תוכן עברי הוא טקסט (``TEXT_BARE`` ואחיו למטה), ואז
+#: אין קטע שאפשר לראות איפה הוא נגמר.
 FOUR_IN_FIVE = "\n".join([
-    "טקסט עברי לפני הדוגמה", "````md", "```", "בתוך", "```", "````", "טקסט עברי אחרי הדוגמה",
+    "טקסט עברי לפני הדוגמה", "````md", "```", "inside", "```", "````", "טקסט עברי אחרי הדוגמה",
+]) + "\n"
+#: גדרות פנימיות שהן טקסט — בלי שם שפה, ועם ``md`` — ובתוך טקסט כזה דוגמת קוד משלו.
+TEXT_BARE = "\n".join([
+    "טקסט עברי לפני ההערה", "```", "הערה בעברית בתוך גדר בלי שם שפה", "```", "טקסט עברי אחרי ההערה",
+]) + "\n"
+TEXT_MD = "\n".join([
+    "פסקה עברית לפני הבלוק", "```md", "שורת הסבר בעברית בתוך בלוק md", "```", "פסקה עברית אחרי הבלוק",
+]) + "\n"
+TEXT_WITH_CODE = "\n".join([
+    "טקסט עברי לפני הבלוק המקונן", "````text", "הסבר בעברית לפני הקוד", "```python", 'print("x")', "```",
+    "````", "טקסט עברי אחרי הבלוק המקונן",
 ]) + "\n"
 DECLARED = "\n".join(["# הערה בעברית בתוך קוד פייתון, וגם היא ארוכה מספיק כדי להיות רוב", 'print("שלום")']) + "\n"
 
@@ -89,6 +105,9 @@ BLOCKS = [
     ("END_OF_LINE", "````markdown", LONG_INNER),
     ("טקסט עברי לפני הדוגמה", "`````", FOUR_IN_FIVE),
     ("# הערה בעברית", "```python", DECLARED),
+    ("הערה בעברית בתוך גדר", "````markdown", TEXT_BARE),
+    ("שורת הסבר בעברית", "````markdown", TEXT_MD),
+    ("הסבר בעברית לפני הקוד", "`````markdown", TEXT_WITH_CODE),
 ]
 
 
@@ -162,7 +181,8 @@ PARTS_JS = """([root, match]) => {
 
 #: גאומטריה של שורות, כפי שהדפדפן צייר אותן. ``gapL``/``gapR`` — המרחק בין קצות
 #: השורה לקצות תיבת התוכן של ה-``code``; ``startX`` — היכן מצויר התו הלא-ריק הראשון
-#: בסדר הלוגי; ``firstOnLeft`` — האם הוא בחצי השמאלי של השורה.
+#: בסדר הלוגי; ``firstOnLeft`` — האם הוא בחצי השמאלי של השורה; ``firstAtRight`` — האם
+#: הוא התו הימני ביותר בשורה, כלומר בתחילת שורה מימין לשמאל.
 MEASURE_LINES_JS = """([root, match, needles]) => {
 """ + FIND_PRE_JS + """
   const pre = findPre(root, match);
@@ -199,7 +219,8 @@ MEASURE_LINES_JS = """([root, match, needles]) => {
     return {found: true, needle, top: line.top,
             gapL: Math.round(minL - left), gapR: Math.round(right - maxR),
             startX: Math.round(first.rc.left - left),
-            firstOnLeft: first.rc.left < (minL + maxR) / 2};
+            firstOnLeft: first.rc.left < (minL + maxR) / 2,
+            firstAtRight: first.rc.right >= maxR - 1};
   });
 }"""
 
@@ -393,7 +414,7 @@ def test_inner_code_is_one_left_to_right_segment_from_fence_to_fence(surface):
     assert js_rest["gapL"] <= 1, f"{name}: שורת התוכן של הקטע לא משמאל: {js_rest}"
 
     # ```` אינה נסגרת ב-``` שבתוכה (CommonMark 0.31.2, דוגמה 124).
-    assert _parts(page, root, "טקסט עברי לפני הדוגמה") == ["````md\n```\nבתוך\n```\n````\n"], name
+    assert _parts(page, root, "טקסט עברי לפני הדוגמה") == ["````md\n```\ninside\n```\n````\n"], name
 
 
 def test_the_rest_of_the_block_is_unchanged(surface):
@@ -432,6 +453,33 @@ def test_the_rest_of_the_block_is_unchanged(surface):
 
     declared = page.evaluate(PARTS_JS, [root, "# הערה בעברית"])
     assert declared == {"rtl": False, "parts": []}, f"{name}: בלוק python נגע: {declared}"
+
+
+def test_an_inner_text_block_stays_with_the_block_and_its_own_code_does_not(surface):
+    """גדר פנימית שהיא טקסט לפי הכלל של בלוק רגיל — בלי שם שפה, או עם שם מ-
+    ``PLAIN_LANGUAGE_NAMES``, ותוכן שעובר את ``isHebrewMajority`` — אינה נעטפת ונשארת
+    עם כיוון הבלוק, כולל שורות הגדר: הגרשיים בתחילת השורה, בקצה הימני, כמו האות
+    הראשונה של הטקסט שהם תוחמים. ובתוך טקסט כזה, דוגמת קוד שוב משמאל לימין."""
+    name, page, root = surface
+
+    assert _parts(page, root, "הערה בעברית בתוך גדר") == [], f"{name}: גדר טקסט בלי שם שפה נעטפה"
+    fence, note = _lines(page, root, "הערה בעברית בתוך גדר", ["```", "הערה בעברית בתוך גדר"])
+    assert fence["gapR"] <= 1, f"{name}: שורת הגדר של גדר הטקסט לא מימין: {fence}"
+    assert not note["firstOnLeft"] and note["gapR"] <= 1, f"{name}: הטקסט בגדר לא מימין: {note}"
+
+    assert _parts(page, root, "שורת הסבר בעברית") == [], f"{name}: גדר md עם תוכן עברי נעטפה"
+    opener, text = _lines(page, root, "שורת הסבר בעברית", ["```md", "שורת הסבר בעברית"])
+    assert opener["firstAtRight"] and opener["gapR"] <= 1, (
+        f"{name}: הגרשיים של ```md לא בתחילת השורה, בקצה הימני: {opener}"
+    )
+    assert not text["firstOnLeft"] and text["gapR"] <= 1, f"{name}: הטקסט בגדר md לא מימין: {text}"
+
+    assert _parts(page, root, "הסבר בעברית לפני הקוד") == ['```python\nprint("x")\n```\n'], name
+    outer, prose, code = _lines(page, root, "הסבר בעברית לפני הקוד",
+                                ["````text", "הסבר בעברית לפני הקוד", "```python"])
+    assert outer["firstAtRight"] and outer["gapR"] <= 1, f"{name}: ````text לא בתחילת השורה מימין: {outer}"
+    assert not prose["firstOnLeft"] and prose["gapR"] <= 1, f"{name}: הטקסט שלפני הקוד לא מימין: {prose}"
+    assert code["firstOnLeft"] and code["gapL"] <= 1, f"{name}: ```python בתוך גדר הטקסט לא משמאל: {code}"
 
 
 def test_a_long_inner_line_starts_visible_and_its_end_is_reachable(surface):
