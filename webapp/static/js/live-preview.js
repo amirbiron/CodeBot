@@ -463,7 +463,9 @@
     async function renderMermaidBlocks(blocks, mermaidTheme, isCurrent) {
       if (!isCurrent()) return;
       try {
-        window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: mermaidTheme });
+        // התצורה של האתר (רוחב הגלישה של התוויות, ``securityLevel``) — ``window.mermaidSiteConfig`` מהבאנדל,
+        // ``webapp/static_build/mermaid-site-config.mjs``. אותה תצורה כמו בתצוגת המסמך.
+        window.mermaid.initialize(window.mermaidSiteConfig(mermaidTheme));
       } catch (err) {
         console.warn('mermaid initialize failed', err);
       }

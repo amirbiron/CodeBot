@@ -12,6 +12,8 @@ import hljs from 'highlight.js/lib/common';
 import katex from 'katex';
 // Mermaid
 import mermaid from 'mermaid';
+// התצורה של Mermaid באתר — ההסבר ב-mermaid-site-config.mjs
+import { mermaidSiteConfig } from './mermaid-site-config.mjs';
 
 // Expose on window to keep template logic intact
 if (typeof window !== 'undefined') {
@@ -26,4 +28,5 @@ if (typeof window !== 'undefined') {
   window.hljs = hljs;
   window.katex = katex;
   window.mermaid = mermaid;
+  window.mermaidSiteConfig = mermaidSiteConfig;
 }

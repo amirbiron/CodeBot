@@ -170879,6 +170879,17 @@ ${config6.themeCSS}`;
   };
   var mermaid_default = mermaid;
 
+  // webapp/static_build/mermaid-site-config.mjs
+  var MERMAID_WRAPPING_WIDTH = 400;
+  function mermaidSiteConfig(theme) {
+    return {
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme,
+      flowchart: { wrappingWidth: MERMAID_WRAPPING_WIDTH }
+    };
+  }
+
   // webapp/static_build/md-preview-entry.js
   if (typeof window !== "undefined") {
     window.markdownit = (opts) => new lib_default(opts);
@@ -170892,6 +170903,7 @@ ${config6.themeCSS}`;
     window.hljs = common_default;
     window.katex = katex;
     window.mermaid = mermaid_default;
+    window.mermaidSiteConfig = mermaidSiteConfig;
   }
 })();
 /*! Bundled license information:
