@@ -446,7 +446,7 @@
 צבעי המסמך: כותרות, הדגשה, קוד בשורה וציטוט
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-בתצוגת ה-Markdown (``md_preview.html``) ובתצוגה החיה בעמודי העריכה וההעלאה, ערכה מיובאת מבדילה בין חלקי המסמך רק בשני צבעי טקסט: כותרות ורשימות ב-``--text-primary`` (מ-``editor.foreground``, ו-``input.foreground`` דורס אותו כשהוא בקובץ), ופסקאות ב-``--text-secondary`` (מ-``sideBar.foreground``). כששני המפתחות זהים בקובץ, כמו ב-morass, כל המסמך יוצא בצבע אחד.
+בתצוגת ה-Markdown (``md_preview.html``) ובתצוגה החיה בעמודי העריכה וההעלאה, ערכה מיובאת מבדילה בין חלקי המסמך רק בשני צבעי טקסט: כותרות ורשימות ב-``--text-primary`` (מ-``editor.foreground``, ו-``input.foreground`` דורס אותו כשהוא בקובץ), ופסקאות — גם בתוך ציטוט — ב-``--text-secondary`` (מ-``sideBar.foreground``), בכלל ה-Typography של ``webapp/static/css/dark-mode.css`` שצובע כל ``p``, ולא בירושה מ-``#md-content``. כששני המפתחות זהים בקובץ, כמו ב-morass, כל המסמך יוצא בצבע אחד.
 
 אין לזה מקור בקובץ הערכה. התצוגה המרונדרת של VS Code עצמו צובעת כותרות והדגשה ב-``editor.foreground``, בלי מפתח משלהן; רק לקישור (``textLink.foreground``), לקוד בשורה (``textPreformat.foreground``), לציטוט (``textBlockQuote.background`` / ``textBlockQuote.border``) ולבלוק קוד (``textCodeBlock.background``) יש מפתח — נקרא ב-``microsoft/vscode@864824b4``, בקבצים ``src/vs/workbench/contrib/webview/browser/pre/index.html`` ו-``extensions/markdown-language-features/media/markdown.css``. ``markup.heading``, ``markup.bold`` ושכניהם ב-``tokenColors`` אינם צבעי המסמך: הם צובעים את מקור ה-Markdown בעורך, דרך הדקדוק של TextMate, ובמערכת שלנו הם הופכים להדגשת תחביר בבלוקי קוד (:ref:`shared-theme-syntax-css`).
 
@@ -475,7 +475,7 @@
 
 .. note::
 
-   ערכה שאינה מצהירה על הטוקנים מרונדרת ללא שינוי. ההדגשה, הקוד בשורה והציטוט נקראים בכללים שצובעים אותם היום, ו-fallback של כל טוקן הוא הערך שנצבע שם. לכותרות אין במסמך כלל משלהן — היום הן נצבעות בכלל ה-Typography של ``webapp/static/css/dark-mode.css``, שחל על כל כותרת באתר — ולכן נוסף כלל שחל רק בתוך ``#md-content``, וה-fallback שלו הוא אותו ``--text-primary``. כותרות בממשק, מחוץ למסמך, לא מושפעות. ``tests/services/test_theme_variables_md_document_colors_hook.py`` נועל את החוזה, ו-``tests/test_md_document_colors_hook_browser.py`` מודד בדפדפן את שתי התצוגות, בערכה אישית ובערכה שפורסמה לציבורית. מצבי הרקע של תצוגת המסמך (ספיה ושאר הגוונים) לא חלים כאן: הם מוצעים רק בערכות מובנות בהירות (``ALLOWED_THEMES`` ב-``md_preview.html``). וכמו בכל וו, ערכה שכבר קיימת בחשבון מקבלת את הטוקנים רק אחרי ייבוא מחדש, וערכה ציבורית — אחרי פרסום מחדש.
+   ערכה שאינה מצהירה על הטוקנים מרונדרת ללא שינוי. הקוד בשורה והציטוט נקראים בכללים שצובעים אותם היום, ו-fallback של כל טוקן הוא הערך שנצבע שם. לכותרות ולהדגשה אין במסמך כלל משלהן: הכותרות נצבעות היום בכלל ה-Typography של ``webapp/static/css/dark-mode.css``, שחל על כל כותרת באתר, וההדגשה יורשת את צבע הטקסט שסביבה. לכן נוספו להן כללים שחלים רק בתוך ``#md-content`` — לכותרות עם fallback לאותו ``--text-primary``, ולהדגשה עם fallback ל-``inherit``. כותרות בממשק, מחוץ למסמך, לא מושפעות. ``tests/services/test_theme_variables_md_document_colors_hook.py`` נועל את החוזה, ו-``tests/test_md_document_colors_hook_browser.py`` מודד בדפדפן את שתי התצוגות, בערכה אישית ובערכה שפורסמה לציבורית. מצבי הרקע של תצוגת המסמך (ספיה ושאר הגוונים) לא חלים כאן: הם מוצעים רק בערכות מובנות בהירות (``ALLOWED_THEMES`` ב-``md_preview.html``). וכמו בכל וו, ערכה שכבר קיימת בחשבון מקבלת את הטוקנים רק אחרי ייבוא מחדש, וערכה ציבורית — אחרי פרסום מחדש.
 
 הדגשת תחביר (Syntax Highlighting)
 ----------------------------------
