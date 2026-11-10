@@ -22,6 +22,9 @@
 (``/markdown-editor``, דרך ``test_client``, כמו ב-``tests/test_markdown_editor_browser.py``). שניהם טוענים את
 ``md_preview.bundle.js``. כל בקשה לאתר אחר נחסמת.
 
+**ותרשים שבור.** תרשים שאינו נבנה (תחביר שגוי) מוחלף בהודעה, והסיבה נרשמת בקונסול. עד נובמבר 2026 תצוגת המסמך
+הציגה את ההודעה בלי לרשום כלום, ולא היה שום רמז למה התרשים לא צויר.
+
 **מה לא נבדק:** ספארי ופיירפוקס (יש כאן רק כרומיום, ולפי האישו הבאג של כרומיום בלבד), מצב הקריאה
 (``reader_mode.html`` טוען Mermaid מ-CDN עם תצורה משלו, ולא את הבאנדל), ותרשימים שאינם flowchart.
 
@@ -78,7 +81,14 @@ DIRECTIVE_DIAGRAM = (
     f'    R["{REPORTED}"] --> M["{MEDIUM}"]\n'
     "```\n"
 )
-MARKDOWN = SITE_DIAGRAM + "\n" + DIRECTIVE_DIAGRAM
+#: תחביר שגוי — Mermaid זורק ב-``render``.
+BROKEN_DIAGRAM = "```mermaid\nflowchart TB\n    A[[[ שבור\n```\n"
+MARKDOWN = SITE_DIAGRAM + "\n" + DIRECTIVE_DIAGRAM + "\n" + BROKEN_DIAGRAM
+
+#: ההודעה שמחליפה תרשים שבור, בשני המשטחים.
+BROKEN_NOTICE = "Mermaid render failed"
+#: מה שנרשם בקונסול על תרשים שבור, בשני המשטחים (``md_preview.html`` מוסיף קידומת משלו).
+BROKEN_LOG = "mermaid render failed"
 
 
 def _text(label: str) -> str:
@@ -157,7 +167,8 @@ def _render_document(wa) -> str:
 
 
 def _wait_for_diagrams(page):
-    """עד ששני התרשימים **האלה** צוירו — בעורך הציבורי יש בטקסט ההדגמה תרשים אחר, והוא מצויר קודם."""
+    """עד ששני התרשימים **האלה** צוירו, והשבור הוחלף בהודעה — בעורך הציבורי יש בטקסט ההדגמה תרשים אחר, והוא
+    מצויר קודם."""
     poll(
         page,
         "(texts) => { const found = Array.from(document.querySelectorAll('#md-content svg foreignObject'))"
@@ -165,27 +176,39 @@ def _wait_for_diagrams(page):
         "התרשימים צוירו",
         [_text(t) for t in (SHORT, MEDIUM, LONG_ONE_LINE, LONG_WITH_BREAK, REPORTED)],
     )
+    poll(
+        page,
+        "(notice) => Array.from(document.querySelectorAll('#md-content .alert-warning'))"
+        ".some(el => el.textContent.includes(notice))",
+        "התרשים השבור הוחלף בהודעה",
+        BROKEN_NOTICE,
+    )
 
 
-def _collect(page):
+def _collect(page, console: list):
     return {
         "svgs": page.evaluate(MEASURE_JS),
         "clamps": page.evaluate("window.__labelClampMeasurements"),
         "site_width": page.evaluate(SITE_WIDTH_JS),
+        "console": list(console),
     }
 
 
 def _measure_document(ctx):
     page = ctx.new_page()
+    console: list[str] = []
+    page.on("console", lambda msg: console.append(msg.text))
     page.goto(f"{ORIGIN}/md")
     _wait_for_diagrams(page)
-    result = _collect(page)
+    result = _collect(page, console)
     page.close()
     return result
 
 
 def _measure_editor(ctx):
     page = ctx.new_page()
+    console: list[str] = []
+    page.on("console", lambda msg: console.append(msg.text))
     page.goto(f"{ORIGIN}/markdown-editor")
     poll(page, "() => !!(window.editorManager && window.editorManager.cmInstance)", "העורך עלה")
     poll(
@@ -199,7 +222,7 @@ def _measure_editor(ctx):
         MARKDOWN,
     )
     _wait_for_diagrams(page)
-    result = _collect(page)
+    result = _collect(page, console)
     page.close()
     return result
 
@@ -360,3 +383,10 @@ def test_a_diagram_directive_overrides_the_site_width(measured, surface):
         assert row["whiteSpace"] == "break-spaces", row
         assert abs(row["width"] - directive_width) < 1, (row, f"רוחב ההנחיה: {directive_width}")
         assert row["height"] > single_line + TOLERANCE_PX, (row, f"שורה: {single_line}")
+
+
+@pytest.mark.parametrize("surface", ["document", "editor"])
+def test_a_broken_diagram_shows_a_notice_and_logs_why(measured, surface):
+    """תרשים שבור מוחלף בהודעה, והסיבה נרשמת בקונסול — אחרת אין שום רמז למה הוא לא צויר."""
+    logged = [line for line in measured[surface]["console"] if BROKEN_LOG in line]
+    assert logged, f"תרשים שבור לא נרשם בקונסול. מה שנרשם: {measured[surface]['console']}"

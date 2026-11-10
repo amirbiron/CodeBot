@@ -2258,12 +2258,14 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         try {
           const { svg } = await window.mermaid.render(svgId, code);
           wrapper.innerHTML = svg;
-        } catch(e) {
+        } catch (err) {
+          // תרשים אחד שנכשל (תחביר שגוי, למשל): הקורא רואה הודעה במקומו, והסיבה נרשמת בקונסול — כמו בתצוגה החיה.
           wrapper.innerHTML = '<div class="alert alert-warning">Mermaid render failed</div>';
+          console.warn('md_preview: mermaid render failed', svgId, err);
         }
       }
     } catch (err) {
-      // בלי Mermaid או בלי התצורה שלו התרשימים נשארים בלוקי קוד. שאר העמוד ממשיך, אבל הכשל לא נבלע בשקט.
+      // בלי Mermaid או בלי התצורה שלו התרשימים נשארים בלוקי קוד, ושאר העמוד ממשיך. כשל של תרשים אחד נרשם למעלה.
       console.warn('md_preview: mermaid failed', err);
     }
 
