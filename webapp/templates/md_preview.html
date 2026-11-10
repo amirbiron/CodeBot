@@ -2244,11 +2244,9 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           }
         }
       }
-      window.mermaid.initialize({ 
-        startOnLoad: false, 
-        securityLevel: 'strict',
-        theme: mermaidTheme
-      });
+      // התצורה של האתר (רוחב הגלישה של התוויות, ``securityLevel``) — ``window.mermaidSiteConfig`` מהבאנדל,
+      // ``webapp/static_build/mermaid-site-config.mjs``. אותה תצורה כמו בתצוגה החיה (``live-preview.js``).
+      window.mermaid.initialize(window.mermaidSiteConfig(mermaidTheme));
       const blocks = container.querySelectorAll('code.language-mermaid, pre code.language-mermaid');
       let i=0;
       for (const el of blocks) {
@@ -2264,7 +2262,10 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           wrapper.innerHTML = '<div class="alert alert-warning">Mermaid render failed</div>';
         }
       }
-    } catch(_){ }
+    } catch (err) {
+      // בלי Mermaid או בלי התצורה שלו התרשימים נשארים בלוקי קוד. שאר העמוד ממשיך, אבל הכשל לא נבלע בשקט.
+      console.warn('md_preview: mermaid failed', err);
+    }
 
     // פונקציות עזר נגישות בשימוש משותף (copy/permalink)
     function announceToScreenReader(message) {

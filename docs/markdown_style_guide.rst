@@ -153,6 +153,19 @@ Mermaid
    האתחול הוא ``theme: 'neutral'`` + Overrides ב‑``reader.css``
    כדי לשמור על קווים וטקסט כהים.
 
+.. note::
+   **רוחב התוויות.** בתצוגת המסמך ובתצוגה החיה, תווית בתרשים נשברת לשורות רק כשהיא רחבה מ-``MERMAID_WRAPPING_WIDTH`` (ב-``webapp/static_build/mermaid-site-config.mjs``), שרחב מברירת המחדל של Mermaid; תווית צרה ממנו נשארת בשורה אחת. תרשים בודד יכול לקבוע רוחב אחר בהנחיה בראש התרשים, והיא גוברת על הרוחב של האתר לתרשים ההוא בלבד:
+
+   .. code-block:: markdown
+
+      ```mermaid
+      %%{init: {"flowchart": {"wrappingWidth": 250}}}%%
+      flowchart LR
+        A --> B
+      ```
+
+   מצב הקריאה טוען Mermaid משלו, ושם נשארת ברירת המחדל של Mermaid.
+
 Details / Summary
 ^^^^^^^^^^^^^^^^^
 
