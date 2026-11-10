@@ -17,10 +17,12 @@
 // ``mermaid.initialize`` ושום CSS לא משנים את ההחלטה הזו. התיקון חל על כל מי שטוען את ``md_preview.bundle.js`` —
 // תצוגת המסמך (``md_preview.html``), התצוגה החיה (``live-preview.js``: עמוד העריכה, העורך הציבורי והייצוא המעוצב).
 //
-// **נכשל בקול, ולא מדלג בשקט.** הטקסט שמוחלף מוגדר מילה במילה (``STRICT_WRAP_CHECK``), מתוך ``mermaid@11.12.0``.
-// אם שדרוג של Mermaid ישנה אותו, או יעביר את ``addHtmlSpan`` לקובץ שהתוסף אינו רואה, הבנייה נכשלת עם הסבר — אחרת
-// הבאנדל היה נבנה בלי התיקון, והתוויות היו חוזרות להיחתך בלי שאיש ישים לב. ואם Mermaid תיקן את הבדיקה בעצמו — מוחקים
-// את התוסף הזה ואת השימוש בו ב-``build-md-preview.mjs``.
+// **נכשל בקול, ולא מדלג בשקט.** הטקסט שמוחלף מוגדר מילה במילה (``STRICT_WRAP_CHECK``), מתוך ``mermaid@11.12.0``,
+// ומחופש ומוחלף **רק בתוך הגוף של** ``addHtmlSpan`` (``locateAddHtmlSpan``) — בדיקה זהה בפונקציה אחרת באותו קובץ
+// הייתה נספרת כהצלחה בזמן שהפונקציה עצמה לא תוקנה. אם שדרוג של Mermaid ישנה את הנוסח בתוך ``addHtmlSpan``, יעביר
+// אותה לקובץ שהתוסף אינו רואה, או ישנה את הצורה שבה היא נגמרת, הבנייה נכשלת עם הסבר — אחרת הבאנדל היה נבנה בלי
+// התיקון, והתוויות היו חוזרות להיחתך בלי שאיש ישים לב. ואם Mermaid תיקן את הבדיקה בעצמו — מוחקים את התוסף הזה ואת
+// השימוש בו ב-``build-md-preview.mjs``.
 //
 // הבדיקות: ``tests/md-preview-mermaid-label-wrap.test.js`` (התוסף, והבאנדל שבריפו) ו-
 // ``tests/test_mermaid_label_wrap_browser.py`` (התוויות עצמן, בכרומיום עם יחס פיקסלים 2.2).
@@ -33,8 +35,35 @@ export const STRICT_WRAP_CHECK = 'if (bbox.width === width) {';
 /** מה שנכנס במקומה. */
 export const TOLERANT_WRAP_CHECK = 'if (bbox.width >= width - 1) {';
 
-/** הסימן שהקובץ הזה הוא זה שמגדיר את ``addHtmlSpan`` — רק בו מחפשים את הבדיקה. */
+/** תחילת ההגדרה של ``addHtmlSpan`` — גם הסימן שזה הקובץ שמגדיר אותה. */
 const ADD_HTML_SPAN_DEFINITION = 'async function addHtmlSpan(';
+
+/**
+ * סוף ההגדרה: ב-``mermaid@11.12.0`` הבנייה של Mermaid משאירה את שמות הפונקציות (``keepNames`` של esbuild), ולכן
+ * מיד אחרי הסוגר של ``addHtmlSpan`` בא ``__name(addHtmlSpan, "addHtmlSpan");`` — גם בקובץ של Mermaid וגם בבאנדל שלנו.
+ */
+const ADD_HTML_SPAN_END = '__name(addHtmlSpan, "addHtmlSpan")';
+
+/**
+ * הגבולות של ``addHtmlSpan`` בקוד: ``{start, end}`` מתחילת ההגדרה ועד ``ADD_HTML_SPAN_END`` שאחריה, או ``{error}``
+ * כשאין הגדרה, כשיש יותר מאחת, או כשאין לה סוף. התוסף מחפש ומחליף את הבדיקה **רק בטווח הזה**: בדיקה זהה בפונקציה
+ * אחרת באותו קובץ אינה התיקון, ואסור שתיספר במקומו. ``tests/md-preview-mermaid-label-wrap.test.js`` משתמש באותה
+ * פונקציה כדי לקרוא את ``addHtmlSpan`` מתוך הבאנדל.
+ */
+export function locateAddHtmlSpan(code) {
+  const start = code.indexOf(ADD_HTML_SPAN_DEFINITION);
+  if (start < 0) {
+    return { error: 'אין בקוד הגדרה של addHtmlSpan' };
+  }
+  if (code.indexOf(ADD_HTML_SPAN_DEFINITION, start + ADD_HTML_SPAN_DEFINITION.length) >= 0) {
+    return { error: 'יש בקוד יותר מהגדרה אחת של addHtmlSpan' };
+  }
+  const end = code.indexOf(ADD_HTML_SPAN_END, start);
+  if (end < 0) {
+    return { error: `אין "${ADD_HTML_SPAN_END}" אחרי ההגדרה של addHtmlSpan, ולכן אין לה גבול` };
+  }
+  return { start, end };
+}
 
 /** קובצי ה-ESM של Mermaid, שמהם esbuild בונה את הבאנדל (``exports`` של החבילה מפנה ל-``dist/mermaid.core.mjs``). */
 const MERMAID_DIST_MODULE = /[\\/]node_modules[\\/]mermaid[\\/]dist[\\/].+\.mjs$/;
@@ -57,17 +86,26 @@ export function mermaidLabelWrapFix() {
           // קובץ אחר של Mermaid: esbuild טוען אותו מהדיסק כרגיל.
           return undefined;
         }
-        const occurrences = source.split(STRICT_WRAP_CHECK).length - 1;
+        const located = locateAddHtmlSpan(source);
+        if (located.error) {
+          return { errors: [{ text: `mermaid-label-wrap-fix: ${located.error} (${args.path}). ${WHAT_TO_DO}` }] };
+        }
+        const body = source.slice(located.start, located.end);
+        const occurrences = body.split(STRICT_WRAP_CHECK).length - 1;
         if (occurrences !== 1) {
           return {
             errors: [{
               text: `mermaid-label-wrap-fix: הבדיקה "${STRICT_WRAP_CHECK}" נמצאה ${occurrences} פעמים ` +
-                `בקובץ של addHtmlSpan (${args.path}), ולא פעם אחת. ${WHAT_TO_DO}`,
+                `בתוך addHtmlSpan (${args.path}), ולא פעם אחת. ${WHAT_TO_DO}`,
             }],
           };
         }
         patchedFiles += 1;
-        return { contents: source.replace(STRICT_WRAP_CHECK, TOLERANT_WRAP_CHECK), loader: 'js' };
+        const patchedBody = body.replace(STRICT_WRAP_CHECK, TOLERANT_WRAP_CHECK);
+        return {
+          contents: source.slice(0, located.start) + patchedBody + source.slice(located.end),
+          loader: 'js',
+        };
       });
       build.onEnd((result) => {
         if (result.errors.length > 0 || patchedFiles > 0) {

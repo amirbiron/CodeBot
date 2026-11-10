@@ -11,13 +11,17 @@
  * עם סובלנות של פיקסל. ההסבר המלא — בראש קובץ התוסף; ההתנהגות בדפדפן נמדדת ב-
  * ``tests/test_mermaid_label_wrap_browser.py`` (שאינו רץ ב-CI, כי שם אין Chromium).
  *
- * **ארבע טענות:**
- * 1. התוסף מחליף את הבדיקה ב-Mermaid שבריפו (``node_modules`` שמור בגיט, ולכן זה רץ גם ב-CI). ביום ששדרוג של
- *    Mermaid ישנה את הנוסח, הטסט הזה נופל — לא הפרודקשן.
- * 2. הבאנדל שבריפו נבנה עם התוסף. הבאנדל נבנה ביד (``npm run build-md``) ונשמר בגיט, ובלי הבדיקה הזו בנייה בלי
- *    התוסף, או תיקון בלי בנייה, היו עוברות בשקט.
- * 3. ו-4. כשהנוסח לא נמצא, או שאין בבנייה קובץ שמגדיר את ``addHtmlSpan`` — הבנייה נכשלת, עם הפניה לאישו. אלה
- *    רצים על מודולים מזויפים בתיקייה זמנית, כי בגרסה המותקנת שני המצבים האלה לא קורים.
+ * **מה נבדק:**
+ * - התוסף מחליף את הבדיקה ב-Mermaid שבריפו (``node_modules`` שמור בגיט, ולכן זה רץ גם ב-CI). ביום ששדרוג של
+ *   Mermaid ישנה את הנוסח, הטסט הזה נופל — לא הפרודקשן.
+ * - הבאנדל שבריפו נבנה עם התוסף. הבאנדל נבנה ביד (``npm run build-md``) ונשמר בגיט, ובלי הבדיקה הזו בנייה בלי
+ *   התוסף, או תיקון בלי בנייה, היו עוברות בשקט.
+ * - מסלולי הכשל: הנוסח לא נמצא בתוך ``addHtmlSpan`` — **גם כשאותו נוסח בדיוק יושב בפונקציה אחרת באותו קובץ**;
+ *   ל-``addHtmlSpan`` אין הסוף המוכר; ואין בבנייה קובץ שמגדיר אותה. בכולם הבנייה נכשלת, עם הפניה לאישו. אלה רצים
+ *   על מודולים מזויפים בתיקייה זמנית, כי בגרסה המותקנת המצבים האלה לא קורים.
+ *
+ * את ``addHtmlSpan`` מתוך הבאנדל קוראים ב-``locateAddHtmlSpan`` של התוסף, ולא בעותק כאן: אם הגבול שהתוסף מחפש בו
+ * ישתנה, הטסט יקרא את אותו טווח.
  */
 import fs from 'fs';
 import os from 'os';
@@ -25,6 +29,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { build } from 'esbuild';
 import {
+  locateAddHtmlSpan,
   mermaidLabelWrapFix,
   STRICT_WRAP_CHECK,
   TOLERANT_WRAP_CHECK,
@@ -50,11 +55,9 @@ async function check(name, fn) {
 
 /** גוף ``addHtmlSpan`` מתוך קוד JS, ושם הפרמטר השלישי — רוחב הגלישה (esbuild משנה שמות, למשל ל-``width3``). */
 function addHtmlSpanOf(code, where) {
-  const start = code.indexOf('async function addHtmlSpan(');
-  if (start < 0) throw new Error(`אין addHtmlSpan ב-${where}`);
-  const end = code.indexOf('__name(addHtmlSpan', start);
-  if (end < 0) throw new Error(`אין סוף ל-addHtmlSpan ב-${where}`);
-  const body = code.slice(start, end);
+  const located = locateAddHtmlSpan(code);
+  if (located.error) throw new Error(`${where}: ${located.error}`);
+  const body = code.slice(located.start, located.end);
   const params = body.slice(body.indexOf('(') + 1, body.indexOf(')')).split(',').map((p) => p.trim());
   return { body, widthParam: params[2] };
 }
@@ -149,6 +152,38 @@ await check('נוסח שהשתנה בקובץ של addHtmlSpan מפיל את ה�
     '  if (Math.abs(bbox.width - width) < 0.5) { return 1; }\n' +
     '  return 0;\n}\n__name(addHtmlSpan, "addHtmlSpan");\n';
   const dir = fakeMermaid('chunk-changed.mjs', changed);
+  try {
+    await assertBuildFails(path.join(dir, 'entry.mjs'), dir, 'mermaid-js/mermaid#7794');
+  } finally {
+    removeFake(dir);
+  }
+});
+
+await check('נוסח שהשתנה בתוך addHtmlSpan מפיל את הבנייה גם כשהנוסח הישן נשאר בפונקציה אחרת באותו קובץ', async () => {
+  // עד שהחיפוש הוגבל לגוף של addHtmlSpan, הבנייה הזו עברה: התוסף "תיקן" את otherHelper, ו-addHtmlSpan נשארה
+  // עם הבדיקה שלה כמו שהיא.
+  const elsewhere = 'function otherHelper(bbox, width) {\n' +
+    `  ${STRICT_WRAP_CHECK} return "helper"; }\n` +
+    '  return "";\n}\n__name(otherHelper, "otherHelper");\n' +
+    'export async function addHtmlSpan(element, node, width) {\n' +
+    '  const bbox = element.getBoundingClientRect();\n' +
+    '  if (bbox.width === width + 0) { return otherHelper(bbox, width); }\n' +
+    '  return 0;\n}\n__name(addHtmlSpan, "addHtmlSpan");\n';
+  const dir = fakeMermaid('chunk-elsewhere.mjs', elsewhere);
+  try {
+    await assertBuildFails(path.join(dir, 'entry.mjs'), dir, 'בתוך addHtmlSpan');
+    await assertBuildFails(path.join(dir, 'entry.mjs'), dir, 'mermaid-js/mermaid#7794');
+  } finally {
+    removeFake(dir);
+  }
+});
+
+await check('addHtmlSpan בלי הסוף המוכר מפילה את הבנייה, עם הפניה לאישו', async () => {
+  const noEnd = 'export async function addHtmlSpan(element, node, width) {\n' +
+    '  const bbox = element.getBoundingClientRect();\n' +
+    `  ${STRICT_WRAP_CHECK} return 1; }\n` +
+    '  return 0;\n}\n';
+  const dir = fakeMermaid('chunk-no-end.mjs', noEnd);
   try {
     await assertBuildFails(path.join(dir, 'entry.mjs'), dir, 'mermaid-js/mermaid#7794');
   } finally {
