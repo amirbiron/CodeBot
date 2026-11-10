@@ -233,16 +233,21 @@ def _render_head_block(block: str, **context) -> str:
 
 
 def build_head(
-    theme: dict | None = None, template: Path = EDIT_TEMPLATE, *, shared: dict | None = None
+    theme: dict | None = None,
+    template: Path = EDIT_TEMPLATE,
+    *,
+    shared: dict | None = None,
+    **page_context,
 ) -> str:
     """ה-CSS של העמוד, בסדר שבו ``base.html`` + העמוד (``edit_file.html`` כברירת מחדל) מרכיבים אותו.
 
     ``theme`` — ערכה מותאמת פעילה (``custom_theme``), ו-``shared`` — ערכה ציבורית (``shared_theme``). בלעדיהן
-    בלוקי הערכה אינם מרונדרים, בדיוק כמו ב-``base.html`` כשאין ערכה כזו.
+    בלוקי הערכה אינם מרונדרים, בדיוק כמו ב-``base.html`` כשאין ערכה כזו. ``page_context`` — המשתנים שה-
+    ``extra_css`` של העמוד קורא (למשל ``user_is_admin`` בעמוד הקבצים).
     """
     base = BASE_TEMPLATE.read_text(encoding="utf-8")
     head = base[base.index("<head>") : base.index("</head>")]
-    extra_css = _render_fragment(_block(template, "extra_css"))
+    extra_css = _render_fragment(_block(template, "extra_css"), **page_context)
 
     parts: list[str] = []
     saw_extra = saw_custom = saw_syntax = saw_shared = saw_shared_syntax = False

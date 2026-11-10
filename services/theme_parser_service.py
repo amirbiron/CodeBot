@@ -130,6 +130,15 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     "--md-strong-color-override",
     "--md-inline-code-color-override",
     "--md-blockquote-border-override",
+
+    # Level 3 - שם הקובץ ותיאורו (כרטיס הקובץ בעמוד הקבצים, ובראש תצוגת הקוד, ה-Markdown וה-HTML)
+    # בערכה מיובאת השם נצבע בכלל הכותרות של dark-mode.css, התיאור בכלל הפסקאות, והשורות, הגודל והתאריכים
+    # בכרטיס יורשים את צבע הטקסט — כלומר הכול באותו צבע כשהערכה נותנת ל---text-primary ול---text-secondary
+    # אותו ערך. ערכה בודדת מצהירה על צבעים לשם, לתיאור ולמטא בבלוק variables שלה. ראו את וו הדריסה ב-
+    # webapp/static/css/dark-mode.css (.file-name-text, .file-description-text, .file-card-meta).
+    "--file-name-color-override",
+    "--file-description-color-override",
+    "--file-card-meta-color-override",
 ])
 # docs:theme-variables-whitelist:end
 
