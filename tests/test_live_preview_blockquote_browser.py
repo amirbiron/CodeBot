@@ -169,13 +169,18 @@ def custom_theme(vscode_theme: dict) -> dict:
     ``parse_vscode_theme`` ואחריו ``validate_and_sanitize_theme_variables`` למשתנים, ו-
     ``syntax_css`` כפי ש-``parse_vscode_theme`` מחזיר אותו — כך ``themes_api`` שומר אותו
     בייבוא. כך נבדק מה שבאמת נשמר ומוזרק, כולל הרשימה הלבנה, ולא ערכים שנבחרו ביד.
+    ובלוק ``variables`` של הקובץ, אם יש, מתמזג מעל — אחרי אותה רשימה לבנה, כמו ב-``import_theme``.
     """
     from services.theme_parser_service import parse_vscode_theme, validate_and_sanitize_theme_variables
 
     parsed = parse_vscode_theme(vscode_theme)
+    variables = validate_and_sanitize_theme_variables(parsed["variables"])
+    explicit = vscode_theme.get("variables")
+    if isinstance(explicit, dict):
+        variables.update(validate_and_sanitize_theme_variables(explicit))
     return {
         "is_active": True,
-        "variables": validate_and_sanitize_theme_variables(parsed["variables"]),
+        "variables": variables,
         "syntax_css": parsed["syntax_css"],
     }
 

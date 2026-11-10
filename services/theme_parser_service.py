@@ -120,6 +120,16 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     "--timeline-badge-text-override",
     "--status-pill-text-override",
     "--md-search-capsule-border-override",
+
+    # Level 3 - צבעי המסמך (תצוגת ה-Markdown והתצוגה החיה)
+    # התצוגה המרונדרת של VS Code צובעת כותרות והדגשה ב-editor.foreground, בלי מפתח משלהן, ולכן אין להם מקור
+    # בקובץ ערכה: ערכה בודדת מצהירה עליהם בבלוק variables שלה. ראו את וו הדריסה ב-
+    # webapp/static/css/md-content-colors.css ("צבעי המסמך" וכלל הציטוט).
+    "--md-heading-color-override",
+    "--md-subheading-color-override",
+    "--md-strong-color-override",
+    "--md-inline-code-color-override",
+    "--md-blockquote-border-override",
 ])
 # docs:theme-variables-whitelist:end
 

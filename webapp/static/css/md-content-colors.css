@@ -398,11 +398,45 @@
 }
 
 /* Custom/Shared theme: use color-mix for better contrast since --bg-tertiary may be too similar to --bg-primary */
+/* ``--md-inline-code-color-override``: וו דריסה לערכה בודדת — ראו "צבעי המסמך" מיד למטה. */
 [data-theme="custom"] #md-content code:not(pre code),
 [data-theme^="shared:"] #md-content code:not(pre code) {
   background: color-mix(in srgb, var(--text-primary, #ffffff) 12%, var(--bg-primary, #1a1c23));
-  color: var(--code-text, var(--text-primary));
+  color: var(--md-inline-code-color-override, var(--code-text, var(--text-primary)));
   border: 1px solid color-mix(in srgb, var(--text-primary, #ffffff) 20%, transparent);
+}
+
+/* צבעי המסמך — וו דריסה לערכה בודדת (מיובאת או משותפת). התצוגה המרונדרת של VS Code צובעת כותרות והדגשה ב-
+   ``editor.foreground``, בלי מפתח משלהן, ולכן ערכה מיובאת מבדילה בין חלקי המסמך רק ב-``--text-primary`` (כותרות,
+   רשימות) וב-``--text-secondary`` (פסקאות); כששניהם זהים — כמו ב-morass — המסמך יוצא בצבע אחד. הטוקנים כאן נותנים
+   לערכה בודדת לבחור צבעים בבלוק ``variables`` שבקובץ שלה, יחד עם ``--md-inline-code-color-override`` (בכלל שמעל)
+   ו-``--md-blockquote-border-override`` (בכלל הציטוט). בכוונה אין להם ערך ברירת מחדל בשום מקום, ולכן ערכה שאינה
+   מצהירה נצבעת כמו היום: כותרות ב-``--text-primary`` — הערך של כלל ה-Typography ב-``dark-mode.css``, שהכללים כאן
+   גוברים עליו בספציפיות רק בתוך ``#md-content`` — והדגשה בצבע שהיא יורשת. כותרות בממשק עצמו לא מושפעות.
+   ראו docs/webapp/custom_themes_guide.rst, theme-variables-md-document-colors-hook. */
+[data-theme="custom"] #md-content h1,
+[data-theme="custom"] #md-content h2,
+[data-theme^="shared:"] #md-content h1,
+[data-theme^="shared:"] #md-content h2 {
+  color: var(--md-heading-color-override, var(--text-primary));
+}
+
+[data-theme="custom"] #md-content h3,
+[data-theme="custom"] #md-content h4,
+[data-theme="custom"] #md-content h5,
+[data-theme="custom"] #md-content h6,
+[data-theme^="shared:"] #md-content h3,
+[data-theme^="shared:"] #md-content h4,
+[data-theme^="shared:"] #md-content h5,
+[data-theme^="shared:"] #md-content h6 {
+  color: var(--md-subheading-color-override, var(--text-primary));
+}
+
+[data-theme="custom"] #md-content strong,
+[data-theme="custom"] #md-content b,
+[data-theme^="shared:"] #md-content strong,
+[data-theme^="shared:"] #md-content b {
+  color: var(--md-strong-color-override, inherit);
 }
 
 [data-theme="dark"] #md-content pre,
@@ -508,10 +542,11 @@
   background: color-mix(in srgb, var(--md-paper-text) 22%, transparent);
 }
 
-/* ציטוטים */
+/* ציטוטים. ``--md-blockquote-border-override`` — וו דריסה לערכה בודדת, ראו "צבעי המסמך" למעלה. הוא מוצהר רק בבלוק
+   של ערכה מיובאת או משותפת (``base.html``), ולכן בכל ערכה אחרת הכלל נופל ל-``--md-blockquote-border`` כמו קודם. */
 #md-content blockquote {
   background: var(--md-blockquote-bg);
-  border-inline-start: 4px solid var(--md-blockquote-border);
+  border-inline-start: 4px solid var(--md-blockquote-border-override, var(--md-blockquote-border));
   color: var(--md-blockquote-color, inherit);
 }
 
