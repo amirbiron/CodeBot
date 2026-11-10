@@ -425,6 +425,8 @@ def test_as_note_serialization():
         # יעד הארכיון: פתק בארכיון אינו נושא אף שדה יעד אחר, ובלעדיו הוא היה נראה
         # כפתק שאינו יושב בשום מקום. ``None`` בכל פתק אחר.
         "archived_at",
+        # נעיצה לראש עמוד הקבצים — אינה יעד, אבל עוד מקום שבו הפתק נראה. ``None`` בפתק שאינו נעוץ.
+        "files_page_pinned_at",
         "created_at",
         "updated_at",
     }
@@ -2762,3 +2764,11 @@ def test_the_notes_collection_builds_the_index_of_the_search_without_the_archive
     built = _mcp_built_indexes()
 
     assert built["user_archived_updated_idx"] == (("user_id", 1), ("archived_at", 1), ("updated_at", -1))
+
+
+def test_the_notes_collection_builds_the_files_page_pinned_index():
+    """כל אינדקס פתקים נוגע בשלושה מקומות, וה-MCP הוא אחד מהם: אותו מפרט בדיוק כמו בוובאפ, כך שסדר
+    העלייה של שני השירותים אינו משנה את מה שנבנה. נופל אם השורה תוסר מ-``_notes_coll``."""
+    built = _mcp_built_indexes()
+
+    assert built["files_page_pinned_idx"] == (("user_id", 1), ("files_page_pinned_at", 1), ("_id", 1))

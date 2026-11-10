@@ -128,7 +128,7 @@ def test_the_archive_page_is_its_own_view_and_not_a_board(client):
 
 
 def test_the_archive_page_loads_the_handwriting_font_even_when_the_setting_is_off(client):
-    """שמות הכרטיסים בכתב יד תמיד (``.archive-card-title`` ב-``note-boards.css``), ולכן העמוד טוען
+    """שמות הכרטיסים בכתב יד תמיד (``.archive-card-title`` ב-``note-cards.css``), ולכן העמוד טוען
     את הגופן גם כשההגדרה של הלוחות כבויה — בלי להחיל את המחלקה, שהייתה מעבירה גם את הפתק הפתוח
     לכתב יד. הקריאה חייבת לבוא אחרי ההגדרה של הפונקציה ב-``_note_fonts_head.html``."""
     html = client.get('/boards/archive').get_data(as_text=True)

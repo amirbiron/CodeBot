@@ -2,6 +2,13 @@
 
 {% block title %}הקבצים שלי - CodeKeeper{% endblock %}
 
+{% block extra_head %}
+{# גופן הפתקים לפתק שנפתח מעל הכרטיסים הנעוצים — כמו בארכיון, לפי ההגדרה של הלוחות (הפתק הוא
+   פתק לוח). ההעדפה מרונדרת לתוך ה-HTML, ולכן היא חלק ממפתח הקאש של העמוד (``files`` ב-``webapp/app.py``). #}
+{% set note_font_surface = 'files' %}
+{% include "_note_fonts_head.html" with context %}
+{% endblock %}
+
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/multi-select.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/card-preview.css') }}?v={{ static_version }}">
@@ -11,10 +18,29 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-preview.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
 {% endif %}
+{# הפתקים הנעוצים בראש העמוד: הפתק הפתוח, הכרטיס והשורה. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/note-cards.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/files-page-notes.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block content %}
-<h1 class="page-title">הקבצים שלי</h1>
+{# **הכותרת והפתקים הנעוצים באותו פס.** הכרטיסים ("הבא בתור") יושבים בשטח שמשמאל לכותרת, ובמסך
+   שאין בו שם מקום — בשורה משלהם מתחתיה. ``files-page-notes.js`` ממלא אותם מ-
+   ``/api/sticky-notes/files-page`` בצד הלקוח, ולא כאן: ה-HTML של העמוד נשמר בקאש, וכרטיס שמרונדר
+   בשרת היה מחייב למחוק את הקאש בכל נעיצה. בלי נעוצים האזור אינו מוצג. #}
+<div class="files-page-head">
+  <h1 class="page-title">הקבצים שלי</h1>
+  <section class="files-page-notes" id="filesPageNotes" aria-label="פתקים נעוצים" hidden>
+    <div class="files-page-cards note-cards" id="filesPageCards"></div>
+    {# טעינה שנכשלה אינה "אין נעוצים" — ``data-testid`` לפי המצב שרונדר. #}
+    <div class="files-page-notes-error" id="filesPageNotesError" data-testid="files-notes-state-error" hidden>
+      <span>לא הצלחתי לטעון את הפתקים הנעוצים.</span>
+      <button type="button" class="btn btn-secondary btn-sm" id="filesPageNotesRetry">נסו שוב</button>
+    </div>
+  </section>
+</div>
 
 <!-- חיפוש גלובלי בתוכן -->
 <div class="container-fluid px-3">
@@ -653,12 +679,22 @@
 <script src="{{ url_for('static', filename='js/multi-select.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/bulk-actions.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/card-preview.js') }}?v={{ static_version }}" defer></script>
+{# **הפתקים הנעוצים: התלויות של ``sticky-notes.js``, באותו סדר ובלי ``defer`` — כמו בלוח ובארכיון**,
+   ואז רכיב הכרטיס והדבק של העמוד. בלי ``defer`` הסדר בקובץ הוא סדר ההרצה, וזה מה ש-
+   ``tests/sticky-notes-target.test.js`` ("חיווט") בודק בכל עמוד שמארח פתקים. הם בסוף ה-``body``,
+   כך שהעמוד שמעליהם כבר מצויר. ``admonition-icons.js`` ו-``rtl-code.js`` — לכל משתמש: הפתק שנפתח
+   מעל הכרטיסים קורא מהם (אלרטים ובלוקי קוד בעברית). אצל אדמין הם גם מה שכרטיסי התיעוד צריכים,
+   ו-``admonition-icons.js`` רץ לפני ``live-preview.js`` (שקורא ממנו בזמן הטעינה), שנטען בהמשך עם ``defer``. #}
+<script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/note-cards.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/files-page-notes.js') }}?v={{ static_version }}"></script>
 {% if user_is_admin %}
-{# הרינדור של כרטיסי התיעוד. ``admonition-icons.js`` לפני ``live-preview.js``, שקורא ממנו את
-   האייקונים בזמן הטעינה. ``markdown-deps.js`` טוען את הבאנדל רק בחיפוש הראשון בתיעוד, ממיקום
+{# הרינדור של כרטיסי התיעוד. ``markdown-deps.js`` טוען את הבאנדל רק בחיפוש הראשון בתיעוד, ממיקום
    ועם ``?v=`` שנגזרים מהתגית שלו. #}
-<script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}" defer></script>
-<script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/md-anchors.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}" defer></script>

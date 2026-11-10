@@ -65,9 +65,20 @@ class _CodeSnippetsNoAllowDiskUseArg:
         return ["python"]
 
 
+class _NoUserDoc:
+    """``users`` בלי מסמך למשתמש. עד נובמבר 2026 הדמה לא נשאה את האוסף בכלל, וכל קורא של מסמך
+    המשתמש בעמוד בלע את ה-``AttributeError`` ב-``except Exception``. מפתח הקאש של העמוד נושא מאז
+    את גופן הפתקים, והשליפה שלו תופסת רק ``PyMongoError`` — לכן הדמה מחזיקה את האוסף, ולא ה-``except``
+    רחב יותר (``widened-exception-scope``)."""
+
+    def find_one(self, *_args, **_kwargs):
+        return None
+
+
 class _StubDB:
     def __init__(self, code_snippets):
         self.code_snippets = code_snippets
+        self.users = _NoUserDoc()
 
 
 def _login(client):

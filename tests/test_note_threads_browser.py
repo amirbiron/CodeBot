@@ -924,7 +924,7 @@ def test_failures_keep_the_text_and_say_what_happened(wired_mongo, admin_live_se
 def test_a_stuck_request_releases_the_panel_at_its_own_deadline(
         wired_mongo, admin_live_server, chromium_executable):
     """בקשה שאינה חוזרת לעולם אינה משאירה את החלונית נעולה: יש לה תקרה משלה
-    (``THREAD_FETCH_TIMEOUT_MS``, 15 שניות), ואחריה ההודעה, הטקסט נשאר, והכפתורים משתחררים
+    (``API_FETCH_TIMEOUT_MS``, 15 שניות), ואחריה ההודעה, הטקסט נשאר, והכפתורים משתחררים
     (``bugbot-rules/wait-without-own-deadline.md``)."""
     db = wired_mongo.get_db()
     with threads_page(admin_live_server, chromium_executable, db) as tp:

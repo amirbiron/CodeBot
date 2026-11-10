@@ -23,8 +23,14 @@ import logging
 from sticky_notes_target import (
     MAX_NOTE_CHARS, MAX_NOTE_TITLE, MAX_NOTES_PER_BOARD, MAX_NOTES_PER_USER,
     MAX_NOTES_PER_REPO_FILE, MAX_ARCHIVED_NOTES_PER_USER,
+    MAX_FILES_PAGE_PINNED_NOTES,
     ARCHIVE_LIST_SORT,
+    FILES_PAGE_PIN_FIELD,
+    FILES_PAGE_PINNED_SORT,
     active_notes_filter,
+    any_board_note_filter,
+    files_page_pin_limit,
+    files_page_pinned_filter,
     archived_notes_filter,
     archive_note_update,
     resolve_archive_title,
@@ -42,6 +48,7 @@ from sticky_notes_target import (
     note_color_id,
     note_search_needle_error,
     note_label,
+    NOTE_LABEL_FIELDS,
     TARGET_FIELDS,
 )
 # מצב התזכורת — אותה שכבה טהורה, ומאותה סיבה: שלושה מודולים שואלים "האם
@@ -129,9 +136,10 @@ _INDEX_READY_LOCK = threading.Lock()
 #: ``v3`` חי היה מדלג על ``_ensure_indexes`` ליממה שלמה, והאינדקס החדש לא
 #: היה נבנה באף אחד מהם — כשל שקט שבדיוק כמוהו כבר קרה כאן.
 #:
-#: ``v5`` מלווה את ``user_archived_idx`` של הארכיון, מאותה סיבה, ו-``v6`` את
-#: ``user_archived_updated_idx`` של החיפוש בלי הארכיון.
-_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v6"
+#: ``v5`` מלווה את ``user_archived_idx`` של הארכיון, מאותה סיבה, ``v6`` את
+#: ``user_archived_updated_idx`` של החיפוש בלי הארכיון, ו-``v7`` את
+#: ``files_page_pinned_idx`` של הפתקים הנעוצים לעמוד הקבצים.
+_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v7"
 _INDEX_READY_CACHE_TTL_SECONDS = 24 * 3600
 _INDEX_CACHE_LAST_CHECK = 0.0
 _WARMUP_TRIGGERED = threading.Event()
@@ -302,6 +310,12 @@ _QUERY_INDEX_SPECS: Tuple[Tuple[str, List[Tuple[str, int]]], ...] = (
     # המיון, ולכן התוכנית קוראת לפי הסדר ונעצרת בתקרה גם מתוך המטמון. נעול מול
     # מונגו אמיתי ב-``tests/test_note_archive_mongo.py``.
     ("user_archived_updated_idx", [("user_id", 1), ("archived_at", 1), ("updated_at", -1)]),
+    # **הפתקים הנעוצים לעמוד הקבצים — הרשימה והספירה של התקרה.** ``files_page_pinned_filter``
+    # הוא ``$type: "date"`` על השדה, ולכן הגבולות על האינדקס הזה מדלגים על כל פתק שאינו נעוץ
+    # (הוא נשמר בו כ-``null``), והמפתחות שאחרי ``user_id`` הם בדיוק ``FILES_PAGE_PINNED_SORT`` —
+    # כלומר בלי ``SORT`` בזיכרון. ``archived_at`` נשאר שארית על המסמכים הנעוצים בלבד. נעול מול
+    # מונגו אמיתי ב-``tests/test_files_page_pins_mongo.py``.
+    ("files_page_pinned_idx", [("user_id", 1), (FILES_PAGE_PIN_FIELD, 1), ("_id", 1)]),
 )
 
 
@@ -1022,6 +1036,9 @@ def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
         # פתק בארכיון: מתי הועבר. ``None`` בכל פתק אחר — ולפי זה הלקוח יודע
         # שהפתק כבר אינו על המשטח שהוא מציג. אותו שדה ב-``_as_note`` של ה-MCP.
         'archived_at': _iso_utc(doc.get('archived_at')),
+        # נעוץ לראש עמוד הקבצים: מתי. ``None`` בפתק שאינו נעוץ — ולפי זה פריט 📎 בתפריט ⋮
+        # יודע אם להציע נעיצה או הסרה. אותו שדה ב-``_NOTE_FIELDS`` של ה-MCP.
+        FILES_PAGE_PIN_FIELD: _iso_utc(doc.get(FILES_PAGE_PIN_FIELD)),
         'updated_at': (doc.get('updated_at').isoformat() if doc.get('updated_at') else None),
         'created_at': (doc.get('created_at').isoformat() if doc.get('created_at') else None),
     }
@@ -2284,6 +2301,252 @@ def get_archived_note(note_id: str):
         return _no_store(jsonify(payload))
     except Exception:
         return _failed('get_archived_note', 'Failed to load archived note')
+
+
+# --- נעיצה לעמוד הקבצים ---
+#
+# פתק לוח שננעץ מוצג ככרטיס בראש עמוד הקבצים ("הבא בתור"). **זה לא יעד**: הפתק נשאר על
+# הלוח, והנעיצה היא שדה לצידו (``FILES_PAGE_PIN_FIELD``). ארבעה ראוטים — נעיצה, הסרה,
+# רשימת הכרטיסים לעמוד, ופתק אחד מלא כשפותחים כרטיס. הנעיצה וההסרה **אינן** נוגעות
+# ב-``updated_at``: הן אינן עריכה של הפתק, ושינוי שלו היה מפיל ב-409 את השמירה הבאה של לשונית
+# אחרת שעורכת את אותו פתק (``prev_updated_at`` ב-``update_note``), ומקפיץ את הפתק לראש
+# "עודכן לאחרונה" בחיפוש ובדשבורד.
+
+#: מה שכרטיס בעמוד הקבצים צריך — התווית, הצבע וזמן הנעיצה. **הגוף כן נשלף**, בניגוד לכלל
+#: ה-Smart Projection של רשימות: כרטיס של פתק בלי שם מציג את השורה הראשונה של התוכן
+#: (``note_label``), ומי ששולף פתק בשבילה שולף לפחות את ``NOTE_LABEL_FIELDS``. הרשימה חסומה
+#: בתקרה של ``MAX_FILES_PAGE_PINNED_NOTES`` פתקים, כך שהעבודה חסומה גם היא.
+_FILES_PAGE_CARD_PROJECTION = {**NOTE_LABEL_FIELDS, 'color': 1, FILES_PAGE_PIN_FIELD: 1}
+
+#: מה שהבדיקות לפני הכתיבה ואחרי כתיבה שלא תפסה צריכות לקרוא — הסוג והנעיצה.
+_FILES_PAGE_PIN_STATE_PROJECTION = {'board_id': 1, 'archived_at': 1, FILES_PAGE_PIN_FIELD: 1}
+
+
+def _as_files_page_card(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """כרטיס אחד בראש עמוד הקבצים. נבנה מרשימה מפורשת של שדות, לא מהמסמך כולו."""
+    return {
+        'id': str(doc.get('_id')),
+        # פתק נעוץ יכול להיות בלי שם — ``note_label`` נותנת את השורה הראשונה, כמו בפוש ובפעמון.
+        'label': note_label(doc),
+        # אותו חוזה צבע כמו ``_as_note_response``: ``color`` תמיד ``hex`` חוקי.
+        'color': note_color_hex(doc.get('color')),
+        'color_id': note_color_id(doc.get('color')),
+        FILES_PAGE_PIN_FIELD: _iso_utc(doc.get(FILES_PAGE_PIN_FIELD)),
+    }
+
+
+def _pinned_answer(stamp: Any, *, already: bool, note: Optional[Dict[str, Any]] = None):
+    """תשובת הצלחה של נעיצה — ``files_page_pinned_at`` תמיד, ``note`` כשהכתיבה הזו קרתה."""
+    body: Dict[str, Any] = {
+        'ok': True, 'already_pinned': already, FILES_PAGE_PIN_FIELD: _iso_utc(stamp),
+    }
+    if note is not None:
+        body['note'] = _as_note_response(note)
+    return _no_store(jsonify(body))
+
+
+@sticky_notes_bp.route('/note/<note_id>/files-page-pin', methods=['POST'])
+@require_auth
+@notes_rate_limit('files_page_pin', 60)
+@traced('sticky_notes.files_page_pin')
+def pin_note_to_files_page(note_id: str):
+    """נועץ פתק לוח לראש עמוד הקבצים.
+
+    גוף אופציונלי: ``{"device_limit": N}`` — כמה כרטיסים נכנסים בשורה בעמוד הקבצים במסך שממנו
+    נועצים. הוא רק מוריד את התקרה (``files_page_pin_limit``), כדי שמכשיר שנכנסים בו שני כרטיסים
+    לא ינעץ שלישי שיוצג אצלו רק כ-"+N".
+
+    הסדר, וכל שלב בו מגן על משהו:
+
+    1. הפתק קיים ושייך למשתמש — אחרת ``404 note_not_found``. פתק בארכיון — ``409 note_archived``;
+       פתק שאינו פתק לוח — ``400 not_a_board_note``.
+    2. **כבר נעוץ** ← ``200`` עם ``already_pinned``, בלי כתיבה. לחיצה כפולה, או מכשיר שני שעוד
+       מציג את הפתק כלא-נעוץ, אינם שגיאה.
+    3. **התקרה** — ``MAX_FILES_PAGE_PINNED_NOTES``, או פחות לפי המכשיר. תקרה של צורת-תוכן, ולכן
+       ``is_admin=False`` תמיד; ספירה שנכשלה נדחית (``note_quota_unknown``), ולא נחשבת אפס. מלא ←
+       ``409 files_page_pins_full``, והפתק הישן **אינו** יורד אוטומטית.
+    4. **כתיבה אחת מותנית (CAS):** ``find_one_and_update`` שהפילטר שלו דורש פתק לוח פעיל שעוד אינו
+       נעוץ. ``None`` מהמסד אינו הצלחה (K11): קוראים שוב ומסווגים — נמחק בינתיים, ננעץ בבקשה
+       מקבילה, או הועבר לארכיון.
+
+    התשובה נבנית מהמסמך שהכתיבה **הזו** השאירה (``ReturnDocument.AFTER``). הספירה והכתיבה אינן
+    אטומיות — אותה מגבלה ידועה של כל התקרות (``docs/dev/sticky_notes_extending_backend.rst``).
+    """
+    try:
+        from pymongo import ReturnDocument
+        from sticky_notes_target import (
+            NoteQuotaExceeded,
+            NoteQuotaUnknown,
+            check_note_quota,
+            note_target_kind,
+        )
+
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        payload = _json_object()
+        if payload is None:
+            return _no_store(jsonify({'ok': False, 'error': 'invalid_payload'})), 400
+        limit, limit_error = files_page_pin_limit(
+            payload.get('device_limit'), given='device_limit' in payload
+        )
+        if limit_error:
+            return _no_store(jsonify({'ok': False, 'error': limit_error})), 400
+        try:
+            oid = ObjectId(str(note_id))
+        except InvalidId:
+            return _no_store(jsonify({'ok': False, 'error': 'invalid_note_id'})), 400
+
+        db = get_db()
+        note = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id}, _FILES_PAGE_PIN_STATE_PROJECTION)
+        if not note:
+            return _no_store(jsonify({'ok': False, 'error': 'note_not_found'})), 404
+        kind = note_target_kind(note)
+        if kind == 'archive':
+            return _no_store(jsonify({'ok': False, 'error': 'note_archived'})), 409
+        if kind != 'board':
+            return _no_store(jsonify({'ok': False, 'error': 'not_a_board_note'})), 400
+        if isinstance(note.get(FILES_PAGE_PIN_FIELD), datetime):
+            return _pinned_answer(note.get(FILES_PAGE_PIN_FIELD), already=True)
+
+        pinned = _count_or_none(db.sticky_notes, files_page_pinned_filter(user_id))
+        try:
+            check_note_quota(pinned, limit, is_admin=False)
+        except NoteQuotaUnknown:
+            return _no_store(jsonify({'ok': False, 'error': 'note_quota_unknown'})), 409
+        except NoteQuotaExceeded:
+            return _no_store(jsonify({
+                'ok': False, 'error': 'files_page_pins_full', 'max': limit, 'pinned': pinned,
+                'device_limited': limit < MAX_FILES_PAGE_PINNED_NOTES,
+            })), 409
+
+        now = datetime.now(timezone.utc)
+        stored = db.sticky_notes.find_one_and_update(
+            {
+                **any_board_note_filter(user_id),
+                **active_notes_filter(user_id),
+                '_id': oid,
+                FILES_PAGE_PIN_FIELD: None,
+            },
+            {'$set': {FILES_PAGE_PIN_FIELD: now}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if stored is None:
+            current = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id}, _FILES_PAGE_PIN_STATE_PROJECTION)
+            if current is None:
+                return _no_store(jsonify({'ok': False, 'error': 'note_not_found'})), 404
+            if note_target_kind(current) == 'archive':
+                return _no_store(jsonify({'ok': False, 'error': 'note_archived'})), 409
+            if isinstance(current.get(FILES_PAGE_PIN_FIELD), datetime):
+                return _pinned_answer(current.get(FILES_PAGE_PIN_FIELD), already=True)
+            # הפילטר לא תפס, והפתק קיים, פעיל ואינו נעוץ: ערך בשדה שאינו ``null`` ואינו תאריך.
+            # אף כותב אינו מייצר כזה, ולכן זה נתון פגום ולא מרוץ — והתשובה אומרת שהנעיצה לא
+            # נכתבה, במקום לדווח הצלחה.
+            logger.error("sticky notes: pinning %s to the files page matched nothing although the note exists", oid)
+            return _no_store(jsonify({'ok': False, 'error': 'pin_not_applied'})), 409
+        try:
+            emit_event("sticky_note_files_page_pinned", severity="info", user_id=int(user_id), note_id=str(oid))
+        except Exception:
+            # הנעיצה כבר נכתבה: אירוע שלא יצא אינו הופך אותה ל-500, שהלקוח היה מציג ככישלון.
+            logger.warning("sticky notes: emitting sticky_note_files_page_pinned for %s failed", oid, exc_info=True)
+        return _pinned_answer(stored.get(FILES_PAGE_PIN_FIELD), already=False, note=stored)
+    except Exception:
+        return _failed('pin_note_to_files_page', 'Failed to pin note')
+
+
+@sticky_notes_bp.route('/note/<note_id>/files-page-pin', methods=['DELETE'])
+@require_auth
+@notes_rate_limit('files_page_pin', 60)
+@traced('sticky_notes.files_page_unpin')
+def unpin_note_from_files_page(note_id: str):
+    """מסיר פתק מראש עמוד הקבצים. הפתק נשאר על הלוח שלו.
+
+    כתיבה מותנית אחת: ``$unset`` רק על פתק שהשדה קיים בו — כל ערך, גם פגום, כדי שהסרה תמיד
+    תנקה. ``None`` מהמסד מסווג בקריאה חוזרת: פתק שאינו קיים ← ``404``; פתק שאינו נעוץ ←
+    ``200`` עם ``already_unpinned`` (לחיצה כפולה או מכשיר שני אינם שגיאה).
+    """
+    try:
+        from pymongo import ReturnDocument
+
+        user_id = int(session['user_id'])
+        try:
+            oid = ObjectId(str(note_id))
+        except InvalidId:
+            return _no_store(jsonify({'ok': False, 'error': 'invalid_note_id'})), 400
+        db = get_db()
+        stored = db.sticky_notes.find_one_and_update(
+            {'_id': oid, 'user_id': user_id, FILES_PAGE_PIN_FIELD: {'$exists': True}},
+            {'$unset': {FILES_PAGE_PIN_FIELD: ''}},
+            projection={'_id': 1},
+            return_document=ReturnDocument.AFTER,
+        )
+        if stored is None:
+            if db.sticky_notes.find_one({'_id': oid, 'user_id': user_id}, {'_id': 1}) is None:
+                return _no_store(jsonify({'ok': False, 'error': 'note_not_found'})), 404
+            return _no_store(jsonify({'ok': True, 'already_unpinned': True, FILES_PAGE_PIN_FIELD: None}))
+        try:
+            emit_event("sticky_note_files_page_unpinned", severity="info", user_id=int(user_id), note_id=str(oid))
+        except Exception:
+            logger.warning("sticky notes: emitting sticky_note_files_page_unpinned for %s failed", oid, exc_info=True)
+        return _no_store(jsonify({'ok': True, 'already_unpinned': False, FILES_PAGE_PIN_FIELD: None}))
+    except Exception:
+        return _failed('unpin_note_from_files_page', 'Failed to unpin note')
+
+
+@sticky_notes_bp.route('/files-page', methods=['GET'])
+@require_auth
+@notes_rate_limit('files_page_list', 180)
+@traced('sticky_notes.files_page_list')
+def list_files_page_notes():
+    """הכרטיסים לראש עמוד הקבצים — הפתקים הנעוצים, מהראשון שננעץ לאחרון.
+
+    **בלי ``limit``**, ובכוונה: הספירה והכתיבה של הנעיצה אינן אטומיות, ושתי נעיצות מקבילות
+    יכולות להשאיר אחד מעל התקרה. ``limit`` היה מסתיר אותו בלי שום סימן, וממנו גם את הדרך
+    להסיר אותו מעמוד הקבצים. שאילתה שנכשלה עונה 500 ולא רשימה ריקה: העמוד אומר "לא הצלחתי
+    לטעון", ולא מציג עמוד בלי פתקים כאילו אין נעוצים.
+    """
+    try:
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+        cursor = db.sticky_notes.find(
+            files_page_pinned_filter(user_id), _FILES_PAGE_CARD_PROJECTION
+        ).sort(list(FILES_PAGE_PINNED_SORT))
+        cards = [_as_files_page_card(doc) for doc in cursor if isinstance(doc, dict)]
+        return _no_store(jsonify({
+            'ok': True, 'notes': cards, 'count': len(cards), 'max': MAX_FILES_PAGE_PINNED_NOTES,
+        }))
+    except Exception:
+        return _failed('list_files_page_notes', 'Failed to list pinned notes')
+
+
+@sticky_notes_bp.route('/files-page/<note_id>', methods=['GET'])
+@require_auth
+@notes_rate_limit('files_page_get', 180)
+@traced('sticky_notes.files_page_get')
+def get_files_page_note(note_id: str):
+    """פתק נעוץ אחד, מלא, עם תקצירי השרשורים שלו — כשפותחים כרטיס בעמוד הקבצים.
+
+    רק פתק נעוץ ופעיל של המשתמש (``files_page_pinned_filter``); כל פתק אחר — נמחק, הוסר
+    מהנעיצה או הועבר לארכיון ממכשיר אחר — עונה ``404 note_not_found``, והעמוד מוריד את הכרטיס.
+    כשל בקריאת השרשורים אינו מפיל את התשובה: ``threads_unavailable``, כמו בשאר הרשימות.
+    """
+    try:
+        user_id = int(session['user_id'])
+        try:
+            oid = ObjectId(str(note_id))
+        except InvalidId:
+            return _no_store(jsonify({'ok': False, 'error': 'invalid_note_id'})), 400
+        db = get_db()
+        doc = db.sticky_notes.find_one({'_id': oid, **files_page_pinned_filter(user_id)})
+        if not doc:
+            return _no_store(jsonify({'ok': False, 'error': 'note_not_found'})), 404
+        note = _as_note_response(doc)
+        payload: Dict[str, Any] = {'ok': True, 'note': note}
+        if not _with_thread_summaries(db, user_id, [note]):
+            payload['threads_unavailable'] = True
+        return _no_store(jsonify(payload))
+    except Exception:
+        return _failed('get_files_page_note', 'Failed to load pinned note')
 
 
 # --- Board notes ---

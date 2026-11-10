@@ -13783,6 +13783,22 @@ def files():
     # ``_note_fonts_etag_key``, שנוצר בדיוק כדי שהעדפה שמרונדרת לתוך ה-HTML
     # תיכנס לוולידטור ולמפתח.
     _compact_tag = 'c' if files_compact_view else 'f'
+    # **וגם גופן הפתקים, מאותה סיבה בדיוק.** העמוד כולל את ``_note_fonts_head.html``
+    # בשביל הפתק שנפתח מעל הכרטיסים הנעוצים, כלומר כתב היד וגודל הטקסט מרונדרים לתוך
+    # ה-HTML ששומרים כאן. בלי המפתח הזה, שינוי ההגדרה היה מוגש עם הדגל הישן עד שה-TTL
+    # פוקע. מסמך המשתמש נשלף פעם אחת, רק כשה-cookies אינם מכריעים — כמו ב-``md_preview``.
+    _fonts_user_doc = None
+    if user_id and _etag_needs_user_doc():
+        try:
+            _fonts_user_doc = get_db().users.find_one(
+                {'user_id': int(user_id)}, ETAG_USER_PROJECTION
+            ) or {}
+        except PyMongoError:
+            # המסד לא ענה: ``None`` ← ``_note_fonts_etag_key`` שולף בעצמו, ובכשל נופל לברירת
+            # המחדל — אותה הכרעה שהרינדור עצמו מקבל במסד שלא ענה. רק כשל מסד נתפס; באג עולה.
+            logger.warning("files page: reading the user document for the note-fonts key failed", exc_info=True)
+            _fonts_user_doc = None
+    _fonts_tag = _note_fonts_etag_key(user_id, user_doc=_fonts_user_doc)
     try:
         _params = {
             'q': search_query,
@@ -13795,9 +13811,9 @@ def files():
         }
         _raw = json.dumps(_params, sort_keys=True, ensure_ascii=False)
         _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:24]
-        files_cache_key = f"web:files:user:{user_id}:{_compact_tag}:{_hash}"
+        files_cache_key = f"web:files:user:{user_id}:{_compact_tag}:{_fonts_tag}:{_hash}"
     except Exception:
-        files_cache_key = f"web:files:user:{user_id}:{_compact_tag}:fallback"
+        files_cache_key = f"web:files:user:{user_id}:{_compact_tag}:{_fonts_tag}:fallback"
 
     if should_cache:
         try:

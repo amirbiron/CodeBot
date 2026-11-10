@@ -1012,14 +1012,75 @@ def note_target_kind(doc: Mapping[str, Any]) -> str:
         return "unknown"
 
 
+#: שם השדה שמסמן פתק לוח שנעוץ לראש עמוד הקבצים — וזמן הנעיצה, שהוא גם סדר
+#: הכרטיסים (הראשון שננעץ ראשון).
+#:
+#: **לא ``pinned``, בכוונה.** המילה תפוסה פעמיים: ``is-pinned`` בפתקים מסמן את מצבי
+#: המיקום ``surface`` ו-``anchored``, ולקבצים יש ``is_pinned`` ו-``pin_order``. שם עם
+#: התחילית של המקום שבו הפתק מוצג נמצא ב-``grep`` בלי לערבב את שלושתם.
+#:
+#: **זה לא יעד.** הפתק נשאר פתק לוח (``TARGET_FIELDS``), והנעיצה היא שדה לצד היעד —
+#: היא מוסיפה מקום שבו הפתק נראה, ואינה מוציאה אותו מהלוח.
+FILES_PAGE_PIN_FIELD = "files_page_pinned_at"
+
+#: כמה פתקים נעוצים לכל היותר בראש עמוד הקבצים.
+#:
+#: **תקרה של צורת-תוכן, לא הגנת-משאבים** (ראו :func:`check_note_quota`): ארבעה כרטיסים
+#: הם "הבא בתור", ולא עוד רשימת פתקים. ולכן היא נקראת תמיד עם ``is_admin=False`` —
+#: הפטור לאדמין היה הופך אותה לקבוע מת אצל כל מי שהוא אדמין. מכשיר שנכנסים בו פחות
+#: כרטיסים בשורה מוריד אותה עוד (:func:`files_page_pin_limit`), אבל לעולם לא מעלה.
+MAX_FILES_PAGE_PINNED_NOTES = 4
+
+#: סדר הכרטיסים: לפי זמן הנעיצה, מהראשון לאחרון, ו-``_id`` שובר שוויון כדי שהסדר יהיה
+#: יציב בין טעינות. **זהה לסדר המפתחות שאחרי ``user_id`` ב-``files_page_pinned_idx``**,
+#: ולכן המיון מגיע מהאינדקס ולא נעשה בזיכרון.
+FILES_PAGE_PINNED_SORT: Tuple[Tuple[str, int], ...] = ((FILES_PAGE_PIN_FIELD, 1), ("_id", 1))
+
+
+def files_page_pinned_filter(user_id: int) -> Dict[str, Any]:
+    """הפתקים הנעוצים לעמוד הקבצים — לרשימה ולספירה של :data:`MAX_FILES_PAGE_PINNED_NOTES`.
+
+    **``$type: "date"`` ולא ``$exists``**, מאותה סיבה כמו ב-:func:`archived_notes_filter`:
+    פתק שאינו נעוץ נשמר באינדקס כ-``null``, ורק ``date`` נותן גבולות שמדלגים עליו.
+
+    **ורק פתקים פעילים** (``archived_at: None``, כמו :func:`active_notes_filter`). ההעברה
+    לארכיון מוחקת את הנעיצה (:data:`ARCHIVE_DROPPED_PLACEMENT_FIELDS`), ולכן התנאי הזה אינו
+    אמור לסנן כלום — הוא שומר על הרשימה גם מפני כותב עתידי שישכח את זה, ועולה לכל היותר
+    קריאה של המסמכים הנעוצים עצמם.
+    """
+    return {"user_id": int(user_id), FILES_PAGE_PIN_FIELD: {"$type": "date"}, "archived_at": None}
+
+
+def files_page_pin_limit(device_limit: Any, *, given: bool) -> Tuple[int, Optional[str]]:
+    """התקרה שחלה על נעיצה מהמכשיר הזה — ``(תקרה, None)`` או ``(0, קוד שגיאה)``.
+
+    ``device_limit`` הוא כמה כרטיסים נכנסים בשורה בעמוד הקבצים **במסך שממנו נועצים**,
+    כפי שהדפדפן מדד. מכשיר שנכנסים בו שניים אינו נועץ שלישי — פתק כזה היה מוצג אצלו רק
+    כ-"+N" ולעולם לא היה נראה. הערך מגיע מחוץ לתהליך (גוף JSON), ולכן:
+
+    - **לא נשלח** (או ``null``) — :data:`MAX_FILES_PAGE_PINNED_NOTES`. דפדפן שלא מדד עדיין
+      את השורה אינו נחסם על ניחוש.
+    - **רק ``int`` שאינו ``bool``**, ולא שלילי. ``True`` הוא ``int`` בפייתון, ו-``2.0`` או
+      ``"2"`` אינם מה שהלקוח שולח — שניהם ``invalid_device_limit``, ולא המרה שקטה.
+    - **מעל התקרה — התקרה.** מכשיר שנכנסים בו עשרה כרטיסים אינו פותח יותר מארבעה; הערך
+      יכול רק להוריד את התקרה, ולכן ערך מזויף אינו פותח דבר.
+    """
+    if not given or device_limit is None:
+        return MAX_FILES_PAGE_PINNED_NOTES, None
+    if isinstance(device_limit, bool) or not isinstance(device_limit, int) or device_limit < 0:
+        return 0, "invalid_device_limit"
+    return min(device_limit, MAX_FILES_PAGE_PINNED_NOTES), None
+
+
 #: שדות שאינם שדות יעד, אבל מתארים **מיקום על היעד הקודם**: מצב ההצמדה של לוח
-#: וריפו, והעוגן לשורה או לכותרת של פתק קובץ. בארכיון אין להם משמעות, ולכן
-#: ההעברה מוחקת אותם יחד עם שדות היעד — אחרת ``codekeeper_get_note`` היה
+#: וריפו, העוגן לשורה או לכותרת של פתק קובץ, והנעיצה לעמוד הקבצים
+#: (:data:`FILES_PAGE_PIN_FIELD`) — פתק שהועבר לארכיון יורד מהנעיצה. בארכיון אין להם
+#: משמעות, ולכן ההעברה מוחקת אותם יחד עם שדות היעד — אחרת ``codekeeper_get_note`` היה
 #: מחזיר על פתק ארכיון ``line_start: 12`` של קובץ שהוא כבר אינו יושב עליו.
 #: הגודל (``width``/``height``) נשאר: הוא של הפתק עצמו, והפתק נפתח בו גם
 #: בארכיון.
 ARCHIVE_DROPPED_PLACEMENT_FIELDS: Tuple[str, ...] = (
-    "mode", "anchor_id", "anchor_text", "line_start", "line_end",
+    "mode", "anchor_id", "anchor_text", "line_start", "line_end", FILES_PAGE_PIN_FIELD,
 )
 
 

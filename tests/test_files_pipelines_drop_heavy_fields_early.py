@@ -195,6 +195,13 @@ class _RecordingCodeSnippets:
     def find(self, _query, _projection=None):
         return _Cursor([dict(DOC)])
 
+    def find_one(self, _query=None, _projection=None, **_kwargs):
+        """אין מסמך — ``users`` של המשתמש בבדיקה ריק. עד נובמבר 2026 החסר הזה נבלע: כל מי שקרא את
+        מסמך המשתמש בעמוד עטף ב-``except Exception``. מאז שמפתח הקאש של העמוד נושא את גופן
+        הפתקים, השליפה שלו תופסת רק ``PyMongoError`` — ו-``AttributeError`` של דמה חסרה עלה כ-500
+        (``widened-exception-scope``: מתקנים את הדמה, ולא מרחיבים את ה-``except``)."""
+        return None
+
 
 class _Cursor:
     def __init__(self, docs):

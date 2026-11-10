@@ -1,0 +1,177 @@
+/* ---------- כרטיס של פתק, והשכבה של פתק שנפתח מעל עמוד ----------
+ *
+ * הרכיב שעמוד הארכיון (``note_archive.html``) ועמוד הקבצים (``files.html``) מציגים בו פתק סגור,
+ * ונבנה ב-``note-cards.js``. עד נובמבר 2026 הכללים האלה ישבו ב-``note-boards.css``, ועברו לכאן
+ * כשהכרטיס התחיל להופיע בעמוד שאינו של הלוחות — כמו שהם, חוץ ממה שמסומן "חדש".
+ *
+ * **שתי משפחות צבעים, ולכל אחת כלל אחר.** מה שיושב על רקע העמוד — טבעת המיקוד של כרטיס —
+ * עובר בטוקנים של הערכה. **הכרטיס עצמו הוא נייר של פתק**, משטח קשיח כמו הפתק
+ * (``docs/webapp/theming_and_css.rst``, "שימושים נוספים וחריגים"): הצבע שלו הוא צבע הפתק,
+ * והדיו ``#2b3f6a`` היא דיו הפתק — אותם ערכים בכל ערכה, כי הכרטיס מייצג את הפתק שייפתח ממנו. */
+
+/* הכרטיס — בסגנון "רצועה" שנבחר בעיצוב: פס עליון כהה מעט, והשם מתחתיו. */
+.archive-card {
+  display: flex;
+  flex-direction: column;
+  inline-size: 100%;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, .12);
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .3);
+  overflow: hidden;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+  color: #2b3f6a;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+/* **צבע הפתק גובר על כללי הערכה שמכוונים ל-``button``.** הכרטיס הוא ``<button>`` (נגיש
+   במקלדת), ו-``[data-theme="high-contrast"] button`` ב-``high-contrast.css`` צובע כל כפתור שחור,
+   ב-``!important`` — סגנון inline בלי ``!important`` מפסיד לו, והדיו נשארה על שחור. בין שתי
+   הצהרות ``!important`` מכריעה הספציפיות (CSS Cascade 5, §6.1), ולכן הכלל כאן (0,2,1) מול
+   (0,1,1) של הערכה — ניצחון ממש ולא שוויון, כמו הקישור בפתק (``theming_and_css``, "שימושים
+   נוספים וחריגים"). הצבע של כל כרטיס יושב ב-``--archive-card-color`` שהעמוד מציב עליו
+   (``note-cards.js``), ו-``button`` בבורר משאיר לכרטיסי השלד (``div``) את הרקע שלהם. המסגרת
+   הלבנה של הערכה נשארת: על רקע שחור היא מה שמפריד בין הכרטיסים.
+
+   **``.note-cards`` הוא המיכל של כרטיסים, בכל עמוד** (חדש): הרשת בארכיון והשורה בעמוד הקבצים
+   נושאות אותו, ולכן הכלל אחד ולא אחד לכל עמוד. ``tests/test_note_archive_card_css.py`` גוזר את
+   כללי ה-``button`` מקבצי הערכות ודורש שהכלל הזה יגבור על כל אחד מהם. */
+.note-cards button.archive-card {
+  background-color: var(--archive-card-color) !important;
+}
+.archive-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, .4);
+}
+/* הטבעת יושבת **מחוץ** לכרטיס, על רקע העמוד — ולכן בצבע של הערכה ולא בדיו הפתק. */
+.archive-card:focus-visible {
+  outline: 2px solid var(--primary, #667eea);
+  outline-offset: 3px;
+}
+.archive-card-band {
+  flex: 0 0 26px;
+  background: rgba(0, 0, 0, .06);
+}
+.archive-card-body {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  display: flex;
+  align-items: center;
+  padding: 10px 14px 14px;
+}
+/* **השם נחתך אחרי ארבע שורות** (הכרעת המשתמש; בעיצוב היו שלוש), והשם המלא מוצג בפתק
+   הפתוח וב-``title`` של הכרטיס. הגודל הוא גודל הטקסט של הפתקים (``--sticky-note-font``,
+   מ-``sticky-notes.css``).
+
+   **כתב יד תמיד, ולא לפי ההגדרה** (הכרעת המשתמש). עד אוקטובר 2026 השם היה תחת
+   ``.sticky-handwriting``, ולכן כתב היד הופיע רק כשההגדרה הכללית של הלוחות דלוקה: המתג של כל
+   לוח אינו מגיע לכאן, כי הארכיון אינו לוח. הגופן נטען בעמוד (``ensureHandwritingFont``), ו-
+   ``cursive`` הוא מה שיוצג אם לא נטען. הפתק שנפתח מעל הכרטיסים ממשיך לפי ההגדרה — הכלל של
+   ``.sticky-handwriting`` ב-``sticky-notes.css``. */
+.archive-card-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  inline-size: 100%;
+  font-family: 'Gveret Levin', cursive;
+  font-size: var(--sticky-note-font, 18px);
+  font-weight: 600;
+  line-height: 1.35;
+  color: #2b3f6a;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+/* כל רצף לטיני מבודד (``titleRuns`` ב-``note-cards.js``), כדי ש-``/admin/mcp`` בשם עברי
+   לא יאבד את הלוכסן שבתחילתו לצד השני של המילה. */
+.archive-card-run { unicode-bidi: isolate; }
+/* **קוד בשורה בשם** (חדש) — מה שבשם נכתב בגרשיים הפוכים, בלי הגרשיים (``inlineCodeSegments``
+   ב-``sticky-notes.js``). מבודד בכיוון LTR, בגופן קוד ובאותה דיו; הרקע שקוף-למחצה של הדיו, ולכן
+   יושב על כל צבע של פתק בלי טוקן פר-צבע — כמו הצבעים הנגזרים מהדיו בפתק עצמו. */
+.archive-card-code {
+  unicode-bidi: isolate;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .82em;
+  font-weight: 500;
+  padding: 0 .25em;
+  border-radius: 4px;
+  background: rgba(43, 63, 106, .1);
+}
+/* פתק בלי שם: "ללא שם", באותה דיו — רק נטוי ובמשקל רגיל, כדי שהניגודיות תישאר של הדיו
+   המלאה. */
+.archive-card-title.is-untitled { font-style: italic; font-weight: 400; }
+
+/* כרטיסי שלד בזמן הטעינה — אותו גודל ואותה צורה, בלי תוכן. */
+.archive-card.is-skeleton {
+  cursor: default;
+  box-shadow: none;
+  border-color: var(--glass-border, rgba(0, 0, 0, .08));
+  background: var(--bg-secondary, rgba(0, 0, 0, .04));
+  animation: archive-skeleton-pulse 1.4s ease-in-out infinite;
+}
+.archive-card.is-skeleton:hover { transform: none; }
+@keyframes archive-skeleton-pulse {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .archive-card,
+  .archive-card.is-skeleton { animation: none; transition: none; }
+}
+
+/* **הווריאנט של עמוד הקבצים** (חדש) — אותו כרטיס, נמוך יותר וברוחב קבוע. המידות אינן מוקלדות
+   כאן: ``files-page-notes.js`` מציב אותן על השורה (``--files-page-card-w``, ``--files-page-card-h``,
+   ``--files-page-card-gap``). הרוחב והמרווח באים מ-``sticky-notes.js``, שגם עמוד הלוח מחשב לפיהם
+   כמה כרטיסים נכנסים במסך כשנועצים; הגובה — מ-``files-page-notes.js``, שמחליט לפיו אם יש מספיק
+   גובה לכרטיסים. הגובה קבוע, ולכן השם נחתך אחרי שתי שורות ולא ארבע. */
+.archive-card.files-page-card {
+  flex: 0 0 auto;
+  inline-size: var(--files-page-card-w);
+  block-size: var(--files-page-card-h);
+  aspect-ratio: auto;
+}
+.files-page-card .archive-card-band { flex-basis: 14px; }
+.files-page-card .archive-card-body { padding: 6px 12px 8px; }
+.files-page-card .archive-card-title { -webkit-line-clamp: 2; line-height: 1.25; }
+
+/* **פס הכותרות** (חדש) — אותו כרטיס בשורה אחת, כשאין מספיק גובה לכרטיסים, או ברשימה של "+N".
+   בלי הפס העליון, והשם בשורה אחת. גם הוא ``.archive-card``, ולכן גם הצבע שלו נקרא בכלל
+   ``.note-cards button.archive-card`` שגובר על כללי הערכה. */
+/* המידות — מהשורה (``--files-page-chip-*``, מ-``files-page-notes.js``), גם ברשימה של "+N", שיושבת
+   בתוך השורה ויורשת אותן. */
+.archive-card.files-page-chip {
+  flex: 0 0 auto;
+  inline-size: var(--files-page-chip-w);
+  block-size: var(--files-page-chip-h);
+  aspect-ratio: auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
+}
+.files-page-chip .archive-card-band { display: none; }
+.files-page-chip .archive-card-body { padding: 0 10px; }
+.files-page-chip .archive-card-title {
+  -webkit-line-clamp: 1;
+  line-height: 1.2;
+  font-size: min(var(--sticky-note-font, 18px), 17px);
+}
+.archive-card.files-page-chip:hover { transform: translateY(-2px); }
+
+/* **השכבה של פתק שנפתח מעל עמוד** — בארכיון ובעמוד הקבצים (``openOverlayNote``). מעל הסרגל
+   העליון (``z-index`` 1000 כשתפריט פתוח, ב-``base.html``) ומתחת לחלונות של הפתק (בורר הצבע,
+   התזכורת, חלון השם — 99999) ולטוסט (10000), שנפתחים מעליו. הפתק עצמו הוא ילד של השכבה,
+   ו-``z-index`` שלו (``NOTE_BASE_Z``) מעל הרקע שבתוכה. */
+.note-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+}
+/* הרקע הוא **אח** של הפתק, לא אב: ``backdrop-filter`` הופך אלמנט ל-containing block של
+   צאצאים ``fixed``, ופתק במצב ``screen`` היה נמדד מולו במקום מול המסך. */
+.note-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(14, 17, 21, .62);
+  backdrop-filter: blur(2px);
+}

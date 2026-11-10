@@ -102,7 +102,7 @@ def card(page, note_id: str):
 
 def open_note(page, note_id: str):
     card(page, note_id).click()
-    note = page.locator(f'.sticky-note.is-archive-open[data-note-id="{note_id}"]')
+    note = page.locator(f'.sticky-note.is-overlay-open[data-note-id="{note_id}"]')
     note.wait_for(state="visible", timeout=10000)
     settled(note)
     return note
@@ -278,7 +278,7 @@ def test_the_note_link_opens_an_archived_note_on_the_archive_page(admin_live_ser
                               author=nt.user_author(), body="שאלה")["thread_id"]
 
     with opened(admin_live_server, chromium_executable, f"/note/{note}?thread={thread}") as page:
-        el = page.locator(f'.sticky-note.is-archive-open[data-note-id="{note}"]')
+        el = page.locator(f'.sticky-note.is-overlay-open[data-note-id="{note}"]')
         el.wait_for(state="visible", timeout=20000)
         page.wait_for_function("location.search === ''")
         assert page.url.endswith("/boards/archive")
@@ -393,7 +393,7 @@ def test_on_a_phone_the_grid_has_two_columns_and_the_note_fits(admin_live_server
         shot(page, "5-phone-grid")
 
         card(page, notes[0]).tap()
-        el = page.locator(f'.sticky-note.is-archive-open[data-note-id="{notes[0]}"]')
+        el = page.locator(f'.sticky-note.is-overlay-open[data-note-id="{notes[0]}"]')
         el.wait_for(state="visible", timeout=10000)
         settled(el)
         box = el.bounding_box()

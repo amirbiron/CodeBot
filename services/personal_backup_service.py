@@ -426,10 +426,14 @@ class PersonalBackupService:
             except Exception:
                 pass
             # המרת datetime ל-string
+            from sticky_notes_target import FILES_PAGE_PIN_FIELD
+
             for note in notes:
                 # ``archived_at`` — הזמן שבו הפתק הועבר לארכיון, ושדה היעד שלו
                 # (``sticky_notes_target``). ``_restore_archive_note`` קורא אותו בחזרה.
-                for key in ("created_at", "updated_at", "remind_at", "archived_at"):
+                # ``FILES_PAGE_PIN_FIELD`` — מתי פתק הלוח ננעץ לעמוד הקבצים;
+                # ``_restore_files_page_pins`` קורא אותו בחזרה.
+                for key in ("created_at", "updated_at", "remind_at", "archived_at", FILES_PAGE_PIN_FIELD):
                     if key in note and isinstance(note[key], datetime):
                         note[key] = note[key].isoformat()
                 # ודא ש-file_name קיים — הוא הכרחי לשחזור
@@ -1259,12 +1263,16 @@ class PersonalBackupService:
 
         return count
 
-    def _restore_board_note(self, raw_db, user_id: int, note: Dict) -> bool:
+    def _restore_board_note(self, raw_db, user_id: int, note: Dict, pins: Optional[List[Any]] = None) -> bool:
         """משחזר פתק לוח. מחזיר ``True`` אם נכתב.
 
         השיוך הוא לפי **שם** הלוח ולא לפי מזהה, כי ה-``_id`` שבגיבוי לא
         יהיה תקף בסביבה אחרת. אין התאמה ⇒ לוח ברירת המחדל, שתמיד קיים —
         עדיף פתק שנחת במקום הלא-מדויק מאשר פתק שנעלם בשקט.
+
+        **הנעיצה לעמוד הקבצים אינה נכתבת כאן.** פתק שהיה נעוץ נרשם ב-``pins`` —
+        ``(המזהה החדש, זמן הנעיצה)`` — ו-``_restore_files_page_pins`` מחיל את הנעיצות
+        אחרי שכל הפתקים שוחזרו, לפי סדר הנעיצה ולא לפי סדר הגיבוי, ובתקרה שלה.
         """
         from note_boards import ensure_default_board, normalize_board_name
         from sticky_notes_target import build_note_target, normalize_mode, resolve_note_color
@@ -1336,8 +1344,81 @@ class PersonalBackupService:
         # שדות היעד דרך הבנאי, ולא ביד — כך המסמך אינו יכול לצאת עם שני
         # משטחים או בלי אף אחד.
         doc.update(build_note_target(board_id=target_board_id))
-        raw_db.sticky_notes.insert_one(doc)
+        result = raw_db.sticky_notes.insert_one(doc)
+        if pins is not None:
+            from sticky_notes_target import FILES_PAGE_PIN_FIELD
+
+            # קלט חיצוני (``_str_to_dt``): ערך שאינו זמן תקין פשוט אינו נעיצה.
+            pinned_at = _str_to_dt(note.get(FILES_PAGE_PIN_FIELD))
+            if pinned_at is not None:
+                pins.append((getattr(result, "inserted_id", None), pinned_at))
         return True
+
+    def _restore_files_page_pins(self, raw_db, user_id: int, pins: List[Any], errors: List[str]) -> int:
+        """מחיל את הנעיצות לעמוד הקבצים של פתקי לוח שזה עתה שוחזרו. מחזיר כמה ננעצו.
+
+        **לפי סדר הנעיצה** — מהראשון שננעץ — כי כשאין מקום לכולם, הראשונים בתור הם שנשארים
+        נעוצים, כמו בעמוד עצמו. **ובתקרה של** ``MAX_FILES_PAGE_PINNED_NOTES``, שנספרת לפני כל
+        נעיצה כמו בראוט — שחזור אינו דלת אחורית לתקרה.
+
+        **פתק שאין לו מקום חוזר בלי נעיצה**, ונשאר על הלוח שהשחזור הניח אותו עליו — הלוח שלו
+        לפי שם, או לוח ברירת המחדל כשהלוח שלו אינו קיים. זה נכנס לסיכום השחזור (``errors``),
+        כדי שלא ייעלם בשקט. **ספירה שנכשלה סוגרת**: הנעיצות שנותרו אינן נכתבות, הכשל נרשם
+        בלוג ובסיכום, והפתקים עצמם כבר שוחזרו. רק ``PyMongoError`` נתפס — הסיכון שהמצב הזה
+        הוצהר בשבילו (R10); חריגה אחרת היא באג, ועולה ל-``except`` של ``_restore_sticky_notes``.
+        """
+        from sticky_notes_target import (
+            FILES_PAGE_PIN_FIELD,
+            MAX_FILES_PAGE_PINNED_NOTES,
+            active_notes_filter,
+            any_board_note_filter,
+            files_page_pinned_filter,
+        )
+
+        try:
+            from pymongo.errors import PyMongoError
+        except Exception:  # pragma: no cover - סביבת stub בלי pymongo
+            class PyMongoError(Exception):  # type: ignore[no-redef]
+                """אף פעם לא נזרקת — בלי pymongo אין כשל מסד לתפוס."""
+
+        pinned = 0
+        skipped = 0
+        for index, (note_id, pinned_at) in enumerate(sorted(pins, key=lambda pin: pin[1])):
+            if note_id is None:
+                # ``insert_one`` שלא החזיר מזהה — אין על מה לכתוב. אצל pymongo זה אינו קורה.
+                logger.warning("restore: a restored board note has no inserted id, its files-page pin is dropped")
+                skipped += 1
+                continue
+            try:
+                count = int(raw_db.sticky_notes.count_documents(files_page_pinned_filter(int(user_id))))
+            except PyMongoError:
+                logger.warning("restore: counting the files-page pins failed; the remaining pins are dropped", exc_info=True)
+                skipped += len(pins) - index
+                break
+            if count >= MAX_FILES_PAGE_PINNED_NOTES:
+                skipped += 1
+                continue
+            result = raw_db.sticky_notes.update_one(
+                {
+                    **any_board_note_filter(int(user_id)),
+                    **active_notes_filter(int(user_id)),
+                    "_id": note_id,
+                    FILES_PAGE_PIN_FIELD: None,
+                },
+                {"$set": {FILES_PAGE_PIN_FIELD: pinned_at}},
+            )
+            if int(getattr(result, "modified_count", 0) or 0) == 1:
+                pinned += 1
+            else:
+                # הפתק נכתב לפני רגע ואינו נעוץ, ולכן הפילטר היה אמור לתפוס. מודיעים — לא מניחים.
+                logger.warning("restore: pinning restored note %s to the files page modified nothing", note_id)
+                skipped += 1
+        if skipped:
+            errors.append(
+                f"{skipped} פתקים שוחזרו בלי הנעיצה לעמוד הקבצים — "
+                f"יש בו מקום ל-{MAX_FILES_PAGE_PINNED_NOTES} בלבד, או שלא הצלחתי לבדוק כמה כבר נעוצים."
+            )
+        return pinned
 
     def _restore_archive_note(self, raw_db, user_id: int, note: Dict) -> bool:
         """משחזר פתק ארכיון — **לארכיון**, עם השם שלו. מחזיר ``True`` אם נכתב.
@@ -1411,6 +1492,9 @@ class PersonalBackupService:
         from sticky_notes_target import resolve_note_color
 
         count = 0
+        # פתקי לוח ששוחזרו והיו נעוצים לעמוד הקבצים — הנעיצות מוחלות אחרי הלולאה, לפי
+        # סדר הנעיצה (``_restore_files_page_pins``).
+        pins: List[Any] = []
         try:
             raw_db = getattr(self.db, "db", None)
             if raw_db is None:
@@ -1440,7 +1524,7 @@ class PersonalBackupService:
                     # שרדו גיבוי-שחזור, בשקט.
                     if note.get("board_id") or note.get("board_name"):
                         try:
-                            restored = self._restore_board_note(raw_db, user_id, note)
+                            restored = self._restore_board_note(raw_db, user_id, note, pins)
                         except ValueError as quota_exc:
                             # חריגה ממכסה אינה שקטה: היא נכנסת לסיכום
                             # השחזור, כדי שהמשתמש יידע שפתקים לא שוחזרו.
@@ -1520,6 +1604,8 @@ class PersonalBackupService:
                     else:
                         errors.append("שגיאה בשחזור פתקית")
                     continue
+            if pins:
+                self._restore_files_page_pins(raw_db, user_id, pins, errors)
         except Exception as e:
             try:
                 logger.exception("שגיאה בשחזור פתקיות", exc_info=True)
