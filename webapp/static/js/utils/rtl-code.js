@@ -8,25 +8,40 @@
 
   var HEBREW_THRESHOLD = 0.3;
 
-  function isHebrewMajority(text) {
-    if (!text) return false;
-    var cleaned = text.replace(/\s+/g, '');
-    if (cleaned.length === 0) return false;
-    var hebrewCount = 0;
-    var letterCount = 0;
-    for (var i = 0; i < cleaned.length; i++) {
-      var c = cleaned.charCodeAt(i);
+  /**
+   * כמה אותיות עבריות וכמה אותיות בכלל יש בטקסט: ``{hebrew, letters}``.
+   * "אות" היא עברית (U+0590–U+05FF) או לטינית (A-Z, a-z). סימנים, חיצים,
+   * מספרים, סימני פיסוק ורווחים לא נספרים — כך הם לא מדללים את היחס.
+   *
+   * **הספירה נפרדת מההחלטה כדי ששתיהן ייכתבו פעם אחת.** ``isHebrewMajority``
+   * שואלת על טקסט אחד, ו-``innerFences`` שואלת על טווח שורות בתוך בלוק — לכל
+   * גדר פנימית — ולכן סוכמת את הספירה של כל שורה פעם אחת. הספירות מצטרפות,
+   * כי ירידת שורה אינה אות.
+   */
+  function letterCounts(text) {
+    var s = text == null ? '' : String(text);
+    var hebrew = 0;
+    var letters = 0;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
       if (c >= 0x0590 && c <= 0x05FF) {
-        hebrewCount++;
-        letterCount++;
+        hebrew++;
+        letters++;
       } else if ((c >= 0x0041 && c <= 0x005A) || (c >= 0x0061 && c <= 0x007A)) {
-        // אותיות לטיניות (A-Z, a-z)
-        letterCount++;
+        letters++;
       }
-      // סימנים, חיצים, מספרים וסימני פיסוק לא נספרים – כך הם לא מדללים את היחס
     }
-    if (letterCount === 0) return false;
-    return hebrewCount / letterCount > HEBREW_THRESHOLD;
+    return { hebrew: hebrew, letters: letters };
+  }
+
+  // ההחלטה עצמה, על ספירה של ``letterCounts``. בלי אותיות בכלל — לא עברי.
+  function hebrewShareAboveThreshold(hebrew, letters) {
+    return letters > 0 && hebrew / letters > HEBREW_THRESHOLD;
+  }
+
+  function isHebrewMajority(text) {
+    var counts = letterCounts(text);
+    return hebrewShareAboveThreshold(counts.hebrew, counts.letters);
   }
 
   /**
@@ -34,10 +49,11 @@
    * ולכן הוא עדיין מועמד ליישור לימין.
    *
    * **מקור אחד לשתי צורות של אותה שאלה.** לצרכן אחד יש אלמנט DOM עם
-   * ``class="language-…"`` (תצוגת המסמכים), ולצרכן אחר יש את שם השפה
-   * הגולמי שכבר נגזר משורת הגדר (הפתקים בונים ``div`` ולא ``pre``,
-   * ולכן אין להם מחלקה לקרוא). הרשימה נכתבת כאן פעם אחת והרג'קס נבנה
-   * ממנה, כדי ששני הצרכנים לא יוכלו לענות תשובות שונות על אותו קלט.
+   * ``class="language-…"`` (תצוגת המסמכים), ולצרכנים אחרים יש את שם השפה
+   * הגולמי שכבר נגזר משורת הגדר: הפתקים בונים ``div`` ולא ``pre``, ולכן
+   * אין להם מחלקה לקרוא; ו-``innerFences`` שואלת על גדר פנימית, שהיא שורה
+   * בתוך הטקסט של בלוק ולא אלמנט. הרשימה נכתבת כאן פעם אחת והרג'קס נבנה
+   * ממנה, כדי שהצרכנים לא יוכלו לענות תשובות שונות על אותו קלט.
    *
    * **``markdown`` ו-``md`` כאן אף שהם שפה שיש לה הדגשה.** השאלה אינה
    * "האם יש ל-hljs דקדוק לשם הזה" אלא "האם הצהרה על השם הזה אומרת שזה
@@ -129,20 +145,38 @@
   // יש דוגמת קוד עם גדרות משלה, הכיוון הימני חל גם עליה: שורת הגדר
   // ```python מוצגת כ-python``` והשורה המוזחת מתחילה משמאל לשורה שמעליה. הכיוון
   // נקבע לפי **סוג התוכן ולא לפי האותיות**: טקסט ורשימות הולכים עם כיוון
-  // הבלוק, ורק קוד — קטע שמתחיל בגדר פנימית ונגמר בגדר הסוגרת שלה — הוא
-  // משמאל לימין. כלל לפי האות החזקה הראשונה (``unicode-bidi: plaintext``)
-  // נבדק ב-Markdown-Docs ונפסל: ב-``- `editor.background` → רקע המסמך``
-  // האות הראשונה לועזית, והשורה קפצה שמאלה באמצע רשימה עברית. זו אותה
-  // הכרעה שמתועדת ב-``sticky-notes.css`` ליד ``.sticky-md-code-block.rtl-code``.
+  // הבלוק, ורק קוד הוא משמאל לימין. כלל לפי האות החזקה הראשונה
+  // (``unicode-bidi: plaintext``) נבדק ב-Markdown-Docs ונפסל: ב-
+  // ``- `editor.background` → רקע המסמך`` האות הראשונה לועזית, והשורה קפצה
+  // שמאלה באמצע רשימה עברית. זו אותה הכרעה שמתועדת ב-``sticky-notes.css`` ליד
+  // ``.sticky-md-code-block.rtl-code``.
+  //
+  // **ומה נחשב קוד — אותה שאלה כמו על בלוק רגיל.** גדר פנימית היא קוד אלא אם
+  // היא עונה על שני התנאים ש-``applyRtlIfHebrew`` שואלת על בלוק: שם השפה שלה
+  // אינו מצהיר על קוד (``hasExplicitLanguageName``, מול ``PLAIN_LANGUAGE_NAMES``),
+  // והתוכן שלה עובר את ``HEBREW_THRESHOLD`` של ``letterCounts``. בלוק פנימי כזה
+  // הוא טקסט, ונשאר עם כיוון הבלוק — כולל שורות הגדר שלו, שהגרשיים בהן
+  // מצוירים בתחילת השורה, בקצה הימני, כמו האות הראשונה של הטקסט שהם תוחמים.
+  // ואותה שאלה בכל רמה: בתוך בלוק פנימי כזה, דוגמת קוד שוב משמאל לימין.
 
   /**
-   * האם השורה פותחת גדר, ובאיזו: ``{marker, length}`` או ``null``.
+   * האם השורה פותחת גדר, ובאיזו: ``{marker, length, lang}`` או ``null``.
    *
    * **הכלל של CommonMark 0.31.2, סעיף 4.5, כפי ש-markdown-it 14.1.0 מממש
    * אותו** (``rules_block/fence.mjs`` — הפרסר שמרנדר את המסמכים כאן): שלושה
    * גרשיים או שלוש טילדות לפחות, ובגדר של גרשיים השארית אינה מכילה גרש
    * (דוגמה 145: השורה "``` aa ```" היא קוד בשורה, לא גדר). בגדר של טילדות
    * השארית יכולה להכיל גרשיים (דוגמה 146).
+   *
+   * **``lang`` הוא שם השפה שבלוק רגיל היה מקבל משורת הגדר הזו.** ב-markdown-it
+   * 14.1.0 כל מה שאחרי הגרשיים נשמר ב-``token.info`` (``fence.mjs``), וה-renderer
+   * לוקח ממנו את המילה הראשונה אחרי ``trim()`` — ``split(/(\s+)/g)[0]`` — לתוך
+   * ``class="language-…"`` (``default_rules.fence`` ב-``renderer.mjs``). אותו
+   * ``trim`` ואותו ``\s`` כאן, ולכן אותה מילה. **ההבדל היחיד:** ה-renderer מעביר
+   * את ``info`` קודם דרך ``unescapeAll`` (``common/utils.mjs``), שמפענח ``\`` לפני
+   * סימן פיסוק וישויות HTML, וכאן לא — ``&#116;ext`` הוא ``text`` שם ונשאר
+   * ``&#116;ext`` כאן. ``unescapeAll`` אינו נוגע במחרוזת שאין בה ``\`` או ``&``,
+   * ולכן ההבדל קיים רק בשם שפה שנכתב כך.
    *
    * **הזחה אינה נבדקת, בכוונה.** CommonMark מתיר עד שלושה רווחים, אבל
    * הטקסט של בלוק הקוד מנותק מההקשר שלו: דוגמה שנכתבה בתוך פריט רשימה
@@ -153,7 +187,7 @@
    * **סריקה של תווים ולא ביטוי רגולרי.** ב-Markdown-Docs ביטוי שפיצל את
    * השארית בתוך עצמו ניסה כל חלוקה של רצף רווחים: בדיקה אחת של שורה עם
    * 1,600 רווחים לקחה 1.6 שניות, והפריוויו מריץ אותה על כל שורה. כאן כל
-   * תו נקרא פעם אחת.
+   * תו נקרא פעם אחת, ושם השפה נחתך ב-``search`` ולא מפוצל בתוך ביטוי.
    */
   function fenceOpening(line) {
     var s = String(line);
@@ -165,60 +199,135 @@
     while (i < s.length && s[i] === marker) i++;
     if (i - start < 3) return null;
     if (marker === '`' && s.indexOf('`', i) >= 0) return null;
-    return { marker: marker, length: i - start };
-  }
-
-  // סוגרת רק שורה שכולה אותו תו, באורך שלפחות שווה לפותחת, ואחריו רק
-  // רווחים או טאבים. ```` אינה נסגרת ב-``` (דוגמה 124), ושורה עם שם שפה
-  // אינה סוגרת (דוגמה 147). אותו כלל כמו לולאת הסגירה ב-``fence.mjs``, חוץ
-  // מההזחה — מאותה סיבה כמו ב-``fenceOpening``.
-  function closesFence(line, open) {
-    var s = String(line);
-    var i = 0;
-    while (i < s.length && (s[i] === ' ' || s[i] === '\t')) i++;
-    var start = i;
-    while (i < s.length && s[i] === open.marker) i++;
-    if (i - start < open.length) return false;
-    while (i < s.length && (s[i] === ' ' || s[i] === '\t')) i++;
-    return i === s.length;
+    var info = s.slice(i).trim();
+    var gap = info.search(/\s/);
+    return { marker: marker, length: i - start, lang: gap < 0 ? info : info.slice(0, gap) };
   }
 
   /**
-   * השורה שסוגרת את הגדר שנפתחה ב-``lines[start]``, או ``lines.length``
-   * כשאינה נסגרת — ואז הגדר נמשכת עד הסוף, כמו בגדר שלא נסגרה ב-markdown-it.
-   * ``open`` הוא מה ש-``fenceOpening`` החזירה על אותה שורה.
+   * האם השורה יכולה לסגור גדר, ובאיזה רצף: ``{marker, length}`` או ``null``.
+   * רק שורה שכולה אותו תו, ואחריו רק רווחים או טאבים. היא סוגרת גדר של אותו
+   * תו שאורכה לכל היותר ``length`` — ```` אינה נסגרת ב-``` (דוגמה 124), ושורה
+   * עם שם שפה אינה סוגרת (דוגמה 147). אותו כלל כמו לולאת הסגירה ב-``fence.mjs``,
+   * חוץ מההזחה — מאותה סיבה כמו ב-``fenceOpening``.
    */
-  function fenceEnd(lines, start, open) {
-    for (var i = start + 1; i < lines.length; i++) {
-      if (closesFence(lines[i], open)) return i;
+  function closingRun(line) {
+    var s = String(line);
+    var i = 0;
+    while (i < s.length && (s[i] === ' ' || s[i] === '\t')) i++;
+    var marker = s[i];
+    if (marker !== '`' && marker !== '~') return null;
+    var start = i;
+    while (i < s.length && s[i] === marker) i++;
+    var length = i - start;
+    while (i < s.length && (s[i] === ' ' || s[i] === '\t')) i++;
+    return i === s.length ? { marker: marker, length: length } : null;
+  }
+
+  // המקום של הגדר הראשונה ב-``candidates`` שאורכה לכל היותר ``length``, או
+  // ``candidates.length``. האורכים שם יורדים ממש, ולכן חיפוש בינארי.
+  function firstClosable(candidates, length) {
+    var lo = 0;
+    var hi = candidates.length;
+    while (lo < hi) {
+      var mid = (lo + hi) >> 1;
+      if (candidates[mid].length <= length) hi = mid;
+      else lo = mid + 1;
     }
-    return lines.length;
+    return lo;
   }
 
   /**
    * מחלקת את הטקסט של בלוק לקטעים רציפים של שורות: ``{ltr, from, to}``,
-   * כש-``to`` אינו כלול. קטע ``ltr`` מתחיל בגדר פותחת ונגמר בגדר הסוגרת
-   * שלה, **כולל שתי שורות הגדר**, או בסוף הטקסט כשהגדר לא נסגרה. כל השאר
-   * בקטעים שאינם ``ltr``, ולכן שורות ריקות סביב הגדר נשארות בהם — לא
-   * נעלמות ולא מוכפלות.
+   * כש-``to`` אינו כלול. קטע ``ltr`` הוא דוגמת קוד: מהגדר הפותחת ועד הגדר
+   * הסוגרת שלה, **כולל שתי שורות הגדר**, או עד הסוף כשהגדר לא נסגרה. כל השאר
+   * בקטעים שאינם ``ltr`` — טקסט, שורות ריקות סביב הגדר, ובלוקים פנימיים
+   * שהם טקסט (ההסבר בראש הפרק), כולל שורות הגדר שלהם.
+   *
+   * **מעבר אחד על השורות, עם מחסנית של הגדרות הפתוחות.** הגדרות מקוננות:
+   * בלוק פנימי שהוא טקסט יכול להכיל דוגמת קוד משלו, ולכן ההחלטה נשאלת שוב
+   * בתוכו. שתי הכרעות קובעות את הסגירה, ושתיהן של markdown-it כשהוא מפרסר את
+   * התוכן של בלוק כמסמך בפני עצמו: (1) שורה שיכולה לסגור כמה גדרות פתוחות
+   * סוגרת את **החיצונית** מביניהן — הגדר החיצונית נסגרת בשורה הראשונה שסוגרת
+   * אותה, בלי קשר למה שנפתח בתוכה; (2) גדר פנימית שלא נסגרה עד אז נגמרת
+   * בשורה שלפני, כמו גדר שלא נסגרה עד סוף המסמך. בתוך דוגמת קוד (שם שפה
+   * מוצהר) לא נפתחות גדרות. בתוך גדר בלי שם שפה הן נפתחות מראש, כי עוד לא
+   * ידוע אם התוכן שלה עברי; התשובה לא משנה איפה היא נגמרת, רק אם מסתכלים על
+   * מה שבתוכה.
+   *
+   * **ליניארית באורך הטקסט** — רקורסיה הייתה סורקת כל רמה מחדש, ושרשרת של
+   * גדרות פתוחות זו בתוך זו הייתה ריבועית, והתצוגה החיה מרנדרת מחדש בכל
+   * הקלדה. כאן כל שורה נקראת פעם אחת, הספירה של כל טווח היא חיסור של
+   * סכומים מצטברים, והגדר שנסגרת נמצאת בחיפוש בינארי: רק גדר שקצרה מכל
+   * גדר פתוחה מאותו תו שמתחתיה יכולה להיות זו שנסגרת — כל שורה שסוגרת
+   * אותה סוגרת גם את זו שמתחתיה, והחיצונית מנצחת.
    */
   function innerFences(text) {
     var lines = String(text == null ? '' : text).split('\n');
+    var n = lines.length;
+    var hebrewBefore = [0];
+    var lettersBefore = [0];
+    var k;
+    for (k = 0; k < n; k++) {
+      var counts = letterCounts(lines[k]);
+      hebrewBefore.push(hebrewBefore[k] + counts.hebrew);
+      lettersBefore.push(lettersBefore[k] + counts.letters);
+    }
+
+    var fences = [];
+    var open = [];
+    var closable = { '`': [], '~': [] };
+    for (var i = 0; i < n; i++) {
+      if (open.length) {
+        var run = closingRun(lines[i]);
+        var candidates = run ? closable[run.marker] : null;
+        var at = candidates ? firstClosable(candidates, run.length) : 0;
+        if (candidates && at < candidates.length) {
+          var closed = candidates[at];
+          for (k = open.length - 1; k > closed.depth; k--) open[k].last = i - 1;
+          closed.close = i;
+          closed.last = i;
+          open.length = closed.depth;
+          ['`', '~'].forEach(function (m) {
+            var list = closable[m];
+            while (list.length && list[list.length - 1].depth >= closed.depth) list.pop();
+          });
+          continue;
+        }
+      }
+      var parent = open.length ? open[open.length - 1] : null;
+      if (parent && parent.code) continue;
+      var opening = fenceOpening(lines[i]);
+      if (!opening) continue;
+      var fence = {
+        open: i, close: -1, last: n - 1, length: opening.length, parent: parent, depth: open.length,
+        code: hasExplicitLanguageName(opening.lang),
+      };
+      fences.push(fence);
+      open.push(fence);
+      var same = closable[opening.marker];
+      if (!same.length || opening.length < same[same.length - 1].length) same.push(fence);
+    }
+
+    // ההחלטה, לפי סדר הפתיחה — הורה לפני ילדיו. גדר שההורה שלה הוא קוד אינה
+    // נשאלת: היא כבר בתוך קטע ``ltr``.
     var parts = [];
-    function take(ltr, from, to) {
-      if (to > from) parts.push({ ltr: ltr, from: from, to: to });
-    }
     var from = 0;
-    var i = 0;
-    while (i < lines.length) {
-      var open = fenceOpening(lines[i]);
-      if (!open) { i++; continue; }
-      var last = Math.min(fenceEnd(lines, i, open), lines.length - 1);
-      take(false, from, i);
-      take(true, i, last + 1);
-      i = from = last + 1;
+    function take(ltr, a, b) {
+      if (b > a) parts.push({ ltr: ltr, from: a, to: b });
     }
-    take(false, from, lines.length);
+    fences.forEach(function (f) {
+      if (f.parent && !f.parent.text) return;
+      var contentEnd = f.close >= 0 ? f.close : f.last + 1;
+      f.text = !f.code && hebrewShareAboveThreshold(
+        hebrewBefore[contentEnd] - hebrewBefore[f.open + 1],
+        lettersBefore[contentEnd] - lettersBefore[f.open + 1]);
+      if (f.text) return;
+      take(false, from, f.open);
+      take(true, f.open, f.last + 1);
+      from = f.last + 1;
+    });
+    take(false, from, n);
     return parts;
   }
 
@@ -353,9 +462,10 @@
   }
 
   /**
-   * עוטפת כל קטע קוד פנימי של בלוק עברי ב-``<span class="rtl-code-ltr"
-   * dir="ltr">``, ומחזירה כמה קטעים נעטפו. בלוק שאינו עברי, ובלוק עברי
-   * בלי גדר פנימית, לא משתנים בכלל. הכיוון, היישור והגלילה של העטיפה
+   * עוטפת כל קטע קוד פנימי של בלוק עברי (קטע ``ltr`` של ``innerFences``) ב-
+   * ``<span class="rtl-code-ltr" dir="ltr">``, ומחזירה כמה קטעים נעטפו. בלוק
+   * שאינו עברי, ובלוק עברי שאין בו קטע כזה — בלי גדר פנימית, או שכל הגדרות
+   * הפנימיות שלו הן טקסט — לא משתנים בכלל. הכיוון, היישור והגלילה של העטיפה
    * מוגדרים ב-``markdown-enhanced.css``, שנטען מ-``base.html`` — ושלושת
    * הצרכנים הם עמודים שיורשים ממנו.
    *
@@ -599,7 +709,6 @@
       hasExplicitLanguageName: hasExplicitLanguageName,
       applyRtlIfHebrew: applyRtlIfHebrew,
       fenceOpening: fenceOpening,
-      fenceEnd: fenceEnd,
       innerFences: innerFences,
       innerFenceRanges: innerFenceRanges,
       wrapInnerFences: wrapInnerFences,
