@@ -16,14 +16,12 @@
 
 from __future__ import annotations
 
-import copy
 import datetime as dt
 
 import pytest
 
 flask = pytest.importorskip("flask")
 
-import note_threads as nt
 import sticky_notes_target as snt
 
 
@@ -109,198 +107,19 @@ def test_the_archive_cap_is_its_own_number():
 
 
 # ---------------------------------------------------------------------------
-# דמה עם סמנטיקת מונגו
+# דמה עם סמנטיקת מונגו — ``tests/_notes_mongo_fake.py``, המשותפת לבדיקות של הנעיצה לעמוד הקבצים
 # ---------------------------------------------------------------------------
 
+# ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
+from _notes_mongo_fake import OTHER_USER, USER, make_client  # noqa: E402
 
-_MISSING = object()
-
-
-def _matches(doc, query):
-    for key, cond in query.items():
-        value = doc.get(key, _MISSING)
-        if isinstance(cond, dict) and any(k.startswith("$") for k in cond):
-            for op, arg in cond.items():
-                if op == "$type":
-                    assert arg == "date", "הדמה מכירה רק $type: date"
-                    if not isinstance(value, dt.datetime):
-                        return False
-                elif op == "$exists":
-                    if (value is not _MISSING) != bool(arg):
-                        return False
-                elif op == "$in":
-                    if value is _MISSING or value not in arg:
-                        return False
-                elif op == "$nin":
-                    if value is not _MISSING and value in arg:
-                        return False
-                else:  # pragma: no cover - אופרטור שהקוד אינו שולח
-                    raise AssertionError(f"הדמה אינה מכירה {op}")
-        elif cond is None:
-            # שוויון ל-null תופס גם שדה חסר
-            if value is not _MISSING and value is not None:
-                return False
-        elif value is _MISSING or value != cond:
-            return False
-    return True
-
-
-def _project(doc, projection):
-    if not projection:
-        return copy.deepcopy(doc)
-    keep = {k for k, v in projection.items() if v}
-    out = {k: copy.deepcopy(v) for k, v in doc.items() if k in keep or k == "_id"}
-    return out
-
-
-class _Res:
-    def __init__(self, modified_count=0, deleted_count=0, inserted_id=None):
-        self.modified_count = modified_count
-        self.deleted_count = deleted_count
-        self.inserted_id = inserted_id
-
-
-class _Cursor(list):
-    def sort(self, spec, direction=None):
-        keys = [(spec, direction)] if isinstance(spec, str) else list(spec)
-        for field, way in reversed(keys):
-            self[:] = sorted(
-                self,
-                key=lambda d: (d.get(field) is not None, d.get(field)),
-                reverse=(way == -1),
-            )
-        return self
-
-
-class _Coll:
-    def __init__(self, docs=None):
-        self.docs = list(docs or [])
-        self.count_fails = False
-        self.find_fails = False
-        self.update_many_fails = False
-        self.calls = []
-
-    def find_one(self, query, projection=None):
-        self.calls.append(("find_one", query))
-        for doc in self.docs:
-            if _matches(doc, query):
-                return _project(doc, projection)
-        return None
-
-    def find(self, query, projection=None):
-        self.calls.append(("find", query, projection))
-        if self.find_fails:
-            raise RuntimeError("find failed")
-        return _Cursor(_project(d, projection) for d in self.docs if _matches(d, query))
-
-    def count_documents(self, query):
-        self.calls.append(("count", query))
-        if self.count_fails:
-            raise RuntimeError("count failed")
-        return sum(1 for d in self.docs if _matches(d, query))
-
-    def _apply(self, doc, update):
-        for field, value in (update.get("$set") or {}).items():
-            doc[field] = value
-        for field in (update.get("$unset") or {}):
-            doc.pop(field, None)
-
-    def find_one_and_update(self, query, update, projection=None, return_document=None):
-        self.calls.append(("find_one_and_update", query, update))
-        for doc in self.docs:
-            if _matches(doc, query):
-                self._apply(doc, update)
-                return _project(doc, projection)
-        return None
-
-    def update_many(self, query, update):
-        self.calls.append(("update_many", query, update))
-        if self.update_many_fails:
-            from pymongo.errors import PyMongoError
-            raise PyMongoError("down")
-        n = 0
-        for doc in self.docs:
-            if _matches(doc, query):
-                self._apply(doc, update)
-                n += 1
-        return _Res(modified_count=n)
-
-    def insert_one(self, doc):
-        doc = dict(doc)
-        doc.setdefault("_id", f"{len(self.docs) + 1:024x}")
-        self.docs.append(doc)
-        return _Res(inserted_id=doc["_id"])
-
-    def update_one(self, query, update, upsert=False):
-        for doc in self.docs:
-            if _matches(doc, query):
-                self._apply(doc, update)
-                return _Res(modified_count=1)
-        return _Res()
-
-    def delete_one(self, query):
-        for doc in self.docs:
-            if _matches(doc, query):
-                self.docs.remove(doc)
-                return _Res(deleted_count=1)
-        return _Res()
-
-    def delete_many(self, query):
-        before = len(self.docs)
-        self.docs = [d for d in self.docs if not _matches(d, query)]
-        return _Res(deleted_count=before - len(self.docs))
-
-    def aggregate(self, pipeline):
-        return iter([])
-
-
-class _DB:
-    def __init__(self):
-        self.sticky_notes = _Coll()
-        self.note_reminders = _Coll()
-        self.note_boards = _Coll()
-        self._threads = _Coll()
-
-    def __getitem__(self, name):
-        assert name == nt.NOTE_THREADS_COLLECTION
-        return self._threads
-
-
-USER = 7
-OTHER_USER = 8
 OID = "a" * 24
 OID2 = "b" * 24
 
 
 @pytest.fixture
 def client(monkeypatch):
-    from webapp import sticky_notes_api
-
-    db = _DB()
-    monkeypatch.setattr(sticky_notes_api, "get_db", lambda: db)
-    monkeypatch.setattr(sticky_notes_api, "_ensure_indexes", lambda: None)
-    monkeypatch.setattr(sticky_notes_api, "_current_user_is_admin", lambda: False)
-    # הדמה עובדת עם מזהים כמחרוזת; ``ObjectId`` אמיתי היה הופך אותם לטיפוס אחר.
-    monkeypatch.setattr(sticky_notes_api, "ObjectId", lambda x: _hex(x))
-
-    app = flask.Flask(__name__)
-    app.secret_key = "test"
-    app.register_blueprint(sticky_notes_api.sticky_notes_bp)
-    test_client = app.test_client()
-    with test_client.session_transaction() as sess:
-        sess["user_id"] = USER
-    test_client.db = db
-    test_client.api = sticky_notes_api
-    return test_client
-
-
-def _hex(value):
-    from webapp.sticky_notes_api import InvalidId
-
-    text = str(value)
-    if len(text) != 24 or any(c not in "0123456789abcdef" for c in text):
-        raise InvalidId(text)
-    return text
+    return make_client(monkeypatch, flask)
 
 
 def _board_note(**extra):

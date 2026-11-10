@@ -256,7 +256,7 @@ const response = (status, body, { notJson = false } = {}) => ({
 });
 async function fetchWith(fake) {
   sandbox.fetch = fake;
-  return P._threadFetch.call(P, '/api/x').result;
+  return P._apiFetch.call(P, '/api/x').result;
 }
 
 check('K11: 2xx עם {ok: true} — הצלחה; כל השאר כשל עם הסטטוס האמיתי', async () => {
@@ -274,7 +274,7 @@ check('בקשה שאינה חוזרת נגמרת בתקרה של 15 שניות �
   timers.length = 0;
   let signal = null;
   sandbox.fetch = (_url, init) => { signal = init.signal; return new Promise(() => {}); };   // לא חוזרת לעולם
-  const req = P._threadFetch.call(P, '/api/x', { method: 'POST' });
+  const req = P._apiFetch.call(P, '/api/x', { method: 'POST' });
   eq(timers.length, 1, 'נרשמה תקרה אחת, של 15 שניות');
   eq(signal.aborted, false);
   timers[0].fn();
@@ -285,14 +285,14 @@ check('בקשה שאינה חוזרת נגמרת בתקרה של 15 שניות �
 check('תשובה שהגיעה לפני התקרה מבטלת את הטיימר; ו-abort() מבטל את הבקשה (סגירת חלונית)', async () => {
   timers.length = 0;
   sandbox.fetch = async () => response(200, { ok: true });
-  const res = await P._threadFetch.call(P, '/api/x').result;
+  const res = await P._apiFetch.call(P, '/api/x').result;
   eq([res.ok, timers[0].cleared], [true, true]);
   let signal = null;
   sandbox.fetch = (_url, init) => new Promise((_, reject) => {
     signal = init.signal;
     init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
   });
-  const req = P._threadFetch.call(P, '/api/x');
+  const req = P._apiFetch.call(P, '/api/x');
   req.abort();
   eq([(await req.result).status, signal.aborted], [0, true]);
 });
@@ -402,7 +402,7 @@ function sender({ value = '', isNew = false, resolved = false, comments = [], an
     _threadStateFromServer: P._threadStateFromServer,
     _commentFromServer: P._commentFromServer,
     _threadErrorMessage: P._threadErrorMessage,
-    _threadFetch(url, init) {
+    _apiFetch(url, init) {
       log.requests.push([url, JSON.parse(init.body)]);
       log.busyDuring = open.busy;
       return { result: Promise.resolve(answer), abort() {} };

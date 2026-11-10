@@ -24,9 +24,11 @@ ROOT = Path(__file__).resolve().parent.parent
 GLOBAL_SEARCH_JS = ROOT / "webapp" / "static" / "js" / "global_search.js"
 
 #: הנכסים שמרנדרים את כרטיסי התיעוד, ושרק אדמין צריך.
+#:
+#: ``js/admonition-icons.js`` ו-``js/utils/rtl-code.js`` **אינם כאן מנובמבר 2026**: הפתק שנפתח מעל
+#: הכרטיסים הנעוצים בראש העמוד קורא מהם (אלרטים ובלוקי קוד בעברית), ולכן הם נטענים לכל משתמש —
+#: ``tests/test_files_page_pins.py`` בודק שהעמוד מגיש אותם גם בלי אדמין.
 DOCS_ASSETS = (
-    "js/admonition-icons.js",
-    "js/utils/rtl-code.js",
     "js/utils/safe-highlight.js",
     "js/md-anchors.js",
     "js/md-mark-plugin.js",

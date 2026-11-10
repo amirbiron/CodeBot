@@ -239,6 +239,8 @@ Google Drive
 - ``sticky_note_updated`` — פתק עודכן (``note_id``).
 - ``sticky_note_deleted`` — פתק נמחק (``note_id``), ו-``threads_deleted``: כמה שרשורי תגובות נמחקו איתו.
 - ``sticky_note_archived`` — פתק הועבר לארכיון (``note_id``), ו-``threads_resolved``: כמה שרשורים פתוחים נסגרו, או ``null`` כשהסגירה נכשלה וההעברה עצמה נשארה (:ref:`sticky-notes-archive`).
+- ``sticky_note_files_page_pinned`` — פתק לוח ננעץ לראש עמוד הקבצים (``note_id``). נשלח רק כשהנעיצה הזו נכתבה, ולא על "כבר נעוץ" (:ref:`sticky-notes-files-page-pin`).
+- ``sticky_note_files_page_unpinned`` — הנעיצה הוסרה (``note_id``). נשלח רק כשההסרה הזו נכתבה, ולא על "כבר לא נעוץ".
 - ``note_reminder_set`` — נקבעה תזכורת לפתק (``note_id``).
 - ``sticky_note_task_not_applied`` (``error``) — סימון צ'קבוקס שהמסד לא החיל (``note_id``).
 - ``sticky_notes_<פעולה>_error`` (``anomaly``) — כשל בראוט, עם ``error``. הפעולה היא שם המסלול, למשל ``list``, ``create`` או ``search``.

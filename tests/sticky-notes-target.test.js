@@ -3504,6 +3504,28 @@ check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת גם 
   });
 });
 
+check('חיווט: כל תבנית שטוענת sticky-notes.js מזריקה לפניו את שתי תקרות האורך מהשרת', () => {
+  // **אותה מלכודת, בפעם השלישית.** ``maxNoteChars`` ומונה התגובה בשרשור קוראים את התקרה מ-``window``;
+  // בעמוד שלא הזריק אותה אין אזהרה בזמן ההקלדה, והשרת הוא שמסרב בשמירה — בלי שגיאה ובלי סימן.
+  // עמוד הקבצים נוסף בלי שתיהן, ודפדפן הריפו הזריק רק את תקרת התגובה.
+  const dir = path.join(__dirname, '..', 'webapp', 'templates');
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+  const loaders = walk(dir).filter((f) => f.endsWith('.html'))
+    .filter((f) => fs.readFileSync(f, 'utf8').includes("filename='js/sticky-notes.js'"));
+  eq(loaders.length >= 3, true, 'נמצאו התבניות שטוענות את המודול (' + loaders.length + ')');
+  loaders.forEach((f) => {
+    const src = fs.readFileSync(f, 'utf8');
+    const sticky = src.indexOf("filename='js/sticky-notes.js'");
+    const name = path.basename(f);
+    for (const [global, ctx] of [['STICKY_NOTE_MAX_CHARS', 'max_note_chars'], ['NOTE_THREAD_MAX_CHARS', 'max_thread_comment_chars']]) {
+      const at = src.indexOf(`window.${global} = {{ ${ctx} | tojson }}`);
+      eq(at !== -1, true, `${name} מזריק את ${global} מ-${ctx}`);
+      eq(at < sticky, true, `${name} מזריק את ${global} לפני sticky-notes.js`);
+    }
+  });
+});
+
 check('מטא-דאטה: מקור אחד לאייקון ולתווית, ואין עותקים נוספים', () => {
   const titles = sandbox.window.ADMONITION_TITLES;
   const icons = sandbox.window.ADMONITION_ICONS;
@@ -4930,10 +4952,10 @@ async function openArchive(env, note) {
   const deleted = [];
   const m = new env.sb.window.StickyNotesManager({
     archive: true, container: env.sb.document.body,
-    onArchivedNoteClosed: (s) => closed.push(s), onArchivedNoteDeleted: (id) => deleted.push(id),
+    onOverlayNoteClosed: (s) => closed.push(s), onOverlayNoteGone: (id) => deleted.push(id),
   });
   await tick();
-  const el = m.openArchivedNote(Object.assign({ title: 'שם', color: 'yellow', size: { width: 300, height: 240 } }, note));
+  const el = m.openOverlayNote(Object.assign({ title: 'שם', color: 'yellow', size: { width: 300, height: 240 } }, note));
   return { m, el, closed, deleted };
 }
 
@@ -5184,6 +5206,339 @@ check('השרשורים לא נסגרו (threads_resolved: null): ההעברה �
   await clickArchive();
   eq(m.notes.has('n9'), false, 'הפתק ירד');
   eq(env.toasts[0].type, 'warning', 'אזהרה ולא הצלחה נקייה');
+});
+
+check('🗃️: בקשה שלא חוזרת נגמרת בתקרה, והפריט חוזר לעבוד — לא מת עד רענון', async () => {
+  // נופל על הצורה הקודמת של ``_postArchive``: ``fetch`` בלי תקרה, ו-``entry.archiving`` דלוק לנצח.
+  const env = archiveSandbox();
+  env.sb.fetch = () => new Promise(() => {});   // לא חוזרת לעולם
+  const deadlines = [];
+  const realSetTimeout = env.sb.setTimeout;
+  env.sb.setTimeout = (fn, ms) => (ms === 15000 ? (deadlines.push(fn), 0) : realSetTimeout(fn, ms));
+  const { m, el } = await boardNoteFor(env, { id: 'dl1', title: 'שם', content: 'x' });
+  const run = m._archiveNote(el);
+  await tick(); await tick();
+  eq(m.notes.get('dl1').archiving, true, 'בקרה: בזמן ההמתנה הדגל דלוק');
+  eq(deadlines.length, 1, 'נרשמה תקרה אחת');
+  deadlines[0]();
+  await run;
+  eq(m.notes.get('dl1').archiving, false, 'הדגל נכבה בתקרה');
+  eq(env.toasts[0].type, 'error', 'והמשתמש יודע שזה לא עבר');
+  env.sb.setTimeout = realSetTimeout;
+});
+
+// ---------- נעיצה לעמוד הקבצים ----------
+//
+// 📎 בתפריט ⋮ של פתק לוח נועץ אותו לראש עמוד הקבצים ומסיר משם; ועמוד הקבצים פותח פתק נעוץ מעל
+// הכרטיסים — מצב ``filesPage``, שחולק עם הארכיון את ``overlayMode``. העמוד עצמו — ב-
+// ``tests/files-page-notes.test.js``; הזרימה המלאה בכרומיום — ``tests/test_files_page_pins_browser.py``.
+
+const pinRequests = (requests) => requests.filter((r) => r.url.endsWith('/files-page-pin'));
+
+/** פתק לוח אמיתי — עם ``board_id``, כמו שהשרת שולח — ו-📎 מהתפריט שלו. */
+async function pinnableNote(env, note) {
+  const m = new env.sb.window.StickyNotesManager({ board: 'pin-board' });
+  await tick();
+  m._renderNote(Object.assign({ position: { x: 0, y: 0 }, board_id: 'pin-board' }, note));
+  const el = m.notes.get(note.id).el;
+  const menuItems = () => {
+    el.querySelector('.sticky-note-more')._listeners.click(clickEv());
+    const items = el.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item');
+    m._closeNoteMenu(el);
+    return items;
+  };
+  const clickPin = async () => {
+    el.querySelector('.sticky-note-more')._listeners.click(clickEv());
+    const item = el.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item')
+      .find((i) => i.getAttribute('data-menu-item') === 'files-page-pin');
+    item._listeners.click(clickEv());
+    await tick(); await tick();
+  };
+  return { m, el, menuItems, clickPin };
+}
+
+/** מנהל של עמוד הקבצים עם פתק נעוץ פתוח, וההודעות שהעמוד קיבל. */
+async function openOnFilesPage(env, note) {
+  const closed = [];
+  const gone = [];
+  const m = new env.sb.window.StickyNotesManager({
+    filesPage: true, container: env.sb.document.body,
+    onOverlayNoteClosed: (s) => closed.push(s), onOverlayNoteGone: (id) => gone.push(id),
+  });
+  await tick();
+  const el = m.openOverlayNote(Object.assign({
+    title: 'נעוץ', color: 'yellow', board_id: 'b1', mode: 'surface', files_page_pinned_at: '2026-11-10T09:00:00+00:00',
+    size: { width: 300, height: 240 },
+  }, note));
+  return { m, el, closed, gone };
+}
+
+check('עמוד הקבצים: יעד חמישי של המנהל, ואינו מתיישב עם יעד אחר', () => {
+  const m = new StickyNotesManager({ filesPage: true });
+  eq(m.filesPageMode, true, 'filesPageMode');
+  eq(m.overlayMode, true, 'overlayMode — אותה צורה של הארכיון');
+  eq(m.archiveMode, false, 'אבל לא ארכיון');
+  eq(m._cacheKey, null, 'אין קאש');
+  let threw = false;
+  try { new StickyNotesManager({ filesPage: true, archive: true }); } catch (_) { threw = true; }
+  eq(threw, true, 'עמוד הקבצים וארכיון יחד — חריגה');
+  threw = false;
+  try { new StickyNotesManager({ filesPage: 'yes' }); } catch (_) { threw = true; }
+  eq(threw, true, 'רק true מפעיל את המצב');
+});
+
+check('עמוד הקבצים: פתק לוח נעוץ נפתח צמוד למסך — גם כשבמסמך שלו כתוב surface', () => {
+  // ``mode: "surface"`` של הלוח היה מצמיד אותו למשטח שאינו קיים בעמוד הקבצים.
+  const m = new StickyNotesManager({ filesPage: true });
+  eq(m._resolveMode({ mode: 'surface', board_id: 'b1' }), 'screen', 'surface');
+});
+
+check('עמוד הקבצים: נפתח כחלון במרכז, בלי 📌, ובתפריט 🔔 📎 🗃️ — ו-📎 מסומן', async () => {
+  const env = archiveSandbox();
+  const { el } = await openOnFilesPage(env, { id: 'fp1' });
+  eq(el.getAttribute('role'), 'dialog', 'role=dialog');
+  eq(el.classList.contains('is-overlay-open'), true, 'is-overlay-open');
+  eq(el.style.left, `${(1024 - 300) / 2}px`, 'אופקית במרכז');
+  const row = el.querySelector('.sticky-note-actions').children.map((c) => c.textContent);
+  eq(row.includes('📌'), false, `אין 📌 — ${row.join(' ')}`);
+  el.querySelector('.sticky-note-more')._listeners.click(clickEv());
+  const items = el.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item');
+  eq(items.map((i) => i.textContent).join(' '), '🔔 📎 🗃️', 'הפריטים');
+  eq(items[1].getAttribute('role'), 'menuitemcheckbox', 'מתג');
+  eq(items[1].getAttribute('aria-checked'), 'true', 'נעוץ');
+});
+
+check('עמוד הקבצים: המיקום אינו נשמר — המקום של הפתק בלוח אינו נדרס — והגודל כן', async () => {
+  const env = archiveSandbox();
+  const { m, el } = await openOnFilesPage(env, { id: 'fp2' });
+  m._queueSave(el, { position: { x: 1, y: 2 }, size: { width: 320, height: 250 } });
+  const pending = m._pending.get('fp2');
+  eq('position' in pending, false, 'position הוסר');
+  eq(pending.size.width, 320, 'size נשאר');
+});
+
+check('עמוד הקבצים: × מוחק, והכרטיס יורד רק אחרי שהשרת אישר', async () => {
+  const env = archiveSandbox((req) => (req.method === 'DELETE' ? [500, { ok: false }] : [200, { ok: true }]));
+  const { m, el, gone } = await openOnFilesPage(env, { id: 'fp3' });
+  await actionBtn(el, '×')._listeners.click(clickEv());
+  eq(gone.length, 0, 'כשל — הכרטיס נשאר');
+  eq(m.notes.has('fp3'), true, 'והפתק נשאר');
+});
+
+check('עמוד הקבצים: 🗃️ מעביר לארכיון, והכרטיס יורד אחרי שהשרת אישר', async () => {
+  // נופל על ``_afterArchiveAnswer`` שמוריד את הפתק בלי לספר לעמוד — השכבה נשארת פתוחה, ריקה.
+  const env = archiveSandbox((req) => (req.url.endsWith('/archive')
+    ? [200, { ok: true, already_archived: false, threads_resolved: 0 }] : [200, { ok: true }]));
+  const { m, el, gone } = await openOnFilesPage(env, { id: 'fp4' });
+  await m._archiveNote(el);
+  eq(gone.join(), 'fp4', 'העמוד קיבל את המזהה');
+  eq(m.notes.has('fp4'), false, 'הפתק ירד');
+});
+
+check('עמוד הקבצים: 📎 מסיר מהנעיצה — הפתק נשלח קודם, והכרטיס יורד אחרי שהשרת אישר', async () => {
+  const env = archiveSandbox((req) => (req.url.endsWith('/files-page-pin')
+    ? [200, { ok: true, already_unpinned: false, files_page_pinned_at: null }] : [200, { ok: true }]));
+  const { m, el, gone } = await openOnFilesPage(env, { id: 'fp5' });
+  let flushed = 0;
+  const realFlush = m._flushFor.bind(m);
+  m._flushFor = (x) => { flushed += 1; return realFlush(x); };
+  await m._toggleFilesPagePin(el);
+  const [req] = pinRequests(env.requests);
+  eq(req.method, 'DELETE', 'DELETE');
+  eq(flushed, 1, 'עריכה שבתור נשלחה לפני ההסרה');
+  eq(gone.join(), 'fp5', 'הכרטיס יורד');
+  eq(env.toasts[0].type, 'success', 'הודעת הצלחה');
+});
+
+check('עמוד הקבצים: הסרה שנכשלה משאירה את הפתק ואת הכרטיס', async () => {
+  const env = archiveSandbox((req) => (req.url.endsWith('/files-page-pin') ? [500, { ok: false }] : [200, { ok: true }]));
+  const { m, el, gone } = await openOnFilesPage(env, { id: 'fp6' });
+  await m._toggleFilesPagePin(el);
+  eq(gone.length, 0, 'הכרטיס נשאר');
+  eq(m.notes.has('fp6'), true, 'הפתק נשאר');
+  eq(env.toasts[0].type, 'error', 'שגיאה');
+});
+
+check('📎: מוצע רק בפתק לוח — לא בפתק קובץ, לא בפתק ריפו ולא בארכיון', async () => {
+  const env = archiveSandbox();
+  const board = await pinnableNote(env, { id: 'pb1', content: '' });
+  eq(board.menuItems().map((i) => i.textContent).join(' '), '🔔 📎 🗃️', 'פתק לוח');
+  const fileMgr = new env.sb.window.StickyNotesManager('pin-file');
+  await tick();
+  fileMgr._renderNote({ id: 'pf1', content: '', position: { x: 0, y: 0 }, file_id: 'pin-file' });
+  const fileEl = fileMgr.notes.get('pf1').el;
+  fileEl.querySelector('.sticky-note-more')._listeners.click(clickEv());
+  eq(fileEl.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item').map((i) => i.textContent).join(' '),
+     '🔔 🗃️', 'פתק קובץ');
+  const { el: archived } = await openArchive(archiveSandbox(), { id: 'pa1', board_id: '' });
+  archived.querySelector('.sticky-note-more')._listeners.click(clickEv());
+  eq(archived.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item').map((i) => i.textContent).join(' '),
+     '🔔', 'פתק בארכיון');
+});
+
+check('📎 בלוח: נועץ, שולח כמה כרטיסים נכנסים במסך, ומתעדכן לפי מה שהשרת ענה', async () => {
+  const env = archiveSandbox((req) => (req.url.endsWith('/files-page-pin')
+    ? [200, { ok: true, already_pinned: false, files_page_pinned_at: '2026-11-10T10:00:00+00:00' }] : [200, { ok: true }]));
+  // שורה ברוחב 366 (טלפון) נמדדה בעמוד הקבצים ונשמרה — נכנסים בה שני כרטיסים
+  const store = { 'sticky-notes:files-page-row-width': '366' };
+  env.sb.window.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  const { m, el, menuItems, clickPin } = await pinnableNote(env, { id: 'pb2', content: 'x' });
+  eq(menuItems()[1].getAttribute('aria-checked'), 'false', 'בקרה: לא נעוץ');
+  await clickPin();
+  const [req] = pinRequests(env.requests);
+  eq(req.method, 'POST', 'POST');
+  eq(req.url, '/api/sticky-notes/note/pb2/files-page-pin', 'הכתובת');
+  eq(req.body.device_limit, 2, 'כמה כרטיסים נכנסים בשורה ששמורה');
+  eq(m.notes.get('pb2').data.files_page_pinned_at, '2026-11-10T10:00:00+00:00', 'המצב מהתשובה');
+  eq(menuItems()[1].getAttribute('aria-checked'), 'true', 'ועכשיו מסומן');
+  eq(env.toasts[0].opts.link.href, '/files', 'קישור לעמוד הקבצים');
+  eq(m.notes.has('pb2'), true, 'בלוח הפתק נשאר במקומו');
+});
+
+check('📎 בלוח: בלי מדידה שמורה — אין device_limit, והשרת אוכף את התקרה הכללית', async () => {
+  const env = archiveSandbox(() => [200, { ok: true, already_pinned: false, files_page_pinned_at: '2026-11-10T10:00:00+00:00' }]);
+  const { clickPin } = await pinnableNote(env, { id: 'pb3', content: 'x' });
+  await clickPin();
+  eq('device_limit' in pinRequests(env.requests)[0].body, false, 'לא נשלח');
+});
+
+check('📎 בלוח: מסך שאין בו מקום — ההודעה אומרת "במסך הזה", ולא שהתקרה הכללית מלאה', async () => {
+  const env = archiveSandbox(() => [409, { ok: false, error: 'files_page_pins_full', max: 2, pinned: 4, device_limited: true }]);
+  const { m, clickPin } = await pinnableNote(env, { id: 'pb4', content: 'x' });
+  await clickPin();
+  eq(env.toasts[0].type, 'error', 'שגיאה');
+  eq(env.toasts[0].message.includes('במסך הזה'), true, env.toasts[0].message);
+  eq(env.toasts[0].message.includes('2') && env.toasts[0].message.includes('4'), true, env.toasts[0].message);
+  eq(m.notes.get('pb4').data.files_page_pinned_at || null, null, 'לא סומן כנעוץ');
+});
+
+check('📎 בלוח: התקרה הכללית מלאה — אומרים כמה, ולא מורידים פתק ישן', async () => {
+  const env = archiveSandbox(() => [409, { ok: false, error: 'files_page_pins_full', max: 4, pinned: 4, device_limited: false }]);
+  const { clickPin } = await pinnableNote(env, { id: 'pb5', content: 'x' });
+  await clickPin();
+  eq(env.toasts[0].message.includes('4') && !env.toasts[0].message.includes('במסך הזה'), true, env.toasts[0].message);
+  eq(pinRequests(env.requests).length, 1, 'בקשה אחת — אין "פינוי" אוטומטי');
+});
+
+check('📎 בלוח: לחיצה כפולה בזמן שהבקשה באוויר שולחת בקשה אחת', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const env = archiveSandbox(() => [200, { ok: true, already_pinned: false, files_page_pinned_at: '2026-11-10T10:00:00+00:00' }]);
+  const realFetch = env.sb.fetch;
+  env.sb.fetch = async (url, init) => { await gate; return realFetch(url, init); };
+  const { m, el } = await pinnableNote(env, { id: 'pb6', content: 'x' });
+  const a = m._toggleFilesPagePin(el);
+  const b = m._toggleFilesPagePin(el);
+  release();
+  await Promise.all([a, b]);
+  eq(pinRequests(env.requests).length, 1, 'בקשה אחת');
+});
+
+check('📎 בלוח: בקשה שלא חוזרת נגמרת בתקרה, והדגל נכבה', async () => {
+  const env = archiveSandbox();
+  env.sb.fetch = () => new Promise(() => {});
+  const deadlines = [];
+  const realSetTimeout = env.sb.setTimeout;
+  env.sb.setTimeout = (fn, ms) => (ms === 15000 ? (deadlines.push(fn), 0) : realSetTimeout(fn, ms));
+  const { m, el } = await pinnableNote(env, { id: 'pb7', content: 'x' });
+  const run = m._toggleFilesPagePin(el);
+  await tick();
+  eq(m.notes.get('pb7').filesPagePinning, true, 'בקרה: דלוק בזמן ההמתנה');
+  deadlines[0]();
+  await run;
+  eq(m.notes.get('pb7').filesPagePinning, false, 'נכבה');
+  env.sb.setTimeout = realSetTimeout;
+});
+
+check('כמה כרטיסים נכנסים: k·w + (k−1)·gap ≤ שורה', () => {
+  const L = sandbox.window.StickyNotesFilesPage;
+  eq(L.cardsThatFit(L.CARD_W), 1, 'בדיוק כרטיס אחד');
+  eq(L.cardsThatFit(L.CARD_W * 2 + L.CARD_GAP), 2, 'בדיוק שניים');
+  eq(L.cardsThatFit(L.CARD_W * 2 + L.CARD_GAP - 1), 1, 'פיקסל אחד חסר');
+  eq(L.cardsThatFit(0), 0, 'אפס');
+  eq(L.cardsThatFit(NaN), 0, 'NaN אינו עובר בדיקת טווח');
+  eq(L.cardsThatFit(100, 30, 10), 2, 'רוחב ומרווח אחרים — הפס');
+});
+
+check('רוחב השורה השמור: הגדול ביותר, ולא האחרון — ומספר שאינו תקין אינו מדידה', () => {
+  const store = {};
+  sandbox.window.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  const L = sandbox.window.StickyNotesFilesPage;
+  eq(L.deviceLimit(), null, 'בלי מדידה — null, ולא אפס');
+  L.recordRowWidth(800);
+  L.recordRowWidth(366);
+  eq(store['sticky-notes:files-page-row-width'], '800', 'הגדול נשמר');
+  eq(L.deviceLimit(), L.cardsThatFit(800), 'ההגבלה לפי הגדול');
+  store['sticky-notes:files-page-row-width'] = 'זבל';
+  eq(L.deviceLimit(), null, 'ערך שנערך ביד אינו מדידה');
+  sandbox.window.localStorage = undefined;
+  eq(L.deviceLimit(), null, 'אחסון חסום — null, בלי לזרוק');
+});
+
+check('רוחב השורה נשמר כמו שנמדד: שבר פיקסל מתחת לגבול אינו מוסיף כרטיס', () => {
+  // שני כרטיסים נכנסים מ-348 (2·168 + 12). שורה של 347.6 מחזיקה אחד — ועיגול ל-348 היה מתיר נעיצה
+  // של שני, שבמסך הזה מוצג רק מאחורי "+N".
+  const store = {};
+  sandbox.window.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  const L = sandbox.window.StickyNotesFilesPage;
+  L.recordRowWidth(347.6);
+  eq(L.deviceLimit(), 1, 'כרטיס אחד');
+  L.recordRowWidth(348);
+  eq(L.deviceLimit(), 2, 'מ-348 — שניים');
+  sandbox.window.localStorage = undefined;
+});
+
+check('שם השדה בדפדפן זהה לשם השדה בפייתון', () => {
+  const py = /^FILES_PAGE_PIN_FIELD\s*=\s*"([^"]+)"/m.exec(PY_SRC)[1];
+  const js = /const FILES_PAGE_PIN_FIELD = '([^']+)';/.exec(fs.readFileSync(MODULE_PATH, 'utf8'))[1];
+  eq(js, py, 'השם');
+});
+
+check('קוד בשורה בכותרת קצרה — אותו כלל של הפתק: רצף נסגר ברצף באותו אורך, ובלי סוגר נשאר טקסט', () => {
+  const seg = (s) => sandbox.window.StickyNotesText.inlineCodeSegments(s).map((x) => `${x.code ? 'c' : 't'}:${x.text}`);
+  eq(seg('לבדוק את `deploy.sh` לפני').join('|'), 't:לבדוק את |c:deploy.sh|t: לפני', 'קטע אחד');
+  eq(seg('בלי קוד').join('|'), 't:בלי קוד', 'בלי גרשיים');
+  eq(seg('`פותח` ו-`סוגר`').join('|'), 'c:פותח|t: ו-|c:סוגר', 'שניים');
+  eq(seg('יתום ` בלי סוגר').join('|'), 't:יתום ` בלי סוגר', 'רצף בלי סוגר הוא טקסט');
+  eq(seg('``a ` b``').join('|'), 'c:a ` b', 'רצף כפול מכיל גרש בודד');
+  eq(seg('').length, 0, 'ריק');
+  // הכלל הוא של הפתק: אותה תשובה כמו ``_parseInline`` על קטעי הקוד
+  const m = new StickyNotesManager({ board: 'seg' });
+  const parsed = m._parseInline('א `ב` ג `` `ד` ``').filter((x) => x.type === 'code').map((x) => x.text);
+  const ours = sandbox.window.StickyNotesText.inlineCodeSegments('א `ב` ג `` `ד` ``').filter((x) => x.code).map((x) => x.text);
+  eq(ours.join('|'), parsed.join('|'), 'זהה למנוע של הפתק');
+});
+
+check('כרטיס של פתק: קוד בשם מוצג כ-<code> בלי הגרשיים, והטקסט סביבו ברצפים בכיוון שלהם', () => {
+  // נופל על הכרטיס שלפני השינוי: השם נכנס כרצפים בלבד, והגרשיים נשארו תווים גלויים.
+  const sb = fakeDomSandbox();
+  // הצבע של כרטיס הוא טוקן (``style.setProperty``), כמו ב-``CSSStyleDeclaration``.
+  const make = sb.document.createElement;
+  sb.document.createElement = (tag) => {
+    const el = make(tag);
+    const props = {};
+    el.style.setProperty = (k, v) => { props[k] = String(v); };
+    el.style.getPropertyValue = (k) => props[k] || '';
+    return el;
+  };
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', 'note-cards.js'), 'utf8'), sb);
+  const card = sb.window.NoteCards.buildCard({ id: 'c1', title: 'לבדוק `deploy.sh` לפני', color: '#ffffcc' }, {
+    variant: 'files-page-card',
+  });
+  const title = card.querySelector('.archive-card-title');
+  const parts = title.children.map((c) => `${c.tagName.toLowerCase()}:${c.textContent}`);
+  eq(parts.join('|'), 'span:לבדוק |code:deploy.sh|span: לפני', 'הקטעים');
+  eq(title.textContent.includes('`'), false, 'אין גרשיים גלויים');
+  const code = title.children.find((c) => c.tagName.toLowerCase() === 'code');
+  eq(code.getAttribute('dir'), 'ltr', 'הקוד מבודד בכיוון LTR');
+  eq(card.className, 'archive-card files-page-card', 'הווריאנט');
+  eq(card.style.getPropertyValue('--archive-card-color'), '#ffffcc', 'הצבע כטוקן');
+  // **וכרטיס הארכיון** — בלי וריאנט — באותו כלל, מול המנוע האמיתי של הפתק.
+  const archived = sb.window.NoteCards.buildCard({ id: 'c2', title: 'תיקון `save_file`', color: '#ffffcc' }, {});
+  const archivedTitle = archived.querySelector('.archive-card-title');
+  eq(archived.className, 'archive-card', 'כרטיס הארכיון, בלי וריאנט');
+  eq(archivedTitle.children.map((c) => `${c.tagName.toLowerCase()}:${c.textContent}`).join('|'),
+    'span:תיקון |code:save_file', 'הקטעים בכרטיס הארכיון');
 });
 
 (async () => {

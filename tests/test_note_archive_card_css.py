@@ -3,8 +3,9 @@
 הכרטיס הוא ``<button>`` (נגיש במקלדת), וקבצי הערכות צובעים ``button`` כאלמנט:
 ``[data-theme="high-contrast"] button`` ב-``high-contrast.css`` צובע כל כפתור שחור, ב-``!important``.
 הצבע של כל כרטיס הוא צבע הפתק שלו, ולכן הוא מוצב על הכרטיס כטוקן (``--archive-card-color``,
-ב-``notes-archive.js``) ונקרא בכלל של ``note-boards.css`` — סגנון inline בלי ``!important`` מפסיד
-לכלל ערכה כזה. נמדד בכרומיום לפני התיקון: הכרטיס יצא שחור, והדיו ``#2b3f6a`` עליו.
+ב-``note-cards.js``) ונקרא בכלל של ``note-cards.css`` — סגנון inline בלי ``!important`` מפסיד
+לכלל ערכה כזה. נמדד בכרומיום לפני התיקון: הכרטיס יצא שחור, והדיו ``#2b3f6a`` עליו. אותו רכיב,
+ואותו כלל, בארכיון ובעמוד הקבצים (המיכל ``.note-cards`` בשני העמודים).
 
 **הבדיקה טקסטואלית, והיריבים נגזרים מקבצי הערכות עצמם** — אותה גישה של
 ``tests/test_sticky_notes_link_color.py``: כלל ערכה חדש על ``button`` נכנס לבדיקה מאליו ומכריח
@@ -22,11 +23,13 @@ from __future__ import annotations
 from pathlib import Path
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _css_rules import IMPORTANT, beats, classes_of, css_rules, subject_of, theme_rules_on, weight
+from _css_rules import IMPORTANT, beats, classes_of, css_rules, specificity, subject_of, theme_rules_on, weight
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CSS_DIR = REPO_ROOT / "webapp/static/css"
 BOARDS_CSS = CSS_DIR / "note-boards.css"
+#: רכיב הכרטיס — המשותף לארכיון ולעמוד הקבצים (עד נובמבר 2026 ב-``note-boards.css``).
+CARDS_CSS = CSS_DIR / "note-cards.css"
 _BACKGROUND = ("background-color", "background")
 
 
@@ -43,7 +46,8 @@ def _theme_backgrounds_on_a_button() -> list[tuple[str, str, str]]:
 def _card_backgrounds() -> list[tuple[str, str]]:
     return [
         (selector, decls[prop])
-        for selector, decls in css_rules(BOARDS_CSS.read_text(encoding="utf-8"))
+        for path in (BOARDS_CSS, CARDS_CSS)
+        for selector, decls in css_rules(path.read_text(encoding="utf-8"))
         if "archive-card" in classes_of(subject_of(selector))
         for prop in _BACKGROUND
         if prop in decls and "--archive-card-color" in decls[prop]
@@ -59,7 +63,7 @@ def test_there_is_a_theme_rule_to_beat():
 def test_the_card_colour_is_one_token_read_in_one_rule():
     """הצבע נקרא ממקום אחד, בלי fallback — הכרטיס תמיד מקבל צבע מהשרת (``_as_archive_card``)."""
     ours = _card_backgrounds()
-    assert ours == [(".archive-grid button.archive-card", "var(--archive-card-color) !important")], ours
+    assert ours == [(".note-cards button.archive-card", "var(--archive-card-color) !important")], ours
 
 
 def test_the_card_colour_beats_every_theme_rule_on_a_button():
@@ -73,8 +77,9 @@ def test_the_card_colour_beats_every_theme_rule_on_a_button():
 
 # ── כתב היד בשם הכרטיס ─────────────────────────────────────────────────────────────────
 
-#: שני הקבצים שעמוד הארכיון טוען ושמגדירים גופן לפתקים — שם יכול לשבת כלל שגובר על הכרטיס.
-NOTE_CSS = (CSS_DIR / "sticky-notes.css", BOARDS_CSS)
+#: הקבצים שעמוד הארכיון ועמוד הקבצים טוענים ושמגדירים גופן לפתקים — שם יכול לשבת כלל שגובר על
+#: הכרטיס.
+NOTE_CSS = (CSS_DIR / "sticky-notes.css", BOARDS_CSS, CARDS_CSS)
 
 
 def _title_fonts() -> list[tuple[str, str, str]]:
@@ -90,4 +95,31 @@ def _title_fonts() -> list[tuple[str, str, str]]:
 def test_the_card_name_is_handwritten_in_one_rule_without_a_condition():
     """כלל אחד, בבורר של השם בלבד. ``.sticky-handwriting`` מעליו היה מחזיר את כתב היד להיות תלוי
     בהגדרה — שם היה עד אוקטובר 2026 — וכלל שני על השם היה מתחרה בו בספציפיות."""
-    assert _title_fonts() == [("note-boards.css", ".archive-card-title", "'Gveret Levin', cursive")]
+    assert _title_fonts() == [("note-cards.css", ".archive-card-title", "'Gveret Levin', cursive")]
+
+
+# ── המעבר של הכרטיס מול הערכות הכהות ───────────────────────────────────────────────────
+
+
+def _dark_theme_transitions() -> list[str]:
+    """הבוררים ב-``dark-mode.css`` שמציבים ``transition`` על **כל** אלמנט (``[data-theme="dark"] *``)."""
+    css = (CSS_DIR / "dark-mode.css").read_text(encoding="utf-8")
+    return [sel for sel, decls in css_rules(css) if "transition" in decls and subject_of(sel).startswith("*")]
+
+
+def test_the_card_transition_beats_the_dark_themes_transition_on_every_element():
+    """``dark-mode.css`` נטען אחרי ``extra_css`` וכותב ``transition`` על כל אלמנט בספציפיות של מחלקה
+    אחת, ולכן כלל ``transition`` על ``.archive-card`` לבדו נדרס בכל הערכות הכהות: הריחוף קפץ בלי הנפשה,
+    ו-``prefers-reduced-motion`` לא ביטל את המעברים של הערכה (נמדד בכרומיום ב-``getComputedStyle``).
+    כל כלל ``transition`` של הכרטיס — גם זה שבתוך ה-``@media`` — חייב לגבור **ממש**, ולא בשוויון."""
+    rivals = _dark_theme_transitions()
+    assert rivals, "אין כלל transition גורף ב-dark-mode.css — הבדיקה הייתה עוברת על כלום"
+    strongest = max(specificity(sel) for sel in rivals)
+    ours = [
+        (sel, decls["transition"])
+        for sel, decls in css_rules(CARDS_CSS.read_text(encoding="utf-8"))
+        if "transition" in decls and "archive-card" in classes_of(subject_of(sel))
+    ]
+    assert {value for _sel, value in ours} >= {"transform .18s ease, box-shadow .18s ease", "none"}, ours
+    for sel, _value in ours:
+        assert specificity(sel) > strongest, f"{sel} {specificity(sel)} אינו גובר על {strongest} של dark-mode.css"

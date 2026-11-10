@@ -147,6 +147,30 @@ Endpoints
      - ✅
      - -
      - ``{"ok": true, "note": {...}}``
+   * - ``/api/sticky-notes/note/<note_id>/files-page-pin``
+     - POST
+     - נעיצת פתק לוח לראש עמוד הקבצים (:ref:`sticky-notes-files-page-pin`). הפתק נשאר בלוח, ו-``updated_at`` אינו משתנה. פתק שאינו של המשתמש ← ``404 note_not_found``; פתק בארכיון ← ``409 note_archived``; פתק שאינו פתק לוח ← ``400 not_a_board_note``; כבר נעוץ ← ``200`` עם ``already_pinned: true``, בלי כתיבה. תקרה מלאה ← ``409 files_page_pins_full`` עם ``max`` (התקרה שחלה), ``pinned`` ו-``device_limited`` (המכשיר הוריד את התקרה), וספירה שנכשלה ← ``409 note_quota_unknown``. אין הסרה אוטומטית של פתק ישן
+     - ✅
+     - ``{"device_limit": 2}`` — אופציונלי: כמה כרטיסים נכנסים בשורה בעמוד הקבצים במסך שממנו נועצים. רק מוריד את התקרה. שדה שלא נשלח, ``null``, או גוף ריק ← התקרה הכללית; ערך שנשלח חייב להיות ``int`` שאינו ``bool`` ואינו שלילי, ואחרת ``400 invalid_device_limit``. גוף שנשלח ואינו אובייקט — גם JSON פגום או ``null`` — ← ``400 invalid_payload``
+     - ``{"ok": true, "already_pinned": false, "files_page_pinned_at": "...", "note": {...}}``
+   * - ``/api/sticky-notes/note/<note_id>/files-page-pin``
+     - DELETE
+     - הסרת הנעיצה מעמוד הקבצים; הפתק נשאר בלוח. פתק שאינו של המשתמש ← ``404 note_not_found``; פתק שאינו נעוץ ← ``200`` עם ``already_unpinned: true``
+     - ✅
+     - -
+     - ``{"ok": true, "already_unpinned": false, "files_page_pinned_at": null}``
+   * - ``/api/sticky-notes/files-page``
+     - GET
+     - כרטיסי ראש עמוד הקבצים — הפתקים הנעוצים, מהראשון שננעץ לאחרון. ``label`` הוא השם, ובלעדיו השורה הראשונה של הפתק (``sticky_notes_target.note_label``). ``max`` היא התקרה הכללית. שאילתה שנכשלה ← ``500``, ולא רשימה ריקה
+     - ✅
+     - -
+     - ``{"ok": true, "notes": [{"id": "...", "label": "...", "color": "#...", "color_id": "...", "files_page_pinned_at": "..."}], "count": 1, "max": 4}``
+   * - ``/api/sticky-notes/files-page/<note_id>``
+     - GET
+     - פתק נעוץ אחד, מלא, עם תקצירי השרשורים שלו — כשפותחים כרטיס בעמוד הקבצים. פתק שאינו נעוץ, בארכיון או אינו של המשתמש ← ``404 note_not_found``; מזהה פגום ← ``400 invalid_note_id``. כשל בקריאת השרשורים: ``threads_unavailable: true``
+     - ✅
+     - -
+     - ``{"ok": true, "note": {...}}``
    * - ``/api/sticky-notes/search``
      - GET
      - חיפוש בפתקים של המשתמש, בשם ובגוף, בכל היעדים (:ref:`sticky-notes-search-regex`). ``q`` חובה: ריק ← ``400 empty_query``, ארוך מהתקרה ← ``400 query_too_long`` עם ``max``, ותו NUL ← ``400 invalid_query``. ``color`` מסנן לפי צבע (מזהה לא מוכר ← ``400 invalid_color`` עם ``allowed``). **פתקי הארכיון מוסתרים**, ו-``include_archived=1`` מוסיף אותם; כל ערך אחר מלבד ``0`` או כלום ← ``400 invalid_include_archived`` עם ``allowed``. ``limit`` לא מספרי או קטן מאחד ← ברירת המחדל, וגדול מהתקרה ← נחתך. כל פגיעה מחזירה תצוגה מקדימה, **ולא את גוף הפתק**

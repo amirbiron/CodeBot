@@ -12,7 +12,7 @@
 {% block extra_head %}
 {% set note_font_surface = 'archive' %}
 {% include "_note_fonts_head.html" with context %}
-{# שמות הכרטיסים בכתב יד **תמיד** (``.archive-card-title`` ב-``note-boards.css``), ולכן הגופן
+{# שמות הכרטיסים בכתב יד **תמיד** (``.archive-card-title`` ב-``note-cards.css``), ולכן הגופן
    נטען כאן בלי תנאי. ``ensureHandwritingFont`` ולא ``applyStickyHandwriting``: השנייה מחילה גם
    את המחלקה, וזו הייתה מעבירה לכתב יד גם את הפתק הפתוח — שממשיך לפי ההגדרה. #}
 <script>window.ensureHandwritingFont();</script>
@@ -21,6 +21,8 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/note-boards.css') }}?v={{ static_version }}">
+{# הכרטיס והשכבה של הפתק הפתוח — הרכיב המשותף עם עמוד הקבצים. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/note-cards.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}?v={{ static_version }}">
 {% endblock %}
 
@@ -43,15 +45,15 @@
     <div class="archive-empty-hint">פתק עובר לכאן מתפריט ⋮ שלו ← 🗃️.</div>
   </div>
 
-  <div class="archive-grid" id="archiveGrid" aria-busy="true" aria-label="פתקים בארכיון"></div>
+  <div class="archive-grid note-cards" id="archiveGrid" aria-busy="true" aria-label="פתקים בארכיון"></div>
 </div>
 
 {# **השכבה של הפתק הפתוח — מחוץ ל-``#archiveMain``**, כדי שהעמוד יוכל לסמן את הרשת
    ``inert`` בזמן שפתק פתוח בלי לנטרל גם את הפתק. הרקע הוא **אח** של הפתק ולא אב שלו:
    ``backdrop-filter`` הופך אלמנט ל-containing block של צאצאים ``fixed``, ופתק במצב
    ``screen`` היה נמדד מולו במקום מול המסך. #}
-<div class="archive-overlay" id="archiveOverlay" hidden>
-  <div class="archive-backdrop" id="archiveBackdrop"></div>
+<div class="note-overlay" id="archiveOverlay" hidden>
+  <div class="note-overlay-backdrop" id="archiveBackdrop"></div>
 </div>
 {% endblock %}
 
@@ -63,5 +65,6 @@
 <script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/note-cards.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/notes-archive.js') }}?v={{ static_version }}"></script>
 {% endblock %}

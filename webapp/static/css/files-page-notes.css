@@ -1,0 +1,95 @@
+/* ---------- הפתקים הנעוצים בראש עמוד הקבצים ----------
+ *
+ * השורה שליד הכותרת "הקבצים שלי" (``files.html``), שהסקריפט ``files-page-notes.js`` ממלא.
+ * הכרטיס עצמו, הפריט בפס הכותרות והשכבה של הפתק הפתוח — ב-``note-cards.css``.
+ *
+ * **הצבעים: מה שעל רקע העמוד — מהערכה, ומה שעל נייר של פתק — של הפתק.** "+N", מצב השגיאה
+ * וכפתור "נסו שוב" יושבים על רקע העמוד, ולכן אינם מצהירים על צבע טקסט משלהם — הם יורשים את
+ * הטקסט של העמוד, כמו הספירה בארכיון (``.archive-count`` ב-``note-boards.css``), כי טוקן טקסט
+ * משני יורד על רקע העמוד מתחת ל-4.5:1 בחלק מהערכות. */
+
+/* **הכותרת והשורה באותו פס.** הכרטיסים יושבים בשטח שמשמאל לכותרת; כשאין שם מקום לרוחב
+   ההתחלתי של השורה, היא יורדת לשורה משלה מתחת לכותרת ומקבלת את כל הרוחב. **הרוחב של השורה
+   אינו תלוי בתוכן שלה** (``flex-basis`` ו-``min-inline-size: 0``), ולכן הסקריפט מודד אותו לפני
+   שהוא מחליט כמה כרטיסים נכנסים. הרווח מהחיפוש שמתחת הוא הרווח שהכותרת נתנה עד היום. */
+.files-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 24px;
+  row-gap: 12px;
+  margin-block-end: 2rem;
+}
+.files-page-head > .page-title {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.files-page-notes {
+  flex: 1 1 340px;
+  min-inline-size: 0;
+}
+.files-page-notes[hidden] { display: none; }
+
+/* השורה: פריטים ברוחב קבוע, בשורה אחת. **בלי ``overflow: hidden``** — כמה פריטים נכנסים נקבע
+   בחשבון (``files-page-notes.js``), וטעות בו צריכה להיראות כגלישה ולא להיבלע בשקט (H7). */
+.files-page-cards {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: var(--files-page-card-gap);
+}
+.files-page-notes[data-mode="strip"] .files-page-cards { gap: var(--files-page-chip-gap); }
+.files-page-cards[hidden] { display: none; }
+
+/* "+N" — על רקע העמוד, באותו גובה כמו הפריטים שלידו. */
+.files-page-more-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+}
+.files-page-more {
+  min-inline-size: 48px;
+  block-size: var(--files-page-card-h);
+  padding: 0 12px;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, .2));
+  border-radius: 10px;
+  background: var(--glass, rgba(255, 255, 255, .1));
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.files-page-more.is-strip { block-size: var(--files-page-chip-h); border-radius: 8px; }
+.files-page-more:focus-visible {
+  outline: 2px solid var(--primary, #667eea);
+  outline-offset: 3px;
+}
+
+/* הרשימה של "+N" — משטח מוצק מעל העמוד, באותם טוקנים של שאר החלוניות בעמוד הקבצים
+   (``--solid-surface-*``). נפתחת מתחת ל-"+N" ומיושרת לקצה שלו בסוף השורה (``inset-inline-end``),
+   ולכן נפרשת אל תוך העמוד ב-RTL וב-LTR כאחד. */
+.files-page-more-list {
+  position: absolute;
+  inset-block-start: calc(100% + 6px);
+  inset-inline-end: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--files-page-chip-gap);
+  inline-size: max-content;
+  max-inline-size: min(300px, calc(100vw - 32px));
+  padding: 10px;
+  border: 1px solid var(--solid-surface-border, rgba(0, 0, 0, .12));
+  border-radius: 12px;
+  background: var(--solid-surface-bg, rgba(255, 255, 255, .98));
+  box-shadow: var(--solid-surface-shadow, 0 14px 30px rgba(17, 23, 41, .16));
+}
+
+/* מצב השגיאה — טקסט על רקע העמוד, יורש את הצבע שלו. */
+.files-page-notes-error {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+.files-page-notes-error[hidden] { display: none; }
