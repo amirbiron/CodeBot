@@ -86,6 +86,32 @@
     color: var(--text-secondary);
 }
 
+/* ווי דריסה לערכה בודדת: שם הקובץ, התיאור שלו, והשורות, הגודל והתאריכים בכרטיס הקובץ.
+   בערכה מיובאת השם נצבע בכלל הכותרות שמעל, התיאור בכלל הפסקאות, והמטא של הכרטיס יורש את צבע
+   הטקסט — וכשהערכה נותנת ל---text-primary ול---text-secondary אותו ערך, הכול יוצא בצבע אחד.
+   .file-name-text הוא שם הקובץ בכרטיס בעמוד הקבצים ובראש תצוגת הקוד, ה-Markdown וה-HTML;
+   .file-description-text הוא התיאור בכרטיס ובתצוגת הקוד; .file-card-meta הוא המטא של הכרטיס.
+   הטוקנים מוגדרים רק בערכה שמצהירה עליהם, ובכוונה אין להם ערך ברירת מחדל בשום מקום — כך ה-fallback
+   הוא בדיוק מה שנצבע היום: ה---text-primary של כלל הכותרות, ה---text-secondary של כלל הפסקאות, וירושה.
+   הבורר (0,2,0) גובר על כללי ה-Typography (0,1,1), ובכוונה [data-theme] ולא [data-theme-type]:
+   previewTheme ב-base.html מחליף את data-theme לערכה מובנית ומשאיר את data-theme-type, וכלל שנשען
+   עליו היה חל גם על התצוגה המקדימה. ראו docs/webapp/custom_themes_guide.rst,
+   theme-variables-file-name-hook. */
+[data-theme="custom"] .file-name-text,
+[data-theme^="shared:"] .file-name-text {
+    color: var(--file-name-color-override, var(--text-primary));
+}
+
+[data-theme="custom"] .file-description-text,
+[data-theme^="shared:"] .file-description-text {
+    color: var(--file-description-color-override, var(--text-secondary));
+}
+
+[data-theme="custom"] .file-card-meta,
+[data-theme^="shared:"] .file-card-meta {
+    color: var(--file-card-meta-color-override, inherit);
+}
+
 /* ============================================
    Buttons
    ============================================ */
