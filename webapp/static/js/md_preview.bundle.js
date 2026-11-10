@@ -48832,7 +48832,7 @@ Please report this to https://github.com/markedjs/marked.`, e4) {
       div.attr("class", "labelBkg");
     }
     let bbox = div.node().getBoundingClientRect();
-    if (bbox.width === width3) {
+    if (bbox.width >= width3 - 1) {
       div.style("display", "table");
       div.style("white-space", "break-spaces");
       div.style("width", width3 + "px");
