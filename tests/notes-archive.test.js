@@ -1,7 +1,8 @@
 'use strict';
 // בדיקות ל-``webapp/static/js/notes-archive.js`` — עמוד הארכיון של הפתקים.
 //
-// **מה כאן:** חלוקת השם לרצפים (``NotesArchiveText``), והדבק של העמוד — שלושת מצבי הטעינה,
+// **מה כאן:** חלוקת השם לרצפים (``NoteCards`` מ-``note-cards.js``, רכיב הכרטיס המשותף לעמוד
+// הקבצים), והדבק של העמוד — שלושת מצבי הטעינה,
 // בניית הכרטיסים, "נסו שוב" עם קישור עמוק, ומה קורה לכרטיס כשהפתק הפתוח נסגר או נמחק. המנהל
 // עצמו (``StickyNotesManager``) מוחלף כאן ברשם: הוא נבדק ב-``sticky-notes-target.test.js``.
 //
@@ -15,6 +16,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', 'notes-archive.js'), 'utf8');
+// רכיב הכרטיס — נטען לפני העמוד, כמו בתבנית (``note_archive.html``).
+const CARDS_SRC = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', 'note-cards.js'), 'utf8');
 
 let passed = 0, failed = 0;
 const pending = [];
@@ -75,7 +78,7 @@ class El {
  * מריץ את העמוד. ``answer(url)`` מחזיר ``[status, body]``; ``search`` היא מחרוזת השאילתה של
  * הכתובת. מחזיר את הרשמים: הבקשות, הטוסטים, ההחלפות של ההיסטוריה והמנהל המדומה.
  */
-function runPage({ answer, search = '' }) {
+function runPage({ answer, search = '', textApi = null }) {
   const body = new El('body');
   const ids = {};
   for (const [id, tag] of [['archiveGrid', 'div'], ['archiveMain', 'main'], ['archiveOverlay', 'div'],
@@ -93,10 +96,12 @@ function runPage({ answer, search = '' }) {
     location,
     history: { replaceState: (_s, _t, url) => { replaced.push(url); location.search = ''; } },
     ckToast: (message, type) => { toasts.push({ message, type }); return true; },
+    // הכלל של קוד בשורה בא מ-``sticky-notes.js`` (``window.StickyNotesText``), שהעמוד טוען לפני הכרטיסים.
+    StickyNotesText: textApi || undefined,
     StickyNotesManager: function StickyNotesManager(opts) {
       mgr.opts = opts;
-      this.openArchivedNote = (note, o) => { mgr.opened.push({ note, opts: o }); return new El('div'); };
-      this.closeArchivedNote = () => { mgr.closed += 1; };
+      this.openOverlayNote = (note, o) => { mgr.opened.push({ note, opts: o }); return new El('div'); };
+      this.closeOverlayNote = () => { mgr.closed += 1; };
     },
   };
   const sandbox = {
@@ -114,6 +119,7 @@ function runPage({ answer, search = '' }) {
     },
   };
   vm.createContext(sandbox);
+  vm.runInContext(CARDS_SRC, sandbox);
   vm.runInContext(SRC, sandbox);
   const cards = () => ids.archiveGrid.children.filter((c) => c._classes.has('archive-card') && !c._classes.has('is-skeleton'));
   return { ids, requests, toasts, replaced, mgr, cards, docListeners, window };
@@ -126,8 +132,8 @@ const card = (id, title, color = '#fff9c4') => ({ id, title, color, archived_at:
 const text = (() => {
   const sandbox = { window: {}, document: { getElementById: () => null } };
   vm.createContext(sandbox);
-  vm.runInContext(SRC, sandbox);
-  return sandbox.window.NotesArchiveText;
+  vm.runInContext(CARDS_SRC, sandbox);
+  return sandbox.window.NoteCards;
 })();
 const runs = (s) => text.titleRuns(s).map((r) => `${r.dir}:${r.text}`);
 
@@ -148,6 +154,13 @@ check('החיבור של הרצפים הוא השם עצמו — שום תו ל�
   for (const s of ['תיקון /admin/mcp בדף.', 'a', 'שלום', 'v2.1: שחרור', 'מייל a@b.co, ועוד', '😀 emoji']) {
     eq(text.titleRuns(s).map((r) => r.text).join(''), s, s);
   }
+});
+
+check('אות לטינית מוטעמת היא חלק מהרצף — café לא מתפצל, גם כשהטעם הוא סימן צמוד', () => {
+  // נופל על הביטוי של ASCII: ``caf`` מבודד, ו-``é`` נשאר ברצף העברי וצויר משמאל לו.
+  eq(JSON.stringify(runs('קפה café טוב')), JSON.stringify(['rtl:קפה ', 'ltr:café', 'rtl: טוב']));
+  eq(JSON.stringify(runs('תיקון e\u0301te בדף')), JSON.stringify(['rtl:תיקון ', 'ltr:e\u0301te', 'rtl: בדף']));
+  eq(JSON.stringify(runs('naïve /über/path')), JSON.stringify(['ltr:naïve /über/path']));
 });
 
 check('כיוון הפסקה: עברית כלשהי ← rtl; בלי עברית ← ltr', () => {
@@ -188,6 +201,40 @@ check('הכרטיסים נבנים בסדר שהשרת נתן, עם שם, צבע
   eq(second.style.getPropertyValue('--archive-card-color'), '#c8e6c9', 'הצבע — כטוקן שהכלל ב-CSS קורא');
   eq(p.ids.archiveCount.textContent, '2 / 500', 'המונה עם התקרה');
   eq(p.ids.archiveGrid.attrs['aria-busy'], 'false', 'הטעינה הסתיימה');
+});
+
+check('קוד בשורה בשם הפתק מוצג על כרטיס הארכיון כ-<code>, בלי הגרשיים', async () => {
+  // העמוד מעביר את השם לרכיב הכרטיס, והרכיב מפרק אותו לפי הכלל של הפתק (``inlineCodeSegments`` —
+  // הכלל עצמו נבדק מול markdown-it ב-``sticky-notes-target.test.js``). כאן: שכרטיס הארכיון משתמש בו.
+  const calls = [];
+  const textApi = {
+    inlineCodeSegments: (s) => {
+      calls.push(s);
+      return String(s).split('`').map((text, i) => ({ text, code: i % 2 === 1 })).filter((x) => x.text);
+    },
+  };
+  const p = runPage({ textApi, answer: () => [200, { ok: true, notes: [card('a', 'תיקון `save_file` בשרת')], max: 500 }] });
+  await tick(); await tick();
+  const title = p.cards()[0].querySelector('.archive-card-title');
+  eq(calls.includes('תיקון `save_file` בשרת'), true, 'השם עבר בכלל של הפתק');
+  eq(title.children.map((c) => `${c.tagName.toLowerCase()}:${c.textContent}`).join('|'),
+    'span:תיקון |code:save_file|span: בשרת', 'הקטעים');
+  eq(title.textContent.includes('`'), false, 'אין גרשיים גלויים');
+});
+
+check('נגיעה ברקע סוגרת רק כשהמנהל לא טיפל בה (defaultPrevented) — בעריכה היא רק יוצאת מהעריכה', async () => {
+  // נופל על הקוד שלפני: הרקע סגר את הפתק בכל נגיעה, גם כשהמנהל סימן אותה כמטופלת.
+  const p = runPage({ answer: (url) => (url.includes('/archive/')
+    ? [200, { ok: true, note: { id: 'a' } }] : [200, { ok: true, notes: [card('a', 'x')], max: 500 }]) });
+  await tick(); await tick();
+  await p.cards()[0].listeners.click();
+  await tick();
+  p.ids.archiveBackdrop.listeners.click({ defaultPrevented: true });
+  await tick();
+  eq(p.mgr.closed, 0, 'נגיעה שטופלה — הפתק נשאר');
+  p.ids.archiveBackdrop.listeners.click({ defaultPrevented: false });
+  await tick();
+  eq(p.mgr.closed, 1, 'נגיעה שלא טופלה — נסגר');
 });
 
 check('לאדמין אין תקרה (max: null) — המונה בלי "/"', async () => {
@@ -270,7 +317,7 @@ check('סגירת הפתק מעדכנת את הכרטיס בשם ובצבע שב
   await tick(); await tick();
   const c = p.cards()[0];
   await c.listeners.click();
-  p.mgr.opts.onArchivedNoteClosed({ id: 'a', title: 'חדש', color: '#bbdefb' });
+  p.mgr.opts.onOverlayNoteClosed({ id: 'a', title: 'חדש', color: '#bbdefb' });
   eq(c.querySelector('.archive-card-title').textContent, 'חדש', 'השם');
   eq(c.style.getPropertyValue('--archive-card-color'), '#bbdefb', 'הצבע');
   eq(p.ids.archiveOverlay.hidden, true, 'השכבה נסגרה');
@@ -286,7 +333,7 @@ check('מחיקת הפתק הפתוח מורידה את הכרטיס, מעדכנ
   await tick(); await tick();
   const [a, b] = p.cards();
   await a.listeners.click();
-  p.mgr.opts.onArchivedNoteDeleted('a');
+  p.mgr.opts.onOverlayNoteGone('a');
   eq(p.cards().length, 1, 'כרטיס אחד נשאר');
   eq(p.cards()[0], b, 'והוא השני');
   eq(p.ids.archiveCount.textContent, '1 / 500', 'המונה');

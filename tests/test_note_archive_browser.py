@@ -102,7 +102,7 @@ def card(page, note_id: str):
 
 def open_note(page, note_id: str):
     card(page, note_id).click()
-    note = page.locator(f'.sticky-note.is-archive-open[data-note-id="{note_id}"]')
+    note = page.locator(f'.sticky-note.is-overlay-open[data-note-id="{note_id}"]')
     note.wait_for(state="visible", timeout=10000)
     settled(note)
     return note
@@ -267,6 +267,34 @@ def test_escape_and_the_backdrop_close_and_x_deletes(admin_live_server, chromium
         assert page.evaluate("document.activeElement.dataset.noteId") == second, "המיקוד עבר לשכן"
 
 
+def test_a_tap_on_the_backdrop_while_editing_only_leaves_editing(admin_live_server, chromium_executable, db):
+    """אותה שכבה משותפת של עמוד הקבצים (``_onOverlayBackdropClick`` ב-``sticky-notes.js``): בעריכה הנגיעה
+    הראשונה ברקע יוצאת לתצוגה, נשמרת, והפתק נשאר פתוח; השנייה סוגרת. עד התיקון כל נגיעה סגרה."""
+    note_id = archived(db, "עריכה")
+
+    with opened(admin_live_server, chromium_executable, "/boards/archive") as page:
+        card(page, note_id).wait_for(state="visible", timeout=20000)
+        el = open_note(page, note_id)
+        el.locator(".sticky-note-tasks").click()
+        el.locator(".sticky-note-content").wait_for(state="visible", timeout=5000)
+        page.keyboard.press("End")
+        page.keyboard.type(" נוסף")
+
+        page.mouse.click(10, DESKTOP["height"] - 10)
+        state = el.evaluate("""e => ({open: e.isConnected, focusOnNote: document.activeElement === e,
+                                     viewShown: !e.querySelector('.sticky-note-tasks').hidden})""")
+        assert state == {"open": True, "focusOnNote": True, "viewShown": True}, state
+        for _ in range(100):
+            if db.sticky_notes.find_one({"_id": ObjectId(note_id)})["content"].endswith(" נוסף"):
+                break
+            page.wait_for_timeout(100)
+        assert db.sticky_notes.find_one({"_id": ObjectId(note_id)})["content"].endswith(" נוסף"), "נשמר"
+
+        page.mouse.click(10, DESKTOP["height"] - 10)
+        el.wait_for(state="detached", timeout=10000)
+        assert page.js_errors == []
+
+
 # == קישור עמוק, ומצב שגיאה =================================================================
 
 
@@ -278,7 +306,7 @@ def test_the_note_link_opens_an_archived_note_on_the_archive_page(admin_live_ser
                               author=nt.user_author(), body="שאלה")["thread_id"]
 
     with opened(admin_live_server, chromium_executable, f"/note/{note}?thread={thread}") as page:
-        el = page.locator(f'.sticky-note.is-archive-open[data-note-id="{note}"]')
+        el = page.locator(f'.sticky-note.is-overlay-open[data-note-id="{note}"]')
         el.wait_for(state="visible", timeout=20000)
         page.wait_for_function("location.search === ''")
         assert page.url.endswith("/boards/archive")
@@ -393,7 +421,7 @@ def test_on_a_phone_the_grid_has_two_columns_and_the_note_fits(admin_live_server
         shot(page, "5-phone-grid")
 
         card(page, notes[0]).tap()
-        el = page.locator(f'.sticky-note.is-archive-open[data-note-id="{notes[0]}"]')
+        el = page.locator(f'.sticky-note.is-overlay-open[data-note-id="{notes[0]}"]')
         el.wait_for(state="visible", timeout=10000)
         settled(el)
         box = el.bounding_box()

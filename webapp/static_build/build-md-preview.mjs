@@ -6,6 +6,7 @@ import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
+import { mermaidLabelWrapFix } from './mermaid-label-wrap-fix.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,6 +45,8 @@ await build({
   },
   external: [],
   sourcemap: true,
+  // תוויות ארוכות ב-Mermaid נחתכו ביחס פיקסלים שאינו שלם — ההסבר בראש mermaid-label-wrap-fix.mjs.
+  plugins: [mermaidLabelWrapFix()],
 });
 
 // Build CSS bundle using esbuild with css entry

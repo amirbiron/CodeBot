@@ -2,57 +2,17 @@
  * עמוד הארכיון — רשת של כרטיסים, ופתק אחד שנפתח מעליהם.
  *
  * **מה העמוד מחזיק, ומה לא.** הכרטיסים הם של העמוד: הם נבנים מ-``GET /api/sticky-notes/archive``,
- * שמחזיר שם, צבע וזמן העברה ולא את גוף הפתק. הפתק הפתוח הוא **אותו רכיב פתק** של כל משטח —
- * ``StickyNotesManager`` במצב ``archive`` (``webapp/static/js/sticky-notes.js``) — והעמוד רק
- * מביא אותו (``GET /api/sticky-notes/archive/<id>``) ומוסר לו. כשהפתק נסגר, המנהל מחזיר את השם
- * והצבע העדכניים והכרטיס מתעדכן; כשהוא נמחק — הכרטיס יורד.
+ * שמחזיר שם, צבע וזמן העברה ולא את גוף הפתק, ונבנים ברכיב הכרטיס המשותף (``note-cards.js``).
+ * הפתק הפתוח הוא **אותו רכיב פתק** של כל משטח — ``StickyNotesManager`` במצב ``archive``
+ * (``webapp/static/js/sticky-notes.js``) — והעמוד רק מביא אותו (``GET /api/sticky-notes/archive/<id>``)
+ * ומוסר לו. כשהפתק נסגר, המנהל מחזיר את השם והצבע העדכניים והכרטיס מתעדכן; כשהוא נמחק — הכרטיס
+ * יורד.
  *
  * **טעינה שנכשלה אינה "הארכיון ריק".** כל אחד משלושת המצבים — טעינה, שגיאה, ריק — מוצג בנפרד,
  * ושגיאה נושאת כפתור "נסו שוב".
  */
 (function () {
   'use strict';
-
-  /**
-   * **רצף לטיני בתוך שם עברי** — מילה, נתיב (``/admin/mcp``), מזהה (``#3542``) או כמה כאלה עם
-   * רווחים ביניהם. בפסקה RTL, ``/`` שבתחילת רצף כזה נשען על הרווח העברי שלפניו ונוחת בצד הלא
-   * נכון (``admin/mcp/``), ולכן כל רצף כזה מבודד ככיוון LTR משלו. הביטוי לקוח מהעיצוב של העמוד
-   * (``sticky_notes_Archive_design.html`` ב-Ck), שבו נבדק על שמות של פתקים אמיתיים.
-   */
-  var LATIN_RUN_RE = /(?:[\/.#@][A-Za-z0-9]|[A-Za-z])[\w.\/:#@+\-]*(?:\s+[\/.#@]?[A-Za-z0-9][\w.\/:#@+\-]*)*/g;
-  /** סימני פיסוק בסוף רצף לטיני — שייכים למשפט, לא לרצף. */
-  var TRAILING_PUNCT_RE = /[\-:.,;]+$/;
-  var HEBREW_RE = /[֐-׿]/;
-
-  /**
-   * השם כרצפים — ``[{text, dir}]`` — כשכל רצף לטיני מבודד כ-``ltr`` והשאר ``rtl``.
-   * הפיסוק בסוף רצף נשאר מחוצה לו (כמו בעיצוב), כדי שנקודה בסוף משפט עברי לא תצטרף לנתיב.
-   */
-  function titleRuns(text) {
-    var src = String(text == null ? '' : text);
-    var out = [];
-    var at = 0;
-    LATIN_RUN_RE.lastIndex = 0;
-    var m;
-    while ((m = LATIN_RUN_RE.exec(src)) !== null) {
-      var run = m[0].replace(TRAILING_PUNCT_RE, '');
-      if (!run) continue;
-      if (m.index > at) out.push({ text: src.slice(at, m.index), dir: 'rtl' });
-      out.push({ text: run, dir: 'ltr' });
-      at = m.index + run.length;
-      LATIN_RUN_RE.lastIndex = at;
-    }
-    if (at < src.length) out.push({ text: src.slice(at), dir: 'rtl' });
-    return out;
-  }
-
-  /** כיוון הפסקה: עברית כלשהי ← ``rtl``. הרצפים הלטיניים כבר מבודדים, ולכן הם אינם משנים אותו. */
-  function titleDir(text) {
-    return HEBREW_RE.test(String(text == null ? '' : text)) ? 'rtl' : 'ltr';
-  }
-
-  // חשופים לבדיקות ב-node (``tests/notes-archive.test.js``), שמריצות את הקובץ עצמו.
-  window.NotesArchiveText = { titleRuns: titleRuns, titleDir: titleDir };
 
   var grid = document.getElementById('archiveGrid');
   var main = document.getElementById('archiveMain');
@@ -62,7 +22,9 @@
   var retryBtn = document.getElementById('archiveRetry');
   var emptyBox = document.getElementById('archiveEmpty');
   var countEl = document.getElementById('archiveCount');
-  if (!grid || !main || !overlay || !window.StickyNotesManager) return;
+  // ``note-cards.js`` — רכיב הכרטיס, המשותף לעמוד הקבצים — נטען לפני הקובץ הזה, כמו ``sticky-notes.js``.
+  var Cards = window.NoteCards;
+  if (!grid || !main || !overlay || !window.StickyNotesManager || !Cards) return;
 
   /** כמה כרטיסי שלד מוצגים בזמן הטעינה. מספר קבוע — הם רק אומרים "משהו נטען". */
   var SKELETON_CARDS = 6;
@@ -100,53 +62,8 @@
     }
   }
 
-  /** ממלא את השם של כרטיס — רצף אחרי רצף, כל אחד בכיוון שלו. */
-  function fillTitle(span, title) {
-    span.textContent = '';
-    var text = String(title || '');
-    if (!text) {
-      span.classList.add('is-untitled');
-      span.textContent = 'ללא שם';
-      span.setAttribute('dir', 'rtl');
-      return;
-    }
-    span.classList.remove('is-untitled');
-    span.setAttribute('dir', titleDir(text));
-    titleRuns(text).forEach(function (run) {
-      var part = document.createElement('span');
-      part.className = 'archive-card-run';
-      part.setAttribute('dir', run.dir);
-      part.textContent = run.text;
-      span.appendChild(part);
-    });
-  }
-
-  function paintCard(card, note) {
-    // טוקן ולא ``style.backgroundColor``: כלל ערכה ``!important`` על ``button`` גובר על סגנון
-    // inline, ולכן הצבע נקרא בכלל של ``note-boards.css`` שגובר עליו (ההערה שם).
-    card.style.setProperty('--archive-card-color', note.color || '');
-    card.setAttribute('title', note.title || 'ללא שם');
-    fillTitle(card.querySelector('.archive-card-title'), note.title);
-  }
-
   function buildCard(note) {
-    var card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'archive-card';
-    card.setAttribute('data-note-id', note.id);
-    var band = document.createElement('span');
-    band.className = 'archive-card-band';
-    band.setAttribute('aria-hidden', 'true');
-    var body = document.createElement('span');
-    body.className = 'archive-card-body';
-    var title = document.createElement('span');
-    title.className = 'archive-card-title';
-    body.appendChild(title);
-    card.appendChild(band);
-    card.appendChild(body);
-    paintCard(card, note);
-    card.addEventListener('click', function () { openNote(note.id, card); });
-    return card;
+    return Cards.buildCard(note, { onOpen: function (card) { openNote(note.id, card); } });
   }
 
   function render(notes) {
@@ -189,12 +106,13 @@
     anchorHost: null,
     // ``summary`` הוא השם והצבע (``hex``) כפי שהמנהל מחזיק אותם בסגירה — כולל מה שנערך
     // בפתק עכשיו. בלי ``title`` (הפתק כבר ירד לפני הסגירה) הכרטיס נשאר כמו שהוא.
-    onArchivedNoteClosed: function (summary) {
+    onOverlayNoteClosed: function (summary) {
       var card = cards.get(String(summary.id));
-      if (card && 'title' in summary) paintCard(card, { title: summary.title, color: summary.color });
+      if (card && 'title' in summary) Cards.paintCard(card, { title: summary.title, color: summary.color });
       hideOverlay(card);
     },
-    onArchivedNoteDeleted: function (id) {
+    // הפתק עזב את הארכיון — בארכיון זה רק מחיקה (× אחרי שהשרת אישר), כי אין בו 🗃️ ו-📎.
+    onOverlayNoteGone: function (id) {
       var card = cards.get(String(id));
       var next = card ? (card.nextElementSibling || card.previousElementSibling) : null;
       if (card) card.remove();
@@ -240,7 +158,7 @@
     if (!data) { notify('לא הצלחתי לפתוח את הפתק. נסו שוב.', 'error'); return; }
     openFrom = fromCard || cards.get(String(id)) || null;
     showOverlay();
-    var el = manager.openArchivedNote(data.note, {
+    var el = manager.openOverlayNote(data.note, {
       threadsUnavailable: data.threads_unavailable === true,
       threadId: threadId || '',
     });
@@ -248,7 +166,7 @@
   }
 
   function closeNote() {
-    manager.closeArchivedNote({
+    manager.closeOverlayNote({
       toRect: function (id) {
         var card = cards.get(String(id));
         return card ? card.getBoundingClientRect() : null;
@@ -256,7 +174,13 @@
     });
   }
 
-  backdrop.addEventListener('click', closeNote);
+  // נגיעה ברקע סוגרת את הפתק — **אלא אם המנהל כבר טיפל בה** (``defaultPrevented``): כשהפתק בעריכה,
+  // הנגיעה הראשונה רק יוצאת מהעריכה (``_onOverlayBackdropClick`` ב-``sticky-notes.js``). אותו חוזה כמו
+  // ``Escape`` שמתחת.
+  backdrop.addEventListener('click', function (ev) {
+    if (ev.defaultPrevented) return;
+    closeNote();
+  });
   // ``Escape`` סוגר את הפתק — אלא אם רכיב בתוכו כבר טיפל בו (חיפוש בפתק, עריכת שם, תפריט,
   // חלון): הם מבטלים את ברירת המחדל או עוצרים את האירוע, ואז הוא אינו של העמוד.
   document.addEventListener('keydown', function (ev) {

@@ -165,9 +165,13 @@ _SEMANTIC_FIELDS = (
 #: ``archived_at`` מאותו טעם: פתק בארכיון אינו נושא אף שדה יעד אחר, ובלעדיו
 #: הוא היה נראה בפלט כפתק שאינו יושב בשום מקום. אותו שדה בתשובת הוובאפ
 #: (``webapp/sticky_notes_api._as_note_response``).
+#: ``files_page_pinned_at`` (``sticky_notes_target.FILES_PAGE_PIN_FIELD``) — מתי פתק הלוח
+#: ננעץ לראש עמוד הקבצים, או ``None``. אינו יעד, אבל הוא עוד מקום שבו הפתק נראה, וסוכן
+#: שקורא פתק צריך לראות אותו כמו שהדפדפן רואה.
 _NOTE_FIELDS = (
     "content", "color", "line_start", "anchor_text", "is_minimized",
     "board_id", "mode", "title", "repo_name", "repo_path", "archived_at",
+    "files_page_pinned_at",
 )
 
 class _EnforcedIndex(_enum.Enum):
@@ -1984,6 +1988,12 @@ class ProductionBackend:
                         # של מילה נדירה נשמרת במטמון ומשרתת גם מילה נפוצה — הנימוק
                         # והמדידה ליד ``_QUERY_INDEX_SPECS`` בוובאפ.
                         ([("user_id", 1), ("archived_at", 1), ("updated_at", -1)], "user_archived_updated_idx"),
+                        # הפתקים הנעוצים לעמוד הקבצים. ה-MCP אינו נועץ ואינו קורא את הרשימה,
+                        # והאינדקס כאן לפי הכלל שכל אינדקס פתקים נוגע בשלושה מקומות
+                        # (``docs/dev/sticky_notes_extending_backend.rst``, בסוף הסעיף על
+                        # החיפוש): אותו מפרט בדיוק כמו ב-``_QUERY_INDEX_SPECS`` של הוובאפ, כך
+                        # שסדר העלייה של שני השירותים אינו משנה את מה שנבנה.
+                        ([("user_id", 1), ("files_page_pinned_at", 1), ("_id", 1)], "files_page_pinned_idx"),
                     ):
                         try:
                             coll.create_index(keys, name=name)

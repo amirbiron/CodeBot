@@ -403,8 +403,8 @@
 <script src="{{ url_for('static', filename='js/live-preview.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/markdown-deps.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/repo-browser.js') }}?v={{ static_version }}"></script>
-<!-- תקרת תגובה בשרשור על פתק, מהשרת — לפני sticky-notes.js, כמו בשני המשטחים האחרים. -->
-<script>window.NOTE_THREAD_MAX_CHARS = {{ max_thread_comment_chars | tojson }};</script>
+<!-- תקרות האורך של הפתק ושל תגובה בשרשור, מהשרת — לפני sticky-notes.js, כמו בכל משטח שמארח פתקים. -->
+<script>window.STICKY_NOTE_MAX_CHARS = {{ max_note_chars | tojson }}; window.NOTE_THREAD_MAX_CHARS = {{ max_thread_comment_chars | tojson }};</script>
 <!-- הטוסט המשותף — ההודעה אחרי העברת פתק לארכיון (``_notify`` ב-sticky-notes.js). -->
 <script src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
