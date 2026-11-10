@@ -206,6 +206,22 @@ def test_the_meta_hook_is_only_in_the_files_card():
         assert _with_class(_hooked(template_name), META_CLASS) == [], template_name
 
 
+def test_the_cross_tab_sync_named_in_the_docs_keeps_data_theme_type():
+    """הנימוק לבורר ``[data-theme]`` ולא ``[data-theme-type]``, כפי שהוא כתוב בתיעוד וב-``dark-mode.css``: סנכרון
+    הערכה בין טאבים (``initThemeCrossTabSync`` ב-``base.html``) מציב ``data-theme`` של ערכה מובנית שנבחרה בטאב אחר,
+    ואינו נוגע ב-``data-theme-type``. אם הפונקציה תשנה שם או תתחיל לעדכן את ``data-theme-type``, הנימוק בפרוזה
+    מתיישן — והטסט הזה הוא מה שיזכיר לעדכן אותו."""
+    base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
+    marker = "(function initThemeCrossTabSync(){"
+    assert base.count(marker) == 1, "initThemeCrossTabSync, שהתיעוד נוקב בשמו, לא נמצא פעם אחת ב-base.html"
+    start = base.index(marker)
+    body = base[start : base.index("})();", start)]
+    assert "setAttribute('data-theme', " in body, body
+    assert "data-theme-type" not in body, "הסנכרון בין טאבים מעדכן עכשיו את data-theme-type — לעדכן את הנימוק בתיעוד"
+    for path in (DARK_MODE_CSS, REPO_ROOT / "docs/webapp/custom_themes_guide.rst"):
+        assert "initThemeCrossTabSync" in path.read_text(encoding="utf-8"), path.name
+
+
 def test_documented_example_passes_validation():
     """הדוגמה שבתיעוד (``custom_themes_guide.rst``, ``theme-variables-file-name-hook``) עוברת את הוולידציה כפי שהיא
     כתובה."""
