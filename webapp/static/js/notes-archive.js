@@ -174,7 +174,13 @@
     });
   }
 
-  backdrop.addEventListener('click', closeNote);
+  // נגיעה ברקע סוגרת את הפתק — **אלא אם המנהל כבר טיפל בה** (``defaultPrevented``): כשהפתק בעריכה,
+  // הנגיעה הראשונה רק יוצאת מהעריכה (``_onOverlayBackdropClick`` ב-``sticky-notes.js``). אותו חוזה כמו
+  // ``Escape`` שמתחת.
+  backdrop.addEventListener('click', function (ev) {
+    if (ev.defaultPrevented) return;
+    closeNote();
+  });
   // ``Escape`` סוגר את הפתק — אלא אם רכיב בתוכו כבר טיפל בו (חיפוש בפתק, עריכת שם, תפריט,
   // חלון): הם מבטלים את ברירת המחדל או עוצרים את האירוע, ואז הוא אינו של העמוד.
   document.addEventListener('keydown', function (ev) {

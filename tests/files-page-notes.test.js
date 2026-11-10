@@ -299,6 +299,21 @@ check('הפתק שעזב נפתח מהרשימה של "+N": המיקוד חוז�
   eq(p.focused() === p.more().querySelector('.files-page-more'), true, 'המיקוד על "+N" החדש');
 });
 
+check('נגיעה ברקע סוגרת רק כשהמנהל לא טיפל בה (defaultPrevented) — בעריכה היא רק יוצאת מהעריכה', async () => {
+  // נופל על הקוד שלפני: הרקע סגר את הפתק בכל נגיעה, גם כשהמנהל סימן אותה כמטופלת.
+  const p = runPage({ answer: list(pin('a', 'א')) });
+  await tick(); await tick();
+  await p.cards()[0].listeners.click();
+  await tick();
+  const backdrop = p.overlay.children.find((c) => c._classes.has('note-overlay-backdrop'));
+  backdrop.listeners.click({ defaultPrevented: true });
+  await tick();
+  eq(p.mgr.closed, 0, 'נגיעה שטופלה — הפתק נשאר');
+  backdrop.listeners.click({ defaultPrevented: false });
+  await tick();
+  eq(p.mgr.closed, 1, 'נגיעה שלא טופלה — נסגר');
+});
+
 check('סגירת הפתק טוענת את הרשימה שוב — התווית נגזרת בשרת — והמיקוד חוזר לאותו כרטיס', async () => {
   let label = 'ישן';
   const p = runPage({ answer: (url) => (url === '/api/sticky-notes/files-page'

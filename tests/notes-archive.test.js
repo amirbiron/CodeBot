@@ -222,6 +222,21 @@ check('קוד בשורה בשם הפתק מוצג על כרטיס הארכיון
   eq(title.textContent.includes('`'), false, 'אין גרשיים גלויים');
 });
 
+check('נגיעה ברקע סוגרת רק כשהמנהל לא טיפל בה (defaultPrevented) — בעריכה היא רק יוצאת מהעריכה', async () => {
+  // נופל על הקוד שלפני: הרקע סגר את הפתק בכל נגיעה, גם כשהמנהל סימן אותה כמטופלת.
+  const p = runPage({ answer: (url) => (url.includes('/archive/')
+    ? [200, { ok: true, note: { id: 'a' } }] : [200, { ok: true, notes: [card('a', 'x')], max: 500 }]) });
+  await tick(); await tick();
+  await p.cards()[0].listeners.click();
+  await tick();
+  p.ids.archiveBackdrop.listeners.click({ defaultPrevented: true });
+  await tick();
+  eq(p.mgr.closed, 0, 'נגיעה שטופלה — הפתק נשאר');
+  p.ids.archiveBackdrop.listeners.click({ defaultPrevented: false });
+  await tick();
+  eq(p.mgr.closed, 1, 'נגיעה שלא טופלה — נסגר');
+});
+
 check('לאדמין אין תקרה (max: null) — המונה בלי "/"', async () => {
   const p = runPage({ answer: () => [200, { ok: true, notes: [card('a', 'x')], max: null }] });
   await tick(); await tick();
