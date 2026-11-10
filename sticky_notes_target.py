@@ -1046,9 +1046,10 @@ def files_page_pinned_filter(user_id: int) -> Dict[str, Any]:
     **ורק פתקים פעילים** (``archived_at: None``, כמו :func:`active_notes_filter`). ההעברה
     לארכיון מוחקת את הנעיצה (:data:`ARCHIVE_DROPPED_PLACEMENT_FIELDS`), ולכן התנאי הזה אינו
     אמור לסנן כלום — הוא שומר על הרשימה גם מפני כותב עתידי שישכח את זה, ועולה לכל היותר
-    קריאה של המסמכים הנעוצים עצמם.
+    קריאה של המסמכים הנעוצים עצמם. **התנאי הזה הוא** :func:`active_notes_filter` **עצמה**, ולא
+    עותק שלה: שינוי בהגדרה של "פתק פעיל" חל כאן בלי שמישהו יזכור.
     """
-    return {"user_id": int(user_id), FILES_PAGE_PIN_FIELD: {"$type": "date"}, "archived_at": None}
+    return {**active_notes_filter(user_id), FILES_PAGE_PIN_FIELD: {"$type": "date"}}
 
 
 def files_page_pin_limit(device_limit: Any, *, given: bool) -> Tuple[int, Optional[str]]:

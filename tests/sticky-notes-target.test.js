@@ -3504,6 +3504,28 @@ check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת גם 
   });
 });
 
+check('חיווט: כל תבנית שטוענת sticky-notes.js מזריקה לפניו את שתי תקרות האורך מהשרת', () => {
+  // **אותה מלכודת, בפעם השלישית.** ``maxNoteChars`` ומונה התגובה בשרשור קוראים את התקרה מ-``window``;
+  // בעמוד שלא הזריק אותה אין אזהרה בזמן ההקלדה, והשרת הוא שמסרב בשמירה — בלי שגיאה ובלי סימן.
+  // עמוד הקבצים נוסף בלי שתיהן, ודפדפן הריפו הזריק רק את תקרת התגובה.
+  const dir = path.join(__dirname, '..', 'webapp', 'templates');
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+  const loaders = walk(dir).filter((f) => f.endsWith('.html'))
+    .filter((f) => fs.readFileSync(f, 'utf8').includes("filename='js/sticky-notes.js'"));
+  eq(loaders.length >= 3, true, 'נמצאו התבניות שטוענות את המודול (' + loaders.length + ')');
+  loaders.forEach((f) => {
+    const src = fs.readFileSync(f, 'utf8');
+    const sticky = src.indexOf("filename='js/sticky-notes.js'");
+    const name = path.basename(f);
+    for (const [global, ctx] of [['STICKY_NOTE_MAX_CHARS', 'max_note_chars'], ['NOTE_THREAD_MAX_CHARS', 'max_thread_comment_chars']]) {
+      const at = src.indexOf(`window.${global} = {{ ${ctx} | tojson }}`);
+      eq(at !== -1, true, `${name} מזריק את ${global} מ-${ctx}`);
+      eq(at < sticky, true, `${name} מזריק את ${global} לפני sticky-notes.js`);
+    }
+  });
+});
+
 check('מטא-דאטה: מקור אחד לאייקון ולתווית, ואין עותקים נוספים', () => {
   const titles = sandbox.window.ADMONITION_TITLES;
   const icons = sandbox.window.ADMONITION_ICONS;
@@ -5453,6 +5475,19 @@ check('רוחב השורה השמור: הגדול ביותר, ולא האחרו�
   eq(L.deviceLimit(), null, 'אחסון חסום — null, בלי לזרוק');
 });
 
+check('רוחב השורה נשמר כמו שנמדד: שבר פיקסל מתחת לגבול אינו מוסיף כרטיס', () => {
+  // שני כרטיסים נכנסים מ-348 (2·168 + 12). שורה של 347.6 מחזיקה אחד — ועיגול ל-348 היה מתיר נעיצה
+  // של שני, שבמסך הזה מוצג רק מאחורי "+N".
+  const store = {};
+  sandbox.window.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  const L = sandbox.window.StickyNotesFilesPage;
+  L.recordRowWidth(347.6);
+  eq(L.deviceLimit(), 1, 'כרטיס אחד');
+  L.recordRowWidth(348);
+  eq(L.deviceLimit(), 2, 'מ-348 — שניים');
+  sandbox.window.localStorage = undefined;
+});
+
 check('שם השדה בדפדפן זהה לשם השדה בפייתון', () => {
   const py = /^FILES_PAGE_PIN_FIELD\s*=\s*"([^"]+)"/m.exec(PY_SRC)[1];
   const js = /const FILES_PAGE_PIN_FIELD = '([^']+)';/.exec(fs.readFileSync(MODULE_PATH, 'utf8'))[1];
@@ -5498,6 +5533,12 @@ check('כרטיס של פתק: קוד בשם מוצג כ-<code> בלי הגרש�
   eq(code.getAttribute('dir'), 'ltr', 'הקוד מבודד בכיוון LTR');
   eq(card.className, 'archive-card files-page-card', 'הווריאנט');
   eq(card.style.getPropertyValue('--archive-card-color'), '#ffffcc', 'הצבע כטוקן');
+  // **וכרטיס הארכיון** — בלי וריאנט — באותו כלל, מול המנוע האמיתי של הפתק.
+  const archived = sb.window.NoteCards.buildCard({ id: 'c2', title: 'תיקון `save_file`', color: '#ffffcc' }, {});
+  const archivedTitle = archived.querySelector('.archive-card-title');
+  eq(archived.className, 'archive-card', 'כרטיס הארכיון, בלי וריאנט');
+  eq(archivedTitle.children.map((c) => `${c.tagName.toLowerCase()}:${c.textContent}`).join('|'),
+    'span:תיקון |code:save_file', 'הקטעים בכרטיס הארכיון');
 });
 
 (async () => {

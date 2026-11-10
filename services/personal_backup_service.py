@@ -1383,7 +1383,8 @@ class PersonalBackupService:
 
         pinned = 0
         skipped = 0
-        for index, (note_id, pinned_at) in enumerate(sorted(pins, key=lambda pin: pin[1])):
+        ordered = sorted(pins, key=lambda pin: pin[1])
+        for index, (note_id, pinned_at) in enumerate(ordered):
             if note_id is None:
                 # ``insert_one`` שלא החזיר מזהה — אין על מה לכתוב. אצל pymongo זה אינו קורה.
                 logger.warning("restore: a restored board note has no inserted id, its files-page pin is dropped")
@@ -1393,11 +1394,13 @@ class PersonalBackupService:
                 count = int(raw_db.sticky_notes.count_documents(files_page_pinned_filter(int(user_id))))
             except PyMongoError:
                 logger.warning("restore: counting the files-page pins failed; the remaining pins are dropped", exc_info=True)
-                skipped += len(pins) - index
+                skipped += len(ordered) - index
                 break
             if count >= MAX_FILES_PAGE_PINNED_NOTES:
-                skipped += 1
-                continue
+                # **מלא — וגם השאר לא ייכנסו**: השחזור רק מוסיף נעיצות, ולכן אין טעם לספור שוב לכל
+                # אחת. גיבוי של אלפי פתקי לוח היה שולח ספירה לכל נעיצה שנשארה אחרי שהתקרה התמלאה.
+                skipped += len(ordered) - index
+                break
             result = raw_db.sticky_notes.update_one(
                 {
                     **any_board_note_filter(int(user_id)),

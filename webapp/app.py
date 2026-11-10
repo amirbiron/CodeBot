@@ -13786,18 +13786,17 @@ def files():
     # **וגם גופן הפתקים, מאותה סיבה בדיוק.** העמוד כולל את ``_note_fonts_head.html``
     # בשביל הפתק שנפתח מעל הכרטיסים הנעוצים, כלומר כתב היד וגודל הטקסט מרונדרים לתוך
     # ה-HTML ששומרים כאן. בלי המפתח הזה, שינוי ההגדרה היה מוגש עם הדגל הישן עד שה-TTL
-    # פוקע. מסמך המשתמש נשלף פעם אחת, רק כשה-cookies אינם מכריעים — כמו ב-``md_preview``.
+    # פוקע. מסמך המשתמש נשלף רק כשה-cookies אינם מכריעים.
+    #
+    # **ודרך ``_request_user_doc`` — אותו מסמך שהרינדור קורא.** ``inject_globals`` מרנדר את
+    # ההעדפה מהמסמך של הבקשה; שליפה נפרדת כאן הייתה שאילתה שנייה בכל cache miss, ושינוי
+    # העדפה בין שתי השליפות היה שומר HTML של מסמך אחד תחת מפתח של מסמך אחר. הפונקציה גם
+    # מכסה את ``get_db()`` שמחזיר ``None`` בחלון הצינון שלו — בלי זה ``.users`` זרק
+    # ``AttributeError``, ועמוד שיכול היה לצאת מהקאש נפל ב-500. שליפה שלא הצליחה (``None``)
+    # היא ברירות המחדל (``{}``) — בדיוק מה ש-``inject_globals`` מרנדר באותו מצב.
     _fonts_user_doc = None
     if user_id and _etag_needs_user_doc():
-        try:
-            _fonts_user_doc = get_db().users.find_one(
-                {'user_id': int(user_id)}, ETAG_USER_PROJECTION
-            ) or {}
-        except PyMongoError:
-            # המסד לא ענה: ``None`` ← ``_note_fonts_etag_key`` שולף בעצמו, ובכשל נופל לברירת
-            # המחדל — אותה הכרעה שהרינדור עצמו מקבל במסד שלא ענה. רק כשל מסד נתפס; באג עולה.
-            logger.warning("files page: reading the user document for the note-fonts key failed", exc_info=True)
-            _fonts_user_doc = None
+        _fonts_user_doc = _request_user_doc(user_id) or {}
     _fonts_tag = _note_fonts_etag_key(user_id, user_doc=_fonts_user_doc)
     try:
         _params = {

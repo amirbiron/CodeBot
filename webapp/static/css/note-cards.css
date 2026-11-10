@@ -24,6 +24,14 @@
   font: inherit;
   text-align: start;
   color: #2b3f6a;
+}
+/* **המעבר — בשם המחלקה פעמיים, בכוונה.** ``dark-mode.css`` כותב ``transition`` על
+   ``[data-theme="dark"] *`` (וכן ``dim``, ``nebula``, ``custom``, ``shared:``) — ספציפיות של מחלקה
+   אחת — ונטען אחרי ``extra_css``, ולכן כלל ``transition`` על ``.archive-card`` לבדו נדרס בכל הערכות
+   הכהות: הריחוף קפץ בלי הנפשה, ו-``prefers-reduced-motion`` לא ביטל את המעברים של הערכה. נמדד
+   בכרומיום ב-``getComputedStyle``. החזרה על המחלקה מעלה את הספציפיות בלי ``!important``, כמו
+   ``.ck-toast.ck-toast`` (``docs/webapp/theming_and_css.rst``, "מלכודת ספציפיות ב-transition"). */
+.archive-card.archive-card {
   transition: transform .18s ease, box-shadow .18s ease;
 }
 /* **צבע הפתק גובר על כללי הערכה שמכוונים ל-``button``.** הכרטיס הוא ``<button>`` (נגיש
@@ -117,8 +125,8 @@
   50% { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .archive-card,
-  .archive-card.is-skeleton { animation: none; transition: none; }
+  /* אותה ספציפיות כמו כלל המעבר שמעל, ומאותה סיבה — אחרת המעברים של הערכה הכהה נשארים. */
+  .archive-card.archive-card { animation: none; transition: none; }
 }
 
 /* **הווריאנט של עמוד הקבצים** (חדש) — אותו כרטיס, נמוך יותר וברוחב קבוע. המידות אינן מוקלדות

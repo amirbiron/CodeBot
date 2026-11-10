@@ -731,9 +731,18 @@ def _json_object():
     traceback — על טעות של הלקוח. הבדיקה היא על הטיפוס, לא על האמיתות: אין גוף
     ← מילון ריק, כי למסלולים יש ברירות מחדל (דחייה בלי ``minutes`` היא שעה);
     גוף שאינו אובייקט ← ``None``, והמסלול עונה ``invalid_payload`` 400.
+
+    **"אין גוף" הוא גוף ריק באמת, ולא כל ``None`` של ``get_json``.** ``get_json(silent=True)``
+    מחזיר ``None`` גם על JSON פגום, גם על הליטרל ``null`` וגם על גוף שה-``Content-Type`` שלו אינו
+    JSON — ועד נובמבר 2026 כל אלה הפכו כאן למילון ריק, כלומר בקשה שהלקוח שלח עם נתונים נענתה
+    כאילו לא שלח כלום: נעיצה לעמוד הקבצים בלי ``device_limit`` שנשלח, דחייה של שעה במקום מה
+    שנשלח. כל הלקוחות של המסלולים האלה שולחים ``application/json`` (``sticky-notes.js``,
+    ``base.html``, ``sw.js``), ולכן גוף שיש בו משהו ולא פוענח לאובייקט הוא טעות של הלקוח.
     """
     payload = request.get_json(silent=True)
     if payload is None:
+        if request.get_data(cache=True).strip():
+            return None
         return {}
     return payload if isinstance(payload, dict) else None
 
@@ -2284,6 +2293,19 @@ def get_archived_note(note_id: str):
     רק פתק שבארכיון ושייך למשתמש; כל פתק אחר עונה ``404 note_not_found``. כשל בקריאת
     השרשורים אינו מפיל את התשובה: ``threads_unavailable``, כמו ברשימות של שאר היעדים.
     """
+    return _one_note_in_scope(note_id, archived_notes_filter, 'get_archived_note', 'Failed to load archived note')
+
+
+def _one_note_in_scope(note_id: str, scope_filter, route: str, error: str):
+    """פתק אחד, מלא, עם תקצירי השרשורים שלו — **רק אם הוא בתוך המשטח** שהמסנן מגדיר.
+
+    שני משטחים פותחים פתק אחד מעל כרטיסים, באותה זרימה בדיוק: הארכיון
+    (``archived_notes_filter``) ועמוד הקבצים (``files_page_pinned_filter``). ההבדל ביניהם הוא
+    המסנן ושם המסלול בלוג — ולכן הזרימה כאן פעם אחת. ``scope_filter(user_id)`` נותן גם את
+    הבעלות (``user_id``), כך שפתק של משתמש אחר אינו בתוך אף משטח. מזהה פגום ← ``400
+    invalid_note_id``; פתק שאינו במשטח ← ``404 note_not_found``; כשל בקריאת השרשורים אינו מפיל
+    את התשובה (``threads_unavailable``). כל חריגה אחרת ← ``_failed(route, error)``.
+    """
     try:
         user_id = int(session['user_id'])
         try:
@@ -2291,7 +2313,7 @@ def get_archived_note(note_id: str):
         except InvalidId:
             return _no_store(jsonify({'ok': False, 'error': 'invalid_note_id'})), 400
         db = get_db()
-        doc = db.sticky_notes.find_one({'_id': oid, **archived_notes_filter(user_id)})
+        doc = db.sticky_notes.find_one({'_id': oid, **scope_filter(user_id)})
         if not doc:
             return _no_store(jsonify({'ok': False, 'error': 'note_not_found'})), 404
         note = _as_note_response(doc)
@@ -2300,7 +2322,7 @@ def get_archived_note(note_id: str):
             payload['threads_unavailable'] = True
         return _no_store(jsonify(payload))
     except Exception:
-        return _failed('get_archived_note', 'Failed to load archived note')
+        return _failed(route, error)
 
 
 # --- נעיצה לעמוד הקבצים ---
@@ -2530,23 +2552,7 @@ def get_files_page_note(note_id: str):
     מהנעיצה או הועבר לארכיון ממכשיר אחר — עונה ``404 note_not_found``, והעמוד מוריד את הכרטיס.
     כשל בקריאת השרשורים אינו מפיל את התשובה: ``threads_unavailable``, כמו בשאר הרשימות.
     """
-    try:
-        user_id = int(session['user_id'])
-        try:
-            oid = ObjectId(str(note_id))
-        except InvalidId:
-            return _no_store(jsonify({'ok': False, 'error': 'invalid_note_id'})), 400
-        db = get_db()
-        doc = db.sticky_notes.find_one({'_id': oid, **files_page_pinned_filter(user_id)})
-        if not doc:
-            return _no_store(jsonify({'ok': False, 'error': 'note_not_found'})), 404
-        note = _as_note_response(doc)
-        payload: Dict[str, Any] = {'ok': True, 'note': note}
-        if not _with_thread_summaries(db, user_id, [note]):
-            payload['threads_unavailable'] = True
-        return _no_store(jsonify(payload))
-    except Exception:
-        return _failed('get_files_page_note', 'Failed to load pinned note')
+    return _one_note_in_scope(note_id, files_page_pinned_filter, 'get_files_page_note', 'Failed to load pinned note')
 
 
 # --- Board notes ---

@@ -88,13 +88,28 @@
       load({ quiet: true });
     },
     // הפתק עזב את עמוד הקבצים — נמחק, הועבר לארכיון או הוסר מהנעיצה — והשרת אישר.
+    //
+    // **המיקוד עובר לשכן לפי המזהה שלו, ולא לפי האלמנט.** ``removeNote`` בונה את השורה מאפס,
+    // ולכן אלמנט השכן שנשמר לפני ההסרה כבר אינו ב-DOM אחריה — ומיקוד שמכוון אליו נופל ל-``body``.
     onOverlayNoteGone: function (id) {
       var gone = cardFor(id);
-      var next = gone ? (gone.previousElementSibling || gone.nextElementSibling) : null;
+      var neighbor = gone ? (gone.previousElementSibling || gone.nextElementSibling) : null;
+      var neighborId = neighbor ? neighbor.getAttribute('data-note-id') : null;
       removeNote(id);
-      hideOverlay(next && next.isConnected ? next : null);
+      hideOverlay(focusAfterRemoval(neighborId));
     },
   });
+
+  /**
+   * לאן המיקוד הולך אחרי שכרטיס ירד, **בשורה שכבר נבנתה מחדש**: לשכן אם הוא עדיין בשורה; ל-"+N"
+   * אם השכן היה "+N", או עבר אל מאחוריו, או שהפתק נפתח מהרשימה שלו; ואחרת לכרטיס הראשון.
+   * ``null`` — אין יותר כרטיסים, והאזור כולו ירד.
+   */
+  function focusAfterRemoval(neighborId) {
+    return (neighborId && cardFor(neighborId))
+      || row.querySelector('.files-page-more')
+      || row.querySelector('[data-note-id]');
+  }
 
   function showOverlay() {
     overlay.hidden = false;

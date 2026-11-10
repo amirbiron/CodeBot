@@ -23,7 +23,7 @@ from __future__ import annotations
 from pathlib import Path
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _css_rules import IMPORTANT, beats, classes_of, css_rules, subject_of, theme_rules_on, weight
+from _css_rules import IMPORTANT, beats, classes_of, css_rules, specificity, subject_of, theme_rules_on, weight
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CSS_DIR = REPO_ROOT / "webapp/static/css"
@@ -96,3 +96,30 @@ def test_the_card_name_is_handwritten_in_one_rule_without_a_condition():
     """כלל אחד, בבורר של השם בלבד. ``.sticky-handwriting`` מעליו היה מחזיר את כתב היד להיות תלוי
     בהגדרה — שם היה עד אוקטובר 2026 — וכלל שני על השם היה מתחרה בו בספציפיות."""
     assert _title_fonts() == [("note-cards.css", ".archive-card-title", "'Gveret Levin', cursive")]
+
+
+# ── המעבר של הכרטיס מול הערכות הכהות ───────────────────────────────────────────────────
+
+
+def _dark_theme_transitions() -> list[str]:
+    """הבוררים ב-``dark-mode.css`` שמציבים ``transition`` על **כל** אלמנט (``[data-theme="dark"] *``)."""
+    css = (CSS_DIR / "dark-mode.css").read_text(encoding="utf-8")
+    return [sel for sel, decls in css_rules(css) if "transition" in decls and subject_of(sel).startswith("*")]
+
+
+def test_the_card_transition_beats_the_dark_themes_transition_on_every_element():
+    """``dark-mode.css`` נטען אחרי ``extra_css`` וכותב ``transition`` על כל אלמנט בספציפיות של מחלקה
+    אחת, ולכן כלל ``transition`` על ``.archive-card`` לבדו נדרס בכל הערכות הכהות: הריחוף קפץ בלי הנפשה,
+    ו-``prefers-reduced-motion`` לא ביטל את המעברים של הערכה (נמדד בכרומיום ב-``getComputedStyle``).
+    כל כלל ``transition`` של הכרטיס — גם זה שבתוך ה-``@media`` — חייב לגבור **ממש**, ולא בשוויון."""
+    rivals = _dark_theme_transitions()
+    assert rivals, "אין כלל transition גורף ב-dark-mode.css — הבדיקה הייתה עוברת על כלום"
+    strongest = max(specificity(sel) for sel in rivals)
+    ours = [
+        (sel, decls["transition"])
+        for sel, decls in css_rules(CARDS_CSS.read_text(encoding="utf-8"))
+        if "transition" in decls and "archive-card" in classes_of(subject_of(sel))
+    ]
+    assert {value for _sel, value in ours} >= {"transform .18s ease, box-shadow .18s ease", "none"}, ours
+    for sel, _value in ours:
+        assert specificity(sel) > strongest, f"{sel} {specificity(sel)} אינו גובר על {strongest} של dark-mode.css"

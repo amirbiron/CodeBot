@@ -78,7 +78,7 @@ class El {
  * מריץ את העמוד. ``answer(url)`` מחזיר ``[status, body]``; ``search`` היא מחרוזת השאילתה של
  * הכתובת. מחזיר את הרשמים: הבקשות, הטוסטים, ההחלפות של ההיסטוריה והמנהל המדומה.
  */
-function runPage({ answer, search = '' }) {
+function runPage({ answer, search = '', textApi = null }) {
   const body = new El('body');
   const ids = {};
   for (const [id, tag] of [['archiveGrid', 'div'], ['archiveMain', 'main'], ['archiveOverlay', 'div'],
@@ -96,6 +96,8 @@ function runPage({ answer, search = '' }) {
     location,
     history: { replaceState: (_s, _t, url) => { replaced.push(url); location.search = ''; } },
     ckToast: (message, type) => { toasts.push({ message, type }); return true; },
+    // הכלל של קוד בשורה בא מ-``sticky-notes.js`` (``window.StickyNotesText``), שהעמוד טוען לפני הכרטיסים.
+    StickyNotesText: textApi || undefined,
     StickyNotesManager: function StickyNotesManager(opts) {
       mgr.opts = opts;
       this.openOverlayNote = (note, o) => { mgr.opened.push({ note, opts: o }); return new El('div'); };
@@ -154,6 +156,13 @@ check('החיבור של הרצפים הוא השם עצמו — שום תו ל�
   }
 });
 
+check('אות לטינית מוטעמת היא חלק מהרצף — café לא מתפצל, גם כשהטעם הוא סימן צמוד', () => {
+  // נופל על הביטוי של ASCII: ``caf`` מבודד, ו-``é`` נשאר ברצף העברי וצויר משמאל לו.
+  eq(JSON.stringify(runs('קפה café טוב')), JSON.stringify(['rtl:קפה ', 'ltr:café', 'rtl: טוב']));
+  eq(JSON.stringify(runs('תיקון e\u0301te בדף')), JSON.stringify(['rtl:תיקון ', 'ltr:e\u0301te', 'rtl: בדף']));
+  eq(JSON.stringify(runs('naïve /über/path')), JSON.stringify(['ltr:naïve /über/path']));
+});
+
 check('כיוון הפסקה: עברית כלשהי ← rtl; בלי עברית ← ltr', () => {
   eq(text.titleDir('Fix login bug'), 'ltr', 'אנגלית');
   eq(text.titleDir('Fix באג'), 'rtl', 'מעורב');
@@ -192,6 +201,25 @@ check('הכרטיסים נבנים בסדר שהשרת נתן, עם שם, צבע
   eq(second.style.getPropertyValue('--archive-card-color'), '#c8e6c9', 'הצבע — כטוקן שהכלל ב-CSS קורא');
   eq(p.ids.archiveCount.textContent, '2 / 500', 'המונה עם התקרה');
   eq(p.ids.archiveGrid.attrs['aria-busy'], 'false', 'הטעינה הסתיימה');
+});
+
+check('קוד בשורה בשם הפתק מוצג על כרטיס הארכיון כ-<code>, בלי הגרשיים', async () => {
+  // העמוד מעביר את השם לרכיב הכרטיס, והרכיב מפרק אותו לפי הכלל של הפתק (``inlineCodeSegments`` —
+  // הכלל עצמו נבדק מול markdown-it ב-``sticky-notes-target.test.js``). כאן: שכרטיס הארכיון משתמש בו.
+  const calls = [];
+  const textApi = {
+    inlineCodeSegments: (s) => {
+      calls.push(s);
+      return String(s).split('`').map((text, i) => ({ text, code: i % 2 === 1 })).filter((x) => x.text);
+    },
+  };
+  const p = runPage({ textApi, answer: () => [200, { ok: true, notes: [card('a', 'תיקון `save_file` בשרת')], max: 500 }] });
+  await tick(); await tick();
+  const title = p.cards()[0].querySelector('.archive-card-title');
+  eq(calls.includes('תיקון `save_file` בשרת'), true, 'השם עבר בכלל של הפתק');
+  eq(title.children.map((c) => `${c.tagName.toLowerCase()}:${c.textContent}`).join('|'),
+    'span:תיקון |code:save_file|span: בשרת', 'הקטעים');
+  eq(title.textContent.includes('`'), false, 'אין גרשיים גלויים');
 });
 
 check('לאדמין אין תקרה (max: null) — המונה בלי "/"', async () => {

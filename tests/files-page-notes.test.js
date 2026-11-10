@@ -60,7 +60,9 @@ class El {
   get previousElementSibling() { const s = this.parentNode && this.parentNode.children; return s ? s[s.indexOf(this) - 1] || null : null; }
   get nextElementSibling() { const s = this.parentNode && this.parentNode.children; return s ? s[s.indexOf(this) + 1] || null : null; }
   addEventListener(type, fn) { this.listeners[type] = fn; }
-  focus() { El.focused = this; }
+  // **מיקוד לכל עמוד בנפרד, ורק לאלמנט שמחובר ל-DOM** — כמו בדפדפן: ``focus()`` על אלמנט מנותק אינו
+  // עושה כלום. מיקוד משותף לכל הבדיקות (שרצות במקביל) היה מעביר בדיקה בזכות כרטיס של בדיקה אחרת.
+  focus() { if (!this.isConnected) return; let n = this; while (n.parentNode) n = n.parentNode; n.__focused = this; }
   getBoundingClientRect() {
     // רוחב לכל עמוד בנפרד (``rowWidth`` של ``runPage``): הבדיקות האסינכרוניות רצות במקביל, ומשתנה
     // משותף היה מזיז את הרוחב של בדיקה אחת באמצע אחרת.
@@ -103,6 +105,8 @@ function runPage({ answer, innerHeight = 800, banner = false, store = {}, rowWid
   const recorded = [];
   const mgr = { opts: null, opened: [], closed: 0 };
   const docListeners = {};
+  // מה שבמיקוד בעמוד הזה — ``null`` כשהאלמנט שהיה במיקוד כבר אינו ב-DOM (בדפדפן: ``body``).
+  const focused = () => (body.__focused && body.__focused.isConnected ? body.__focused : null);
   const window = {
     innerHeight,
     ckToast: (message, type) => { toasts.push({ message, type }); return true; },
@@ -130,7 +134,7 @@ function runPage({ answer, innerHeight = 800, banner = false, store = {}, rowWid
       createElement: (tag) => new El(tag),
       addEventListener: (type, fn) => { docListeners[type] = fn; },
       // ``render`` זוכר על מה עמד המיקוד, כדי להחזיר אליו אחרי הבנייה מחדש — כמו בדפדפן.
-      get activeElement() { return El.focused || null; },
+      get activeElement() { return focused(); },
     },
     fetch: async (url) => {
       requests.push(String(url));
@@ -145,7 +149,7 @@ function runPage({ answer, innerHeight = 800, banner = false, store = {}, rowWid
   const cards = () => row.children.filter((c) => c._classes.has('archive-card'));
   const more = () => row.children.find((c) => c._classes.has('files-page-more-wrap')) || null;
   const overlay = body.children.find((c) => c.id === 'filesPageNoteOverlay');
-  return { ids, main, row, requests, toasts, recorded, mgr, cards, more, overlay, docListeners, window, store };
+  return { ids, main, row, requests, toasts, recorded, mgr, cards, more, overlay, docListeners, window, store, focused };
 }
 
 const pin = (id, label, color = '#ffffcc') => ({ id, label, color, color_id: 'yellow', files_page_pinned_at: '2026-11-10T09:00:00+00:00' });
@@ -216,7 +220,7 @@ check('"+N" נפתח לרשימה של הפתקים שלא נכנסו, ומשם 
   const items = p.more().querySelectorAll('.archive-card');
   eq(items.map((i) => i.getAttribute('data-note-id')).join(','), 'b,c', 'הנסתרים');
   eq(btn.getAttribute('aria-expanded'), 'true', 'aria-expanded');
-  eq(El.focused === items[0], true, 'המיקוד על הראשון ברשימה');
+  eq(p.focused() === items[0], true, 'המיקוד על הראשון ברשימה');
   await items[1].listeners.click();
   await tick();
   eq(p.mgr.opened.length, 1, 'הפתק נפתח');
@@ -280,7 +284,19 @@ check('הפתק עזב את העמוד (נמחק/לארכיון/הוסר): הכ�
   eq(p.cards().map((c) => c.getAttribute('data-note-id')).join(), 'a', 'נשאר אחד');
   eq(p.overlay.hidden, true, 'השכבה נסגרה');
   eq(p.main.inert, false, 'התוכן פעיל');
-  eq(!!El.focused && El.focused.getAttribute('data-note-id'), 'a', 'המיקוד על השכן');
+  eq(!!p.focused() && p.focused().getAttribute('data-note-id'), 'a', 'המיקוד על השכן — בשורה שנבנתה מחדש');
+});
+
+check('הפתק שעזב נפתח מהרשימה של "+N": המיקוד חוזר ל-"+N" שנבנה מחדש, ולא נופל ל-body', async () => {
+  const p = runPage({ answer: list(pin('a', 'א'), pin('b', 'ב'), pin('c', 'ג'), pin('d', 'ד')), rowWidth: 366 });
+  await tick(); await tick();
+  p.more().querySelector('.files-page-more').listeners.click({ stopPropagation() {} });
+  const chip = p.more().querySelectorAll('.archive-card').find((c) => c.getAttribute('data-note-id') === 'c');
+  await chip.listeners.click();
+  await tick();
+  p.mgr.opts.onOverlayNoteGone('c');
+  eq(p.more().querySelector('.files-page-more').textContent, '+2', 'נשארו שניים מאחורי "+N"');
+  eq(p.focused() === p.more().querySelector('.files-page-more'), true, 'המיקוד על "+N" החדש');
 });
 
 check('סגירת הפתק טוענת את הרשימה שוב — התווית נגזרת בשרת — והמיקוד חוזר לאותו כרטיס', async () => {
@@ -294,7 +310,7 @@ check('סגירת הפתק טוענת את הרשימה שוב — התווית 
   p.mgr.opts.onOverlayNoteClosed({ id: 'a', title: '', color: '#fff' });
   await tick(); await tick();
   eq(p.cards()[0].querySelector('.archive-card-title').textContent, 'חדש', 'התווית מהשרת');
-  eq(El.focused === p.cards()[0], true, 'המיקוד על הכרטיס החדש — לא נפל ל-body');
+  eq(p.focused() === p.cards()[0], true, 'המיקוד על הכרטיס החדש — לא נפל ל-body');
   eq(p.requests.filter((u) => u === '/api/sticky-notes/files-page').length, 2, 'נטען פעמיים');
 });
 

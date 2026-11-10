@@ -689,6 +689,9 @@
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
+{# תקרות האורך של הפתק ושל תגובה בשרשור, מהשרת — לפני ``sticky-notes.js``, כמו בכל משטח שמארח פתקים:
+   בלעדיהן הפתק שנפתח מעל הכרטיסים אינו מזהיר בזמן ההקלדה, והשרת הוא שמסרב בשמירה. #}
+<script>window.STICKY_NOTE_MAX_CHARS = {{ max_note_chars | tojson }}; window.NOTE_THREAD_MAX_CHARS = {{ max_thread_comment_chars | tojson }};</script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/note-cards.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/files-page-notes.js') }}?v={{ static_version }}"></script>

@@ -151,7 +151,7 @@ Endpoints
      - POST
      - נעיצת פתק לוח לראש עמוד הקבצים (:ref:`sticky-notes-files-page-pin`). הפתק נשאר בלוח, ו-``updated_at`` אינו משתנה. פתק שאינו של המשתמש ← ``404 note_not_found``; פתק בארכיון ← ``409 note_archived``; פתק שאינו פתק לוח ← ``400 not_a_board_note``; כבר נעוץ ← ``200`` עם ``already_pinned: true``, בלי כתיבה. תקרה מלאה ← ``409 files_page_pins_full`` עם ``max`` (התקרה שחלה), ``pinned`` ו-``device_limited`` (המכשיר הוריד את התקרה), וספירה שנכשלה ← ``409 note_quota_unknown``. אין הסרה אוטומטית של פתק ישן
      - ✅
-     - ``{"device_limit": 2}`` — אופציונלי: כמה כרטיסים נכנסים בשורה בעמוד הקבצים במסך שממנו נועצים. רק מוריד את התקרה; ``int`` שאינו ``bool`` ואינו שלילי, ואחרת ``400 invalid_device_limit``. גוף שאינו אובייקט ← ``400 invalid_payload``
+     - ``{"device_limit": 2}`` — אופציונלי: כמה כרטיסים נכנסים בשורה בעמוד הקבצים במסך שממנו נועצים. רק מוריד את התקרה. שדה שלא נשלח, ``null``, או גוף ריק ← התקרה הכללית; ערך שנשלח חייב להיות ``int`` שאינו ``bool`` ואינו שלילי, ואחרת ``400 invalid_device_limit``. גוף שנשלח ואינו אובייקט — גם JSON פגום או ``null`` — ← ``400 invalid_payload``
      - ``{"ok": true, "already_pinned": false, "files_page_pinned_at": "...", "note": {...}}``
    * - ``/api/sticky-notes/note/<note_id>/files-page-pin``
      - DELETE

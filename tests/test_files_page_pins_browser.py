@@ -178,6 +178,11 @@ def test_unpin_and_archive_from_the_opened_note_take_the_card_down(db, admin_liv
         assert FIELD not in db.sticky_notes.find_one({"_id": ObjectId(a)})
         assert db.sticky_notes.find_one({"_id": ObjectId(a)})["board_id"] == board, "נשאר בלוח"
         assert page.evaluate("() => document.getElementById('filesPageNoteOverlay').hidden") is True
+        # המיקוד עבר לכרטיס שנשאר. השורה נבנתה מחדש בהסרה, ולכן אלמנט השכן שנשמר לפניה כבר לא היה
+        # ב-DOM — ועד התיקון המיקוד נפל ל-``body``.
+        assert page.evaluate(
+            "() => document.activeElement && document.activeElement.getAttribute('data-note-id')"
+        ) == b
 
         el = open_card(page, b)
         menu_item(page, el, "archive").click()

@@ -408,13 +408,17 @@
   /**
    * שומר את רוחב השורה שנמדד בעמוד הקבצים, אם הוא גדול מהשמור. ``localStorage`` יכול לזרוק
    * (חלון פרטי, אחסון חסום) — ואז פשוט אין מדידה שמורה, והנעיצה נשענת על התקרה של השרת בלבד.
+   *
+   * **הרוחב נשמר כמו שנמדד, בלי עיגול.** ``getBoundingClientRect`` נותן שברי פיקסל, והגבול בין
+   * "נכנסים k" ל-"נכנסים k+1" הוא מספר שלם (``k·w + (k−1)·gap``): עיגול כלפי מעלה של 347.6 ל-348
+   * היה מתיר נעיצה של כרטיס שני שבמסך הזה מוצג רק מאחורי "+N".
    */
   function recordFilesPageRowWidth(width){
     if (!Number.isFinite(width) || width <= 0) return;
     try {
       const prev = Number(window.localStorage.getItem(FILES_PAGE_ROW_WIDTH_KEY));
       if (Number.isFinite(prev) && prev >= width) return;
-      window.localStorage.setItem(FILES_PAGE_ROW_WIDTH_KEY, String(Math.round(width)));
+      window.localStorage.setItem(FILES_PAGE_ROW_WIDTH_KEY, String(width));
     } catch (err) {
       console.warn('sticky notes: could not store the files-page row width', err);
     }

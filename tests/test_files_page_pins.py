@@ -47,6 +47,12 @@ def test_the_pinned_filter_is_the_shape_the_index_answers():
     assert snt.FILES_PAGE_PINNED_SORT == ((FIELD, 1), ("_id", 1))
 
 
+def test_the_pinned_filter_is_built_on_the_active_filter_and_not_a_copy_of_it(monkeypatch):
+    """"פתק פעיל" מוגדר במקום אחד (``active_notes_filter``). עותק שלו כאן היה נשאר מאחור ביום שההגדרה משתנה."""
+    monkeypatch.setattr(snt, "active_notes_filter", lambda user_id: {"user_id": int(user_id), "archived_at": None, "probe": 1})
+    assert snt.files_page_pinned_filter(7)["probe"] == 1
+
+
 @pytest.mark.parametrize(
     ("value", "given", "expected"),
     [
@@ -263,6 +269,28 @@ def test_a_body_that_is_not_an_object_is_400(client):
     res = client.post(f"/api/sticky-notes/note/{OID}/files-page-pin", json=[1])
 
     assert res.status_code == 400 and res.get_json()["error"] == "invalid_payload"
+
+
+@pytest.mark.parametrize("raw", ["{", "null", "[1"], ids=["broken-json", "json-null", "broken-list"])
+def test_a_body_that_was_sent_but_is_not_an_object_is_400_and_not_an_empty_body(client, raw):
+    """``get_json(silent=True)`` מחזיר ``None`` גם על JSON פגום ועל ``null``. עד התיקון ``_json_object``
+    הפך כל ``None`` למילון ריק, והנעיצה רצה בלי ה-``device_limit`` שהלקוח שלח."""
+    client.db.sticky_notes.docs.append(_board_note())
+
+    res = client.post(f"/api/sticky-notes/note/{OID}/files-page-pin", data=raw, content_type="application/json")
+
+    assert res.status_code == 400 and res.get_json()["error"] == "invalid_payload"
+    assert FIELD not in client.db.sticky_notes.docs[0]
+
+
+def test_an_empty_body_is_still_the_defaults(client):
+    """גוף ריק באמת — ולא גוף שלא פוענח — הוא "בלי ``device_limit``": התקרה הכללית."""
+    client.db.sticky_notes.docs.append(_board_note())
+
+    res = client.post(f"/api/sticky-notes/note/{OID}/files-page-pin", data="", content_type="application/json")
+
+    assert res.status_code == 200, res.get_json()
+    assert isinstance(client.db.sticky_notes.docs[0][FIELD], dt.datetime)
 
 
 def _write_lost_to(client, monkeypatch, change):
@@ -489,6 +517,32 @@ def test_without_room_the_note_comes_back_unpinned_and_the_summary_says_so():
     assert len(errors) == 1 and "בלי הנעיצה" in errors[0]
 
 
+class _CountsPinCounts(_Coll):
+    """סופר כמה פעמים נספרו הנעוצים — ורק אותם; ספירות התקרה של השחזור אינן בספירה."""
+
+    def __init__(self, docs):
+        super().__init__(docs)
+        self.pin_counts = 0
+
+    def count_documents(self, query):
+        if FIELD in query:
+            self.pin_counts += 1
+        return super().count_documents(query)
+
+
+def test_once_the_files_page_is_full_the_remaining_pins_are_skipped_without_counting_each():
+    """השחזור רק מוסיף נעיצות, ולכן כשהתקרה מלאה גם השאר לא ייכנסו. ספירה לכל נעיצה שנשארה הייתה
+    שולחת, בגיבוי של אלפי פתקי לוח, אלפי ספירות אחרי שכבר ברור שאין מקום."""
+    sticky = _CountsPinCounts([_pinned(i) for i in range(3)])
+    raw, count, errors = _restore([_backup_note(f"פתק {i}", pinned_minutes=i + 1) for i in range(6)], sticky)
+
+    assert count == 6
+    assert sum(1 for d in raw.sticky_notes.docs if FIELD in d and d.get("content", "").startswith("פתק")) == 1
+    # ספירה אחת שמצאה מקום, ואחת שמצאה מלא — ולא שש
+    assert sticky.pin_counts == 2, sticky.pin_counts
+    assert len(errors) == 1 and errors[0].startswith("5 פתקים שוחזרו בלי הנעיצה"), errors
+
+
 def test_a_failed_pin_count_restores_the_notes_without_pins(caplog):
     raw, count, errors = _restore([_backup_note("א", pinned_minutes=1)], _PinCountFails())
 
@@ -520,10 +574,13 @@ class _EmptySnippets:
 
 
 class _Users:
-    def __init__(self, prefs):
+    def __init__(self, prefs, reads=None):
         self.prefs = prefs
+        self.reads = reads
 
-    def find_one(self, _query, _projection=None):
+    def find_one(self, query, projection=None):
+        if self.reads is not None:
+            self.reads.append((query, projection))
         return {"user_id": 123, "ui_prefs": dict(self.prefs)}
 
 
@@ -547,10 +604,10 @@ class _RecordingCache:
 def files_page(monkeypatch):
     from webapp import app as webapp_app
 
-    state = {"prefs": {}, "cache": _RecordingCache()}
+    state = {"prefs": {}, "cache": _RecordingCache(), "user_reads": []}
 
     def _db():
-        return SimpleNamespace(code_snippets=_EmptySnippets(), users=_Users(state["prefs"]))
+        return SimpleNamespace(code_snippets=_EmptySnippets(), users=_Users(state["prefs"], state["user_reads"]))
 
     monkeypatch.setattr(webapp_app, "get_db", _db, raising=True)
     monkeypatch.setattr(webapp_app, "cache", state["cache"], raising=True)
@@ -618,6 +675,31 @@ def test_the_note_font_setting_is_part_of_the_page_cache_key(files_page):
     assert "window.STICKY_FONT_FROM_SETTINGS = false;" in second, "הוגש HTML מהקאש עם הדגל הישן"
     files_keys = [k for k in state["cache"].store if k.startswith("web:files:user:123:")]
     assert len(files_keys) == 2, files_keys
+
+
+def test_the_cache_key_and_the_page_read_one_user_document(files_page):
+    """המפתח והרינדור נבנים מאותו מסמך משתמש (``_request_user_doc``, בלי היטלה): שליפה נפרדת למפתח
+    (``ETAG_USER_PROJECTION``) הייתה שאילתה שנייה בכל cache miss, ושינוי העדפה בין שתי השליפות היה שומר
+    HTML של מסמך אחד תחת מפתח של אחר. (השליפה המוקרנת של התצוגה המצומצמת — ``_resolve_files_compact_view``
+    — קדמה לשינוי, ואינה חלק מהבדיקה.)"""
+    from webapp import app as webapp_app
+
+    render, state = files_page
+    render()
+    whole = [q for q, projection in state["user_reads"] if projection is None]
+    for_the_key = [q for q, projection in state["user_reads"] if projection == webapp_app.ETAG_USER_PROJECTION]
+    assert (len(whole), for_the_key) == (1, []), state["user_reads"]
+
+
+def test_a_database_in_its_cooldown_still_serves_the_cached_page(files_page, monkeypatch):
+    """``get_db()`` מחזיר ``None`` בחלון הצינון שלו. המפתח נבנה אז מברירות המחדל — מה ש-``inject_globals``
+    מרנדר באותו מצב — והעמוד שכבר בקאש יוצא ממנו, ולא נופל ב-500 על ``None.users``."""
+    from webapp import app as webapp_app
+
+    render, state = files_page
+    first = render()
+    monkeypatch.setattr(webapp_app, "get_db", lambda: None, raising=True)
+    assert render() == first
 
 
 # ---------------------------------------------------------------------------
