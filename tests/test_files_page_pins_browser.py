@@ -51,14 +51,14 @@ def db(monkeypatch):
 
 
 @contextlib.contextmanager
-def opened(server, executable, path, viewport=DESKTOP, *, local_storage=None):
+def opened(server, executable, path, viewport=DESKTOP, *, local_storage=None, touch=False):
     with sync_playwright() as pw:
         try:
             browser = pw.chromium.launch(executable_path=executable)
         except Exception as exc:  # pragma: no cover - תלוי בסביבה
             pytest.skip(f"אין Chromium זמין: {exc}")
         try:
-            context = browser.new_context(viewport=viewport, locale="he-IL")
+            context = browser.new_context(viewport=viewport, locale="he-IL", has_touch=touch)
             context.add_cookies([{"name": "session", "value": server.session_cookie,
                                   "domain": "127.0.0.1", "path": "/"}])
             if local_storage:
@@ -75,10 +75,11 @@ def opened(server, executable, path, viewport=DESKTOP, *, local_storage=None):
             browser.close()
 
 
-def board_note(db, board: str, title: str, *, pinned_minutes=None, y: int = 40) -> str:
+def board_note(db, board: str, title: str, *, pinned_minutes=None, y: int = 40, content=None) -> str:
     oid = ObjectId()
     now = datetime.now(timezone.utc)
-    doc = {"_id": oid, "user_id": USER, "board_id": board, "content": f"# {title}\nגוף", "title": title,
+    body = f"# {title}\nגוף" if content is None else content
+    doc = {"_id": oid, "user_id": USER, "board_id": board, "content": body, "title": title,
            "color": "yellow", "mode": "surface", "position_x": 40, "position_y": y, "width": 420, "height": 300,
            "created_at": now, "updated_at": now}
     if pinned_minutes is not None:
@@ -189,6 +190,94 @@ def test_unpin_and_archive_from_the_opened_note_take_the_card_down(db, admin_liv
         poll(page, "() => document.getElementById('filesPageNotes').hidden", "האזור ירד")
         stored = db.sticky_notes.find_one({"_id": ObjectId(b)})
         assert isinstance(stored.get("archived_at"), datetime) and FIELD not in stored
+        assert page.js_errors == []
+
+
+def stored(page, db, note_id: str, check, what: str) -> None:
+    """מחכה שהמסמך במסד יקיים את ``check`` — השמירה יוצאת אחרי ה-``blur``, ברקע — ונכשל עם ``what``."""
+    for _ in range(100):
+        doc = db.sticky_notes.find_one({"_id": ObjectId(note_id)})
+        if doc and check(doc):
+            return
+        page.wait_for_timeout(100)
+    raise AssertionError(f"{what}: {db.sticky_notes.find_one({'_id': ObjectId(note_id)})}")
+
+
+#: נקודה על הרקע של השכבה, הרחק מהפתק שבמרכז המסך.
+BACKDROP_POINT = (12, DESKTOP["height"] - 12)
+
+#: מה שבמיקוד ומה שמוצג בפתק הפתוח — מתוך מה שהדפדפן מצייר, ולא מהרשומה של המנהל.
+NOTE_STATE_JS = """e => ({
+  open: e.isConnected && !document.getElementById('filesPageNoteOverlay').hidden,
+  focusOnNote: document.activeElement === e,
+  viewShown: !e.querySelector('.sticky-note-tasks').hidden,
+  editingTitle: e.classList.contains('is-editing-title'),
+})"""
+
+
+@pytest.mark.parametrize("touch", [False, True], ids=["mouse", "touch"])
+def test_a_tap_on_the_backdrop_while_editing_leaves_editing_and_a_second_one_closes(
+        db, admin_live_server, chromium_executable, touch):
+    """בעריכה, הנגיעה הראשונה ברקע יוצאת לתצוגה — עם השמירה הרגילה — והפתק נשאר פתוח; השנייה סוגרת.
+    עד התיקון כל נגיעה ברקע סגרה את הפתק, ולא הייתה דרך לראות את התצוגה בנגיעה אחת. **גם במגע**
+    (``touchscreen.tap``, כמו בטאבלט): שם הדפדפן מעביר את הפוקוס בסדר אחר מעכבר."""
+    board = insert_board(db, USER)
+    a = board_note(db, board, "עריכה", pinned_minutes=0)
+
+    def tap_backdrop(page):
+        if touch:
+            page.touchscreen.tap(*BACKDROP_POINT)
+        else:
+            page.mouse.click(*BACKDROP_POINT)
+
+    with opened(admin_live_server, chromium_executable, "/files", touch=touch) as page:
+        wait_cards(page, 1)
+        note = open_card(page, a)
+        if touch:
+            note.locator(".sticky-note-tasks").tap()
+        else:
+            note.locator(".sticky-note-tasks").click()
+        poll(page, "() => document.activeElement && document.activeElement.classList.contains('sticky-note-content')",
+             "נכנסו לעריכה")
+        page.keyboard.press("End")
+        page.keyboard.type(" נוסף")
+
+        tap_backdrop(page)
+        state = note.evaluate(NOTE_STATE_JS)
+        assert state == {"open": True, "focusOnNote": True, "viewShown": True, "editingTitle": False}, state
+        stored(page, db, a, lambda d: d["content"].endswith(" נוסף"), "היציאה מעריכה שמרה את התוכן")
+
+        tap_backdrop(page)
+        note.wait_for(state="detached", timeout=10000)
+        assert page.evaluate("() => document.getElementById('filesPageNoteOverlay').hidden") is True
+        assert page.js_errors == []
+
+
+def test_a_plain_text_note_and_the_title_also_leave_editing_first(db, admin_live_server, chromium_executable):
+    """הכרעת המשתמש: גם בפתק טקסט רגיל, שאין לו תצוגה מרונדרת, וגם בעריכת השם — נגיעה אחת אינה סוגרת."""
+    board = insert_board(db, USER)
+    a = board_note(db, board, "רגיל", pinned_minutes=0, content="שורה רגילה בלי מארקדאון")
+
+    with opened(admin_live_server, chromium_executable, "/files") as page:
+        wait_cards(page, 1)
+        note = open_card(page, a)
+        note.locator(".sticky-note-content").click()
+        page.mouse.click(*BACKDROP_POINT)
+        state = note.evaluate(NOTE_STATE_JS)
+        assert (state["open"], state["focusOnNote"]) == (True, True), state
+
+        note.locator(".sticky-note-edit-title").click()
+        poll(page, "() => document.activeElement && document.activeElement.classList.contains('sticky-note-title')",
+             "נכנסו לעריכת השם")
+        page.keyboard.press("End")
+        page.keyboard.type(" חדש")
+        page.mouse.click(*BACKDROP_POINT)
+        state = note.evaluate(NOTE_STATE_JS)
+        assert (state["open"], state["editingTitle"], state["focusOnNote"]) == (True, False, True), state
+        stored(page, db, a, lambda d: d.get("title") == "רגיל חדש", "השם נשמר")
+
+        page.mouse.click(*BACKDROP_POINT)
+        note.wait_for(state="detached", timeout=10000)
         assert page.js_errors == []
 
 

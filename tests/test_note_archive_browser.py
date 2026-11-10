@@ -267,6 +267,34 @@ def test_escape_and_the_backdrop_close_and_x_deletes(admin_live_server, chromium
         assert page.evaluate("document.activeElement.dataset.noteId") == second, "המיקוד עבר לשכן"
 
 
+def test_a_tap_on_the_backdrop_while_editing_only_leaves_editing(admin_live_server, chromium_executable, db):
+    """אותה שכבה משותפת של עמוד הקבצים (``_onOverlayBackdropClick`` ב-``sticky-notes.js``): בעריכה הנגיעה
+    הראשונה ברקע יוצאת לתצוגה, נשמרת, והפתק נשאר פתוח; השנייה סוגרת. עד התיקון כל נגיעה סגרה."""
+    note_id = archived(db, "עריכה")
+
+    with opened(admin_live_server, chromium_executable, "/boards/archive") as page:
+        card(page, note_id).wait_for(state="visible", timeout=20000)
+        el = open_note(page, note_id)
+        el.locator(".sticky-note-tasks").click()
+        el.locator(".sticky-note-content").wait_for(state="visible", timeout=5000)
+        page.keyboard.press("End")
+        page.keyboard.type(" נוסף")
+
+        page.mouse.click(10, DESKTOP["height"] - 10)
+        state = el.evaluate("""e => ({open: e.isConnected, focusOnNote: document.activeElement === e,
+                                     viewShown: !e.querySelector('.sticky-note-tasks').hidden})""")
+        assert state == {"open": True, "focusOnNote": True, "viewShown": True}, state
+        for _ in range(100):
+            if db.sticky_notes.find_one({"_id": ObjectId(note_id)})["content"].endswith(" נוסף"):
+                break
+            page.wait_for_timeout(100)
+        assert db.sticky_notes.find_one({"_id": ObjectId(note_id)})["content"].endswith(" נוסף"), "נשמר"
+
+        page.mouse.click(10, DESKTOP["height"] - 10)
+        el.wait_for(state="detached", timeout=10000)
+        assert page.js_errors == []
+
+
 # == קישור עמוק, ומצב שגיאה =================================================================
 
 

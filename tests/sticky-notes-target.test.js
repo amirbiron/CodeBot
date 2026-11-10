@@ -327,6 +327,14 @@ class FakeEl {
   addEventListener(type, fn, opts) {
     (this._listeners || (this._listeners = {}))[type] = fn;
     (this._listenerOpts || (this._listenerOpts = {}))[type] = opts;
+    const all = this._allListeners || (this._allListeners = {});
+    (all[type] || (all[type] = [])).push(fn);
+  }
+  // **כל המאזינים לסוג, בסדר הרישום — כמו שהדפדפן מריץ אותם.** ``_listeners`` שומר רק את האחרון,
+  // ולשדה ההקלדה יש שני מאזינים ל-``focus`` ושניים ל-``blur`` (בניית התצוגה ומצב העריכה; השמירה);
+  // בדיקה שקוראת רק לאחרון הייתה מדלגת על הראשון בשקט.
+  _fire(type, ev) {
+    for (const fn of ((this._allListeners || {})[type] || [])) fn(ev);
   }
   focus() { FakeEl.focused = this; sandbox.__focused = this; }
   blur() {
@@ -5004,6 +5012,102 @@ check('ארכיון: "—" סוגר ומוסר לעמוד את השם והצבע
   eq(/^#[0-9a-f]{6}$/i.test(closed[0].color), true, `צבע כ-hex — ${closed[0].color}`);
   eq(m.notes.has('ar2'), false, 'הפתק ירד');
   eq(env.requests.some((r) => r.body && 'is_minimized' in r.body), false, 'ומיזעור לא נכתב');
+});
+
+/**
+ * נגיעה ברקע של הפתק הפתוח, כמו שהדפדפן מריץ אותה: ``pointerdown`` ואז ``click``, שניהם על הרקע,
+ * דרך המאזינים שהמנהל רשם על המכל. ``between`` רץ בין השניים — שם הדפדפן מעביר את הפוקוס.
+ */
+function tapBackdrop(env, { between } = {}) {
+  const body = env.sb.document.body;
+  let backdrop = body.querySelector('.note-overlay-backdrop');
+  if (!backdrop) { backdrop = new FakeEl('div'); backdrop.className = 'note-overlay-backdrop'; body.appendChild(backdrop); }
+  const press = { target: backdrop };
+  body._listeners.pointerdown(press);
+  if (between) between();
+  const click = { target: backdrop, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+  body._listeners.click(click);
+  return click;
+}
+
+check('פתק פתוח מעל עמוד: נגיעה ברקע בזמן עריכה רק יוצאת מהעריכה — הנגיעה מטופלת, והמיקוד עובר לפתק', async () => {
+  // נופל על הקוד שלפני: אין מאזין על המכל, והעמוד סגר את הפתק בכל נגיעה ברקע.
+  const env = archiveSandbox();
+  const { m, el, closed } = await openArchive(env, { id: 'ov1', content: '# כותרת\nשורה' });
+  eq(env.sb.document.body._listenerOpts.click, true, 'בשלב הלכידה — לפני המאזין של העמוד על הרקע');
+  const textarea = el.querySelector('.sticky-note-content');
+  textarea.focus();
+  textarea._fire('focus');
+  eq(m.notes.get('ov1').editing, true, 'מצב העריכה ברשומה');
+  // הדפדפן לא העביר את הפוקוס בנגיעה (יש כאלה, על אלמנט שאינו ניתן למיקוד): המנהל מוציא מעריכה בעצמו.
+  const click = tapBackdrop(env);
+  eq(click.defaultPrevented, true, 'הנגיעה מטופלת — העמוד אינו סוגר');
+  eq(FakeEl.focused === el, true, 'המיקוד על הפתק, ולא על התיבה או על body');
+  eq(m.notes.has('ov1'), true, 'הפתק פתוח');
+  eq(closed.length, 0, 'ולא נסגר');
+});
+
+check('פתק פתוח מעל עמוד: המצב נקרא ברגע הנגיעה — גם כשה-blur כבר רץ עד ה-click', async () => {
+  // נופל על בדיקה שנעשית רק ב-``click``: בדפדפן ה-``blur`` רץ בין ``pointerdown`` ל-``click``, ועד אז
+  // ``entry.editing`` כבר ``false`` — והנגיעה הייתה סוגרת.
+  const env = archiveSandbox();
+  const { m, el } = await openArchive(env, { id: 'ov2', content: 'טקסט רגיל, בלי תצוגה מרונדרת' });
+  const textarea = el.querySelector('.sticky-note-content');
+  textarea.focus();
+  textarea._fire('focus');
+  // בדפדפן: ברירת המחדל של ``mousedown`` מעבירה את הפוקוס, וה-``blur`` רץ לפני ה-``click``.
+  const click = tapBackdrop(env, { between: () => { textarea.blur(); textarea._fire('blur'); } });
+  eq(m.notes.get('ov2').editing, false, 'בקרה: עד ה-click הפתק כבר לא בעריכה');
+  eq(click.defaultPrevented, true, 'הייתה בעריכה ברגע הנגיעה — הנגיעה מטופלת, גם בפתק טקסט רגיל');
+});
+
+check('פתק פתוח מעל עמוד: בתצוגה — הנגיעה אינה מטופלת, והעמוד סוגר', async () => {
+  const env = archiveSandbox();
+  const { m } = await openArchive(env, { id: 'ov3', content: '# כותרת' });
+  eq(m.notes.get('ov3').editing === true, false, 'בקרה: לא בעריכה');
+  const click = tapBackdrop(env);
+  eq(click.defaultPrevented, false, 'לא מטופלת');
+  // והנגיעה הבאה אינה "זוכרת" עריכה ישנה: המצב נקרא מחדש בכל ``pointerdown``.
+  eq(tapBackdrop(env).defaultPrevented, false, 'גם השנייה');
+});
+
+check('פתק פתוח מעל עמוד: בעריכת השם — הנגיעה רק יוצאת מעריכת השם', async () => {
+  const env = archiveSandbox();
+  const { m, el } = await openArchive(env, { id: 'ov4', content: 'x' });
+  m._setTitleEditing(el, true);
+  eq(m.notes.get('ov4').titleEditing, true, 'מצב עריכת השם ברשומה');
+  const click = tapBackdrop(env);
+  eq(click.defaultPrevented, true, 'מטופלת');
+  eq(el.classList.contains('is-editing-title'), false, 'עריכת השם נגמרה');
+  eq(m.notes.get('ov4').titleEditing, false, 'וברשומה');
+  eq(m.notes.has('ov4'), true, 'הפתק פתוח');
+});
+
+check('פתק פתוח מעל עמוד: נגיעה שאינה על הרקע — בתוך הפתק — אינה של המנגנון', async () => {
+  const env = archiveSandbox();
+  const { m, el } = await openArchive(env, { id: 'ov5', content: 'x' });
+  const textarea = el.querySelector('.sticky-note-content');
+  textarea.focus();
+  textarea._fire('focus');
+  const body = env.sb.document.body;
+  body._listeners.pointerdown({ target: textarea });
+  const click = { target: textarea, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+  body._listeners.click(click);
+  eq(click.defaultPrevented, false, 'לחיצה בתוך הפתק נשארת של הפתק');
+  eq(m.notes.get('ov5').editing, true, 'והעריכה נמשכת');
+});
+
+check('הרקע של פתק פתוח: מחלקה אחת — במנהל, ב-CSS ובשני העמודים', () => {
+  // ``OVERLAY_BACKDROP_CLASS`` ב-``sticky-notes.js`` הוא עותק של מחלקה שה-CSS מגדיר והעמודים נותנים לרקע.
+  // עותק שני מותר רק כשיש מה שיצעק כשהם נפרדים (amir-bug-patterns, R6) — וזה מה שצועק.
+  const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
+  const cls = /const OVERLAY_BACKDROP_CLASS = '([^']+)';/.exec(read('webapp', 'static', 'js', 'sticky-notes.js'));
+  eq(!!cls, true, 'בקרה: הקבוע נמצא');
+  const name = cls[1];
+  eq(read('webapp', 'static', 'css', 'note-cards.css').includes(`.${name} {`), true, 'note-cards.css מגדיר אותה');
+  eq(read('webapp', 'templates', 'note_archive.html').includes(`class="${name}"`), true, 'הרקע בעמוד הארכיון');
+  eq(read('webapp', 'static', 'js', 'files-page-notes.js').includes(`backdrop.className = '${name}';`), true,
+     'הרקע בעמוד הקבצים');
 });
 
 check('ארכיון: × מוחק, והעמוד מוריד את הכרטיס רק אחרי שהשרת אישר', async () => {

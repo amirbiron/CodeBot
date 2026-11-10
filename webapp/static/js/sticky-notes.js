@@ -457,6 +457,15 @@
   /** משך ההתכווצות של פתק שנסגר בארכיון אל הכרטיס שלו, במילישניות. */
   const ARCHIVE_CLOSE_MS = 220;
   /**
+   * הרקע של פתק שנפתח מעל עמוד — המחלקה ש-``note-cards.css`` מגדיר, ושני העמודים (``note_archive.html``,
+   * ``files-page-notes.js``) נותנים לרקע שלהם. המנהל מזהה לפיה נגיעה ברקע (``_onOverlayBackdropClick``),
+   * ו-``tests/sticky-notes-target.test.js`` מצליב את ארבעת המקומות.
+   */
+  const OVERLAY_BACKDROP_CLASS = 'note-overlay-backdrop';
+  function isOverlayBackdrop(target){
+    return !!(target && target.classList && target.classList.contains(OVERLAY_BACKDROP_CLASS));
+  }
+  /**
    * ביטול של חלון השם הפתוח, או ``null``. חלון חדש מבטל את הקודם **דרך הפונקציה הזו**, ולא
    * בהסרת הצמתים שלו: הסרה בלבד השאירה את ההבטחה שלו תלויה — ``entry.archiving`` של הפתק
    * ההוא היה נשאר דולק, ו-🗃️ שלו מת עד טעינה מחדש — ואת מאזין המקשים שלו מחובר. לשני חלונות
@@ -958,6 +967,11 @@
         // המנהל המת היה מוסיף FAB ומאזינים לקונטיינר של הקובץ החדש.
         if (this._destroyed) return;
         if (!this.overlayMode) this._createFab();
+        // **נגיעה ברקע של פתק פתוח** — בשלב הלכידה על המכל, כלומר לפני המאזין של העמוד על הרקע עצמו.
+        if (this.overlayMode) {
+          this._on(this.container, 'pointerdown', (ev) => this._onOverlayBackdropPress(ev), true);
+          this._on(this.container, 'click', (ev) => this._onOverlayBackdropClick(ev), true);
+        }
         const onResize = () => {
           this._rebuildLineIndex();
           this._reflowWithinViewport();
@@ -1409,8 +1423,19 @@
 
       const textarea = createEl('textarea', 'sticky-note-content');
       textarea.value = note.content || '';
-      textarea.addEventListener('focus', () => this._syncTaskView(el, { editing: true }));
-      textarea.addEventListener('blur', () => this._syncTaskView(el));
+      // **מצב העריכה נרשם ברשומה של הפתק** (``entry.editing``), כאן — המקום היחיד שבו עריכת התוכן
+      // מתחילה ונגמרת. מי ששואל "האם הפתק בעריכה" קורא משם, ולא מנחש מה-DOM (מה בפוקוס, האם התצוגה
+      // מוסתרת): נגיעה ברקע של פתק פתוח קוראת אותו ברגע הנגיעה, לפני שהדפדפן מעביר את הפוקוס.
+      textarea.addEventListener('focus', () => {
+        const entry = this._getEntry(el);
+        if (entry) entry.editing = true;
+        this._syncTaskView(el, { editing: true });
+      });
+      textarea.addEventListener('blur', () => {
+        const entry = this._getEntry(el);
+        if (entry) entry.editing = false;
+        this._syncTaskView(el);
+      });
 
       const resizer = createEl('div', 'sticky-note-resize');
 
@@ -2410,7 +2435,8 @@
     }
 
     /**
-     * סוגר את הפתק הפתוח — הוא חוזר לכרטיס שלו. "—" בפתק, ``Escape`` ולחיצה על הרקע.
+     * סוגר את הפתק הפתוח — הוא חוזר לכרטיס שלו. "—" בפתק, ``Escape``, ולחיצה על הרקע כשהפתק אינו
+     * בעריכה (בעריכה הלחיצה הראשונה רק יוצאת ממנה — ``_onOverlayBackdropClick``).
      *
      * **``flush`` לפני ההסרה**: עריכה שעוד בתור נשלחת, ורק אז הפתק יורד. העמוד מקבל את השם
      * והצבע העדכניים (``onOverlayNoteClosed``) כדי לעדכן את הכרטיס, ו-``toRect`` — אם העמוד
@@ -2479,6 +2505,53 @@
     _overlayNoteGone(id){
       if (this._openOverlay && this._openOverlay.id === String(id)) this._openOverlay = null;
       if (this._onOverlayNoteGone) this._onOverlayNoteGone(String(id));
+    }
+
+    /** האם הפתק בעריכה — של התוכן או של השם. מהרשומה (``entry.editing``, ``entry.titleEditing``). */
+    _isNoteEditing(entry){
+      return !!(entry && (entry.editing === true || entry.titleEditing === true));
+    }
+
+    /**
+     * נגיעה ברקע של הפתק הפתוח — **השלב הראשון: נזכרים אם הפתק היה בעריכה ברגע הנגיעה.**
+     *
+     * העמוד סוגר את הפתק ב-``click``, אבל עד ה-``click`` הדפדפן כבר העביר את הפוקוס (ברירת המחדל של
+     * ``mousedown``), כלומר ה-``blur`` של העריכה כבר רץ ו-``entry.editing`` כבר ``false``. לכן המצב
+     * נקרא כאן, ב-``pointerdown`` שקודם להעברת הפוקוס, ונשמר על הפתק הפתוח עד ה-``click``.
+     */
+    _onOverlayBackdropPress(ev){
+      const cur = this._openOverlay;
+      if (!cur || !isOverlayBackdrop(ev.target)) return;
+      cur.pressedWhileEditing = this._isNoteEditing(this.notes.get(cur.id));
+    }
+
+    /**
+     * **השלב השני: בעריכה, הנגיעה רק יוצאת מהעריכה, והפתק נשאר פתוח** (הכרעת המשתמש — נגיעה בטעות
+     * מחוץ לפתק לא תסגור אותו, ובכל משטח אחר נגיעה מחוץ לפתק היא הדרך לחזור מעריכה לתצוגה).
+     *
+     * הנגיעה מסומנת כמטופלת (``preventDefault``), והעמוד סוגר רק נגיעה שלא טופלה — **אותו חוזה כמו
+     * ``Escape``**, שהעמוד סוגר רק אם רכיב בפתק לא טיפל בו (``defaultPrevented``). בעריכה = עריכת
+     * התוכן או עריכת השם, גם בפתק טקסט רגיל שאין לו תצוגה מרונדרת (הכרעת המשתמש). מה שעדיין בעריכה
+     * ב-``click`` — דפדפן שלא העביר פוקוס בנגיעה על אלמנט שאינו ניתן למיקוד — יוצא ממנה כאן, ושני
+     * ה-``blur`` עושים את מה שהם עושים בכל יציאה מעריכה: התצוגה נבנית, והשינוי נשמר.
+     */
+    _onOverlayBackdropClick(ev){
+      const cur = this._openOverlay;
+      if (!cur || !isOverlayBackdrop(ev.target)) return;
+      const entry = this.notes.get(cur.id);
+      const pressedWhileEditing = cur.pressedWhileEditing === true;
+      cur.pressedWhileEditing = false;
+      if (!pressedWhileEditing && !this._isNoteEditing(entry)) return;
+      ev.preventDefault();
+      if (!entry || !entry.el) return;
+      const el = entry.el;
+      if (entry.titleEditing) this._setTitleEditing(el, false);
+      if (entry.editing) {
+        const textarea = el.querySelector('.sticky-note-content');
+        if (textarea) textarea.blur();
+      }
+      // המיקוד עובר לפתק — הוא החלון שפתוח — ולא נשאר על ``body``, שהעמוד שמתחתיו ``inert``.
+      el.focus({ preventScroll: true });
     }
 
       // הנקודה שממנה נמדדים ``position.x/y`` של פתק, בקואורדינטות של אזור
@@ -6114,6 +6187,9 @@
           const btn = el.querySelector('.sticky-note-edit-title');
           const editing = !!on;
           el.classList.toggle('is-editing-title', editing);
+          // אותו כלל כמו ``entry.editing`` של התוכן: המצב ברשומה, וזה המקום היחיד שמשנה אותו.
+          const entry = this._getEntry(el);
+          if (entry) entry.titleEditing = editing;
           if (btn) {
             const label = editing ? 'סיום עריכת השם' : 'עריכת שם הפתק';
             btn.textContent = editing ? '✔' : '✎';
