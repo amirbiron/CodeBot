@@ -160,18 +160,24 @@ html_sidebars = {
     ]
 }
 
-# Suppress noisy autodoc warnings for mocked imports
+# משתיקים רק את הרעש של המודולים שמדומים (SPHINX_MOCK_IMPORTS): ייבוא שנכשל ואובייקט מדומה. ב-Sphinx 8.2.3
+# אלה ה-subtypes ‏import_object ו-mocked_object (sphinx/ext/autodoc/__init__.py). הערך 'autodoc' לבדו משתיק
+# כל אזהרה מסוג autodoc, כל subtype (is_suppressed_warning ב-sphinx/util/logging.py) — גם חתימה לא תקינה, שגיאה
+# בעיצוב חתימה ותכונה חסרה — ואז -W בבנייה של ה-PR לא רואה אותן.
 suppress_warnings = [
-    'autodoc',
     'autodoc.import_object',
-    'autodoc.mocked',
+    'autodoc.mocked_object',
 ]
 
 # -- Options for intersphinx extension ---------------------------------------
+# לכל מלאי שני מקומות, לפי הסדר: הרשת (None), ואם היא נכשלת — עותק שמור ב-_intersphinx/. ב-Sphinx 8.2.3 כשל
+# שיש לו חלופה עובדת הוא הודעת INFO, ורק כשל של כל המקומות הוא אזהרה (sphinx/ext/intersphinx/_load.py) — והאזהרה
+# הזו בלי type, ולכן suppress_warnings לא משתיק אותה. בלי העותק, אתר תיעוד חיצוני שלא זמין לרגע מכשיל את
+# הבנייה של ה-PR (-W) בלי קשר לתוכן. העותק משמש רק כשהרשת נכשלת; לרענן: להוריד שוב את objects.inv של כל אתר.
 intersphinx_mapping = {
-    'python': ('https://docs.python.org/3', None),
-    'telegram': ('https://docs.python-telegram-bot.org/en/stable/', None),
-    'pymongo': ('https://pymongo.readthedocs.io/en/stable/', None),
+    'python': ('https://docs.python.org/3', (None, '_intersphinx/python.inv')),
+    'telegram': ('https://docs.python-telegram-bot.org/en/stable/', (None, '_intersphinx/telegram.inv')),
+    'pymongo': ('https://pymongo.readthedocs.io/en/stable/', (None, '_intersphinx/pymongo.inv')),
 }
 
 # -- Options for LaTeX output ------------------------------------------------
