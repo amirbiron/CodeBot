@@ -135,7 +135,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 - ממציא שם חדש (אירוע, קוד שגיאה, שדה לוג, מטריקה, ENV) ← `events_catalog`, `error_codes`, `environment-variables`
 - מניח מה רכיב אחר עושה (בוט ← שירות ← DB ← ווב) ← `architecture`, `document-flow`, `conversation-handlers`
 - שאילתת Mongo שמחזירה רשימה ← `database/indexing`, `cursor-pagination`, `performance-bible`
-- ⚠️ כותב או עורך עמוד תחת `docs/` ← `doc-authoring` **לפני** הכתיבה, לא אחרי. RTD רץ עם `fail_on_warning: true`, אז חריגה מהמוסכמות מפילה בילד ולא רק נראית שונה. בעריכת עמוד קיים גם `versioning-stable-anchors` — אילו עוגנים אסור לשבור
+- ⚠️ כותב או עורך עמוד תחת `docs/` ← `doc-authoring` **לפני** הכתיבה, לא אחרי. RTD רץ עם `fail_on_warning: true`, וגם הבנייה של ה-PR ב-GitHub רצה עם `-W`, אז חריגה מהמוסכמות מפילה בילד ולא רק נראית שונה. בעריכת עמוד קיים גם `versioning-stable-anchors` — אילו עוגנים אסור לשבור
 - כותב תיעוד על:
   - הפתקים הדביקים — הכללים לאיזה מקבצי התיעוד העריכה שלך שייכת - במסמך ב-Ck בשם `כללי-שיוך-תיעוד-הפתקים.md`
   - שרת ה-MCP — `docs/mcp-server*.rst`. הכללים לאיזה מסמך - במסמך ב-Ck בשם `כללי-שיוך-תיעוד-ה-MCP.md`
@@ -286,7 +286,7 @@ safe_rmrf() {
 
 ### לפני קומיט — לא לבנות את כל התיעוד
 
-- **אל תריץ בנייה מלאה של RTD/Sphinx כבדיקה לפני קומיט.** היא לוקחת דקות ארוכות, ומי שתופס אזהרות הוא ה-check של Read the Docs על ה-PR.
+- **אל תריץ בנייה מלאה של RTD/Sphinx כבדיקה לפני קומיט.** היא לוקחת דקות ארוכות, ושתי בדיקות על ה-PR תופסות אזהרות: "Build Documentation" ב-GitHub (`documentation.yml`, עם `-W`) וה-check של Read the Docs. כשהבנייות של Read the Docs נקטעות ("Build terminated due to inactivity"), הבדיקה ב-GitHub היא שקובעת.
 - החריג היחיד שמצדיק בנייה מקומית: **עמוד חדש**, או נגיעה ב-`toctree`/`conf.py` — ושם בונים **עמוד בודד** ולא את האתר: `python -m sphinx -b html -W . _build/html <עמוד>.rst`.
 - פרוזה בעמוד קיים, עוגן חדש, או תיקון ניסוח — לא דורשים בנייה בכלל.
 

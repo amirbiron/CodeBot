@@ -85,12 +85,18 @@ jobs:
           docs-doctrees-${{ github.ref }}-
           docs-doctrees-
 
+    # -W: אזהרה מכשילה את הבנייה, כמו fail_on_warning ב-.readthedocs.yml, כך שה-✅ של ה-PR אומר שאין אזהרות
+    # בתיעוד גם כש-Read the Docs לא זמין. ב-Sphinx 8.2.3 הבנייה ממשיכה עד הסוף ומדווחת על כל האזהרות
+    # (sphinx/application.py), ו---keep-going כבר לא עושה דבר (sphinx/cmd/build.py).
+    # -E: קריאה מחדש של כל העמודים. בנייה מצטברת קוראת רק עמודים שהשתנו, ולכן לא מדווחת על קישור שנשבר בעמוד
+    # שלא השתנה — נבדק על 8.2.3: קישור לתווית שנמחקה מעמוד אחר עבר בלי -E ונכשל איתו.
+    # הבנייה של main שבהמשך נשארת בלי -W, בכוונה: אזהרה שנכנסה לא עוצרת את הפרסום של האתר.
     - name: 🔨 Build docs (PR single-version)
       id: sphinx_pr
       if: github.event_name == 'pull_request'
       run: |
         cd docs
-        DISABLE_DB=1 python -m sphinx -b html . _build/html --keep-going -j auto
+        DISABLE_DB=1 python -m sphinx -b html . _build/html -W -E --keep-going -j auto
       env:
         SPHINX_MOCK_IMPORTS: true
         BOT_TOKEN: dummy_token_for_docs
@@ -192,7 +198,7 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "✅ **Documentation built successfully!**" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "⚠️ Note: Some warnings may appear during build. This is normal for projects with external dependencies." >> $GITHUB_STEP_SUMMARY
+        echo "ℹ️ PR builds fail on any Sphinx warning (-W). Builds of main publish the site even with warnings." >> $GITHUB_STEP_SUMMARY
     
     - name: 💬 Comment on PR with preview link
       if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
