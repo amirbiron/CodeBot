@@ -145,5 +145,6 @@ def test_the_primer_setup_links_the_configured_bot(monkeypatch, username):
     block = _primer_setup(_render(monkeypatch, BASE))
     links = re.findall(r'href="(https://t\.me/[^"]*)"', block)
     assert links == ([f"https://t.me/{username}"] if username else [])
-    assert (f">@{username}</a>" in block) == bool(username)
+    # השם עובר במאקרו ``telegram_username`` — "@" משמאל לשם גם בעמוד מימין לשמאל.
+    assert (f'<bdi dir="ltr">@{username}</bdi></a>' in block) == bool(username)
     assert '<code dir="ltr">/connect_claude</code>' in block

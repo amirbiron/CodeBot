@@ -33,11 +33,6 @@ KNOWN_MISSING = {
     ("admin_rules.html", "js/rule-builder.js"),
     # אייקון ולא קוד, אבל אותה מחלקת התיישנות בדיוק.
     ("base.html", "icons/apple-touch-icon-180.png"),
-    ("bookmarks_snippet.html", "css/bookmarks.css"),
-    ("bookmarks_snippet.html", "js/bookmarks.js"),
-    ("files.html", "css/multi-select.css"),
-    ("files.html", "js/multi-select.js"),
-    ("files.html", "js/bulk-actions.js"),
     ("reader_mode.html", "css/reader.css"),
 }
 
@@ -94,6 +89,30 @@ def test_the_card_preview_assets_carry_a_version_id_on_both_pages():
     for template in ("files.html", "collections.html"):
         text = (TEMPLATES / template).read_text(encoding="utf-8")
         for asset in ("js/card-preview.js", "css/card-preview.css"):
+            tags = [m for m in _TAG.finditer(text)
+                    if (n := _FILENAME.search(m.group(0))) and n.group(1) == asset]
+            assert tags, f"{template} אינו טוען את {asset}"
+            for tag in tags:
+                assert "v=" in tag.group(1), f"{template} מגיש את {asset} בלי מזהה גרסה"
+
+
+def test_the_multi_select_bookmarks_and_search_assets_carry_a_version_id():
+    """הנכסים שהשינוי של נובמבר 2026 ערך — עם מזהה גרסה, ובדיקה ישירה כמו זו שמעליה.
+
+    ``multi-select.js`` ו-``bulk-actions.js`` (יציאה ממצב הבחירה אחרי פעולה),
+    ``bookmarks.js`` (סימניות כבויות לא נוצרות) ו-``utils/search-submit.js`` (חיפוש
+    באנטר) — ארבעתם נטענו, או נטענים, בכתובת קבועה מול ``max-age`` של שנה. שלושת
+    הראשונים ישבו ב-allowlist; בלי מזהה, הקוד החדש לא היה מגיע למי שכבר ביקר בעמוד.
+    """
+    expected = {
+        "files.html": ("js/multi-select.js", "js/bulk-actions.js", "css/multi-select.css"),
+        "bookmarks_snippet.html": ("js/bookmarks.js", "css/bookmarks.css"),
+        "md_preview.html": ("js/utils/search-submit.js",),
+        "view_file.html": ("js/utils/search-submit.js",),
+    }
+    for template, assets in expected.items():
+        text = (TEMPLATES / template).read_text(encoding="utf-8")
+        for asset in assets:
             tags = [m for m in _TAG.finditer(text)
                     if (n := _FILENAME.search(m.group(0))) and n.group(1) == asset]
             assert tags, f"{template} אינו טוען את {asset}"

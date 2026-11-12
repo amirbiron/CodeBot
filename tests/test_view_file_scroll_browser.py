@@ -179,13 +179,15 @@ def test_basic_view_search_bar_stays_on_screen_after_jumping_to_a_match(
         code_file_id, admin_live_server, chromium_executable):
     """תקלה 1: אחרי קפיצה לתוצאה, הסרגל צמוד לראש המסך, ואפשר לגעת ב-▼ שעליו.
 
-    הבדיקה אינה נשענת על **לאיזו** התאמה ▼ מוביל: מה שהנגיעה הראשונה אחרי חיפוש
-    עושה הוא ממצא 1 ב-#3477, שיתוקן בנפרד. לכן נבדק שהנגיעה הגיעה לכפתור, ושההתאמה
-    הפעילה אחריה על המסך ולא מתחת לסרגל.
+    החיפוש רץ באנטר (``utils/search-submit.js``), והוא שמסמן את ההתאמה הראשונה —
+    ולכן הנגיעה ב-▼ אחריו עוברת לשנייה, בדיוק אחת. עד שהבקר המשותף החליף את
+    המאזינים הכפולים, הנגיעה הזו קידמה שתי התאמות (ממצא 1 ב-#3477).
     """
     with tablet_page(admin_live_server, chromium_executable, f"/file/{code_file_id}") as (page, touch):
         page.fill("#codeSearchInput", TERM)
-        poll(page, ACTIVE_MATCH_JS, "הקפיצה הביאה את ההתאמה הראשונה למסך")
+        page.press("#codeSearchInput", "Enter")
+        first = poll(page, ACTIVE_MATCH_JS, "הקפיצה הביאה את ההתאמה הראשונה למסך")["which"]
+        assert first == 0, first
         poll(page, BAR_PINNED_JS, "הסרגל צמוד לראש המסך אחרי הקפיצה")
         page.evaluate("""() => {
           window.__nextTaps = 0;
@@ -193,7 +195,10 @@ def test_basic_view_search_bar_stays_on_screen_after_jumping_to_a_match(
         }""")
         tap_on(page, touch, "#nextMatchBtn")
         poll(page, "() => window.__nextTaps === 1", "הנגיעה הגיעה ל-▼")
-        poll(page, ACTIVE_MATCH_JS, "ההתאמה הפעילה על המסך, לא מתחת לסרגל")
+        poll(page, f"""() => {{
+          const s = ({ACTIVE_MATCH_JS})();
+          return {{...s, ok: s.ok && s.which === 1}};
+        }}""", "▼ עבר להתאמה השנייה, והיא על המסך ולא מתחת לסרגל")
         poll(page, BAR_PINNED_JS, "הסרגל עדיין צמוד, ואפשר להמשיך")
 
 
@@ -203,6 +208,7 @@ def test_advanced_view_next_arrow_brings_the_next_match_on_screen(
     with tablet_page(admin_live_server, chromium_executable, f"/file/{code_file_id}",
                      view_mode="advanced") as (page, touch):
         page.fill("#codeSearchInput", TERM)
+        page.press("#codeSearchInput", "Enter")
         first = poll(page, ACTIVE_MATCH_JS, "ההתאמה הראשונה על המסך")["which"]
         tap_on(page, touch, "#nextMatchBtn")
         poll(page, f"""() => {{
@@ -248,10 +254,8 @@ def test_code_search_bar_is_pinned_only_while_the_box_has_text(
     — ולכן נבדק שגם ניקוי כזה משחרר את הסרגל, בשתי התצוגות. הגלילה בשלבי ההכנה
     נעשית בקוד: מה שנבדק הוא איפה הסרגל במיקום גלילה נתון, לא איך הגיעו אליו.
 
-    **ולא דרך הקפיצה לתוצאה, וזה מכוון.** נמדד שבתצוגה הבסיסית הקלדה אות אחר אות בתיבה
-    שקיבלה פוקוס בנגיעה לא גוללת את העמוד לתוצאה הראשונה, ורק מילוי של כל המחרוזת
-    בבת אחת (``page.fill``) גולל — גם לפני השינוי הזה. בדיקה שנשענת על הקפיצה הייתה
-    בודקת את ``fill`` ולא את מה שמשתמש עושה.
+    **ולא דרך הקפיצה לתוצאה, וזה מכוון.** ההצמדה תלויה בטקסט שבתיבה ולא בחיפוש: הקלדה
+    לבדה לא מחפשת (החיפוש רץ באנטר, ``utils/search-submit.js``), והסרגל כבר צמוד.
     """
     with tablet_page(admin_live_server, chromium_executable, f"/file/{code_file_id}",
                      view_mode=view_mode) as (page, touch):

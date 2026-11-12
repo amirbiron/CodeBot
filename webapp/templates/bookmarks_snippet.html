@@ -95,17 +95,17 @@
         <li>• לחץ ממושך על הכפתור הצף להקטנתו.</li>
       </ul>
       <p style="margin-top:0.75rem;">💡 הסימניות נשמרות אוטומטית לכל קובץ.</p>
-      <p>⚙️ אפשר להסתיר את כפתור הסימניות דרך ההגדרות של ה‑WebApp.</p>
+      <p>⚙️ אפשר להסתיר את כפתור הסימניות דרך ההגדרות של ה‑WebApp. כשהוא מוסתר, נגיעה בקובץ לא יוצרת סימניות חדשות.</p>
       <p>ℹ️ למידע מלא והסברים נוספים – השתמש בכפתור „הסבר על הבוט" בתוך הבוט עצמו.</p>
     </div>
   </div>
 </dialog>
 
 <!-- Include Styles -->
-<link rel="stylesheet" href="{{ url_for('static', filename='css/bookmarks.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bookmarks.css') }}?v={{ static_version }}">
 
 <!-- Include JavaScript -->
-<script src="{{ url_for('static', filename='js/bookmarks.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/bookmarks.js') }}?v={{ static_version }}" defer></script>
 
 <!-- Help tip footer removed per issue comment request -->
 
