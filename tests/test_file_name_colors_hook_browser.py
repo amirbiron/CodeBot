@@ -34,7 +34,7 @@ from test_live_preview_blockquote_browser import (  # noqa: E402
     shared_theme,
 )
 
-#: פלטה ג' של morass. כל צבע שונה מכל צבע שהערכה של הבדיקה נותנת בלי הטוקנים.
+#: הצבעים של הבדיקה — לא של ערכה אמיתית. כל אחד שונה מהאחרים ומכל צבע שהערכה של הבדיקה נותנת בלי הטוקנים.
 DECLARED = {
     "--file-name-color-override": "#7fdbca",
     "--file-description-color-override": "#dcdcaa",
