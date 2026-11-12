@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/telegram_username.html" import telegram_username %}
 
 {% block title %}ניהול אוספים ממתינים{% endblock %}
 
@@ -35,7 +36,7 @@
                 </div>
               </td>
               <td>
-                <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.username and ('@' ~ it.username) }}</div>
+                <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{% if it.username %}{{ telegram_username(it.username) }}{% endif %}</div>
               </td>
               <td>
                 <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.description }}</div>

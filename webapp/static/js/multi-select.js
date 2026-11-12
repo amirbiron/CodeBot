@@ -225,7 +225,7 @@ class MultiSelectManager {
                     setTimeout(() => card.remove(), 250);
                 }
             });
-            this.clearSelection();
+            this.finishBulkAction();
         })
         .catch(err => {
             console.error('Error deleting files:', err);
@@ -299,13 +299,33 @@ class MultiSelectManager {
     }
 
     toggleMode() {
-        this.modeActive = !this.modeActive;
+        this.setMode(!this.modeActive);
+    }
+
+    /**
+     * המקום היחיד שמדליק ומכבה את מצב הבחירה המרובה: המשתנה, מה שנשמר בדפדפן,
+     * המחלקה על ``body`` (שמציגה את הצ'קבוקסים) והכפתור.
+     */
+    setMode(active) {
+        this.modeActive = !!active;
+        // בלי sessionStorage (חלון פרטי, אחסון חסום) המצב פשוט לא נשמר לרענון הבא.
+        // כל השאר — המחלקה על ``body`` והכפתור — לא תלוי בו, ולכן אין כאן מה לדווח.
         try { sessionStorage.setItem('multiModeActive', this.modeActive ? 'true' : 'false'); } catch (e) {}
         if (!this.modeActive) {
             this.clearSelection();
         }
         this.applyModeState(this.modeActive);
         this.renderToggleButton();
+    }
+
+    /**
+     * פעולה על הנבחרים הצליחה: מנקים את הבחירה **ויוצאים** ממצב הבחירה, כך
+     * שהצ'קבוקסים נעלמים. דרך ``setMode`` ולא רק ``clearSelection``, כי המצב נשמר
+     * ב-sessionStorage — פעולה שמרעננת את העמוד (הוספת תגיות) הייתה מחזירה את
+     * הצ'קבוקסים אחרי הרענון. בכשל לא קוראים לזה: הבחירה נשארת לניסיון נוסף.
+     */
+    finishBulkAction() {
+        this.setMode(false);
     }
 
     applyModeState(active) {

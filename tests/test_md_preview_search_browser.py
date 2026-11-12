@@ -2,13 +2,14 @@
 
 **הקוד נשלף מהתבנית, ולא נכתב כאן.** בלוק החיפוש הוא סקריפט אינליין בתוך
 ``md_preview.html``, ועמוד אמיתי דורש שרת ומסד. לכן הבדיקה שולפת מהתבנית את
-תג הטעינה של ``utils/text-highlight.js`` ואת בלוק החיפוש עצמו, ומריצה אותם
-על ``#md-content`` מינימלי. שינוי בתבנית — הסרת התג, או חזרה להדגשה משלה —
-משנה את מה שרץ כאן.
+תגי הטעינה של ``utils/text-highlight.js`` ושל ``utils/search-submit.js`` ואת בלוק
+החיפוש עצמו, ומריצה אותם על ``#md-content`` מינימלי. שינוי בתבנית — הסרת תג,
+או חזרה להדגשה משלה — משנה את מה שרץ כאן.
 
-**מה נבדק:** הקלדה מדגישה ומעדכנת את המונה, Enter ו-Shift+Enter מנווטים,
-הכפתור מנקה, טקסט בתוך SVG אינו נספר, ועמוד שהמודול לא נטען בו משבית את
-התיבה במקום לענות "אין תוצאות".
+**מה נבדק:** הקלדה לבדה לא מחפשת; Enter מדגיש ומעדכן את המונה, ואחריו Enter
+ו-Shift+Enter מנווטים; שינוי הטקסט מנקה מיד; ▼ על טקסט שעוד לא חיפשו מחפש;
+הכפתור מנקה; טקסט בתוך SVG אינו נספר; ועמוד שמודול לא נטען בו משבית את התיבה
+במקום לענות "אין תוצאות".
 
 מדולג כשאין Chromium.
 """
@@ -33,7 +34,8 @@ TEMPLATE = REPO_ROOT / "webapp" / "templates" / "md_preview.html"
 BLOCK_START = "    // חיפוש והדגשה בכל תוכן המסמך"
 BLOCK_END = "    // Lazy loading לתמונות"
 
-MODULE_TAG_RE = re.compile(r"<script[^>]*?utils/text-highlight\.js[^>]*?>\s*</script>")
+#: המודולים שבלוק החיפוש נשען עליהם, לפי הסדר בתבנית.
+MODULES = ("utils/text-highlight.js", "utils/search-submit.js")
 SRC_ATTR_RE = re.compile(r'src="[^"]*"')
 
 
@@ -44,10 +46,11 @@ def search_block() -> str:
     return src[start:end]
 
 
-def module_tag() -> str:
-    match = MODULE_TAG_RE.search(TEMPLATE.read_text(encoding="utf-8"))
-    assert match, "לא נמצא תג טעינה של utils/text-highlight.js ב-md_preview.html"
-    return SRC_ATTR_RE.sub('src="/js/utils/text-highlight.js"', match.group(0))
+def module_tag(module: str) -> str:
+    pattern = r"<script[^>]*?" + re.escape(module) + r"[^>]*?>\s*</script>"
+    match = re.search(pattern, TEMPLATE.read_text(encoding="utf-8"))
+    assert match, f"לא נמצא תג טעינה של {module} ב-md_preview.html"
+    return SRC_ATTR_RE.sub(f'src="/js/{module}"', match.group(0))
 
 
 #: ה-DOM הוא מה שבלוק החיפוש נוגע בו: התיבה, הכפתורים והמונה (עם המזהים
@@ -89,8 +92,9 @@ def browser(chromium_executable):
             b.close()
 
 
-def _open(browser, *, with_module: bool = True):
-    html = PAGE.replace("__MODULE_TAG__", module_tag() if with_module else "")
+def _open(browser, *, without: str | None = None):
+    tags = "\n".join(module_tag(m) for m in MODULES if m != without)
+    html = PAGE.replace("__MODULE_TAG__", tags)
     html = html.replace("__SEARCH_BLOCK__", search_block())
 
     def serve(route):
@@ -115,44 +119,77 @@ def _open(browser, *, with_module: bool = True):
     return page, errors, warnings
 
 
-def test_typing_highlights_counts_and_navigates(browser):
+#: מצב החיפוש: המונה, כמה הדגשות, כמה מהן בתוך SVG, ואיזו פעילה.
+STATE_JS = """() => ({
+  count: document.getElementById('mdSearchCount').textContent,
+  hits: document.querySelectorAll('#md-content .md-highlight').length,
+  inSvg: document.querySelectorAll('#md-content svg .md-highlight').length,
+  active: [...document.querySelectorAll('#md-content .md-highlight')]
+            .findIndex(el => el.classList.contains('is-active')),
+})"""
+
+
+def test_typing_alone_does_not_search_and_enter_does(browser):
     page, errors, _ = _open(browser)
     page.fill("#mdSearchInput", "alice")
-    first = page.evaluate(
-        """() => ({
-          count: document.getElementById('mdSearchCount').textContent,
-          hits: document.querySelectorAll('#md-content .md-highlight').length,
-          inSvg: document.querySelectorAll('#md-content svg .md-highlight').length,
-          active: [...document.querySelectorAll('#md-content .md-highlight')]
-                    .findIndex(el => el.classList.contains('is-active')),
-        })"""
-    )
-    # שתי ההתאמות שבטקסט, ולא ה-Alice שבתוך הדיאגרמה.
-    assert first == {"count": "1/2", "hits": 2, "inSvg": 0, "active": 0}
+    assert page.evaluate(STATE_JS) == {"count": "", "hits": 0, "inSvg": 0, "active": -1}
 
-    # Enter אחרי מיקוד אוטומטי נשאר על הראשונה (justAutoFocused), והבא מתקדם.
     page.press("#mdSearchInput", "Enter")
+    # שתי ההתאמות שבטקסט, ולא ה-Alice שבתוך הדיאגרמה; הראשונה פעילה.
+    assert page.evaluate(STATE_JS) == {"count": "1/2", "hits": 2, "inSvg": 0, "active": 0}
+
+    # האנטר שחיפש כבר עמד על הראשונה, ולכן האנטר הבא עובר לשנייה.
     page.press("#mdSearchInput", "Enter")
     assert page.text_content("#mdSearchCount") == "2/2"
-    page.press("#mdSearchInput", "Shift+Enter")
+    page.press("#mdSearchInput", "Enter")
     assert page.text_content("#mdSearchCount") == "1/2"
+    page.press("#mdSearchInput", "Shift+Enter")
+    assert page.text_content("#mdSearchCount") == "2/2"
 
     page.click("#mdSearchClear")
     after = page.evaluate(
         """() => ({
           hits: document.querySelectorAll('.md-highlight').length,
           count: document.getElementById('mdSearchCount').textContent,
+          value: document.getElementById('mdSearchInput').value,
           text: document.querySelector('#md-content p').innerHTML,
         })"""
     )
-    assert after == {"hits": 0, "count": "", "text": "Alice פוגשת את Bob, ו-alice שוב."}
+    assert after == {"hits": 0, "count": "", "value": "", "text": "Alice פוגשת את Bob, ו-alice שוב."}
     assert errors == []
     page.close()
 
 
-def test_without_the_module_the_box_is_disabled(browser):
-    """היעדר המודול הוא היעדר יכולת: תיבה מושבתת עם הסבר, לא "אין תוצאות"."""
-    page, errors, warnings = _open(browser, with_module=False)
+def test_changing_the_text_clears_the_highlights_at_once(browser):
+    """ההדגשות שייכות לטקסט שחיפשו. אות אחת שנמחקת — והן נעלמות, עד האנטר הבא."""
+    page, errors, _ = _open(browser)
+    page.fill("#mdSearchInput", "alice")
+    page.press("#mdSearchInput", "Enter")
+    assert page.evaluate(STATE_JS)["hits"] == 2
+
+    page.press("#mdSearchInput", "Backspace")
+    assert page.evaluate(STATE_JS) == {"count": "", "hits": 0, "inSvg": 0, "active": -1}
+    assert page.input_value("#mdSearchInput") == "alic"
+
+    page.press("#mdSearchInput", "Enter")
+    assert page.evaluate(STATE_JS)["count"] == "1/2"
+    assert errors == []
+    page.close()
+
+
+def test_the_down_arrow_searches_text_that_was_not_searched_yet(browser):
+    page, errors, _ = _open(browser)
+    page.fill("#mdSearchInput", "bob")
+    page.click("#mdSearchNext")
+    assert page.evaluate(STATE_JS) == {"count": "1/1", "hits": 1, "inSvg": 0, "active": 0}
+    assert errors == []
+    page.close()
+
+
+@pytest.mark.parametrize("missing", MODULES)
+def test_without_a_module_the_box_is_disabled(browser, missing):
+    """היעדר מודול הוא היעדר יכולת: תיבה מושבתת עם הסבר, לא "אין תוצאות"."""
+    page, errors, warnings = _open(browser, without=missing)
     state = page.evaluate(
         """() => {
           const input = document.getElementById('mdSearchInput');
@@ -161,6 +198,6 @@ def test_without_the_module_the_box_is_disabled(browser):
     )
     assert state["disabled"] is True
     assert state["title"]
-    assert any("text-highlight.js" in w for w in warnings), warnings
+    assert any(missing in w for w in warnings), warnings
     assert errors == []
     page.close()

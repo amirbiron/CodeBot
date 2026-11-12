@@ -111,7 +111,7 @@ class BulkActions {
                     }
                 });
                 
-                window.multiSelect.clearSelection();
+                window.multiSelect.finishBulkAction();
             } else {
                 throw new Error(result.error || 'שגיאה בהוספה למועדפים');
             }
@@ -160,7 +160,10 @@ class BulkActions {
                     }
                 });
                 
-                window.multiSelect.clearSelection();
+                window.multiSelect.finishBulkAction();
+            } else {
+                // בלי הענף הזה תשובת כשל מהשרת לא הציגה כלום: לא הצלחה ולא שגיאה.
+                throw new Error(result.error || 'שגיאה בהסרה ממועדפים');
             }
         } catch (error) {
             console.error('Error removing from favorites:', error);
@@ -205,13 +208,16 @@ class BulkActions {
                     { icon: 'tags' }
                 );
                 
-                // רענן את העמוד או עדכן את התגיות בUI
+                // יציאה ממצב הבחירה לפני הרענון: ``finishBulkAction`` שומר "כבוי"
+                // ב-sessionStorage, ולכן הצ'קבוקסים לא חוזרים גם אחרי הרענון.
+                window.multiSelect.finishBulkAction();
+                // רענון קל כדי לשקף את התגיות החדשות
                 if (result.updated > 0) {
-                    // סגור חלונית פעולות אוטומטית לאחר הצלחה ונקה בחירה
-                    try { window.multiSelect?.clearSelection(); } catch (e) {}
-                    // אופציונלי: רענון קל כדי לשקף תגיות חדשות
                     setTimeout(() => location.reload(), 1200);
                 }
+            } else {
+                // בלי הענף הזה תשובת כשל מהשרת לא הציגה כלום: לא הצלחה ולא שגיאה.
+                throw new Error(result.error || 'שגיאה בהוספת תגיות');
             }
         } catch (error) {
             console.error('Error adding tags:', error);
@@ -283,7 +289,7 @@ class BulkActions {
                 { icon: 'download', duration: 5000 }
             );
             
-            window.multiSelect.clearSelection();
+            window.multiSelect.finishBulkAction();
             
         } catch (error) {
             console.error('Error downloading ZIP:', error);
@@ -529,8 +535,10 @@ class BulkActions {
                 // הצג את הקישור בדיאלוג
                 this.showShareDialog(result.share_url, result.expires_at);
 
-                // סגור חלונית פעולות אוטומטית ונקה בחירה לאחר יצירת קישור
-                try { window.multiSelect?.clearSelection(); } catch (e) {}
+                window.multiSelect.finishBulkAction();
+            } else {
+                // בלי הענף הזה תשובת כשל מהשרת לא הציגה כלום: לא הצלחה ולא שגיאה.
+                throw new Error(result.error || 'שגיאה ביצירת קישור שיתוף');
             }
         } catch (error) {
             console.error('Error creating share link:', error);
@@ -591,9 +599,12 @@ class BulkActions {
                 return cb ? (cb.getAttribute('data-file-name') || '') : '';
             }).filter(n => n);
             if (!names.length) { this.showNotification('לא נמצאו שמות קבצים תקפים', 'error'); return; }
-            // פתח מודאל הוספה עם שמות מרובים
+            // פתח מודאל הוספה עם שמות מרובים. היציאה ממצב הבחירה קורית רק אחרי
+            // שהשרת אישר את ההוספה — ביטול החלון או כשל משאירים את הבחירה.
             if (window.openBulkAddToCollectionModal) {
-                window.openBulkAddToCollectionModal(names);
+                window.openBulkAddToCollectionModal(names, {
+                    onSuccess: () => window.multiSelect.finishBulkAction(),
+                });
             } else {
                 // נפילה לאחור – מודאל יחיד, ניקח את הראשון
                 window.openAddToCollectionModal(names[0]);
