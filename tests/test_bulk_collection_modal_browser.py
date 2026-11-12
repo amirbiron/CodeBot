@@ -61,7 +61,7 @@ def page_factory(browser, monkeypatch):
     monkeypatch.setattr(wa, "get_db", lambda: db)
     contexts = []
 
-    def make(*, accept_items: bool, hold: list | None = None):
+    def make(*, accept_items: bool, hold: list | None = None, added: int | None = None):
         """``hold`` — רשימה: בקשת ההוספה נשמרת בה ולא נענית, עד שהטסט עונה עליה."""
         client = wa.app.test_client()
         client.environ_base["HTTP_X_FORWARDED_FOR"] = f"192.0.2.{next(_ADDRESSES) % 250 + 1}"
@@ -81,7 +81,11 @@ def page_factory(browser, monkeypatch):
                 if hold is not None:
                     hold.append(route)
                     return None
-                status, body = (200, {"ok": True}) if accept_items else (400, {"ok": False, "error": "nope"})
+                # כמו ``CollectionsManager.add_items``: ``ok`` עם המונים. ``added`` — כמה נוספו
+                # בפועל (ברירת מחדל: כולם).
+                n = len(posted[-1].get("items") or []) if added is None else added
+                ok_body = {"ok": True, "added": n, "updated": 0}
+                status, body = (200, ok_body) if accept_items else (400, {"ok": False, "error": "nope"})
                 return route.fulfill(status=status, content_type="application/json", body=json.dumps(body))
             target = u.path + (f"?{u.query}" if u.query else "")
             r = client.open(target, method=request.method, data=request.post_data_buffer,
@@ -165,8 +169,9 @@ def _wait_for(page, predicate, what: str):
     raise AssertionError(f"לא התקיים: {what}")
 
 
-def _release(route):
-    route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True}))
+def _release(route, added: int = 2):
+    body = {"ok": True, "added": added, "updated": 0}
+    route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
 
 
 def test_on_success_runs_when_the_answer_arrives_after_the_window_was_closed(page_factory):
@@ -202,3 +207,18 @@ def test_an_answer_for_an_earlier_opening_does_not_close_the_window_that_is_open
       return { display: m.style.display, name: m.getAttribute('data-file-name') };
     }""")
     assert state == {"display": "flex", "name": "c.py"}, state
+
+
+def test_a_partial_add_shows_how_many_and_keeps_everything(page_factory):
+    """``ok`` עם פחות פריטים מהמבוקש: מציגים כמה נוספו, והחלון והבחירה נשארים לניסיון נוסף."""
+    page, posted, alerts = page_factory(accept_items=True, added=1)
+    _open_bulk(page)
+    page.check("#addToCollectionBody input[name=collectionId]")
+    _confirm(page)
+    for _ in range(40):
+        if alerts:
+            break
+        page.wait_for_timeout(50)
+    assert alerts == ["נוספו 1 מתוך 2 קבצים לאוסף. אפשר לנסות שוב."]
+    assert page.evaluate("document.getElementById('addToCollectionModal').style.display") == "flex"
+    assert page.evaluate("window.__success") == 0

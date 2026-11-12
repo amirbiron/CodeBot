@@ -601,9 +601,20 @@ class BulkActions {
             if (!names.length) { this.showNotification('לא נמצאו שמות קבצים תקפים', 'error'); return; }
             // פתח מודאל הוספה עם שמות מרובים. היציאה ממצב הבחירה קורית רק אחרי
             // שהשרת אישר את ההוספה — ביטול החלון או כשל משאירים את הבחירה.
+            //
+            // **ורק אם הבחירה עדיין זו שנשלחה.** בשאר הפעולות שכבת העיבוד (``showProcessing``)
+            // מכסה את העמוד עד התשובה, ולכן אי אפשר ללחוץ על תיבות הסימון באמצע. כאן אפשר
+            // לסגור את החלון בזמן שהבקשה בדרך ולבחור קבצים אחרים — ותשובה מאוחרת לא תנקה
+            // בחירה שלא נשלחה.
+            const sentIds = files.map(f => String(f.id));
             if (window.openBulkAddToCollectionModal) {
                 window.openBulkAddToCollectionModal(names, {
-                    onSuccess: () => window.multiSelect.finishBulkAction(),
+                    onSuccess: () => {
+                        const ms = window.multiSelect;
+                        const nowIds = ms.getSelectedFiles().map(f => String(f.id));
+                        const same = nowIds.length === sentIds.length && sentIds.every(id => nowIds.includes(id));
+                        if (same) ms.finishBulkAction();
+                    },
                 });
             } else {
                 // נפילה לאחור – מודאל יחיד, ניקח את הראשון

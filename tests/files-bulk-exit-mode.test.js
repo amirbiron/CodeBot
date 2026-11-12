@@ -256,6 +256,22 @@ await acheck('הוספה לאוסף יוצאת מהמצב רק כשהחלון מ
   assertExited(h, 'אחרי הצלחה בחלון');
 });
 
+await acheck('הוספה לאוסף: תשובה שמגיעה אחרי שהבחירה השתנתה לא נוגעת בבחירה החדשה', async () => {
+  // החלון נסגר בזמן שהבקשה בדרך, והמשתמש בחר קובץ נוסף. ההוספה שהשרת אישר הייתה של
+  // שני הקבצים הראשונים — הבחירה של שלושה אינה שלה.
+  const h = load();
+  h.enterAndSelect();
+  h.sandbox.bulkAddSelectedToCollection();
+  const third = h.files[2].checkbox;
+  third.checked = true;
+  h.ms.handleFileSelection(third);
+  eq(h.ms.getSelectedCount(), 3, 'הכנה: שלושה נבחרו');
+  h.bulkModal.options.onSuccess();
+  eq(h.ms.getSelectedCount(), 3, 'הבחירה החדשה נוקתה');
+  eq(h.ms.modeActive, true, 'יצא מהמצב');
+  ok(h.body.classList.contains('multi-select-active'), 'הצ\'קבוקסים נעלמו');
+});
+
 // ── כשל: נשארים, ומוצגת שגיאה ─────────────────────────────────────────
 const FAILURE_CASES = [
   ['הוספה למועדפים', (h) => h.sandbox.bulkAddToFavorites()],

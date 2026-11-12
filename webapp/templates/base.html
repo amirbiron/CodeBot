@@ -2663,7 +2663,19 @@
               if (!items.length) { alert('לא נבחרו קבצים להוספה'); return; }
               const r = await fetch(`/api/collections/${encodeURIComponent(cid)}/items`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({items}) });
               const data = await r.json();
-              if (!r.ok || !data.ok) throw new Error(data && data.error || 'שגיאה');
+              if (!r.ok || !data || typeof data !== 'object' || !data.ok) throw new Error(data && data.error || 'שגיאה');
+              // **``ok`` אינו "הכול נוסף".** ``CollectionsManager.add_items`` מדלג על פריט שנכשל
+              // ומחזיר ``ok: true`` עם ``added`` (חדשים) ו-``updated`` (שכבר היו באוסף). מה שטופל
+              // בפועל הוא הסכום שלהם; פחות מהמבוקש — מציגים כמה, ולא סוגרים, לא מנקים את הבחירה
+              // ולא מריצים את ``onSuccess``, כדי שאפשר יהיה לנסות שוב (פריט שכבר נוסף מתעדכן,
+              // ולא מוכפל). מונה שאינו מספר — תשובה בצורה לא צפויה, ולכן שגיאה.
+              const addedCount = Number(data.added), updatedCount = Number(data.updated);
+              if (!Number.isFinite(addedCount) || !Number.isFinite(updatedCount)) throw new Error('unexpected response shape');
+              const done = addedCount + updatedCount;
+              if (done < items.length) {
+                alert(items.length > 1 ? ('נוספו ' + done + ' מתוך ' + items.length + ' קבצים לאוסף. אפשר לנסות שוב.') : 'הקובץ לא נוסף לאוסף. אפשר לנסות שוב.');
+                return;
+              }
               alert(items.length > 1 ? ('נוספו ' + items.length + ' קבצים לאוסף') : 'נוסף לאוסף בהצלחה');
               try { setLastCollectionId(cid); } catch(_) {}
               try { window.CollectionsUI && CollectionsUI.refreshSidebar && CollectionsUI.refreshSidebar(); } catch(_){ }
