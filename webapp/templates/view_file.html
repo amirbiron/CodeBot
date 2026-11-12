@@ -2202,8 +2202,8 @@ function goBack(ev){
 // התצוגה שמוצגת עכשיו. עד נובמבר 2026 כל מנוע האזין בעצמו: המתקדם יירט את
 // האירועים לפני הבסיסי (``capture`` ו-``stopImmediatePropagation``), ובבסיסי
 // המאזינים של אנטר ושל ▼ היו רשומים פעמיים — כל לחיצה קידמה שתי התאמות (ממצא 1
-// ב-#3477). ממצאים 2–4 שם — מספרי שורות שנספרים, ``<`` ו-``&`` שלא נמצאים, וביטוי
-// שחוצה כמה טוקנים — עדיין פתוחים, והם של המנוע הבסיסי ולא של הבקר.
+// ב-#3477). ממצאים 3–4 שם — ``<`` ו-``&`` שלא נמצאים, וביטוי שחוצה כמה טוקנים —
+// עדיין פתוחים, והם של המנוע הבסיסי ולא של הבקר.
 (function(){
     const container = document.querySelector('#codeCard .code-container');
     const input = document.getElementById('codeSearchInput');
@@ -2218,13 +2218,26 @@ function goBack(ev){
         console.warn('view_file: utils/search-submit.js did not load; code search is disabled');
         input.disabled = true;
         input.title = 'החיפוש בקוד אינו זמין כרגע';
+        // גם הכפתורים: בלי בקר הם לא עושים כלום, וכפתור פעיל שלא עושה כלום נראה כתקלה.
+        [prevBtn, nextBtn, clearBtn].forEach(btn => { if (btn) btn.disabled = true; });
         return;
     }
 
-    const ROOTS = '.highlight, .highlighttable td.code, .source .highlight, pre';
+    // **שורשי הקוד: כל ``pre`` של התצוגה הבסיסית, חוץ מעמודת מספרי השורות.** Pygments
+    // עם ``linenos=True`` מצייר טבלה (``td.linenos`` ו-``td.code``), ובכל תא ``pre``
+    // משלו. עד נובמבר 2026 הסלקטור כאן תפס גם את ה-``pre`` של מספרי השורות, ומשני
+    // צדדים: חיפוש מספר שמופיע רק כמספר שורה נמצא שם (ממצא 2 ב-#3477), וכל חיפוש —
+    // גם החלפת תצוגה בזמן חיפוש — כתב מחדש את מספרי השורות מהעותק שנשמר בטעינה, ובזה
+    // מחק את 🔖 של הסימניות, שנוספות שם אחרי הטעינה (``addBookmarkIndicator`` ב-
+    // ``bookmarks.js``). עכשיו המנוע לא נוגע במספרי השורות בכלל.
+    const basicView = document.getElementById('codeBasicContainer') || container;
+    function codeRoots(){
+        return Array.from(basicView.querySelectorAll('pre'))
+            .filter(pre => !pre.closest('.linenos, .linenodiv'));
+    }
 
-    // נשמור מקור לכל בלוק קוד/שורש הדגשה בלבד (לא לכל המכולה)
-    container.querySelectorAll(ROOTS).forEach(root => {
+    // נשמור מקור לכל בלוק קוד (לא לכל המכולה)
+    codeRoots().forEach(root => {
         if (!root.hasAttribute('data-original-html')) {
             root.setAttribute('data-original-html', root.innerHTML);
         }
@@ -2232,7 +2245,7 @@ function goBack(ev){
 
     function restore(){
         // משחזר רק את שורשי הקוד ששמרנו עבורם מקור, לא את כל המכולה
-        container.querySelectorAll(ROOTS).forEach(root => {
+        codeRoots().forEach(root => {
             const orig = root.getAttribute('data-original-html');
             if (orig != null) root.innerHTML = orig;
         });
@@ -2245,7 +2258,7 @@ function goBack(ev){
         const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         // רגקס שמדלג על תגי HTML ועל HTML entities – מחליף רק טקסט גלוי
         const rxSkipTags = new RegExp(`(<[^>]*>|&[a-zA-Z0-9#]+;)|(${safe})`, 'gi');
-        container.querySelectorAll(ROOTS).forEach(root => {
+        codeRoots().forEach(root => {
             const original = root.getAttribute('data-original-html') || root.innerHTML;
             root.setAttribute('data-original-html', original);
             let rootCount = 0;
@@ -2294,9 +2307,8 @@ function goBack(ev){
         next(){ navigate(1); },
         prev(){ navigate(-1); },
         // רק כשיש הדגשה: ``restore`` כותב מחדש את כל ה-HTML של הקוד מהעותק שנשמר
-        // בטעינה, ובזה מוחק גם סימונים שנוספו אחר כך — כמו 🔖 של סימנייה על מספר
-        // שורה (מספרי השורות יושבים ב-``pre`` שהוא אחד השורשים; ממצא 2 ב-#3477).
-        // ``rerun`` מנקה גם בטעינת העמוד ובכל החלפת תצוגה, ושם בדרך כלל אין מה לנקות.
+        // בטעינה, ו-``rerun`` מנקה גם בטעינת העמוד ובכל החלפת תצוגה — ושם בדרך כלל
+        // אין מה לנקות.
         reset(){
             if (container.querySelector('.md-highlight')) restore();
             updateCount(0, '');

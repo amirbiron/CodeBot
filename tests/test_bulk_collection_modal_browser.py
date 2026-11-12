@@ -61,7 +61,8 @@ def page_factory(browser, monkeypatch):
     monkeypatch.setattr(wa, "get_db", lambda: db)
     contexts = []
 
-    def make(*, accept_items: bool):
+    def make(*, accept_items: bool, hold: list | None = None):
+        """``hold`` — רשימה: בקשת ההוספה נשמרת בה ולא נענית, עד שהטסט עונה עליה."""
         client = wa.app.test_client()
         client.environ_base["HTTP_X_FORWARDED_FOR"] = f"192.0.2.{next(_ADDRESSES) % 250 + 1}"
         with client.session_transaction() as sess:
@@ -77,6 +78,9 @@ def page_factory(browser, monkeypatch):
                 return route.fulfill(status=200, content_type="application/json", body=json.dumps(COLLECTIONS))
             if u.path == "/api/collections/c1/items" and request.method == "POST":
                 posted.append(json.loads(request.post_data or "{}"))
+                if hold is not None:
+                    hold.append(route)
+                    return None
                 status, body = (200, {"ok": True}) if accept_items else (400, {"ok": False, "error": "nope"})
                 return route.fulfill(status=status, content_type="application/json", body=json.dumps(body))
             target = u.path + (f"?{u.query}" if u.query else "")
@@ -150,3 +154,51 @@ def test_cancel_and_a_later_single_file_add_do_not_run_it(page_factory):
     poll(page, "() => document.getElementById('addToCollectionModal').style.display === 'none'", "החלון נסגר")
     assert [i["file_name"] for i in posted[-1]["items"]] == ["c.py"]
     assert page.evaluate("window.__success") == 0, "onSuccess של הפתיחה המרובה זלג לקובץ יחיד"
+
+
+def _wait_for(page, predicate, what: str):
+    """המתנה לתנאי בצד של הטסט (בקשה שנעצרה ב-route), עד חמש שניות."""
+    for _ in range(100):
+        if predicate():
+            return
+        page.wait_for_timeout(50)
+    raise AssertionError(f"לא התקיים: {what}")
+
+
+def _release(route):
+    route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True}))
+
+
+def test_on_success_runs_when_the_answer_arrives_after_the_window_was_closed(page_factory):
+    """הבקשה בדרך, והחלון נסגר. ההוספה שהשרת אישר שייכת לבחירה ששלחה אותה."""
+    hold: list = []
+    page, posted, alerts = page_factory(accept_items=True, hold=hold)
+    _open_bulk(page)
+    page.check("#addToCollectionBody input[name=collectionId]")
+    _confirm(page)
+    _wait_for(page, lambda: hold, "בקשת ההוספה יצאה")
+    page.click("#addToCollectionModal button.btn-secondary")  # "בטל" — הסגירה מאפסת את ה-callback
+    _release(hold.pop())
+    poll(page, "() => window.__success === 1", "onSuccess של הבקשה רץ אחרי התשובה")
+    assert alerts == ["נוספו 2 קבצים לאוסף"]
+
+
+def test_an_answer_for_an_earlier_opening_does_not_close_the_window_that_is_open_now(page_factory):
+    """הבקשה בדרך, החלון נסגר ונפתח שוב לקובץ יחיד. התשובה לא סוגרת את הפתיחה החדשה."""
+    hold: list = []
+    page, posted, alerts = page_factory(accept_items=True, hold=hold)
+    _open_bulk(page)
+    page.check("#addToCollectionBody input[name=collectionId]")
+    _confirm(page)
+    _wait_for(page, lambda: hold, "בקשת ההוספה יצאה")
+    page.click("#addToCollectionModal button.btn-secondary")
+    page.evaluate("openAddToCollectionModal('c.py')")
+    poll(page, "() => !!document.querySelector('#addToCollectionBody input[name=collectionId]')", "החלון החדש נטען")
+
+    _release(hold.pop())
+    poll(page, "() => window.__success === 1", "onSuccess של הבקשה המרובה רץ")
+    state = page.evaluate("""() => {
+      const m = document.getElementById('addToCollectionModal');
+      return { display: m.style.display, name: m.getAttribute('data-file-name') };
+    }""")
+    assert state == {"display": "flex", "name": "c.py"}, state

@@ -930,9 +930,13 @@ class BookmarkUI {
         this.TOGGLE_POS_KEY = 'bookmarks_toggle_btn_position';
         this.TOGGLE_MINI_KEY = 'bookmarks_toggle_btn_mini';
         this.isDraggingToggle = false;
-        // האם הסימניות פעילות — נקבע ב-``setToggleButtonVisible`` בלבד, יחד עם הכפתור.
+        // האם הסימניות פעילות — נקבע ב-``applyToggleVisibility`` בלבד, יחד עם הכפתור.
         this.enabled = true;
         this.ensureToggleButtonVisibilityRestored();
+        // הגדרה ששונתה בלשונית אחרת — עמוד ההגדרות — חלה כאן מיד, ולא רק בטעינה הבאה.
+        // ``storage`` נורה רק במסמכים **אחרים** של אותו מקור (WHATWG HTML, "The storage
+        // event"), ולכן הכתיבה של הלשונית הזו עצמה לא חוזרת אליה.
+        window.addEventListener('storage', (e) => this.onVisibilityStorageEvent(e));
         this.restoreTogglePosition();
         this.restoreToggleMiniState();
         this.initInfoModal();
@@ -983,7 +987,20 @@ class BookmarkUI {
             // אחסון חסום (חלון פרטי, הגדרת דפדפן). בלעדיו גם עמוד ההגדרות לא יכול היה
             // לשמור "מוסתר", ולכן ברירת המחדל — מוצג ופעיל — היא מה שהמשתמש בחר.
         }
-        this.setToggleButtonVisible(stored !== '0');
+        this.applyToggleVisibility(stored !== '0');
+    }
+
+    /** אירוע ``storage``: רק המפתח של ההגדרה, ורק מ-localStorage. ``key`` ריק — האחסון נוקה. */
+    onVisibilityStorageEvent(e) {
+        if (e.key !== null && e.key !== this.TOGGLE_VISIBILITY_KEY) return;
+        try {
+            if (e.storageArea !== window.localStorage) return;
+        } catch (_) {
+            // הגישה ל-localStorage חסומה במסמך הזה, ולכן האירוע לא יכול להגיע ממנו.
+            return;
+        }
+        // אותו כלל של הטעינה: "0" — מוסתר וכבוי; כל ערך אחר, כולל מפתח שנמחק — מוצג ופעיל.
+        this.applyToggleVisibility(e.newValue !== '0');
     }
 
     /**
@@ -994,16 +1011,21 @@ class BookmarkUI {
      * ממשיכות להיות מסומנות, והפאנל (Ctrl+Shift+B) ממשיך לנהל אותן.
      */
     setToggleButtonVisible(show) {
-        this.enabled = !!show;
-        const btn = document.getElementById('toggleBookmarksBtn');
-        if (btn) {
-            btn.style.display = show ? 'flex' : 'none';
-        }
+        this.applyToggleVisibility(show);
         try {
             localStorage.setItem(this.TOGGLE_VISIBILITY_KEY, show ? '1' : '0');
         } catch (_) {
             // אחסון חסום: ההגדרה חלה על העמוד הזה ולא תישמר לבא. אין כאן מה לדווח —
             // ``enabled`` והכפתור כבר עודכנו.
+        }
+    }
+
+    /** המצב עצמו — ``enabled``, הכפתור והתווית — בלי לכתוב לאחסון. */
+    applyToggleVisibility(show) {
+        this.enabled = !!show;
+        const btn = document.getElementById('toggleBookmarksBtn');
+        if (btn) {
+            btn.style.display = show ? 'flex' : 'none';
         }
         this.updateVisibilityControlLabel();
     }

@@ -2107,6 +2107,8 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           + ' did not load; in-document search is disabled');
         input.disabled = true;
         input.title = 'החיפוש במסמך אינו זמין כרגע';
+        // גם הכפתורים: בלי בקר הם לא עושים כלום, וכפתור פעיל שלא עושה כלום נראה כתקלה.
+        [prevBtn, nextBtn, clearBtn].forEach(btn => { if (btn) btn.disabled = true; });
         return;
       }
       const HIGHLIGHT_OPTS = { className: 'md-highlight' };

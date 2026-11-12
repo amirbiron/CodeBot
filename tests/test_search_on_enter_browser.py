@@ -40,6 +40,7 @@ HOST = "ck.test"
 OWNER_ID = 7162
 CODE_OID = ObjectId("0123456789abcdef0123ab51")
 MD_OID = ObjectId("0123456789abcdef0123ab52")
+LETTERS_OID = ObjectId("0123456789abcdef0123ab53")
 TERM = "zebra_marker"
 FORWARDED_HEADERS = ("content-type", "cache-control", "etag")
 
@@ -50,6 +51,8 @@ CODE = "\n".join(
     for i in range(1, 31)
 ) + "\n"
 MARKDOWN = f"# כותרת\n\nפסקה עם {TERM} אחד.\n\nועוד {TERM}, ו-{TERM} שלישי.\n"
+#: קוד בלי אף ספרה: כל ספרה בעמוד היא מספר שורה.
+LETTERS = "".join(f"line_{chr(97 + i)} = '{chr(97 + i) * 3}'\n" for i in range(12))
 
 _ADDRESSES = itertools.count(1)
 
@@ -60,7 +63,8 @@ def site(chromium_executable):
 
     db = FakeDB()
     for oid, name, code, lang in ((CODE_OID, "zebra.py", CODE, "python"),
-                                  (MD_OID, "zebra.md", MARKDOWN, "markdown")):
+                                  (MD_OID, "zebra.md", MARKDOWN, "markdown"),
+                                  (LETTERS_OID, "letters.py", LETTERS, "python")):
         db["code_snippets"].insert_one({
             "_id": oid, "user_id": OWNER_ID, "file_name": name, "code": code,
             "programming_language": lang, "version": 1, "is_active": True,
@@ -227,6 +231,23 @@ def test_markdown_view_searches_only_on_enter(site):
         page.keyboard.press("Backspace")
         assert page.evaluate(MD_STATE_JS) == {"count": "", "hits": 0}, "שינוי הטקסט לא ניקה"
         assert page.get_attribute("#mdSearchInput", "enterkeyhint") == "search"
+        assert errors == []
+    finally:
+        ctx.close()
+
+
+def test_a_number_that_is_only_a_line_number_is_not_found(site):
+    """ממצא 2 ב-#3477: מספרי השורות אינם חלק מהקוד. ``12`` מופיע כאן רק כמספר שורה."""
+    ctx, page, errors = _open(site, f"/file/{LETTERS_OID}")
+    try:
+        page.fill("#codeSearchInput", "12")
+        page.press("#codeSearchInput", "Enter")
+        _count(page, CODE_STATE_JS, "אין תוצאות", "מספר שורה לא נספר")
+        assert page.evaluate("document.querySelectorAll('.linenos .md-highlight, .linenodiv .md-highlight').length") == 0
+        # ובקרה: טקסט מהקוד עצמו נמצא באותו עמוד.
+        page.fill("#codeSearchInput", "line_l")
+        page.press("#codeSearchInput", "Enter")
+        _count(page, CODE_STATE_JS, "1/1", "טקסט מהקוד נמצא")
         assert errors == []
     finally:
         ctx.close()

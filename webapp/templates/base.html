@@ -2589,9 +2589,13 @@
         // נקבע רק בפתיחה המרובה, ומתאפס בכל פתיחה ובכל סגירה — כמו ``data-file-names`` —
         // כדי שלא יזלוג להוספה של קובץ יחיד שתבוא אחר כך.
         let bulkAddToCollectionOnSuccess = null;
+        // מונה הפתיחות של החלון: בקשה שחוזרת אחרי שהחלון נסגר ונפתח מחדש יודעת שהחלון
+        // שמוצג עכשיו אינו שלה (``confirmAddToCollection``).
+        let addToCollectionOpenCount = 0;
         window.openAddToCollectionModal = async function(fileName){
             const modal = document.getElementById('addToCollectionModal');
             const body = document.getElementById('addToCollectionBody');
+            addToCollectionOpenCount += 1;
             modal.style.display = 'flex';
             // נקה מצב "bulk" ישן כדי שלא יזלוג לפתיחה של קובץ יחיד
             modal.removeAttribute('data-file-names');
@@ -2611,6 +2615,7 @@
         window.openBulkAddToCollectionModal = async function(fileNames, options){
             const modal = document.getElementById('addToCollectionModal');
             const body = document.getElementById('addToCollectionBody');
+            addToCollectionOpenCount += 1;
             modal.style.display = 'flex';
             modal.removeAttribute('data-file-name');
             modal.setAttribute('data-file-names', JSON.stringify(Array.isArray(fileNames)?fileNames:[]));
@@ -2639,9 +2644,15 @@
             const sel = document.querySelector('#addToCollectionBody input[name="collectionId"]:checked');
             if (!sel) { alert('בחר אוסף'); return; }
             const cid = sel.value;
-            // נקבע רק אחרי שהשרת אישר, ונקרא אחרי ה-try: חריגה בו היא באג של מי שהעביר
-            // אותו, ולא "שגיאה בהוספה לאוסף" על הוספה שכבר הצליחה.
-            let onSuccess = null;
+            // **נלכדים לפני ה-await, ולא נקראים מחדש אחריו.** בזמן שהבקשה בדרך אפשר לסגור את
+            // החלון (הסגירה מאפסת את ``bulkAddToCollectionOnSuccess``) ולפתוח אותו שוב לקבצים
+            // אחרים. ההוספה שהשרת אישר שייכת לבחירה ששלחה אותה, ולכן ה-``onSuccess`` שלה רץ
+            // גם אם החלון כבר נסגר; ואת החלון סוגרים רק אם הוא עדיין אותה פתיחה.
+            const onSuccess = bulkNamesRaw ? bulkAddToCollectionOnSuccess : null;
+            const openCount = addToCollectionOpenCount;
+            // נקרא אחרי ה-try: חריגה ב-``onSuccess`` היא באג של מי שהעביר אותו, ולא "שגיאה
+            // בהוספה לאוסף" על הוספה שכבר הצליחה.
+            let added = false;
             try {
               let items = [];
               if (bulkNamesRaw) {
@@ -2656,13 +2667,12 @@
               alert(items.length > 1 ? ('נוספו ' + items.length + ' קבצים לאוסף') : 'נוסף לאוסף בהצלחה');
               try { setLastCollectionId(cid); } catch(_) {}
               try { window.CollectionsUI && CollectionsUI.refreshSidebar && CollectionsUI.refreshSidebar(); } catch(_){ }
-              // נלקח לפני הסגירה, שמאפסת אותו.
-              onSuccess = bulkNamesRaw ? bulkAddToCollectionOnSuccess : null;
-              closeAddToCollectionModal();
+              added = true;
+              if (openCount === addToCollectionOpenCount) closeAddToCollectionModal();
             } catch (e) {
               alert('שגיאה בהוספה לאוסף');
             }
-            if (onSuccess) onSuccess();
+            if (added && onSuccess) onSuccess();
         }
         function escapeHtml(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
     </script>

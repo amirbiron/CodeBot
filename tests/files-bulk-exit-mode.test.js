@@ -91,7 +91,7 @@ function mkFiles() {
  * השרת, או ``{throws: true}`` לכשל רשת. ``storage`` משותף בין טעינות, כמו
  * sessionStorage בין רענונים של אותה לשונית.
  */
-function load({ respond, storage = new Map() } = {}) {
+function load({ respond, storage = new Map(), storageThrows = null } = {}) {
   const sent = [];
   const timers = [];
   const notifications = [];
@@ -127,10 +127,20 @@ function load({ respond, storage = new Map() } = {}) {
     console: { log: () => {}, warn: () => {}, error: () => {} },
     JSON, String, Promise, Error, Array, Map, Math, Date,
     document,
+    // ``storageThrows``: ``'write'`` — מכסה מלאה (רק כתיבה זורקת); ``'all'`` — אחסון חסום.
     sessionStorage: {
-      getItem: (k) => (storage.has(k) ? storage.get(k) : null),
-      setItem: (k, v) => storage.set(k, String(v)),
-      removeItem: (k) => storage.delete(k),
+      getItem: (k) => {
+        if (storageThrows === 'all') throw new Error('SecurityError');
+        return storage.has(k) ? storage.get(k) : null;
+      },
+      setItem: (k, v) => {
+        if (storageThrows) throw new Error('QuotaExceededError');
+        storage.set(k, String(v));
+      },
+      removeItem: (k) => {
+        if (storageThrows === 'all') throw new Error('SecurityError');
+        storage.delete(k);
+      },
     },
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     setInterval: () => 0,
@@ -280,6 +290,21 @@ await acheck('שגיאת רשת משאירה את הבחירה', async () => {
   await h.sandbox.bulkAddToFavorites();
   assertStayed(h, 'שגיאת רשת');
 });
+
+// ── אחסון שזורק ─────────────────────────────────────────────────────────
+for (const mode of ['write', 'all']) {
+  await acheck(`אחסון שזורק (${mode}): מחיקה שהצליחה יוצאת מהמצב, ובלי שגיאה למשתמש`, async () => {
+    // לפני התיקון ``persistSelection`` כתב בלי ``try``: הכתיבה זרקה בתוך ``clearSelection``,
+    // הצ'קבוקסים נשארו, והמשתמש קיבל "שגיאה במחיקה" על מחיקה שהשרת ביצע.
+    const h = load({ storageThrows: mode, respond: () => ({ success: true, deleted: 2 }) });
+    h.enterAndSelect();
+    await h.sandbox.bulkActions.deleteSelected();
+    eq(h.ms.getSelectedCount(), 0, 'הבחירה נוקתה');
+    eq(h.ms.modeActive, false, 'modeActive');
+    eq(h.body.classList.contains('multi-select-active'), false, 'הצ\'קבוקסים עדיין מוצגים');
+    eq(h.notifications.some((n) => n.type === 'error'), false, `הוצגה שגיאה — ${JSON.stringify(h.notifications)}`);
+  });
+}
 
 // ── "ביטול בחירה" ───────────────────────────────────────────────────────
 await acheck('"ביטול בחירה" מנקה את הבחירה ונשאר במצב הבחירה', async () => {

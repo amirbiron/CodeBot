@@ -18,9 +18,13 @@
  * - ✕ מרוקן את התיבה ומנקה.
  * - "אותו טקסט" נקבע אחרי ``trim``: רווח בסוף אינו טקסט חדש.
  *
- * **בדיקת האנטר היא ``key === 'Enter'``, בלי ``isComposing``** — אותה בדיקה של
- * דפדפן הריפו, שעובדת בטאבלט של המשתמש. לא נבדק מה מקלדות וירטואליות מדווחות
- * ב-``isComposing`` על אנטר שסוגר מילה, ותנאי עליו היה יכול לחסום את החיפוש שם.
+ * **אנטר בזמן הרכבה של מקלדת IME שייך להרכבה, ולא לחיפוש** — ``isComposing``
+ * או ``keyCode === 229``, אותה בדיקה של החיפוש בתוך פתק (``sticky-notes.js``),
+ * לפי MDN, ‏"Element: keydown event". אנטר כזה מאשר מילה שעוד לא הושלמה, ולכן
+ * אינו מחפש ואינו נחסם (בלי ``preventDefault``).
+ *
+ * **ו-``submitted`` נקבע רק אחרי ש-``search`` חזר בלי חריגה.** מנוע שזרק השאיר
+ * חיפוש שלא קרה, ואנטר נוסף צריך לנסות לחפש שוב — לא לעבור "להתאמה הבאה".
  *
  * הקובץ הזה אינו יודע דבר על הדגשה, ספירה או גלילה: אלה של המנוע שמועבר
  * אליו. ואין בו ``innerHTML``.
@@ -56,8 +60,8 @@
     }
 
     function submit(term) {
-      submitted = term;
       o.search(term);
+      submitted = term;
     }
 
     function step(direction) {
@@ -72,6 +76,7 @@
 
     input.addEventListener('keydown', function (ev) {
       if (ev.key !== 'Enter') return;
+      if (ev.isComposing || ev.keyCode === 229) return;
       ev.preventDefault();
       step(ev.shiftKey ? -1 : 1);
     });

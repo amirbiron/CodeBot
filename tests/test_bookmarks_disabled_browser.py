@@ -35,6 +35,7 @@ HOST = "ck.test"
 OWNER_ID = 7163
 CODE_OID = ObjectId("0123456789abcdef0123ab61")
 MD_OID = ObjectId("0123456789abcdef0123ab62")
+HTML_OID = ObjectId("0123456789abcdef0123ab63")
 CODE = "".join(f"value_{i:02d} = {i}\n" for i in range(1, 21))
 MARKDOWN = "# כותרת ראשית\n\nפסקה.\n\n## סעיף שני\n\nעוד פסקה.\n"
 FORWARDED_HEADERS = ("content-type", "cache-control", "etag")
@@ -48,7 +49,8 @@ def site(chromium_executable):
 
     db = FakeDB()
     for oid, name, code, lang in ((CODE_OID, "lines.py", CODE, "python"),
-                                  (MD_OID, "doc.md", MARKDOWN, "markdown")):
+                                  (MD_OID, "doc.md", MARKDOWN, "markdown"),
+                                  (HTML_OID, "page.html", '<h1 id="intro">מבוא</h1>', "html")):
         db["code_snippets"].insert_one({
             "_id": oid, "user_id": OWNER_ID, "file_name": name, "code": code,
             "programming_language": lang, "version": 1, "is_active": True,
@@ -152,6 +154,83 @@ def test_tapping_a_markdown_heading(site, visible, expect_toggle):
             assert len(toggles) == 1 and toggles[0].get("anchor_id"), toggles
         else:
             assert toggles == []
+        assert errors == []
+    finally:
+        ctx.close()
+
+
+#: כמה מספרי שורות מסומנים כסימנייה (``addBookmarkIndicator`` ב-``bookmarks.js``).
+BOOKMARKED_JS = "() => document.querySelectorAll('.linenos .bookmarked, .linenodiv .bookmarked').length"
+
+
+def test_a_search_and_a_view_switch_keep_the_bookmark_marks(site):
+    """חיפוש בתצוגה הבסיסית לא מוחק את 🔖 ממספרי השורות — גם לא בהחלפת תצוגה תוך כדי.
+
+    עד נובמבר 2026 המנוע של התצוגה הבסיסית כתב מחדש גם את ה-``pre`` של מספרי
+    השורות מהעותק שנשמר בטעינה, לפני שהסימניות נוספו.
+    """
+    ctx, page, toggles, errors = _open(site, f"/file/{CODE_OID}", visible="1")
+    try:
+        page.locator(LINE).nth(4).click()
+        poll(page, f"() => ({BOOKMARKED_JS})() === 1", "הסימנייה סומנה על מספר השורה")
+
+        page.fill("#codeSearchInput", "value")
+        page.press("#codeSearchInput", "Enter")
+        poll(page, "() => document.getElementById('searchCount').textContent === '1/20'", "החיפוש רץ")
+        assert page.evaluate(BOOKMARKED_JS) == 1, "החיפוש מחק את הסימון"
+
+        for mode in ("codeMirrorContainer", "codeBasicContainer"):
+            page.click("#viewModeToggleBtn")
+            poll(page, f"() => !document.getElementById('{mode}').hidden", f"{mode} מוצג")
+        poll(page, "() => document.getElementById('searchCount').textContent === '1/20'", "החיפוש רץ שוב בבסיסית")
+        assert page.evaluate(BOOKMARKED_JS) == 1, "החלפת התצוגה מחקה את הסימון"
+
+        page.click("#closeSearchBtn")
+        assert page.evaluate(BOOKMARKED_JS) == 1, "הניקוי מחק את הסימון"
+        assert errors == []
+    finally:
+        ctx.close()
+
+
+
+@pytest.mark.parametrize("visible, expect_toggle", [("0", False), ("1", True)], ids=["hidden", "shown"])
+def test_an_anchor_message_from_the_html_view(site, visible, expect_toggle):
+    """הדרך החמישית: הודעת ``html-anchor-click`` בתצוגת HTML (``html_preview.html``).
+
+    ההודעה נשלחת מהעמוד עצמו — המאזין לא בודק מי השולח, ולכן זה אותו מסלול בדיוק.
+    """
+    ctx, page, toggles, errors = _open(site, f"/html/{HTML_OID}", visible=visible)
+    try:
+        page.evaluate("window.postMessage({type: 'html-anchor-click', anchorId: 'intro', anchorText: 'מבוא'}, '*')")
+        page.wait_for_timeout(300)
+        if expect_toggle:
+            assert len(toggles) == 1 and toggles[0].get("anchor_id") == "intro", toggles
+        else:
+            assert toggles == []
+        assert errors == []
+    finally:
+        ctx.close()
+
+
+def test_hiding_in_the_settings_tab_applies_at_once_in_an_open_file_tab(site):
+    """הסתרה בעמוד ההגדרות בלשונית אחת חלה מיד בלשונית שבה הקובץ כבר פתוח (אירוע ``storage``)."""
+    ctx, page, toggles, errors = _open(site, f"/file/{CODE_OID}", visible="1")
+    try:
+        settings = ctx.new_page()
+        settings.goto(f"http://{HOST}/settings")
+        settings.click("#bmHideBtn")
+        poll(page, "() => getComputedStyle(document.getElementById('toggleBookmarksBtn')).display === 'none'",
+             "הכפתור הוסתר בלשונית של הקובץ")
+        page.locator(LINE).nth(4).click()
+        page.wait_for_timeout(300)
+        assert toggles == []
+
+        settings.click("#bmShowBtn")
+        poll(page, "() => getComputedStyle(document.getElementById('toggleBookmarksBtn')).display !== 'none'",
+             "הכפתור חזר בלשונית של הקובץ")
+        page.locator(LINE).nth(4).click()
+        page.wait_for_timeout(300)
+        assert len(toggles) == 1, toggles
         assert errors == []
     finally:
         ctx.close()

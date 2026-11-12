@@ -119,6 +119,39 @@ check('אנטר על תיבה ריקה לא עושה כלום', () => {
   eq(h.log.join(','), '', 'היומן');
 });
 
+check('אנטר בזמן הרכבה של מקלדת IME (isComposing או 229) — לא מחפש ולא נחסם', () => {
+  // אותה בדיקה של החיפוש בתוך פתק (``sticky-notes.js``): האנטר מאשר מילה שעוד לא הושלמה.
+  const h = setup();
+  h.type('alice');
+  for (const extra of [{ isComposing: true }, { keyCode: 229 }]) {
+    const ev = h.input.fire('keydown', Object.assign({ key: 'Enter' }, extra));
+    eq(ev.defaultPrevented, false, `preventDefault — ${JSON.stringify(extra)}`);
+  }
+  eq(h.log.join(','), '', 'היומן');
+  // האנטר שאחרי סוף ההרכבה — מחפש.
+  h.enter();
+  eq(h.log.join(','), 'search:alice', 'אחרי ההרכבה');
+});
+
+check('מנוע שזרק בחיפוש — אנטר נוסף מחפש שוב, ולא עובר "להתאמה הבאה"', () => {
+  const log = [];
+  let fail = true;
+  const input = mkEl({ value: 'alice' });
+  const ctl = SubmitSearch.bind({
+    input,
+    search: (t) => { log.push(`search:${t}`); if (fail) throw new Error('engine bug'); },
+    next: () => log.push('next'), prev: () => log.push('prev'), reset: () => log.push('reset'),
+  });
+  let threw = false;
+  try { input.fire('keydown', { key: 'Enter' }); } catch (e) { threw = true; }
+  eq(threw, true, 'החריגה עולה, ולא נבלעת');
+  eq(ctl.submitted, '', 'submitted אחרי כשל');
+  fail = false;
+  input.fire('keydown', { key: 'Enter' });
+  eq(log.join(','), 'search:alice,search:alice', 'היומן');
+  eq(ctl.submitted, 'alice', 'submitted אחרי הצלחה');
+});
+
 check('מקש שאינו אנטר לא נוגע במנוע ולא בברירת המחדל', () => {
   const h = setup();
   h.type('alice');

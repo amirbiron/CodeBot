@@ -3,6 +3,28 @@
  * מערכת בחירה מרובה לקבצים בווב אפ
  */
 
+/**
+ * גישה ל-sessionStorage — המקום היחיד בקובץ שנוגע בו.
+ *
+ * האחסון שומר את מצב הבחירה ואת הקבצים שנבחרו לטעינה הבאה של העמוד, ותו לא:
+ * אחרי האתחול שום דבר בעמוד לא קורא ממנו. לכן אחסון חסום (חלון פרטי, הגדרת
+ * דפדפן — אז גם הגישה ל-``sessionStorage`` עצמו זורקת) או מלא פירושו רק שהמצב לא
+ * יישמר לרענון הבא, ואין כאן מה לדווח. עד נובמבר 2026 ``persistSelection`` כתב בלי
+ * ``try``, ולכן כתיבה שזרקה עצרה את ``clearSelection`` באמצע — וכשזה קרה בסוף פעולה
+ * מרובה שהצליחה, הצ'קבוקסים נשארו והוצגה שגיאה על פעולה שהשרת ביצע.
+ */
+const selectionStorage = {
+    get(key) {
+        try { return sessionStorage.getItem(key); } catch (e) { return null; }
+    },
+    set(key, value) {
+        try { sessionStorage.setItem(key, value); } catch (e) { /* ראו למעלה */ }
+    },
+    remove(key) {
+        try { sessionStorage.removeItem(key); } catch (e) { /* ראו למעלה */ }
+    },
+};
+
 class MultiSelectManager {
     constructor() {
         // שימוש ב-Map במקום Set כדי למנוע כפילויות
@@ -17,12 +39,7 @@ class MultiSelectManager {
     
     init() {
         // מצב ברירת מחדל: כבוי; שחזור מ-sessionStorage אם הופעל בעבר
-        try {
-            const stored = sessionStorage.getItem('multiModeActive');
-            this.modeActive = stored === 'true';
-        } catch (e) {
-            this.modeActive = false;
-        }
+        this.modeActive = selectionStorage.get('multiModeActive') === 'true';
 
         // הגדרת event listeners
         this.setupCheckboxListeners();
@@ -237,12 +254,12 @@ class MultiSelectManager {
         // שמור בחירה ב-sessionStorage לשמירה בין עמודים
         // עם Map, שומרים רק את ה-keys (file IDs)
         const fileIds = Array.from(this.selectedFiles.keys());
-        sessionStorage.setItem('selectedFiles', JSON.stringify(fileIds));
+        selectionStorage.set('selectedFiles', JSON.stringify(fileIds));
     }
     
     restoreSelection() {
         // שחזר בחירה אחרי מעבר עמוד או רענון
-        const stored = sessionStorage.getItem('selectedFiles');
+        const stored = selectionStorage.get('selectedFiles');
         if (stored) {
             try {
                 const fileIds = JSON.parse(stored);
@@ -256,11 +273,11 @@ class MultiSelectManager {
                     });
                 } else {
                     // אם המצב לא פעיל, ננקה בחירה שנשמרה כדי למנוע בלבול
-                    sessionStorage.removeItem('selectedFiles');
+                    selectionStorage.remove('selectedFiles');
                 }
             } catch (e) {
                 console.error('Error restoring selection:', e);
-                sessionStorage.removeItem('selectedFiles');
+                selectionStorage.remove('selectedFiles');
             }
         }
     }
@@ -303,19 +320,20 @@ class MultiSelectManager {
     }
 
     /**
-     * המקום היחיד שמדליק ומכבה את מצב הבחירה המרובה: המשתנה, מה שנשמר בדפדפן,
-     * המחלקה על ``body`` (שמציגה את הצ'קבוקסים) והכפתור.
+     * המקום היחיד שמדליק ומכבה את מצב הבחירה המרובה: המשתנה, המחלקה על ``body``
+     * (שמציגה את הצ'קבוקסים), הכפתור, ומה שנשמר לטעינה הבאה.
+     *
+     * **מה שעל המסך קודם**, ורק אחריו האחסון וניקוי הבחירה: אם משהו מאוחר יותר
+     * נכשל, הצ'קבוקסים כבר נעלמו — כלומר התוצאה שהמשתמש ביקש כבר קרתה.
      */
     setMode(active) {
         this.modeActive = !!active;
-        // בלי sessionStorage (חלון פרטי, אחסון חסום) המצב פשוט לא נשמר לרענון הבא.
-        // כל השאר — המחלקה על ``body`` והכפתור — לא תלוי בו, ולכן אין כאן מה לדווח.
-        try { sessionStorage.setItem('multiModeActive', this.modeActive ? 'true' : 'false'); } catch (e) {}
+        this.applyModeState(this.modeActive);
+        this.renderToggleButton();
+        selectionStorage.set('multiModeActive', this.modeActive ? 'true' : 'false');
         if (!this.modeActive) {
             this.clearSelection();
         }
-        this.applyModeState(this.modeActive);
-        this.renderToggleButton();
     }
 
     /**

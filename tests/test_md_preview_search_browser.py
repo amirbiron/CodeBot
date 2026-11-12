@@ -193,11 +193,15 @@ def test_without_a_module_the_box_is_disabled(browser, missing):
     state = page.evaluate(
         """() => {
           const input = document.getElementById('mdSearchInput');
-          return { disabled: input.disabled, title: input.title };
+          const buttons = ['mdSearchPrev', 'mdSearchNext', 'mdSearchClear']
+            .map(id => document.getElementById(id).disabled);
+          return { disabled: input.disabled, title: input.title, buttons };
         }"""
     )
     assert state["disabled"] is True
     assert state["title"]
+    # כפתור פעיל שלא עושה כלום נראה כתקלה — גם הם מושבתים.
+    assert state["buttons"] == [True, True, True]
     assert any(missing in w for w in warnings), warnings
     assert errors == []
     page.close()

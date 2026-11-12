@@ -5,7 +5,8 @@
 // המשיכה ליצור סימניות. עכשיו כל דרכי היצירה ב-``bookmarks.js`` שואלות את
 // ``BookmarkUI.isEnabled``: הנגיעה במספר שורה (רגילה, Shift, Ctrl, ותפריט הצבע),
 // הנגיעה בכותרת במארקדאון, ו-Ctrl+B. הדרך החמישית — הודעה מתוך תצוגת HTML — ב-
-// ``html_preview.html``, ונבדקת למטה מול הטקסט שלה.
+// ``html_preview.html``, ונבדקת למטה מול הטקסט שלה (וההודעה עצמה בדפדפן —
+// ``test_an_anchor_message_from_the_html_view``).
 //
 // **איך:** ``bookmarks.js`` נטען כמו שהוא בתוך ``vm``, עם DOM מדומה. המחלקות נחשפות
 // מהסקריפט, ומנהל נבנה בלי ``init`` (שפונה לשרת). מה שהיה יוצר סימנייה —
@@ -78,7 +79,9 @@ function load(stored) {
     },
     setItem: () => { if (stored === 'throws') throw new Error('SecurityError'); },
   };
+  const winListeners = {};
   const sandbox = {
+    addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); },
     console: { log: () => {}, warn: () => {}, error: () => {} },
     JSON, Map, Array, Object, String, Number, Promise, Error, parseInt, setTimeout: () => 0,
     document, localStorage,
@@ -106,7 +109,10 @@ function load(stored) {
     toggleBookmarkAnchor: async () => { calls.push('api.anchor'); return { ok: false }; },
   };
   mgr.setupKeyboardShortcuts();
-  return { mgr, calls, toggleBtn, heading, docListeners };
+  /** אירוע ``storage`` כמו שהדפדפן יורה בלשונית אחרת. */
+  const fireStorage = (ev) => (winListeners.storage || []).forEach((fn) => fn(
+    Object.assign({ storageArea: localStorage }, ev)));
+  return { mgr, calls, toggleBtn, heading, docListeners, fireStorage };
 }
 
 /** נגיעה במספר שורה 5, עם המקשים ``mods`` ו-``type`` של האירוע. */
@@ -161,6 +167,28 @@ await acheck('הסתרה בזמן ריצה (setToggleButtonVisible) מכבה מ�
   h.mgr.ui.setToggleButtonVisible(false);
   await lineClick(h);
   eq(h.calls.join(','), '', 'נגיעה אחרי הסתרה');
+});
+
+await acheck('שינוי בלשונית אחרת (storage) חל מיד: "0" מכבה, ערך אחר או מחיקה מדליקים', async () => {
+  const h = load('1');
+  h.fireStorage({ key: VISIBILITY_KEY, newValue: '0' });
+  eq(h.mgr.ui.isEnabled(), false, 'אחרי "0"');
+  eq(h.toggleBtn.style.display, 'none', 'הכפתור אחרי "0"');
+  await lineClick(h);
+  eq(h.calls.join(','), '', 'נגיעה אחרי ההסתרה בלשונית האחרת');
+  h.fireStorage({ key: VISIBILITY_KEY, newValue: '1' });
+  eq(h.mgr.ui.isEnabled(), true, 'אחרי "1"');
+  h.fireStorage({ key: VISIBILITY_KEY, newValue: '0' });
+  h.fireStorage({ key: null, newValue: null });
+  eq(h.mgr.ui.isEnabled(), true, 'אחרי ניקוי האחסון');
+});
+
+await acheck('storage של מפתח אחר, או מ-sessionStorage — לא נוגע במצב', async () => {
+  const h = load('1');
+  h.fireStorage({ key: 'something_else', newValue: '0' });
+  h.fireStorage({ key: VISIBILITY_KEY, newValue: '0', storageArea: {} });
+  eq(h.mgr.ui.isEnabled(), true, 'isEnabled');
+  eq(h.toggleBtn.style.display, 'flex', 'הכפתור');
 });
 
 // ── מספר שורה ───────────────────────────────────────────────────────────
