@@ -1,4 +1,4 @@
-"""כפתורי הפתקים בעמוד הקבצים: חיפוש בפתקים, לוחות הפתקים, ו"סטיקי נוטס" בשורת הקטגוריות.
+"""כפתורי הפתקים בעמוד הקבצים: חיפוש בפתקים, לוחות הפתקים, ו"לוחות פתקים" בשורת הקטגוריות.
 
 שלושת הכפתורים מציירים את אותו דף ב-SVG. בחיפוש הזכוכית המגדלת נחתכת מתוכו
 ב-``mask``. שם ה-``mask`` מופיע פעמיים — בהגדרה וב-``url(#...)`` שמפנה
@@ -170,12 +170,12 @@ def _one(anchors, **attrs):
     return found[0]
 
 
-def test_the_categories_row_has_sticky_notes_and_no_repo_or_other_buttons(files_page):
+def test_the_categories_row_has_note_boards_and_no_repo_or_other_buttons(files_page):
     """השורה, לפי סדר ה-DOM — כלומר מימין ← לשמאל, כי העמוד RTL.
 
     "לפי ריפו" ו"שאר קבצים" יצאו מהשורה, "מועדפים" עבר למקום של "לפי ריפו",
-    ו"סטיקי נוטס" נכנס למקום של "מועדפים". הכתובת של "סטיקי נוטס" נגזרת
-    מהראוט הרשום של עמוד הלוחות, ולא מוקלדת כאן.
+    וכפתור הלוחות נכנס למקום של "מועדפים". שמו "לוחות פתקים" (עד נובמבר 2026
+    "סטיקי נוטס"), והכתובת שלו נגזרת מהראוט הרשום של עמוד הלוחות, ולא מוקלדת כאן.
     """
     render, boards_url = files_page
     _html, anchors = render()
@@ -185,22 +185,41 @@ def test_the_categories_row_has_sticky_notes_and_no_repo_or_other_buttons(files_
         ("/files", "כל הקבצים"),
         ("/files?category=recent", "נפתחו לאחרונה"),
         ("/files?category=favorites", "מועדפים"),
-        (boards_url, "סטיקי נוטס"),
+        (boards_url, "לוחות פתקים"),
         ("#", "שולחן עבודה"),
         ("/files?category=large", "קבצים גדולים"),
     ]
 
 
-def test_the_sticky_notes_button_draws_the_boards_icon(files_page):
-    """"סטיקי נוטס" מצייר את אותו פתק כמו כפתור הלוחות בשורת הכלים שמתחת לחיפוש."""
+def test_the_categories_boards_button_draws_the_toolbar_boards_icon(files_page):
+    """כפתור הלוחות בשורת הקטגוריות מצייר את אותו פתק כמו כפתור הלוחות בשורת הכלים שמתחת לחיפוש."""
     render, boards_url = files_page
     _html, anchors = render()
 
-    sticky = [a for a in anchors if a["in_categories"] and a["attrs"].get("href") == boards_url]
-    assert len(sticky) == 1, sticky
+    in_row = [a for a in anchors if a["in_categories"] and a["attrs"].get("href") == boards_url]
+    assert len(in_row) == 1, in_row
     toolbar = _one(anchors, href=boards_url, **{"aria-label": "לוחות פתקים"})
     assert toolbar["paths"], "כפתור הלוחות בשורת הכלים מרונדר בלי ציור"
-    assert sticky[0]["paths"] == toolbar["paths"]
+    assert in_row[0]["paths"] == toolbar["paths"]
+
+
+def test_the_first_steps_checklist_names_the_boards_button_as_the_page_shows_it(files_page):
+    """הצ'קליסט "צעדים ראשונים" (``webapp/first_steps.py``) מפנה לכפתור בשמו, במירכאות.
+
+    השם בצ'קליסט הוא עותק של התווית בתבנית. כשהכפתור שינה את שמו מ"סטיקי נוטס"
+    ל"לוחות פתקים", הצ'קליסט היה ממשיך לשלוח לכפתור שאינו קיים. לכן התווית נלקחת
+    מהעמוד המרונדר, והצ'קליסט חייב לצטט אותה.
+    """
+    from webapp import first_steps
+
+    render, boards_url = files_page
+    _html, anchors = render()
+    in_row = [a for a in anchors if a["in_categories"] and a["attrs"].get("href") == boards_url]
+    assert len(in_row) == 1, in_row
+    label = in_row[0]["text"]
+
+    note_step = next(step for step in first_steps.STEPS if step["key"] == first_steps.STEP_NOTE)
+    assert f'"{label}"' in note_step["how"], (label, note_step["how"])
 
 
 def test_the_notes_search_icon_cuts_the_same_sheet(files_page):

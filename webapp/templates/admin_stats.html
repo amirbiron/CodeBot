@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/telegram_username.html" import telegram_username %}
 
 {% block title %}סטטיסטיקות אדמין{% endblock %}
 
@@ -55,12 +56,7 @@
             <tr>
               <td>{{ loop.index }}</td>
               <td>
-                {% set name = entry.username or 'ללא שם' %}
-                {% if name.startswith('@') %}
-                  {{ name }}
-                {% else %}
-                  @{{ name }}
-                {% endif %}
+                {% if entry.username %}{{ telegram_username(entry.username) }}{% else %}ללא שם{% endif %}
               </td>
               <td>{{ entry.days | default(0) }}</td>
               <td>{{ entry.total_actions | default(0) }}</td>

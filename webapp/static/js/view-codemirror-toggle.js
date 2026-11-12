@@ -202,11 +202,7 @@
     const advancedEl = document.getElementById('codeMirrorContainer');
     const rawEl = document.getElementById('rawCode');
     const metaEl = document.getElementById('fileMeta');
-    const searchInput = document.getElementById('codeSearchInput');
     const searchCount = document.getElementById('searchCount');
-    const nextBtn = document.getElementById('nextMatchBtn');
-    const prevBtn = document.getElementById('prevMatchBtn');
-    const clearBtn = document.getElementById('closeSearchBtn');
 
     if (!btn || !codeCard || !basicEl || !advancedEl) {
       return;
@@ -229,7 +225,10 @@
       return !!advancedEl && !advancedEl.hidden;
     }
 
-    // --- CodeMirror search adapter (keeps existing UI working in advanced mode) ---
+    // --- מנוע החיפוש של התצוגה המתקדמת ---
+    // התיבה והכפתורים שייכים לבקר שב-``view_file.html`` (``SubmitSearch``), שמחליט
+    // מתי מחפשים — רק באנטר — ומעביר כל פעולה למנוע של התצוגה שמוצגת. כאן רק
+    // הביצוע ב-CodeMirror: ``cmRecompute`` (חיפוש), ``cmFocusIndex`` (ניווט) והניקוי.
     let cmTerm = '';
     let cmMatches = [];
     let cmActiveIndex = -1;
@@ -371,20 +370,10 @@
             viewInstance.requestMeasure();
           }
         } catch (_) {}
-        try {
-          // Keep search UI consistent if user already typed something
-          if (searchInput) {
-            await cmRecompute(searchInput.value || '');
-          }
-        } catch (_) {}
-      } else {
-        // Re-run existing Pygments search highlighting when returning to basic mode
-        try {
-          if (searchInput) {
-            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-        } catch (_) {}
       }
+      // ההתאמות שנמצאו שייכות לתצוגה הקודמת. הבקר מחפש שוב את מה שחיפשו בפועל —
+      // לא את מה שכתוב עכשיו בתיבה, שאולי עוד לא חיפשו.
+      if (window.CodeSearch) window.CodeSearch.rerun();
     }
 
     btn.addEventListener('click', function () {
@@ -396,103 +385,30 @@
     const saved = getSavedMode();
     applyMode(saved, { persist: false }).catch(function () {});
 
-    // Intercept existing Pygments search listeners when advanced view is active.
-    // We use capture + stopImmediatePropagation to override without editing the old script.
-    if (searchInput) {
-      searchInput.addEventListener(
-        'input',
-        function (ev) {
-          if (!isAdvancedActive()) return;
-          try {
-            ev.stopImmediatePropagation();
-          } catch (_) {}
-          cmRecompute(searchInput.value || '').catch(function () {});
+    // ``window.CodeSearch`` קיים כשהבקר ב-``view_file.html`` עלה. בלעדיו (למשל
+    // ``search-submit.js`` לא נטען) התיבה מושבתת שם עם הסבר, ואין למי להירשם.
+    if (window.CodeSearch) {
+      window.CodeSearch.setAdvancedEngine({
+        isActive: isAdvancedActive,
+        search: function (term) {
+          cmRecompute(term).catch(function (e) {
+            console.error('view-codemirror-toggle: search failed', e);
+          });
         },
-        true
-      );
-
-      searchInput.addEventListener(
-        'keydown',
-        function (ev) {
-          if (!isAdvancedActive()) return;
-          const key = ev && ev.key ? String(ev.key) : '';
-          if (key !== 'Enter') return;
-          try {
-            ev.preventDefault();
-            ev.stopImmediatePropagation();
-          } catch (_) {}
-          if (!cmTerm || !cmMatches.length) {
-            cmRecompute(searchInput.value || '').catch(function () {});
-            return;
-          }
-          if (ev.shiftKey) {
-            cmFocusIndex((cmActiveIndex >= 0 ? cmActiveIndex : 0) - 1);
-          } else {
-            cmFocusIndex((cmActiveIndex >= 0 ? cmActiveIndex : -1) + 1);
-          }
-        },
-        true
-      );
-    }
-
-    if (nextBtn) {
-      nextBtn.addEventListener(
-        'click',
-        function (ev) {
-          if (!isAdvancedActive()) return;
-          try {
-            ev.preventDefault();
-            ev.stopImmediatePropagation();
-          } catch (_) {}
-          if (!cmTerm) {
-            cmRecompute(searchInput ? (searchInput.value || '') : '').catch(function () {});
-            return;
-          }
+        next: function () {
           cmFocusIndex((cmActiveIndex >= 0 ? cmActiveIndex : -1) + 1);
         },
-        true
-      );
-    }
-
-    if (prevBtn) {
-      prevBtn.addEventListener(
-        'click',
-        function (ev) {
-          if (!isAdvancedActive()) return;
-          try {
-            ev.preventDefault();
-            ev.stopImmediatePropagation();
-          } catch (_) {}
-          if (!cmTerm) {
-            cmRecompute(searchInput ? (searchInput.value || '') : '').catch(function () {});
-            return;
-          }
+        prev: function () {
           cmFocusIndex((cmActiveIndex >= 0 ? cmActiveIndex : 0) - 1);
         },
-        true
-      );
-    }
-
-    if (clearBtn) {
-      clearBtn.addEventListener(
-        'click',
-        function (ev) {
-          if (!isAdvancedActive()) return;
-          try {
-            ev.preventDefault();
-            ev.stopImmediatePropagation();
-          } catch (_) {}
-          try {
-            if (searchInput) searchInput.value = '';
-          } catch (_) {}
+        reset: function () {
           cmTerm = '';
           cmMatches = [];
           cmActiveIndex = -1;
           updateCmCount();
           cmClearSelection();
         },
-        true
-      );
+      });
     }
   });
 })();

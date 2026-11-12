@@ -12,6 +12,7 @@
 
 import json
 import re
+import textwrap
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -222,9 +223,34 @@ def test_the_cross_tab_sync_named_in_the_docs_keeps_data_theme_type():
         assert "initThemeCrossTabSync" in path.read_text(encoding="utf-8"), path.name
 
 
+def _documented_variables():
+    """בלוק ``variables`` של הדוגמה בתיעוד — בלוק ה-JSON הראשון אחרי העוגן ``theme-variables-file-name-hook`` ב-
+    ``custom_themes_guide.rst`` — כפי שהוא כתוב שם. נקרא מהתיעוד ולא מועתק לכאן: עותק בטסט נשאר מאחור כשהדוגמה
+    משתנה, וממשיך לעבור על צבעים שכבר אינם בתיעוד."""
+    lines = (REPO_ROOT / "docs/webapp/custom_themes_guide.rst").read_text(encoding="utf-8").splitlines()
+    anchor = ".. _theme-variables-file-name-hook:"
+    assert lines.count(anchor) == 1, "העוגן של הסעיף לא נמצא פעם אחת בתיעוד"
+    # הדירקטיבה בעמודה 0 (``index`` משווה שורה שלמה), ולכן לפי RST הבלוק שלה נגמר בשורה הראשונה שאינה ריקה
+    # ומתחילה גם היא בעמודה 0 — בלי הנחה על עומק ההזחה. אופציות (``:caption:``) צמודות לדירקטיבה, לפני התוכן.
+    directive = lines.index(".. code-block:: json", lines.index(anchor))
+    body = []
+    for line in lines[directive + 1 :]:
+        if line.strip() and not line[0].isspace():
+            break
+        body.append(line)
+    while body and body[0].strip().startswith(":"):
+        body.pop(0)
+    snippet = textwrap.dedent("\n".join(body)).strip()
+    parsed = json.loads("{" + snippet + "}")
+    assert "variables" in parsed, f"בלוק ה-JSON של הדוגמה אינו בלוק variables: {snippet!r}"
+    return parsed["variables"]
+
+
 def test_documented_example_passes_validation():
-    """הדוגמה שבתיעוד (``custom_themes_guide.rst``, ``theme-variables-file-name-hook``) עוברת את הוולידציה כפי שהיא
-    כתובה."""
+    """הדוגמה שבתיעוד (``custom_themes_guide.rst``, ``theme-variables-file-name-hook``) מצהירה על שלושת הטוקנים,
+    ועוברת את הוולידציה ואת הסינון של הייבוא כפי שהיא כתובה."""
+    variables = _documented_variables()
+    assert set(variables) == set(TOKENS), variables
     theme = {
         "name": "morass",
         "type": "dark",
@@ -234,11 +260,8 @@ def test_documented_example_passes_validation():
             "focusBorder": "#fdec5a",
         },
         "tokenColors": [],
-        "variables": {
-            NAME: "#7fdbca",
-            DESCRIPTION: "#dcdcaa",
-            META: "#afd0c4",
-        },
+        "variables": variables,
     }
     ok, error = validate_theme_json(json.dumps(theme))
     assert ok, error
+    assert validate_and_sanitize_theme_variables(variables) == variables

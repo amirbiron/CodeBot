@@ -10,7 +10,7 @@
 {% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/multi-select.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/multi-select.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/card-preview.css') }}?v={{ static_version }}">
 {% if user_is_admin %}
 {# כרטיסי החיפוש בתיעוד: אותה תצוגת Markdown כמו בדפדפן הריפו. האייקונים של Bootstrap משמשים
@@ -175,7 +175,7 @@
 </div>
 
 {# אייקון הפתק — דף עם פינה מקופלת. משותף לשני הכפתורים שמובילים ללוחות הפתקים:
-   "סטיקי נוטס" בשורת הקטגוריות, והכפתור בשורת הכלים שמתחת לחיפוש. מקור אחד, כדי
+   "לוחות פתקים" בשורת הקטגוריות, והכפתור בשורת הכלים שמתחת לחיפוש. מקור אחד, כדי
    ששני כפתורים עם אותו יעד לא יתפצלו לשני ציורים. אייקון החיפוש בפתקים מצייר את
    אותו דף עם חיתוך, ונשאר בכתב יד ליד הכפתור שלו — ההסבר שם. #}
 {% macro note_sheet_icon() -%}
@@ -206,7 +206,7 @@
     {# קישור לעמוד אחר ולא קטגוריה של העמוד הזה, ולכן אף פעם אינו מסומן כפעיל. #}
     <a href="/boards" class="btn btn-secondary btn-icon">
         {{ note_sheet_icon() }}
-        סטיקי נוטס
+        לוחות פתקים
     </a>
       <a href="#" onclick="navigateToWorkspace(); return false;" class="btn btn-secondary btn-icon workspace-btn">
           <i class="fas fa-desktop"></i>
@@ -676,8 +676,8 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/multi-select.js') }}" defer></script>
-<script src="{{ url_for('static', filename='js/bulk-actions.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/multi-select.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/bulk-actions.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/card-preview.js') }}?v={{ static_version }}" defer></script>
 {# **הפתקים הנעוצים: התלויות של ``sticky-notes.js``, באותו סדר ובלי ``defer`` — כמו בלוח ובארכיון**,
    ואז רכיב הכרטיס והדבק של העמוד. בלי ``defer`` הסדר בקובץ הוא סדר ההרצה, וזה מה ש-

@@ -2585,12 +2585,21 @@
             }
             return html;
         }
+        // מה להריץ אחרי הוספה מרובה שהשרת אישר (בעמוד הקבצים: יציאה ממצב הבחירה).
+        // נקבע רק בפתיחה המרובה, ומתאפס בכל פתיחה ובכל סגירה — כמו ``data-file-names`` —
+        // כדי שלא יזלוג להוספה של קובץ יחיד שתבוא אחר כך.
+        let bulkAddToCollectionOnSuccess = null;
+        // מונה הפתיחות של החלון: בקשה שחוזרת אחרי שהחלון נסגר ונפתח מחדש יודעת שהחלון
+        // שמוצג עכשיו אינו שלה (``confirmAddToCollection``).
+        let addToCollectionOpenCount = 0;
         window.openAddToCollectionModal = async function(fileName){
             const modal = document.getElementById('addToCollectionModal');
             const body = document.getElementById('addToCollectionBody');
+            addToCollectionOpenCount += 1;
             modal.style.display = 'flex';
             // נקה מצב "bulk" ישן כדי שלא יזלוג לפתיחה של קובץ יחיד
             modal.removeAttribute('data-file-names');
+            bulkAddToCollectionOnSuccess = null;
             modal.setAttribute('data-file-name', String(fileName||''));
             try {
               const res = await fetch('/api/collections');
@@ -2602,13 +2611,15 @@
               body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
             }
         }
-        // גרסה לבאלק: fileNames=Array<string>
-        window.openBulkAddToCollectionModal = async function(fileNames){
+        // גרסה לבאלק: fileNames=Array<string>; ``options.onSuccess`` רץ אחרי שהשרת אישר את ההוספה.
+        window.openBulkAddToCollectionModal = async function(fileNames, options){
             const modal = document.getElementById('addToCollectionModal');
             const body = document.getElementById('addToCollectionBody');
+            addToCollectionOpenCount += 1;
             modal.style.display = 'flex';
             modal.removeAttribute('data-file-name');
             modal.setAttribute('data-file-names', JSON.stringify(Array.isArray(fileNames)?fileNames:[]));
+            bulkAddToCollectionOnSuccess = (options && typeof options.onSuccess === 'function') ? options.onSuccess : null;
             try {
               const res = await fetch('/api/collections');
               const data = await res.json();
@@ -2624,6 +2635,7 @@
             modal.style.display = 'none';
             modal.removeAttribute('data-file-name');
             modal.removeAttribute('data-file-names');
+            bulkAddToCollectionOnSuccess = null;
         }
         window.confirmAddToCollection = async function(){
             const modal = document.getElementById('addToCollectionModal');
@@ -2632,6 +2644,15 @@
             const sel = document.querySelector('#addToCollectionBody input[name="collectionId"]:checked');
             if (!sel) { alert('בחר אוסף'); return; }
             const cid = sel.value;
+            // **נלכדים לפני ה-await, ולא נקראים מחדש אחריו.** בזמן שהבקשה בדרך אפשר לסגור את
+            // החלון (הסגירה מאפסת את ``bulkAddToCollectionOnSuccess``) ולפתוח אותו שוב לקבצים
+            // אחרים. ההוספה שהשרת אישר שייכת לבחירה ששלחה אותה, ולכן ה-``onSuccess`` שלה רץ
+            // גם אם החלון כבר נסגר; ואת החלון סוגרים רק אם הוא עדיין אותה פתיחה.
+            const onSuccess = bulkNamesRaw ? bulkAddToCollectionOnSuccess : null;
+            const openCount = addToCollectionOpenCount;
+            // נקרא אחרי ה-try: חריגה ב-``onSuccess`` היא באג של מי שהעביר אותו, ולא "שגיאה
+            // בהוספה לאוסף" על הוספה שכבר הצליחה.
+            let added = false;
             try {
               let items = [];
               if (bulkNamesRaw) {
@@ -2642,14 +2663,28 @@
               if (!items.length) { alert('לא נבחרו קבצים להוספה'); return; }
               const r = await fetch(`/api/collections/${encodeURIComponent(cid)}/items`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({items}) });
               const data = await r.json();
-              if (!r.ok || !data.ok) throw new Error(data && data.error || 'שגיאה');
+              if (!r.ok || !data || typeof data !== 'object' || !data.ok) throw new Error(data && data.error || 'שגיאה');
+              // **``ok`` אינו "הכול נוסף".** ``CollectionsManager.add_items`` מדלג על פריט שנכשל
+              // ומחזיר ``ok: true`` עם ``added`` (חדשים) ו-``updated`` (שכבר היו באוסף). מה שטופל
+              // בפועל הוא הסכום שלהם; פחות מהמבוקש — מציגים כמה, ולא סוגרים, לא מנקים את הבחירה
+              // ולא מריצים את ``onSuccess``, כדי שאפשר יהיה לנסות שוב (פריט שכבר נוסף מתעדכן,
+              // ולא מוכפל). מונה שאינו מספר — תשובה בצורה לא צפויה, ולכן שגיאה.
+              const addedCount = Number(data.added), updatedCount = Number(data.updated);
+              if (!Number.isFinite(addedCount) || !Number.isFinite(updatedCount)) throw new Error('unexpected response shape');
+              const done = addedCount + updatedCount;
+              if (done < items.length) {
+                alert(items.length > 1 ? ('נוספו ' + done + ' מתוך ' + items.length + ' קבצים לאוסף. אפשר לנסות שוב.') : 'הקובץ לא נוסף לאוסף. אפשר לנסות שוב.');
+                return;
+              }
               alert(items.length > 1 ? ('נוספו ' + items.length + ' קבצים לאוסף') : 'נוסף לאוסף בהצלחה');
               try { setLastCollectionId(cid); } catch(_) {}
               try { window.CollectionsUI && CollectionsUI.refreshSidebar && CollectionsUI.refreshSidebar(); } catch(_){ }
-              closeAddToCollectionModal();
+              added = true;
+              if (openCount === addToCollectionOpenCount) closeAddToCollectionModal();
             } catch (e) {
               alert('שגיאה בהוספה לאוסף');
             }
+            if (added && onSuccess) onSuccess();
         }
         function escapeHtml(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
     </script>

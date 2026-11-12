@@ -119,8 +119,9 @@ class BookmarkManager {
     
     setupKeyboardShortcuts() {
         document.addEventListener('keydown', (e) => {
-            // Ctrl/Cmd + B - toggle bookmark
-            if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+            // Ctrl/Cmd + B - toggle bookmark. כשהסימניות כבויות בהגדרות — לא נוגעים
+            // במקש בכלל, גם לא ב-preventDefault.
+            if ((e.ctrlKey || e.metaKey) && e.key === 'b' && this.ui.isEnabled()) {
                 e.preventDefault();
                 const currentLine = this.getCurrentLineFromSelection();
                 if (currentLine) {
@@ -150,6 +151,10 @@ class BookmarkManager {
         
         event.preventDefault();
         event.stopPropagation();
+        // כשהסימניות כבויות בהגדרות, הנגיעה במספר השורה לא עושה כלום: לא סימנייה,
+        // ולא הקישור ``#line-N`` שהמספר עוטף (ה-preventDefault שלמעלה). הכרעה של
+        // המשתמש (נובמבר 2026), מול האפשרות שהמספר יתנהג כקישור רגיל ויגלול לשורה.
+        if (!this.ui.isEnabled()) return;
         
         const lineNumber = this.extractLineNumber(lineNumEl);
         if (!lineNumber) return;
@@ -206,6 +211,9 @@ class BookmarkManager {
     }
 
     async handleMarkdownClick(event) {
+        // כשהסימניות כבויות בהגדרות — הכותרת מתנהגת כמו בעמוד בלי סימניות. לכותרת
+        // עצמה אין פעולה, ולכן "לא עושה כלום"; קישור בתוכה ממשיך לעבוד.
+        if (!this.ui.isEnabled()) return;
         // אם המשתמש כבר סימן טקסט – אל תפריע לתפריט המובנה (העתק/בחר הכל)
         try {
             const sel = window.getSelection && window.getSelection();
@@ -922,7 +930,13 @@ class BookmarkUI {
         this.TOGGLE_POS_KEY = 'bookmarks_toggle_btn_position';
         this.TOGGLE_MINI_KEY = 'bookmarks_toggle_btn_mini';
         this.isDraggingToggle = false;
+        // האם הסימניות פעילות — נקבע ב-``applyToggleVisibility`` בלבד, יחד עם הכפתור.
+        this.enabled = true;
         this.ensureToggleButtonVisibilityRestored();
+        // הגדרה ששונתה בלשונית אחרת — עמוד ההגדרות — חלה כאן מיד, ולא רק בטעינה הבאה.
+        // ``storage`` נורה רק במסמכים **אחרים** של אותו מקור (WHATWG HTML, "The storage
+        // event"), ולכן הכתיבה של הלשונית הזו עצמה לא חוזרת אליה.
+        window.addEventListener('storage', (e) => this.onVisibilityStorageEvent(e));
         this.restoreTogglePosition();
         this.restoreToggleMiniState();
         this.initInfoModal();
@@ -966,28 +980,58 @@ class BookmarkUI {
     }
 
     ensureToggleButtonVisibilityRestored() {
+        let stored = null;
         try {
-            const visible = localStorage.getItem(this.TOGGLE_VISIBILITY_KEY);
-            if (visible === '0') {
-                this.setToggleButtonVisible(false);
-            } else {
-                this.setToggleButtonVisible(true);
-            }
-            this.updateVisibilityControlLabel();
+            stored = localStorage.getItem(this.TOGGLE_VISIBILITY_KEY);
         } catch (_) {
-            // ignore
+            // אחסון חסום (חלון פרטי, הגדרת דפדפן). בלעדיו גם עמוד ההגדרות לא יכול היה
+            // לשמור "מוסתר", ולכן ברירת המחדל — מוצג ופעיל — היא מה שהמשתמש בחר.
+        }
+        this.applyToggleVisibility(stored !== '0');
+    }
+
+    /** אירוע ``storage``: רק המפתח של ההגדרה, ורק מ-localStorage. ``key`` ריק — האחסון נוקה. */
+    onVisibilityStorageEvent(e) {
+        if (e.key !== null && e.key !== this.TOGGLE_VISIBILITY_KEY) return;
+        try {
+            if (e.storageArea !== window.localStorage) return;
+        } catch (_) {
+            // הגישה ל-localStorage חסומה במסמך הזה, ולכן האירוע לא יכול להגיע ממנו.
+            return;
+        }
+        // אותו כלל של הטעינה: "0" — מוסתר וכבוי; כל ערך אחר, כולל מפתח שנמחק — מוצג ופעיל.
+        this.applyToggleVisibility(e.newValue !== '0');
+    }
+
+    /**
+     * ההגדרה "הצגת כפתור סימניות" (עמוד ההגדרות, אותו מפתח ב-localStorage). "מוסתר"
+     * מסתיר את הכפתור **וגם** מכבה את יצירת הסימניות: הנגיעה במספר שורה, בכותרת
+     * במארקדאון, תפריט הצבע ו-Ctrl+B בודקים את ``isEnabled``. עד נובמבר 2026 ההגדרה
+     * הסתירה רק את הכפתור, ונגיעה בקובץ המשיכה ליצור סימניות. סימניות קיימות
+     * ממשיכות להיות מסומנות, והפאנל (Ctrl+Shift+B) ממשיך לנהל אותן.
+     */
+    setToggleButtonVisible(show) {
+        this.applyToggleVisibility(show);
+        try {
+            localStorage.setItem(this.TOGGLE_VISIBILITY_KEY, show ? '1' : '0');
+        } catch (_) {
+            // אחסון חסום: ההגדרה חלה על העמוד הזה ולא תישמר לבא. אין כאן מה לדווח —
+            // ``enabled`` והכפתור כבר עודכנו.
         }
     }
 
-    setToggleButtonVisible(show) {
+    /** המצב עצמו — ``enabled``, הכפתור והתווית — בלי לכתוב לאחסון. */
+    applyToggleVisibility(show) {
+        this.enabled = !!show;
         const btn = document.getElementById('toggleBookmarksBtn');
         if (btn) {
             btn.style.display = show ? 'flex' : 'none';
         }
-        try {
-            localStorage.setItem(this.TOGGLE_VISIBILITY_KEY, show ? '1' : '0');
-        } catch (_) {}
         this.updateVisibilityControlLabel();
+    }
+
+    isEnabled() {
+        return this.enabled;
     }
 
     toggleToggleButtonVisibility() {

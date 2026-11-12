@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/telegram_username.html" import telegram_username %}
 
 {% block title %}ניהול סניפטים ממתינים{% endblock %}
 
@@ -26,7 +27,7 @@
             <tr>
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"><a href="/admin/snippets/view?id={{ it._id }}" class="link-light">{{ it.title }}</a></div></td>
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.language }}</div></td>
-              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.username and ('@' ~ it.username) }}</div></td>
+              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{% if it.username %}{{ telegram_username(it.username) }}{% endif %}</div></td>
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.description }}</div></td>
               <td>
                 <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">

@@ -1,4 +1,5 @@
-{% extends "base.html" %} {% block title %}הגדרות - CodeKeeper{% endblock
+{% extends "base.html" %}
+{% from "components/telegram_username.html" import telegram_username %} {% block title %}הגדרות - CodeKeeper{% endblock
 %}
 {% block extra_css %}
 {# טוסט החיווי של כרטיס "גופן הפתקים". עומד בפני עצמו — אין לו תלות
@@ -31,7 +32,7 @@
     <div>
       <label style="opacity: 0.7; font-size: 0.9rem">שם משתמש בטלגרם</label>
       <p style="font-size: 1.2rem; margin: 0.5rem 0">
-        {% if user.username %} @{{ user.username }} {% else %}
+        {% if user.username %}{{ telegram_username(user.username) }}{% else %}
         <span style="opacity: 0.5">לא מוגדר</span>
         {% endif %}
       </p>
@@ -657,7 +658,7 @@
       </li>
       <li>
         שולחים לבוט{% if bot_username %}
-        <a href="https://t.me/{{ bot_username }}" target="_blank" rel="noopener" dir="ltr">@{{ bot_username }}</a>{% endif %},
+        <a href="https://t.me/{{ bot_username }}" target="_blank" rel="noopener">{{ telegram_username(bot_username) }}</a>{% endif %},
         בצ'אט פרטי, את הפקודה <code dir="ltr">/connect_claude</code>. את הטוקן שהבוט מחזיר שמים
         ב-<bdi>Environment variables</bdi> של סביבת Claude Code, בשורה אחת: <code dir="ltr">CODEKEEPER_PAT=</code>
         ומיד אחריו הטוקן, בלי רווחים. זה טוקן של קריאה בלבד, וזה מספיק כאן. אל תשימו שם טוקן של כתיבה:
@@ -1447,7 +1448,7 @@
         <div>
           <div style="font-weight: 600">הצגת כפתור סימניות</div>
           <div style="opacity: 0.8; font-size: 0.95rem">
-            הצג / הסתר את הכפתור הצף 🔖
+            הצג / הסתר את הכפתור הצף 🔖. כשהוא מוסתר, נגיעה במספר שורה או בכותרת לא יוצרת סימנייה
           </div>
         </div>
       </div>
@@ -2976,7 +2977,9 @@
         await selectTheme(nextTheme, 'builtin');
       });
 
-      // Bookmarks toggle visibility controls
+      // Bookmarks toggle visibility controls. "מוסתר" מסתיר את הכפתור וגם מכבה את יצירת
+      // הסימניות — ``setToggleButtonVisible`` / ``isEnabled`` ב-``bookmarks.js``, שקורא את
+      // אותו מפתח (``TOGGLE_VISIBILITY_KEY``); ``tests/test_bookmarks_setting_key.py`` משווה.
       const BM_KEY = 'bookmarks_toggle_btn_visible';
       const bmShow = document.getElementById('bmShowBtn');
       const bmHide = document.getElementById('bmHideBtn');

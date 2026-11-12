@@ -165,6 +165,9 @@
       try {
         const data = ev.data || {};
         if (data && data.type === 'html-anchor-click' && data.anchorId) {
+          // כשהסימניות כבויות בהגדרות ("הצגת כפתור סימניות" ← מוסתר) לא יוצרים ולא מסירים.
+          // ``isEnabled`` ב-``bookmarks.js``, אותו שער של הנגיעה במספר שורה ובכותרת.
+          if (window.bookmarkManager && window.bookmarkManager.ui && !window.bookmarkManager.ui.isEnabled()) return;
           if (window.bookmarkManager && window.bookmarkManager.api && typeof window.bookmarkManager.api.toggleBookmarkAnchor === 'function') {
             window.bookmarkManager.api.toggleBookmarkAnchor(String(data.anchorId), String(data.anchorText||''), 'html_id', undefined, '')
               .then((result)=>{
