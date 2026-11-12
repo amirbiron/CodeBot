@@ -77,6 +77,10 @@ class _StubColl:
         self._docs = []
         self.calls = []
 
+    def with_options(self, **_kwargs):
+        # ``set_note_reminder`` קורא את הפתק שוב מה-primary; לדמה יש עותק אחד בלבד.
+        return self
+
     # index methods
     def create_index(self, *args, **kwargs):
         return None
@@ -129,9 +133,21 @@ class _StubColl:
         return R()
 
     def delete_one(self, filt):
+        # **מוחק באמת**, כמו ``update_one`` למעלה. הגרסה הקודמת החזירה ``deleted_count = 1`` בלי
+        # למחוק, ולכן טסט על מה שנשאר במסד אחרי מחיקת פתק לא היה יכול להיכשל.
         self.calls.append(('delete_one', filt))
+        return self._delete(filt, limit=1)
+
+    def delete_many(self, filt):
+        self.calls.append(('delete_many', filt))
+        return self._delete(filt)
+
+    def _delete(self, filt, limit=None):
+        matched = [d for d in self._docs if _matches(d, filt)][:limit]
+        dropped = {id(d) for d in matched}
+        self._docs = [d for d in self._docs if id(d) not in dropped]
         class R:
-            deleted_count = 1
+            deleted_count = len(matched)
         return R()
 
     def find(self, query, projection=None, *args, **kwargs):
@@ -164,6 +180,11 @@ class _StubDB:
     def __init__(self):
         self.sticky_notes = _StubColl()
         self.note_reminders = _StubColl()
+        # ``delete_note`` מגיע לשרשורים דרך ``db[nt.NOTE_THREADS_COLLECTION]``, בסוגריים.
+        self.note_threads = _StubColl()
+
+    def __getitem__(self, name):
+        return getattr(self, name)
 
 
 def _make_app(db_stub):
@@ -253,6 +274,173 @@ class TestNoteRemindersAPI(unittest.TestCase):
         r = self.client.delete(f'/api/sticky-notes/note/{self.note_id}/reminder')
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()['ok'])
+
+    # --- מחיקת פתק מוחקת את התזכורות שלו ---
+    #
+    # תזכורת של פתק שנמחק נשארה פעילה, וכרטיס הפוש בדשבורד בחר בה כ"התזכורת הבאה", לא מצא את
+    # הפתק וכתב "אין תזמון עתידי". הפתקים כאן נושאים ``ObjectId``, כי ``delete_note`` מוחק לפי
+    # ``ObjectId`` בלבד (הפתק של ``setUp`` נושא מחרוזת).
+
+    def _note_with_reminder(self, user_id=None):
+        from bson import ObjectId
+
+        owner = self.user_id if user_id is None else user_id
+        oid = ObjectId()
+        self.db.sticky_notes._docs.append({'_id': oid, 'user_id': owner, 'file_id': 'file-1'})
+        self._reminder_for(str(oid), owner)
+        return str(oid)
+
+    def _reminder_for(self, note_id, user_id):
+        self.db.note_reminders._docs.append({
+            'user_id': user_id, 'note_id': note_id, 'status': 'pending', 'ack_at': None,
+            'remind_at': datetime.now(timezone.utc) + timedelta(hours=1),
+        })
+
+    def _reminder_owners(self):
+        return sorted((d['user_id'], d['note_id']) for d in self.db.note_reminders._docs)
+
+    def test_deleting_a_note_deletes_its_reminders_and_only_its_reminders(self):
+        """כל המסמכים של הפתק — גם כפול שנשאר משתי קביעות מקבילות — ורק שלו.
+
+        תזכורת של פתק אחר של אותו משתמש נשארת, וגם מסמך של משתמש אחר שנושא את אותו
+        ``note_id``: המחיקה תחומה ל-``user_id`` של הבקשה.
+        """
+        self._login()
+        doomed = self._note_with_reminder()
+        self._reminder_for(doomed, self.user_id)        # כפול: ל-``user_note_idx`` אין ``unique``
+        kept = self._note_with_reminder()
+        self._reminder_for(doomed, 999)                 # משתמש אחר, אותו ``note_id``
+        with mock.patch.object(sticky_mod, 'emit_event') as emit:
+            r = self.client.delete(f'/api/sticky-notes/note/{doomed}')
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertTrue(r.get_json()['ok'])
+        self.assertEqual(self._reminder_owners(), sorted([(self.user_id, kept), (999, doomed)]))
+        deleted_events = [c for c in emit.call_args_list if c.args and c.args[0] == 'sticky_note_deleted']
+        self.assertEqual(len(deleted_events), 1, emit.call_args_list)
+        self.assertEqual(deleted_events[0].kwargs.get('reminders_deleted'), 2)
+
+    def test_a_note_delete_that_failed_leaves_the_note_and_its_reminder(self):
+        """**התזכורות נמחקות רק אחרי ``deleted_count == 1``.** מחיקת פתק שנכשלה — חריגה, או
+        מחיקה שלא מחקה כלום — משאירה גם את הפתק וגם את התזכורת שלו. הפתק שייך למשתמש של
+        הבקשה, כדי שרק הסדר יגן על התזכורת ולא הסינון לפי ``user_id``: בסדר ההפוך התזכורת של
+        פתק שנשאר הייתה נעלמת. אותו מבנה כמו ``test_a_failed_delete_leaves_both_the_note_and_its_threads``.
+        """
+        def _raises(*_args, **_kwargs):
+            raise sticky_mod.PyMongoError('notes unavailable')
+
+        class _DeletedNothing:
+            deleted_count = 0
+
+        outcomes = {'raises': (_raises, 500), 'deleted_nothing': (lambda *_a, **_k: _DeletedNothing(), 404)}
+        self._login()
+        for outcome, (delete_one, status) in outcomes.items():
+            with self.subTest(outcome=outcome):
+                # מסד נקי לכל תוצאה. ``get_db`` שב-``setUp`` קורא את ``self.db`` בכל קריאה, ולכן
+                # ההחלפה מספיקה — בלי לקרוא שוב ל-``setUp``, שהיה שומר את הדמה כ"מקור".
+                self.db = _StubDB()
+                note_id = self._note_with_reminder()
+                self.db.sticky_notes.delete_one = delete_one
+                r = self.client.delete(f'/api/sticky-notes/note/{note_id}')
+                self.assertEqual(r.status_code, status, r.get_json())
+                self.assertTrue([d for d in self.db.sticky_notes._docs if str(d['_id']) == note_id])
+                self.assertEqual(self._reminder_owners(), [(self.user_id, note_id)])
+
+    def test_a_reminder_cleanup_failure_is_logged_and_the_note_stays_deleted(self):
+        """הפתק כבר נמחק, ולכן כשל במחיקת התזכורות אינו כשל של הבקשה — אבל הוא נרשם."""
+        self._login()
+        note_id = self._note_with_reminder()
+
+        def _boom(*_args, **_kwargs):
+            raise sticky_mod.PyMongoError('reminders unavailable')
+
+        self.db.note_reminders.delete_many = _boom
+        with self.assertLogs(sticky_mod.logger, level='WARNING') as logs:
+            r = self.client.delete(f'/api/sticky-notes/note/{note_id}')
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertTrue(r.get_json()['ok'])
+        self.assertFalse([d for d in self.db.sticky_notes._docs if str(d['_id']) == note_id])
+        self.assertTrue(any('reminders of deleted note' in line for line in logs.output), logs.output)
+
+    # --- קביעת תזכורת מול מחיקה מקבילה, ומפתח קנוני ---
+
+    def _bare_note(self):
+        from bson import ObjectId
+
+        oid = ObjectId()
+        self.db.sticky_notes._docs.append({'_id': oid, 'user_id': self.user_id, 'file_id': 'file-1'})
+        return str(oid)
+
+    def test_a_note_deleted_between_the_check_and_the_write_leaves_no_reminder(self):
+        """``delete_note`` רץ בין בדיקת הבעלות ל-upsert: הוא מוחק את הפתק, והניקוי שלו לא מוצא
+        כלום כי התזכורת עוד לא נכתבה. הבדיקה החוזרת אחרי הכתיבה מוצאת שהפתק חסר ומוחקת את
+        מה שנכתב — 404, ושום תזכורת לא נשארת."""
+        self._login()
+        note_id = self._bare_note()
+        real_update = self.db.note_reminders.update_one
+
+        def _delete_note_runs_first(*args, **kwargs):
+            self.db.sticky_notes._docs = [d for d in self.db.sticky_notes._docs if str(d['_id']) != note_id]
+            self.db.note_reminders.delete_many({'user_id': self.user_id, 'note_id': note_id})
+            return real_update(*args, **kwargs)
+
+        self.db.note_reminders.update_one = _delete_note_runs_first
+        r = self.client.post(f'/api/sticky-notes/note/{note_id}/reminder', json={'preset': '1h', 'tz': 'UTC'})
+        self.assertEqual(r.status_code, 404, r.get_json())
+        self.assertEqual(self._reminder_owners(), [])
+
+    def test_a_failed_recheck_keeps_the_reminder_and_leaves_a_trace(self):
+        """קריאה חוזרת שנכשלה אינה "אין פתק": התזכורת שנכתבה נשארת, התשובה היא הצלחה, ובלוג
+        נשארת עקבה."""
+        self._login()
+        note_id = self._bare_note()
+
+        class _PrimaryDown:
+            def find_one(self, *_args, **_kwargs):
+                raise sticky_mod.PyMongoError('primary unavailable')
+
+        self.db.sticky_notes.with_options = lambda **_kwargs: _PrimaryDown()
+        with self.assertLogs(sticky_mod.logger, level='WARNING') as logs:
+            r = self.client.post(f'/api/sticky-notes/note/{note_id}/reminder', json={'preset': '1h', 'tz': 'UTC'})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(self._reminder_owners(), [(self.user_id, note_id)])
+        self.assertTrue(any('could not recheck note' in line for line in logs.output), logs.output)
+
+    def test_a_reminder_set_through_an_uppercase_id_is_deleted_with_its_note(self):
+        """``ObjectId`` מקבל hex באותיות גדולות, ו-``delete_note`` מוחק לפי ``str(oid)``, שהוא
+        תמיד בקטנות. התזכורת נשמרת תחת ה-``_id`` של הפתק, ולכן נמחקת איתו."""
+        self._login()
+        note_id = self._bare_note()
+        r = self.client.post(f'/api/sticky-notes/note/{note_id.upper()}/reminder', json={'preset': '1h', 'tz': 'UTC'})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(self._reminder_owners(), [(self.user_id, note_id)])
+        r = self.client.delete(f'/api/sticky-notes/note/{note_id.upper()}')
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(self._reminder_owners(), [])
+
+    def test_cancelling_a_reminder_cancels_a_duplicate_too(self):
+        """ל-``user_note_idx`` אין ``unique``: כפול משתי קביעות מקבילות נמחק עם המקור, ולא
+        נשאר לירות אחרי שהמשתמש ביטל."""
+        self._login()
+        note_id = self._note_with_reminder()
+        self._reminder_for(note_id, self.user_id)
+        r = self.client.delete(f'/api/sticky-notes/note/{note_id}/reminder')
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(self._reminder_owners(), [])
+
+    def test_get_reminder_shows_the_one_that_fires_first(self):
+        """בין שני מסמכים פעילים לאותו פתק — המוקדם. המאוחר נזרע ראשון, כדי שסדר ההכנסה לבדו
+        לא יעביר את הטסט."""
+        self._login()
+        note_id = self._bare_note()
+        soon = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(minutes=30)
+        for when in (soon + timedelta(hours=5), soon):
+            self.db.note_reminders._docs.append({
+                'user_id': self.user_id, 'note_id': note_id, 'status': 'pending', 'ack_at': None,
+                'remind_at': when,
+            })
+        r = self.client.get(f'/api/sticky-notes/note/{note_id}/reminder')
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()['reminder']['remind_at'], soon.isoformat())
 
     # --- מחזור החיים: ack סוגר את שני השדות ---
 

@@ -237,7 +237,7 @@ Google Drive
 
 - ``sticky_note_created`` — פתק נוצר. לצד ``user_id`` — המזהה של היעד: ``file_id``, ``board_id`` או ``repo_name``, לפי סוג הפתק.
 - ``sticky_note_updated`` — פתק עודכן (``note_id``).
-- ``sticky_note_deleted`` — פתק נמחק (``note_id``), ו-``threads_deleted``: כמה שרשורי תגובות נמחקו איתו.
+- ``sticky_note_deleted`` — פתק נמחק (``note_id``), ``threads_deleted``: כמה שרשורי תגובות נמחקו איתו, ו-``reminders_deleted``: כמה מסמכי תזכורת נמחקו איתו. כל אחד מהם ``null`` כשהמחיקה שלו נכשלה והפתק עצמו כבר נמחק (:ref:`sticky-notes-reminder-state`).
 - ``sticky_note_archived`` — פתק הועבר לארכיון (``note_id``), ו-``threads_resolved``: כמה שרשורים פתוחים נסגרו, או ``null`` כשהסגירה נכשלה וההעברה עצמה נשארה (:ref:`sticky-notes-archive`).
 - ``sticky_note_files_page_pinned`` — פתק לוח ננעץ לראש עמוד הקבצים (``note_id``). נשלח רק כשהנעיצה הזו נכתבה, ולא על "כבר נעוץ" (:ref:`sticky-notes-files-page-pin`).
 - ``sticky_note_files_page_unpinned`` — הנעיצה הוסרה (``note_id``). נשלח רק כשההסרה הזו נכתבה, ולא על "כבר לא נעוץ".

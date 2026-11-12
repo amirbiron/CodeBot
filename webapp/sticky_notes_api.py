@@ -1217,6 +1217,19 @@ def _ensure_user_owns_note(db, user_id: int, note_id: str) -> Optional[Dict[str,
     return None
 
 
+def _reminder_scope(user_id: int, note_doc_id: Any) -> Dict[str, Any]:
+    """המסנן של התזכורות של פתק אחד של משתמש אחד — ``(user_id, note_id)`` של ``note_reminders``.
+
+    **``note_id`` נגזר מה-``_id`` של מסמך הפתק, ולא מהמחרוזת שהגיעה בכתובת.** ``ObjectId``
+    מקבל hex באותיות גדולות, ו-``str`` שלו תמיד בקטנות; עד נובמבר 2026 ``set_note_reminder``
+    שמר את מה שהלקוח שלח, ו-``delete_note``, שמוחק לפי ``str(oid)``, לא מצא תזכורת שנקבעה דרך
+    כתובת באותיות גדולות — והיא נשארה יתומה. הקורא מעביר את ה-``_id`` של הפתק כמו שהוא: את
+    מה ש-``_ensure_user_owns_note`` החזיר (גם פתק ישן שה-``_id`` שלו מחרוזת), או את ה-``oid``
+    שנמחק. זו אותה צורה ש-``nt.thread_scope`` שומר לשרשורים.
+    """
+    return {'user_id': int(user_id), 'note_id': str(note_doc_id)}
+
+
 @sticky_notes_bp.route('/note/<note_id>/reminder', methods=['GET'])
 @require_auth
 @notes_rate_limit('note_reminder_get', 180)
@@ -1232,11 +1245,12 @@ def get_note_reminder(note_id: str):
         # הפילטר המלא, ולא ``status`` לבדו: מסמך שנכתב לפני שהמצב הסופי
         # היה קיים נושא ``ack_at`` מלא ו-``status`` ישן, ובלי בדיקת
         # ``ack_at`` הראוט היה מחזיר תזכורת שהמשתמש כבר סגר כאילו היא חיה.
-        r = db.note_reminders.find_one(dict(
-            active_reminder_filter(),
-            user_id=user_id,
-            note_id=str(note_id),
-        ))
+        # וממוין: ל-``user_note_idx`` אין ``unique``, ושתי קביעות מקבילות יכולות להשאיר שני
+        # מסמכים פעילים לאותו פתק. הנציג הוא זה שיירה ראשון — אותו סדר של ``reminders_summary``.
+        r = db.note_reminders.find_one(
+            dict(active_reminder_filter(), **_reminder_scope(user_id, note['_id'])),
+            sort=[('remind_at', 1)],
+        )
         if not r:
             return jsonify({'ok': True, 'reminder': None})
         out = {
@@ -1272,10 +1286,10 @@ def set_note_reminder(note_id: str):
         if dt_utc <= datetime.now(timezone.utc):
             return jsonify({'ok': False, 'error': 'Time must be in the future'}), 400
         now_utc = datetime.now(timezone.utc)
+        scope = _reminder_scope(user_id, note['_id'])
         # Fields to set on every update
         set_fields = {
-            'user_id': user_id,
-            'note_id': str(note_id),
+            **scope,
             'file_id': str(note.get('file_id', '')),
             # לפתק לוח אין file_id, ובלי השדה הזה ה-Service Worker
             # לא היה יודע לאן לפתוח את ההתראה.
@@ -1283,10 +1297,11 @@ def set_note_reminder(note_id: str):
             # שדות מחזור החיים מגיעים מהמודול, כדי שקבוע שמשתנה ישנה גם את הכתיבה.
             **armed_fields(dt_utc, now_utc),
         }
-        # Upsert: keep only one active reminder per note for simplicity
+        # Upsert על המפתח: מסמך אחד לפתק, בכוונה. זו כוונה ולא אכיפה — ל-``user_note_idx`` אין
+        # ``unique``, ושתי קביעות מקבילות יכולות לכתוב שני מסמכים (ולכן ``delete_many`` בביטול).
         try:
             db.note_reminders.update_one(
-                {'user_id': user_id, 'note_id': str(note_id)},
+                scope,
                 {
                     '$set': set_fields,
                     '$setOnInsert': {'created_at': now_utc},
@@ -1295,8 +1310,34 @@ def set_note_reminder(note_id: str):
             )
         except Exception:
             return _failed('set_note_reminder.save', error='Failed to save')
+        # **הפתק עדיין קיים? בדיקה חוזרת אחרי הכתיבה.** ``_ensure_user_owns_note`` למעלה וה-upsert
+        # הם check-then-act: ``delete_note`` שרץ ביניהם מוחק את הפתק ואת התזכורות שלו עוד לפני
+        # שה-upsert כתב, והתזכורת שנכתבת אחריו נשארת יתומה. ``delete_note`` מוחק את הפתק **לפני**
+        # התזכורות, ולכן הבדיקה כאן סוגרת את החלון: אם הניקוי שלו רץ לפני ה-upsert, הפתק כבר חסר
+        # כשקוראים כאן, ומוחקים את מה שנכתב; ואם הוא רץ אחרי, הוא מחק את זה בעצמו.
+        # **מה-primary במפורש** (``Collection.with_options``, pymongo 4.15.3, כמו
+        # ``find_version_by_id`` ב-``database/repository.py``): משני שמפגר יכול לא לראות פתק שזה
+        # עתה נוצר, ואז הניקוי היה מוחק תזכורת חיה. **וקריאה שנכשלה אינה "אין פתק"**: לא מוחקים,
+        # התזכורת נשארת כמו שנכתבה, ונשארת עקבה בלוג.
+        from pymongo import ReadPreference  # ייבוא עצל, כמו ב-``database/repository.py``
+
+        note_gone = False
         try:
-            emit_event('note_reminder_set', severity='info', user_id=user_id, note_id=str(note_id))
+            note_gone = db.sticky_notes.with_options(read_preference=ReadPreference.PRIMARY).find_one(
+                {'_id': note['_id'], 'user_id': user_id}, {'_id': 1}
+            ) is None
+        except PyMongoError:
+            logger.warning(
+                "sticky notes: could not recheck note %s after setting its reminder", note['_id'], exc_info=True
+            )
+        if note_gone:
+            try:
+                db.note_reminders.delete_many(scope)
+            except PyMongoError:
+                return _failed('set_note_reminder.orphan_cleanup')
+            return jsonify({'ok': False, 'error': 'Note not found'}), 404
+        try:
+            emit_event('note_reminder_set', severity='info', user_id=user_id, note_id=scope['note_id'])
         except Exception:
             pass
         return jsonify({'ok': True, 'remind_at': dt_utc.isoformat()})
@@ -1315,7 +1356,10 @@ def delete_note_reminder(note_id: str):
         note = _ensure_user_owns_note(db, user_id, note_id)
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
-        db.note_reminders.delete_one({'user_id': user_id, 'note_id': str(note_id)})
+        # ``delete_many``: ביטול התזכורת של הפתק מבטל את כולה, גם מסמך כפול משתי קביעות
+        # מקבילות (ל-``user_note_idx`` אין ``unique``). ``delete_one`` השאיר את הכפול פעיל, והוא
+        # היה נורה אחרי שהמשתמש ביטל.
+        db.note_reminders.delete_many(_reminder_scope(user_id, note['_id']))
         return jsonify({'ok': True})
     except Exception:
         return _failed('delete_note_reminder')
@@ -1881,10 +1925,28 @@ def delete_note(note_id: str):
             )
         except PyMongoError:
             logger.warning("sticky notes: deleting the threads of deleted note %s failed", oid, exc_info=True)
+        # **והתזכורות — באותו סדר ומאותה סיבה, אבל כאן יתום כן נראה.** עד נובמבר 2026 המחיקה לא
+        # נגעה ב-``note_reminders``, והתזכורת של פתק שנמחק נשארה פעילה: ``_build_push_card``
+        # בדשבורד בחר בה כ"התזכורת הבאה", לא מצא את הפתק וכתב "אין תזמון עתידי" גם כשתזכורת
+        # אמיתית חיכתה אחריה; ``push_api`` שלח עליה התראה בלי שם, ו-``reminders_list`` הציג אותה
+        # בפעמון בלי שם. ``delete_many`` ולא ``delete_one``: ``set_note_reminder`` עושה upsert על
+        # ``(user_id, note_id)``, ולאינדקס ``user_note_idx`` אין ``unique``, כך ששתי קביעות מקבילות
+        # יכולות להשאיר שני מסמכים לאותו פתק. כשל אינו מחזיר את הפתק (הוא כבר נמחק), ולכן לוג ולא
+        # כשל של הבקשה — כמו בשרשורים.
+        # ``set_note_reminder`` בודק שוב אחרי ה-upsert שהפתק קיים, ולכן גם תזכורת שנכתבת ממכשיר
+        # אחר בדיוק ברגע הזה לא נשארת אחרי שהניקוי כאן רץ — אלא אם הבדיקה החוזרת שם נכשלה, ואז
+        # נשארת שם עקבה בלוג.
+        reminders_deleted: Optional[int] = None
+        try:
+            reminders_deleted = int(
+                db.note_reminders.delete_many(_reminder_scope(user_id, oid)).deleted_count
+            )
+        except PyMongoError:
+            logger.warning("sticky notes: deleting the reminders of deleted note %s failed", oid, exc_info=True)
         try:
             emit_event(
                 "sticky_note_deleted", severity="info", user_id=int(user_id), note_id=str(note_id),
-                threads_deleted=threads_deleted,
+                threads_deleted=threads_deleted, reminders_deleted=reminders_deleted,
             )
         except Exception:
             pass
