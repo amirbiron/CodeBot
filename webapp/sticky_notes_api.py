@@ -1881,10 +1881,25 @@ def delete_note(note_id: str):
             )
         except PyMongoError:
             logger.warning("sticky notes: deleting the threads of deleted note %s failed", oid, exc_info=True)
+        # **והתזכורות — באותו סדר ומאותה סיבה, אבל כאן יתום כן נראה.** עד נובמבר 2026 המחיקה לא
+        # נגעה ב-``note_reminders``, והתזכורת של פתק שנמחק נשארה פעילה: ``_build_push_card``
+        # בדשבורד בחר בה כ"התזכורת הבאה", לא מצא את הפתק וכתב "אין תזמון עתידי" גם כשתזכורת
+        # אמיתית חיכתה אחריה; ``push_api`` שלח עליה התראה בלי שם, ו-``reminders_list`` הציג אותה
+        # בפעמון בלי שם. ``delete_many`` ולא ``delete_one``: ``set_note_reminder`` עושה upsert על
+        # ``(user_id, note_id)``, ולאינדקס ``user_note_idx`` אין ``unique``, כך ששתי קביעות מקבילות
+        # יכולות להשאיר שני מסמכים לאותו פתק. כשל אינו מחזיר את הפתק (הוא כבר נמחק), ולכן לוג ולא
+        # כשל של הבקשה — כמו בשרשורים.
+        reminders_deleted: Optional[int] = None
+        try:
+            reminders_deleted = int(
+                db.note_reminders.delete_many({'user_id': user_id, 'note_id': str(oid)}).deleted_count
+            )
+        except PyMongoError:
+            logger.warning("sticky notes: deleting the reminders of deleted note %s failed", oid, exc_info=True)
         try:
             emit_event(
                 "sticky_note_deleted", severity="info", user_id=int(user_id), note_id=str(note_id),
-                threads_deleted=threads_deleted,
+                threads_deleted=threads_deleted, reminders_deleted=reminders_deleted,
             )
         except Exception:
             pass
