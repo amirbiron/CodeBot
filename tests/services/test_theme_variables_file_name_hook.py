@@ -222,9 +222,27 @@ def test_the_cross_tab_sync_named_in_the_docs_keeps_data_theme_type():
         assert "initThemeCrossTabSync" in path.read_text(encoding="utf-8"), path.name
 
 
+def _documented_variables():
+    """בלוק ``variables`` של הדוגמה בתיעוד — בלוק ה-JSON הראשון אחרי העוגן ``theme-variables-file-name-hook`` ב-
+    ``custom_themes_guide.rst`` — כפי שהוא כתוב שם. נקרא מהתיעוד ולא מועתק לכאן: עותק בטסט נשאר מאחור כשהדוגמה
+    משתנה, וממשיך לעבור על צבעים שכבר אינם בתיעוד."""
+    lines = (REPO_ROOT / "docs/webapp/custom_themes_guide.rst").read_text(encoding="utf-8").splitlines()
+    anchor = ".. _theme-variables-file-name-hook:"
+    assert lines.count(anchor) == 1, "העוגן של הסעיף לא נמצא פעם אחת בתיעוד"
+    start = lines.index(".. code-block:: json", lines.index(anchor)) + 1
+    block = []
+    for line in lines[start:]:
+        if line and not line.startswith("   "):
+            break
+        block.append(line)
+    return json.loads("{" + "\n".join(block).strip() + "}")["variables"]
+
+
 def test_documented_example_passes_validation():
-    """הדוגמה שבתיעוד (``custom_themes_guide.rst``, ``theme-variables-file-name-hook``) עוברת את הוולידציה כפי שהיא
-    כתובה."""
+    """הדוגמה שבתיעוד (``custom_themes_guide.rst``, ``theme-variables-file-name-hook``) מצהירה על שלושת הטוקנים,
+    ועוברת את הוולידציה ואת הסינון של הייבוא כפי שהיא כתובה."""
+    variables = _documented_variables()
+    assert set(variables) == set(TOKENS), variables
     theme = {
         "name": "morass",
         "type": "dark",
@@ -234,11 +252,8 @@ def test_documented_example_passes_validation():
             "focusBorder": "#fdec5a",
         },
         "tokenColors": [],
-        "variables": {
-            NAME: "#7fdbca",
-            DESCRIPTION: "#dcdcaa",
-            META: "#afd0c4",
-        },
+        "variables": variables,
     }
     ok, error = validate_theme_json(json.dumps(theme))
     assert ok, error
+    assert validate_and_sanitize_theme_variables(variables) == variables
