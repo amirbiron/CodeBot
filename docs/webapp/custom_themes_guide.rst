@@ -491,14 +491,14 @@
 - ``--file-card-meta-color-override`` — השורות, הגודל והתאריכים בכרטיס (``.file-card-meta``), כולל האייקונים של התאריכים. בלעדיו: הצבע שהם יורשים. השקיפות שלהם נקבעת ב-``style`` שבתגית ב-``webapp/templates/files.html`` ונשארת, ולכן הצבע שנבחר נראה על הכרטיס כהה מהערך שבבלוק — את הניגודיות כדאי לבדוק אחרי השקיפות.
 - התגיות וכפתורי הפעולה בכרטיס לא מושפעים.
 
-הדוגמה של morass — טורקיז לשם, בז' לתיאור ומנטה למטא:
+הדוגמה של morass — בז' לשם, ירוק חיוור למטא, והתיאור ב-``#e4e3e1``, צבע הטקסט של הערכה, כלומר כמו היום:
 
 .. code-block:: json
 
    "variables": {
-     "--file-name-color-override": "#7fdbca",
-     "--file-description-color-override": "#dcdcaa",
-     "--file-card-meta-color-override": "#afd0c4"
+     "--file-name-color-override": "#dcdcaa",
+     "--file-description-color-override": "#e4e3e1",
+     "--file-card-meta-color-override": "#b5cea8"
    }
 
 .. note::
