@@ -306,6 +306,8 @@ Highlight (``==מארקר==``)
 
 **גם בצד השרת.** ``services/md_link_target.py`` מחיל את אותו כלל (``opens_in_new_tab``) כהרחבה של Python-Markdown, בשני הרנדררים של השרת. הראשון הוא ``_render_markdown_preview``, שמשמש את Reader Mode ואת התצוגה החיה כשהרינדור בדפדפן נכשל. השני הוא ``markdown_to_html``, שמשמש את הייצוא המעוצב כש-``STYLED_EXPORT_BROWSER_RENDER`` כבוי. ההרחבה רצה אחרי ``unescape`` ומפענחת את ה-``href`` של קישור מייל אוטומטי, שנשמר בעץ מקודד תו-תו. ההסבר נמצא בראש המודול. ``<a>`` שנכתב כ-HTML גולמי בקובץ עובר בייצוא בצד השרת כמו שנכתב: הכלל חל על קישורים ש-Markdown יוצר. בשאר הרנדררים HTML גולמי אינו מרונדר בכלל.
 
+**הכלל קובע רק איך נפתח קישור, ולא אם הכתובת נשארת קישור.** את זה קובע כל מסלול בעצמו, וזה לא השתנה: בדפדפן ``validateLink`` של markdown-it, ובשרת המסנן שאחרי הרינדור. ב-``_render_markdown_preview`` זה ``_is_safe_preview_url`` עם ``_LIVE_PREVIEW_ALLOWED_SCHEMES`` (``webapp/app.py``), וב-``markdown_to_html`` זה ``ALLOWED_PROTOCOLS`` של bleach (``services/styled_export_service.py``). הרשימות האלה שונות זו מזו, ולכן אותה כתובת יכולה להישאר קישור במסלול אחד ולהפוך לטקסט במסלול אחר.
+
 **הבדיקות.** שני העותקים של הכלל נבדקים מול אותה טבלת מקרים, ``tests/fixtures/md_link_target_cases.json``: ‏``tests/md-link-target-plugin.test.js`` בודק את התוסף, ו-``tests/test_md_link_target.py`` את צד השרת. הטסט של ה-JS בודק גם את הרינדור מול התוספים שמייצרים עוגנים, ושכל מקום שיוצר markdown-it מתקין את התוסף ושכל תבנית שמארחת רנדרר טוענת אותו. ``tests/test_md_link_target_browser.py`` לוחץ על קישור ועל עוגן בכרומיום, בעמודים האמיתיים.
 
 4. הנחיות למפתחים (Best Practices)
