@@ -542,6 +542,13 @@ function renderMarkdownFallback(content) {
             return window.SafeHighlight ? window.SafeHighlight.markdownItHighlight(str, lang) : '';
         }
     });
+    // קישור אוטומטי רק לכתובת עם פרוטוקול, ולא לשם קובץ כמו ``readme.md``. ההסבר בראש
+    // webapp/static/js/md-linkify-plugin.js, שמשותף עם live-preview.js ועם md_preview.html.
+    if (window.MdLinkifyPlugin) {
+        md.use(window.MdLinkifyPlugin);
+    } else {
+        console.warn('md-linkify-plugin.js לא נטען: שם קובץ כמו readme.md יוצג כקישור לאתר');
+    }
     return md.render(content || '');
 }
 

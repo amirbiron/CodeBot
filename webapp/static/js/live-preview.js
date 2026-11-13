@@ -202,6 +202,13 @@
       // התוסף חי ב-webapp/static/js/md-math-plugin.js, ומשותף עם md_preview.html. קודם
       // ``renderMathInElement`` רץ ב-``enhance`` על ה-HTML המוכן — ראו את ההסבר בראש התוסף.
       if (window.MdMathPlugin) md.use(window.MdMathPlugin, { katex: window.katex });
+      // קישור אוטומטי רק לכתובת עם פרוטוקול, ולא לשם קובץ כמו ``readme.md``. ההסבר בראש
+      // webapp/static/js/md-linkify-plugin.js, שמשותף עם md_preview.html ועם repo-browser.js.
+      if (window.MdLinkifyPlugin) {
+        md.use(window.MdLinkifyPlugin);
+      } else {
+        console.warn('md-linkify-plugin.js לא נטען: שם קובץ כמו readme.md יוצג כקישור לאתר בתצוגה החיה');
+      }
       if (window.markdownitEmoji) {
         md.use(window.markdownitEmoji);
       }
