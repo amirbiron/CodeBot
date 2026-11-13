@@ -258,9 +258,14 @@
 .sticky-md-bold   { font-weight: 700; }
 .sticky-md-italic { font-style: italic; }
 .sticky-md-strike { text-decoration: line-through; opacity: .7; }
+/* **בלי ``direction`` ובלי ``unicode-bidi``.** הכיוון של קוד בשורה הוא ``dir="auto"``, שנכתב
+   על האלמנט ב-``_appendInlineSegments`` (``sticky-notes.js``), והבידוד מגיע מגיליון הסגנון של
+   הדפדפן לכל אלמנט עם ``dir``. הצהרה כאן הייתה גוברת על שניהם בשקט — כך היה עד נובמבר 2026,
+   כשהכלל כפה ``direction: ltr`` ושם קובץ בעברית הוצג הפוך. ``tests/sticky-notes-target.test.js``
+   נכשל על כל אחת מהשתיים. */
 .sticky-md-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: .92em; direction: ltr; unicode-bidi: embed;
+  font-size: .92em;
   background: color-mix(in srgb, var(--note-ink, #2b3f6a) 12%, transparent);
   padding: .05em .3em; border-radius: 4px;
 }

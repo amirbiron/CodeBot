@@ -35,7 +35,7 @@ import pytest
 from bson import ObjectId
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _browser_harness import open_admin_page, poll
+from _browser_harness import CHAR_X_JS, open_admin_page, poll
 from _fake_mongo import FakeDB
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
@@ -85,20 +85,7 @@ MEASURE_JS = """([root]) => {
   const ths = [...c.querySelectorAll('th')];
   if (!flag || !foo || !heb || !cpp || ths.length !== 2) return 'not rendered yet';
   // המרכז האופקי של התו במיקום i בתוך el, לפי מה שהדפדפן צייר.
-  const x = (el, i) => {
-    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    let n, seen = 0;
-    while ((n = w.nextNode())) {
-      if (i < seen + n.data.length) {
-        const r = document.createRange();
-        r.setStart(n, i - seen); r.setEnd(n, i - seen + 1);
-        const b = r.getBoundingClientRect();
-        return b.left + b.width / 2;
-      }
-      seen += n.data.length;
-    }
-    return null;
-  };
+  const x = """ + CHAR_X_JS + """;
   // המרחק בין קצה הטקסט לקצה התוכן של התא (בלי הריפוד), משני הצדדים.
   const gaps = (el) => {
     const r = document.createRange(); r.selectNodeContents(el);

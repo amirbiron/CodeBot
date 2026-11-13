@@ -96,10 +96,13 @@
    לא יאבד את הלוכסן שבתחילתו לצד השני של המילה. */
 .archive-card-run { unicode-bidi: isolate; }
 /* **קוד בשורה בשם** (חדש) — מה שבשם נכתב בגרשיים הפוכים, בלי הגרשיים (``inlineCodeSegments``
-   ב-``sticky-notes.js``). מבודד בכיוון LTR, בגופן קוד ובאותה דיו; הרקע שקוף-למחצה של הדיו, ולכן
-   יושב על כל צבע של פתק בלי טוקן פר-צבע — כמו הצבעים הנגזרים מהדיו בפתק עצמו. */
+   ב-``sticky-notes.js``). בגופן קוד ובאותה דיו; הרקע שקוף-למחצה של הדיו, ולכן יושב על כל צבע
+   של פתק בלי טוקן פר-צבע — כמו הצבעים הנגזרים מהדיו בפתק עצמו. **בלי ``direction`` ובלי
+   ``unicode-bidi``**, כמו ``.sticky-md-code``: ``fillTitle`` ב-``note-cards.js`` כותב על הקוד
+   ``dir="auto"``, ו-``direction`` כאן היה גובר על הכיוון שהתכונה קובעת, בשקט. הבידוד מגיע
+   מהדפדפן, שנותן ``unicode-bidi: isolate`` לכל אלמנט עם ``dir``; ההצהרה ``unicode-bidi: isolate``
+   שישבה כאן עד נובמבר 2026 הייתה זהה לו, והוסרה כדי שאותו כלל יחול על הפתק ועל הכרטיס. */
 .archive-card-code {
-  unicode-bidi: isolate;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: .82em;
   font-weight: 500;

@@ -3996,7 +3996,15 @@
           if (seg.type === 'bold')        node = createEl('strong', 'sticky-md-bold');
           else if (seg.type === 'italic') node = createEl('em', 'sticky-md-italic');
           else if (seg.type === 'strike') node = createEl('del', 'sticky-md-strike');
-          else if (seg.type === 'code')   node = createEl('code', 'sticky-md-code');
+          // **‏``dir="auto"`` ולא ``direction: ltr`` ב-CSS**, כמו בתצוגת המסמך
+          // (``MdAutoDirPlugin`` ב-``md-auto-dir-plugin.js``, וההסבר המלא שם): הדפדפן
+          // מחליט לכל קטע קוד לפי האות החזקה הראשונה שבו, ומבודד אותו מהשורה.
+          // כלל ``direction`` קבוע הפך גם שם קובץ בעברית, כמו ``הפניות-שלא-חלו.md``,
+          // לקטע משמאל לימין, והסיומת עברה לצד ימין, לפני השם. ומאותה סיבה אין
+          // ל-``.sticky-md-code`` ב-``sticky-notes.css`` שום ``direction`` או
+          // ``unicode-bidi``: ``direction`` של המחבר גובר על הכיוון שהתכונה קובעת,
+          // ו-``unicode-bidi`` על הבידוד שהדפדפן נותן לה — שניהם בשקט.
+          else if (seg.type === 'code')   node = createEl('code', 'sticky-md-code', { dir: 'auto' });
           // ``<mark>`` ולא ``<span>``: זה האלמנט הסמנטי להדגשת רלוונטיות.
           // **בלי טענה על קוראי מסך** — רובם אינם מכריזים על ``<mark>``
           // כברירת מחדל. הבחירה היא נכונות סמנטית ותאימות לכלים שכן
