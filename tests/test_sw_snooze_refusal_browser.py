@@ -217,10 +217,12 @@ def test_ignoring_the_response_breaks_the_test(chromium_executable):
 #: הבידול שמונע את האישור; המוטציה מוחקת אותו.
 COMMENT_IS_NOT_A_REMINDER = "if (noteId && !isComment) {"
 
-#: ההתראה כפי ש-``push_api._build_note_comment_payload`` בונה אותה (``data``), בלי כפתורים.
+#: ההתראה כפי ש-``push_api._build_note_comment_payload`` בונה אותה (``data``), בלי כפתורים — כולל
+#: סימני הכיוון של ``push_api._notification_text``, כתובים כרצף escape ולא כתו עצמו.
 COMMENT_DATA = {
     "type": "note_comment", "note_id": "n1", "thread_id": "64b7f1d2e3a4b5c6d7e8f901",
-    "file_id": "", "board_id": "", "title": "💬 CC הגיב על פתק", "body": "מצאתי את המקור",
+    "file_id": "", "board_id": "", "title": "\u200f💬 \u2068CC\u2069 הגיב על פתק",
+    "body": "\u200f\u2067מצאתי את המקור\u2069",
 }
 
 

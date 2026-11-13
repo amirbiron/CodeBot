@@ -29,6 +29,9 @@ from _note_threads_harness import insert_board, insert_note, mongo_reachable, te
 import note_threads as nt  # noqa: E402
 
 USER = 7
+#: סימני הכיוון ש-``push_api._notification_text`` מוסיף לכותרת ולגוף (``tests/test_push_text_direction.py``).
+#: כתובים כרצף escape ולא כתו עצמו: bandit ו-ruff מסמנים תו כיווניות בקוד המקור כ-Trojan Source.
+RLM, RLI, FSI, PDI = "\u200f", "\u2067", "\u2068", "\u2069"
 T0 = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
 LONG_BODY = (
     "מצאתי את המקור: גוף הפתק מקבל dir=\"rtl\" ברמת הקונטיינר, והירושה עוברת גם לבלוקי קוד. "
@@ -112,11 +115,12 @@ def test_an_agent_comment_is_sent_with_what_the_click_needs(sender, db):
     sent = sender.run()
     assert len(sent) == 1, sent
     payload = sent[0]
-    title = '💬 CC הגיב על "כיוון טקסט בבלוקי קוד"'
+    title = f'{RLM}💬 {FSI}CC{PDI} הגיב על "{RLI}כיוון טקסט בבלוקי קוד{PDI}"'
     body = payload["notification"]["body"]
     assert payload["notification"]["title"] == title
-    assert body.startswith("מצאתי את המקור") and body.endswith("…"), body
-    assert len(body) == sender.module._PUSH_COMMENT_PREVIEW_MAX_CHARS + 1, "קיצור בתווים, עם … אחד"
+    assert body.startswith(RLM + RLI + "מצאתי את המקור") and body.endswith("…" + PDI), body
+    assert len(body) == sender.module._PUSH_COMMENT_PREVIEW_MAX_CHARS + 1 + len(RLM + RLI + PDI), \
+        "קיצור בתווים, עם … אחד — וסימני הכיוון נוספים אחריו ואינם נספרים בתקרה"
     assert payload["notification"]["actions"] == [], "בלי כפתורי תזכורת על תגובה"
     assert payload["notification"]["tag"] == f"note-thread-{thread_id}"
     assert payload["data"] == {
@@ -130,8 +134,8 @@ def test_an_agent_comment_is_sent_with_what_the_click_needs(sender, db):
 def test_a_note_without_a_title_is_named_generically(sender, db):
     _comment_event(db, title=None, body="קצר")
     [payload] = sender.run()
-    assert payload["notification"]["title"] == "💬 CC הגיב על פתק"
-    assert payload["notification"]["body"] == "קצר"
+    assert payload["notification"]["title"] == f"{RLM}💬 {FSI}CC{PDI} הגיב על פתק"
+    assert payload["notification"]["body"] == f"{RLM}{RLI}קצר{PDI}"
 
 
 @pytest.mark.parametrize("client, label", [("Gemini", "Gemini"), ("Anthropic/ClaudeAI", "Claude"),
@@ -139,7 +143,8 @@ def test_a_note_without_a_title_is_named_generically(sender, db):
 def test_the_author_label_comes_from_the_module(sender, db, client, label):
     _comment_event(db, body="x", author=_agent(client))
     [payload] = sender.run()
-    assert payload["notification"]["title"].startswith(f"💬 {label} הגיב")
+    opener = RLI if label == nt.UNKNOWN_AGENT_LABEL else FSI
+    assert payload["notification"]["title"].startswith(f"{RLM}💬 {opener}{label}{PDI} הגיב")
 
 
 def test_a_secret_in_the_comment_is_redacted_before_it_is_cut(sender, db):
@@ -260,7 +265,7 @@ def test_a_file_saved_event_is_still_sent(sender, db):
         "created_at": T0, "needs_push": True,
     })
     [payload] = sender.run()
-    assert payload["notification"]["title"] == "📄 קובץ חדש נשמר"
+    assert payload["notification"]["title"] == RLM + "📄 קובץ חדש נשמר"
     assert payload["data"]["type"] == "mcp_file_saved"
     assert payload["data"]["file_id"] == "f1"
 
