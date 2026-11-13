@@ -35,7 +35,7 @@ import pytest
 from bson import ObjectId
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _browser_harness import CHAR_X_JS, FILE_NAME_SHAPE_JS, SELECTED_TEXT_JS, open_admin_page, poll
+from _browser_harness import CHAR_X_JS, FILE_NAME_SHAPE_JS, copied_to_clipboard, open_admin_page, poll
 from _fake_mongo import FakeDB
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
@@ -89,7 +89,6 @@ MEASURE_JS = """([root]) => {
   if (!flag || !foo || !heb || !cpp || !guide || !report || ths.length !== 2) return 'not rendered yet';
   // שם קובץ עברי שמפורק — ``FILE_NAME_SHAPE_JS`` ב-``tests/_browser_harness.py``.
   const shape = """ + FILE_NAME_SHAPE_JS + """;
-  const selected = """ + SELECTED_TEXT_JS + """;
   // המרכז האופקי של התו במיקום i בתוך el, לפי מה שהדפדפן צייר.
   const x = """ + CHAR_X_JS + """;
   // המרחק בין קצה הטקסט לקצה התוכן של התא (בלי הריפוד), משני הצדדים.
@@ -115,7 +114,6 @@ MEASURE_JS = """([root]) => {
     guide_shape: shape(guide),
     report_shape: shape(report),
     isolated: inline.filter((el) => el.querySelector('bdi')).map((el) => el.textContent).sort(),
-    copied: {guide: selected(guide), report: selected(report)},
     code_dirs: Object.fromEntries(inline.map((el) => [el.textContent, el.getAttribute('dir')])),
     cell_dirs: cells.map((el) => el.getAttribute('dir')),
     isolate: { code: getComputedStyle(flag).unicodeBidi, cell: getComputedStyle(cpp).unicodeBidi },
@@ -205,6 +203,11 @@ def opened(surface: str, browser, server):
             page.click('[data-action="toggle-live-preview"]')
     try:
         state = poll(page, MEASURE_JS, f"{surface}: התוכן רונדר", [ROOTS[surface]])
+        # העתקה אמיתית ללוח של שני שמות הקבצים שמפורקים — ``copied_to_clipboard`` ב-``tests/_browser_harness.py``.
+        state["clipboard"] = {
+            name: copied_to_clipboard(page, server.base_url, ROOTS[surface] + " code", text)
+            for name, text in (("guide", "מדריך-תצוגת-Markdown-RTL.md"), ("report", "Report-דוח-Q3.md"))
+        }
         if surface == "repo_fallback":
             # בקרה: אילו ``live-preview.js`` נטען בכל זאת, הבדיקה הייתה עוברת במסלול הרגיל.
             assert page.evaluate("() => typeof window.MarkdownLiveRenderer") == "undefined", (
@@ -250,7 +253,7 @@ SPLIT_RIGHT = {"one_line": True, "starts_right": True, "tail_left_of_hebrew": Tr
 @pytest.mark.parametrize("surface", list(ROOTS))
 def test_a_hebrew_file_name_with_a_latin_part_shows_the_extension_at_the_left_end(site, surface):
     """שם קובץ עברי שהחלק האחרון שלו לפני הסיומת לטיני — גם כשהוא מתחיל באנגלית — מוצג עם הסיומת בקצה השמאלי,
-    ובחירה שלו מחזירה אותו בדיוק. נופל על המצב שלפני הפירוק: שם ``dir="auto"`` לבדו השאיר את הסיומת צמודה לחלק
+    והעתקה שלו ללוח מחזירה אותו בדיוק. נופל על המצב שלפני הפירוק: שם ``dir="auto"`` לבדו השאיר את הסיומת צמודה לחלק
     הלטיני, באמצע השם (נמדד בבקרה ב-``tests/test_sticky_inline_code_dir_browser.py``, על אותו קוד)."""
     browser, server = site
     with opened(surface, browser, server) as (state, console):
@@ -258,5 +261,6 @@ def test_a_hebrew_file_name_with_a_latin_part_shows_the_extension_at_the_left_en
     assert state["guide_shape"] == SPLIT_RIGHT, state["guide_shape"]
     assert state["report_shape"] == SPLIT_RIGHT, state["report_shape"]
     assert state["isolated"] == sorted(["מדריך-תצוגת-Markdown-RTL.md", "Report-דוח-Q3.md"]), state["isolated"]
-    assert state["copied"] == {"guide": "מדריך-תצוגת-Markdown-RTL.md", "report": "Report-דוח-Q3.md"}, state["copied"]
+    assert state["clipboard"] == {"guide": "מדריך-תצוגת-Markdown-RTL.md", "report": "Report-דוח-Q3.md"}, \
+        f"Ctrl+C וקריאה מהלוח מחזירים את השם כמו שנכתב: {state['clipboard']}"
     assert not [line for line in console if "utils/rtl-code.js לא נטען" in line], console

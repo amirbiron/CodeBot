@@ -154,18 +154,32 @@ FILE_NAME_SHAPE_JS = """(el) => {
   };
 }"""
 
-#: ``(el) => text``: מה שבחירה של כל התוכן של ``el`` מחזירה (``Selection.toString``) — כך בודקים שהעתקה מחזירה את
-#: הטקסט כמו שנכתב, בלי תווים נסתרים. זה אינו הלוח עצמו: את הלוח לא קוראים כאן.
-SELECTED_TEXT_JS = """(el) => {
+#: בוחר את כל התוכן של האלמנט הראשון ב-``selector`` שהטקסט שלו הוא ``text``. ``false`` כשאין כזה.
+_SELECT_FOR_COPY_JS = """([selector, text]) => {
+  const el = [...document.querySelectorAll(selector)].find((e) => e.textContent === text);
+  if (!el) return false;
   const range = document.createRange();
   range.selectNodeContents(el);
   const sel = getSelection();
   sel.removeAllRanges();
   sel.addRange(range);
-  const text = sel.toString();
-  sel.removeAllRanges();
-  return text;
+  return true;
 }"""
+
+
+def copied_to_clipboard(page, origin: str, selector: str, text: str) -> str:
+    """**העתקה אמיתית ללוח:** בוחר את האלמנט שהטקסט שלו ``text``, לוחץ Ctrl+C כמו משתמש, וקורא את הלוח בחזרה
+    (``navigator.clipboard.readText``). כך בודקים שהעתקה מחזירה את הטקסט כמו שנכתב — בלי תווי כיווניות נסתרים,
+    וגם כשהוא מפוצל לכמה צמתים.
+
+    ``origin`` מקבל הרשאת קריאה וכתיבה ללוח (``BrowserContext.grant_permissions``, ‏Playwright 1.49.0), והקריאה
+    דורשת הקשר מאובטח — ``localhost`` או ``127.0.0.1`` מספיקים. נמדד בכרומיום 153 ב-13.11.2026: שם קובץ עברי
+    שהסיומת שלו ב-``<bdi>`` חזר מהלוח זהה למקור.
+    """
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=origin)
+    assert page.evaluate(_SELECT_FOR_COPY_JS, [selector, text]), f"לא נמצא {selector} עם הטקסט {text!r}"
+    page.keyboard.press("Control+C")
+    return page.evaluate("() => navigator.clipboard.readText()")
 
 
 def tap_on(page, touch, sel: str, index: int = 0) -> None:

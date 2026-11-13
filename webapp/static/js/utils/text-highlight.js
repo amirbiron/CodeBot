@@ -208,8 +208,22 @@
 
     var doc = docOf(root);
     // קודם אוספים, ורק אחר כך מחליפים: החלפה תוך כדי הליכה משנה את העץ שההליכה עוברת עליו.
-    // ‏matches זורק SyntaxError על סלקטור לא תקין — וזה הערוץ הנכון: שגיאת קורא צריכה להישמע. מקור: MDN,
-    // ‏Element.matches().
+    var runs = collectRuns(root, o.skip);
+    var heads = [];
+    var next = { id: 0 };
+    for (var r = 0; r < runs.length; r++) {
+      var ranges = matchRanges(runs[r], needle, next);
+      if (ranges.length) wrapRanges(doc, runs[r], ranges, o, heads);
+    }
+    return heads;
+  }
+
+  /**
+   * הרצפים שמתחת ל-``root``: כל רצף הוא רשימה של צמתי טקסט עוקבים, שבין שניהם יש רק אלמנטים מ-``INLINE_SELECTOR``.
+   * כל אלמנט אחר מסיים רצף לפניו ואחריו, ותת-עץ שמתאים ל-``skip`` מסיים רצף ואינו נסרק. ‏``matches`` זורק
+   * ``SyntaxError`` על סלקטור לא תקין — וזה הערוץ הנכון: שגיאת קורא צריכה להישמע. מקור: MDN, ‏Element.matches().
+   */
+  function collectRuns(root, skip) {
     var runs = [];
     var run = [];
     var flush = function () {
@@ -220,7 +234,7 @@
       for (var child = parent.firstChild; child; child = child.nextSibling) {
         if (child.nodeType === 3) { run.push(child); continue; }
         if (child.nodeType !== 1) continue;
-        if (child.matches(o.skip)) { flush(); continue; }
+        if (child.matches(skip)) { flush(); continue; }
         var inline = child.matches(INLINE_SELECTOR);
         if (!inline) flush();
         visit(child);
@@ -229,56 +243,73 @@
     };
     visit(root);
     flush();
+    return runs;
+  }
 
-    var heads = [];
-    var matchId = 0;
-    for (var r = 0; r < runs.length; r++) {
-      var nodes = runs[r];
-      var text = '';
-      for (var n = 0; n < nodes.length; n++) text += nodes[n].nodeValue;
-      // הטווחים של ההתאמות בטקסט המחובר — מ-``splitMatches``, ולא רג'קס שני שיכול לחלוק עליו.
-      var ranges = [];
-      var pos = 0;
-      var parts = splitMatches(text, needle);
-      for (var p = 0; p < parts.length; p++) {
-        if (parts[p].hit) ranges.push({ start: pos, end: pos + parts[p].text.length, id: matchId++ });
-        pos += parts[p].text.length;
-      }
-      if (!ranges.length) continue;
-
-      var nodeStart = 0;
-      for (var k = 0; k < nodes.length; k++) {
-        var node = nodes[k];
-        var value = node.nodeValue;
-        var nodeEnd = nodeStart + value.length;
-        var pieces = [];
-        for (var g = 0; g < ranges.length; g++) {
-          var from = Math.max(ranges[g].start, nodeStart);
-          var to = Math.min(ranges[g].end, nodeEnd);
-          if (from < to) pieces.push({ from: from - nodeStart, to: to - nodeStart, id: ranges[g].id, head: from === ranges[g].start });
-        }
-        if (pieces.length) {
-          var frag = doc.createDocumentFragment();
-          var at = 0;
-          for (var q = 0; q < pieces.length; q++) {
-            var piece = pieces[q];
-            if (piece.from > at) frag.appendChild(doc.createTextNode(value.slice(at, piece.from)));
-            var wrap = doc.createElement(o.tagName);
-            wrap.className = o.className;
-            wrap.setAttribute('data-hl-match', String(piece.id));
-            if (!piece.head) wrap.setAttribute('data-hl-continuation', '');
-            wrap.textContent = value.slice(piece.from, piece.to);
-            frag.appendChild(wrap);
-            if (piece.head) heads.push(wrap);
-            at = piece.to;
-          }
-          if (at < value.length) frag.appendChild(doc.createTextNode(value.slice(at)));
-          node.parentNode.replaceChild(frag, node);
-        }
-        nodeStart = nodeEnd;
-      }
+  /**
+   * ההתאמות בטקסט המחובר של רצף, כטווחים ``{start, end, id}`` — ממוינים ולא חופפים. הטווחים נגזרים מ-``splitMatches``,
+   * ולא מרג'קס שני שיכול לחלוק עליו. ``next.id`` הוא המזהה של ההתאמה הבאה, משותף לכל הרצפים של אותה הדגשה.
+   */
+  function matchRanges(nodes, needle, next) {
+    var text = '';
+    for (var n = 0; n < nodes.length; n++) text += nodes[n].nodeValue;
+    var ranges = [];
+    var pos = 0;
+    var parts = splitMatches(text, needle);
+    for (var p = 0; p < parts.length; p++) {
+      if (parts[p].hit) ranges.push({ start: pos, end: pos + parts[p].text.length, id: next.id++ });
+      pos += parts[p].text.length;
     }
-    return heads;
+    return ranges;
+  }
+
+  /**
+   * עוטף את ``ranges`` — טווחים בטקסט המחובר של ``nodes`` — בתוך צמתי הטקסט של הרצף. כל צומת שטווח עובר בו מקבל עטיפה
+   * משלו לחלק שבו, והעטיפה הראשונה של כל טווח נכנסת ל-``heads``.
+   *
+   * **מעבר אחד על הצמתים ועל הטווחים יחד.** ``first`` הוא הטווח הראשון שעוד לא נגמר כשהצומת הנוכחי מתחיל, ובכל צומת
+   * נבדקים רק הטווחים שמתחילים לפני סופו — כך כל טווח נבדק בצמתים שהוא עובר בהם, ועוד פעם אחת לכל צומת. בדיקה של כל
+   * הטווחים לכל צומת הייתה ריבועית: בלוק קוד גדול הוא רצף אחד עם הרבה צמתים (העטיפות של הדגשת התחביר), ובחיפוש מחרוזת
+   * קצרה ונפוצה יש בו גם הרבה התאמות. הבדיקה, והמדידות של שתי הלולאות, ליד ``LINEAR_GROWTH_LIMIT`` ב-
+   * ``tests/test_text_highlight_browser.py`` — היא משווה זמן לזמן כשהרצף גדל פי ארבעה.
+   */
+  function wrapRanges(doc, nodes, ranges, o, heads) {
+    var first = 0;
+    var nodeStart = 0;
+    for (var k = 0; k < nodes.length; k++) {
+      var value = nodes[k].nodeValue;
+      var nodeEnd = nodeStart + value.length;
+      while (first < ranges.length && ranges[first].end <= nodeStart) first++;
+      var pieces = [];
+      for (var g = first; g < ranges.length && ranges[g].start < nodeEnd; g++) {
+        var from = Math.max(ranges[g].start, nodeStart);
+        var to = Math.min(ranges[g].end, nodeEnd);
+        if (from < to) pieces.push({ from: from - nodeStart, to: to - nodeStart, id: ranges[g].id, head: from === ranges[g].start });
+      }
+      if (pieces.length) wrapPieces(doc, nodes[k], pieces, o, heads);
+      nodeStart = nodeEnd;
+    }
+  }
+
+  /** מחליף צומת טקסט אחד בטקסט שלו, כשכל ``piece`` (``from``–``to`` בתוכו) עטוף. */
+  function wrapPieces(doc, node, pieces, o, heads) {
+    var value = node.nodeValue;
+    var frag = doc.createDocumentFragment();
+    var at = 0;
+    for (var q = 0; q < pieces.length; q++) {
+      var piece = pieces[q];
+      if (piece.from > at) frag.appendChild(doc.createTextNode(value.slice(at, piece.from)));
+      var wrap = doc.createElement(o.tagName);
+      wrap.className = o.className;
+      wrap.setAttribute('data-hl-match', String(piece.id));
+      if (!piece.head) wrap.setAttribute('data-hl-continuation', '');
+      wrap.textContent = value.slice(piece.from, piece.to);
+      frag.appendChild(wrap);
+      if (piece.head) heads.push(wrap);
+      at = piece.to;
+    }
+    if (at < value.length) frag.appendChild(doc.createTextNode(value.slice(at)));
+    node.parentNode.replaceChild(frag, node);
   }
 
   /**

@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 import pytest
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _browser_harness import CHAR_RECT_JS, CHAR_X_JS, FILE_NAME_SHAPE_JS, ONE_LINE_JS, SELECTED_TEXT_JS, poll
+from _browser_harness import CHAR_RECT_JS, CHAR_X_JS, FILE_NAME_SHAPE_JS, ONE_LINE_JS, copied_to_clipboard, poll
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
@@ -69,7 +69,8 @@ NOTE_SIZE = {"width": 640, "height": 420}
 #:
 #: ``control`` בונה עותק של אותו קוד **כטקסט רגיל, בלי ה-``<bdi>``**, במצב ישן — ``note``: הכלל שהיה ב-CSS של הפתק
 #: עד #3689; ``card``: ‏``dir="ltr"`` שהיה בכרטיס; ``auto``: ‏``dir="auto"`` בלי פירוק, המצב שאחרי #3689 — מודד אותו
-#: ומסיר אותו. ``narrow`` — עותק כמו שהוא, בתיבה צרה שבה השם נשבר לכמה שורות. ``copied`` — מה שבחירה של הקוד מחזירה.
+#: ומסיר אותו. ``narrow`` — עותק כמו שהוא, בתיבה צרה שבה השם נשבר לכמה שורות. ההעתקה ללוח נבדקת בטסט עצמו
+#: (``copied_to_clipboard``), אחרי המדידה.
 _ORDER_JS = """
   const x = """ + CHAR_X_JS + """;
   const rect = """ + CHAR_RECT_JS + """;
@@ -92,7 +93,6 @@ _ORDER_JS = """
     box.remove();
     return out;
   };
-  const copied = """ + SELECTED_TEXT_JS + """;
   const fileName = (el) => {
     const t = el.textContent, dash = t.search(/-[A-Za-z]/);
     const out = {one_line: oneLine(el), name_reads_rtl: x(el, 0) > x(el, 1)};
@@ -147,7 +147,6 @@ NOTE_MEASURE_JS = """([root]) => {""" + _ORDER_JS + """
     guide_shape: splitShape(guide),
     report_shape: splitShape(report),
     isolated,
-    copied: {guide: copied(guide), report: copied(report)},
     narrow: narrow(guide),
     refs: fileName(refs),
     others_one_line: [flag, foo, mixed].every(oneLine),
@@ -222,6 +221,8 @@ def _surface(name, server, executable):
 def test_inline_code_in_a_note_follows_its_own_direction(surface, admin_live_server, chromium_executable):
     with _surface(surface, admin_live_server, chromium_executable) as (page, root):
         m = poll(page, NOTE_MEASURE_JS, f"הפתק רונדר ({surface})", [root])
+        clipboard = {name: copied_to_clipboard(page, admin_live_server.base_url, root + " code.sticky-md-code", text)
+                     for name, text in (("guide", "מדריך-תצוגת-Markdown-RTL.md"), ("report", "Report-דוח-Q3.md"))}
 
     control = m["control"]
     assert control["refs"]["one_line"] and control["guide"]["one_line"], control
@@ -239,8 +240,8 @@ def test_inline_code_in_a_note_follows_its_own_direction(surface, admin_live_ser
     assert m["guide_shape"] == SPLIT_RIGHT, m["guide_shape"]
     assert m["report_shape"] == SPLIT_RIGHT, m["report_shape"]
     assert m["isolated"] == sorted(["מדריך-תצוגת-Markdown-RTL.md", "Report-דוח-Q3.md"]), m["isolated"]
-    assert m["copied"] == {"guide": "מדריך-תצוגת-Markdown-RTL.md", "report": "Report-דוח-Q3.md"}, \
-        "בחירה של השם מחזירה אותו בדיוק, בלי תווים נסתרים"
+    assert clipboard == {"guide": "מדריך-תצוגת-Markdown-RTL.md", "report": "Report-דוח-Q3.md"}, \
+        f"Ctrl+C וקריאה מהלוח מחזירים את השם כמו שנכתב, בלי תווים נסתרים: {clipboard}"
     assert m["narrow"] == {"rows_more_than_one": True, "extension_on_the_dot_row": True,
                            "extension_left_of_dot": True}, m["narrow"]
     assert m["refs"] == RIGHT, m["refs"]
@@ -294,7 +295,9 @@ def test_inline_code_in_a_card_title_follows_its_own_direction(admin_live_server
              for nid, title in CARD_TITLES.items()]
     with _archive_page(admin_live_server, chromium_executable, notes) as page:
         m = poll(page, CARD_MEASURE_JS, "כרטיסי הארכיון רונדרו")
+        clipboard = copied_to_clipboard(page, admin_live_server.base_url, "code.archive-card-code", "מדריך-RTL.md")
 
+    assert clipboard == "מדריך-RTL.md", f"העתקה ללוח של שם מפורק בכרטיס: {clipboard!r}"
     control = m["control"]
     assert control["only"]["one_line"] and control["mixed"]["one_line"], control
     assert control["only"]["suffix_left_of_name"] is False, \

@@ -436,6 +436,47 @@ def test_a_hebrew_file_name_with_an_isolated_extension_is_found_whole(page):
     assert result["stem"] == {"hits": 1, "parts": 1}, result
 
 
+#: פי כמה מותר לזמן של ``highlightWithin`` לגדול כשרצף אחד גדל פי ארבעה, בבדיקה שלמטה. מעבר לינארי גדל בערך פי ארבעה,
+#: ומעבר שבודק את כל הטווחים לכל צומת — בערך פי שש-עשרה, ולכן הסף באמצע. נמדד ב-13.11.2026 בבדיקה עצמה, בכרומיום
+#: 153: בקוד של היום פי 3.9–4.3 (3 הרצות), ובלולאה הקודמת (``wrapRanges`` בלי ``first``) פי 10.7–12.0 (6 הרצות).
+LINEAR_GROWTH_LIMIT = 8
+
+
+def test_a_long_run_with_many_matches_grows_linearly(page):
+    """בלוק קוד גדול הוא רצף אחד עם הרבה צמתים (העטיפות של הדגשת התחביר), ובחיפוש מחרוזת קצרה ונפוצה יש בו גם הרבה
+    התאמות. עטיפת ההתאמות צריכה לעבור על הצמתים ועל הטווחים פעם אחת, ולא לבדוק את כל הטווחים לכל צומת.
+
+    **משווים זמן לזמן, ולא לתקרה בשניות** — כמו בדיקת הלינאריות של הסריקה האינלינית ב-
+    ``tests/sticky-notes-target.test.js``: רצף מול רצף פי ארבעה ממנו, סבבים לסירוגין, והזמן הקצר ביותר לכל גודל.
+    """
+    _reset(page)
+    result = page.evaluate(
+        """([small, large]) => {
+          const root = document.getElementById('root');
+          const html = (n) => '<pre><code>' + Array.from({ length: n }, (_, i) => '<span class="t">ee' + i + '</span> ').join('')
+            + '</code></pre>';
+          const sizes = [small, large];
+          const fastest = [Infinity, Infinity];
+          const hits = [0, 0];
+          for (let round = 0; round < 5; round++) {
+            sizes.forEach((n, slot) => {
+              root.innerHTML = html(n);
+              const started = performance.now();
+              hits[slot] = TextHighlight.highlightWithin(root, 'ee', { className: 'hit' }).length;
+              fastest[slot] = Math.min(fastest[slot], performance.now() - started);
+            });
+          }
+          root.innerHTML = '';
+          return { fastest, hits, growth: fastest[1] / fastest[0] };
+        }""",
+        [2000, 8000],
+    )
+    assert result["hits"] == [2000, 8000], result
+    assert result["growth"] < LINEAR_GROWTH_LIMIT, (
+        f"הזמן גדל פי {result['growth']:.1f} כשהרצף גדל פי 4: {result['fastest']}"
+    )
+
+
 def test_invalid_skip_selector_is_loud(page):
     """סלקטור שגוי הוא שגיאת קורא, ו-``matches`` זורק ``SyntaxError`` — לא בולעים."""
     _reset(page)
