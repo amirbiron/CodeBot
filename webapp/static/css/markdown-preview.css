@@ -432,7 +432,9 @@
 .markdown-preview-content td {
     border: 1px solid var(--md-preview-border);
     padding: 8px 12px;
-    text-align: right;
+    /* ``start`` ולא ``right``: כל תא מקבל ``dir="auto"`` (``md-auto-dir-plugin.js``), ו-``start`` מיישר אותו לפי הכיוון
+       שנקבע לו — תא עברי לימין, ותא כמו ``C++`` לשמאל. תא בלי ``dir`` נשאר מימין, כמו קודם. */
+    text-align: start;
 }
 
 .markdown-preview-content th {

@@ -63,6 +63,7 @@ GUARDED = (
     "js/md-anchors.js",
     "js/md-mark-plugin.js",
     "js/md-linkify-plugin.js",
+    "js/md-auto-dir-plugin.js",
     "js/md-math-plugin.js",
     "js/utils/safe-highlight.js",
     "js/utils/rtl-code.js",
