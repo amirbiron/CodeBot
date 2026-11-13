@@ -491,8 +491,8 @@
             <ul class="notes-list">
                 {% for note in notes_snapshot.notes %}
                 <li>
-                    {# ``note.url`` הוא הקישור הקבוע ``/note/<id>``, שפותח את הפתק במקום שלו — לוח, קובץ, ריפו או ארכיון. #}
-                    <a class="note-title" href="{{ note.url }}">{{ note.title }}</a>
+                    {# ``note.url`` הוא הקישור הקבוע ``/note/<id>``, שפותח את הפתק במקום שלו — לוח, קובץ, ריפו או ארכיון. בלשונית חדשה, כדי שהדשבורד יישאר פתוח. #}
+                    <a class="note-title" href="{{ note.url }}" target="_blank" rel="noopener">{{ note.title }}</a>
                     <div class="note-meta">
                         {{ note.location }}
                         <span>·</span>
@@ -1579,9 +1579,11 @@
 
 /* שם הפתק הוא קישור לפתק — באותה צורה של שם קובץ נעוץ (``.pinned-card__name``): צבע הטקסט,
    וקו תחתון בריחוף ובפוקוס. בערכות שצובעות כל ``a`` (``dark-mode.css``, ``high-contrast.css``)
-   הוא מקבל את צבע הקישור של הערכה, כמו השמות בכרטיס הנעוצים. */
+   הוא מקבל את צבע הקישור של הערכה, כמו השמות בכרטיס הנעוצים. **ובשונה ממנו — ``inline``, ולא
+   ``block``:** רק הטקסט של השם הוא הקישור, ולא כל רוחב השורה. שורת המיקום שאחריו היא ``div``, ולכן
+   היא יורדת לשורה משלה גם כך. */
 .note-title {
-    display: block;
+    display: inline;
     font-weight: 600;
     color: inherit;
     text-decoration: none;

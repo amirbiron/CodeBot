@@ -173,13 +173,15 @@ def test_list_returns_default_board(client):
 
 def test_list_reattaches_orphan_notes(client):
     """פתק שמצביע ללוח שנעלם חוזר לברירת המחדל בטעינת הרשימה."""
-    client.db.sticky_notes.docs.append({"_id": 1, "user_id": 7, "board_id": "ghost"})
+    client.db.sticky_notes.docs.append({"_id": 1, "user_id": 7, "board_id": "ghost", "updated_at": "T0"})
 
     body = client.get("/api/note-boards").get_json()
 
     assert body["reattached"] == 1
     default_id = body["boards"][0]["id"]
     assert client.db.sticky_notes.docs[0]["board_id"] == default_id
+    # מעבר בין לוחות אינו עריכה: הפתק לא קופץ לראש "פתקים אחרונים"
+    assert client.db.sticky_notes.docs[0]["updated_at"] == "T0"
 
 
 # -- יצירה --
@@ -408,7 +410,7 @@ def test_cannot_delete_default_board(client):
 def test_delete_moves_notes_to_default(client):
     default_id = client.get("/api/note-boards").get_json()["boards"][0]["id"]
     other_id = client.post("/api/note-boards", json={"name": "זמני"}).get_json()["board"]["id"]
-    client.db.sticky_notes.docs.append({"_id": 1, "user_id": 7, "board_id": other_id})
+    client.db.sticky_notes.docs.append({"_id": 1, "user_id": 7, "board_id": other_id, "updated_at": "T0"})
 
     res = client.delete(f"/api/note-boards/{other_id}")
     body = res.get_json()
@@ -416,6 +418,8 @@ def test_delete_moves_notes_to_default(client):
     assert res.status_code == 200
     assert body["moved"] == 1
     assert client.db.sticky_notes.docs[0]["board_id"] == default_id
+    # מעבר ללוח ברירת המחדל אינו עריכה: הפתק לא קופץ לראש "פתקים אחרונים"
+    assert client.db.sticky_notes.docs[0]["updated_at"] == "T0"
     assert client.db.note_boards.find_one({"_id": int(other_id)}) is None
 
 

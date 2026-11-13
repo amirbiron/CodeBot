@@ -326,9 +326,11 @@ def delete_board(board_id: str):
             return jsonify({'ok': False, 'error': 'notes_count_failed'}), 500
 
         if moved_expected:
+            # בלי ``updated_at``: מעבר ללוח ברירת המחדל אינו עריכה של הפתק
+            # (``sticky_notes_target.NOTE_EDIT_FIELDS``), ולכן הפתקים לא קופצים לראש "פתקים אחרונים".
             db.sticky_notes.update_many(
                 src_query,
-                {'$set': {'board_id': str(default_id), 'updated_at': datetime.now(timezone.utc)}},
+                {'$set': {'board_id': str(default_id)}},
             )
             try:
                 remaining = int(db.sticky_notes.count_documents(src_query))

@@ -330,6 +330,8 @@ class TestSyncStickyNotesOnRename(unittest.TestCase):
         self.assertIn("$or", query)
         self.assertEqual(update["$set"]["scope_id"], self.new_scope)
         self.assertEqual(update["$set"]["file_name"], self.new_name)
+        # שינוי שם של הקובץ אינו עריכה של הפתק (``sticky_notes_target.NOTE_EDIT_FIELDS``)
+        self.assertNotIn("updated_at", update["$set"])
 
     def test_sets_new_file_id_when_provided(self):
         self.sync(self.db, self.user_id, self.old_name, self.new_name, new_file_id="new_id_999")

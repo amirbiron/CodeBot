@@ -8,7 +8,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -76,10 +75,11 @@ def sync_sticky_notes_on_rename(
     if old_file_ids:
         match_criteria.append({'file_id': {'$in': old_file_ids}})
     query = {'user_id': int(user_id), '$or': match_criteria}
+    # בלי ``updated_at``: שינוי שם של הקובץ אינו עריכה של הפתק (``sticky_notes_target.NOTE_EDIT_FIELDS``).
+    # עד נובמבר 2026 הסנכרון קידם אותו, וכל הפתקים של קובץ ששמו שונה קפצו לראש "פתקים אחרונים".
     update_fields: dict = {
         'scope_id': new_scope,
         'file_name': new_name,
-        'updated_at': datetime.now(timezone.utc),
     }
     if new_file_id:
         update_fields['file_id'] = str(new_file_id)

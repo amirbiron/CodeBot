@@ -33,6 +33,7 @@ from sticky_notes_target import (
     files_page_pinned_filter,
     archived_notes_filter,
     archive_note_update,
+    drop_unchanged_edits,
     resolve_archive_title,
     normalize_note_title,
     normalize_repo_path,
@@ -1747,6 +1748,23 @@ def create_note(file_id: str):
         return jsonify({'ok': False, 'error': 'Failed to create note'}), 500
 
 
+def _updated_at_iso(stamp: Any) -> Optional[str]:
+    """``updated_at`` כמו שתשובת עדכון מחזירה אותו — האסימון שהלקוח שולח בשמירה הבאה
+    (``prev_updated_at``).
+
+    ב-``update_note`` וב-``batch_update_notes``: כשהעדכון היה עריכה — הזמן שנכתב באותה כתיבה. כשלא
+    (``drop_unchanged_edits`` החזיר ``edited`` ריק) — הזמן שהיה שמור בפתק כשנקרא, ולא קריאה חוזרת
+    אחרי הכתיבה: קריאה כזו יכולה לתפוס עריכה מקבילה מלשונית אחרת, והלקוח היה מקבל אסימון של תוכן
+    שלא ראה — והשמירה הבאה שלו הייתה דורסת אותו בלי 409.
+    """
+    return stamp.isoformat() if isinstance(stamp, datetime) else None
+
+
+def _update_answer(stamp: Any) -> Any:
+    """תשובת ``ok`` של ``update_note``, עם :func:`_updated_at_iso`."""
+    return _no_store(jsonify({'ok': True, 'updated_at': _updated_at_iso(stamp)}))
+
+
 @sticky_notes_bp.route('/note/<note_id>', methods=['PUT'])
 @require_auth
 @notes_rate_limit('update', 300)
@@ -1820,8 +1838,6 @@ def update_note(note_id: str):
         if not updates and not wants_mode and not unset_fields:
             return jsonify({'ok': False, 'error': 'No fields to update'}), 400
 
-        updates['updated_at'] = datetime.now(timezone.utc)
-
         db = get_db()
         # Validate ObjectId early and return 400 on malformed input
         try:
@@ -1857,7 +1873,16 @@ def update_note(note_id: str):
                     return jsonify({'ok': False, 'error': 'Conflict', 'updated_at': note['updated_at'].isoformat()}), 409
         except Exception:
             pass
-        ops: Dict[str, Any] = {'$set': updates}
+        # ``updated_at`` זז רק כשהתוכן או השם באמת משתנים (``drop_unchanged_edits``): מזעור, הזזה,
+        # צבע או מצב אינם עריכה, ופתק שרק נפתח ממזעור לא קופץ לראש "פתקים אחרונים".
+        edit = drop_unchanged_edits(note, updates, unset_fields)
+        updates, unset_fields = edit.set_fields, edit.unset_fields
+        if edit.edited:
+            updates['updated_at'] = datetime.now(timezone.utc)
+        if not updates and not unset_fields:
+            # שום דבר לא משתנה — למשל אותו תוכן שנשלח שוב. אין כתיבה, וזמן העדכון הוא זה ששמור.
+            return _update_answer(note.get('updated_at'))
+        ops: Dict[str, Any] = {'$set': updates} if updates else {}
         if unset_fields:
             ops['$unset'] = unset_fields
         # **בדיקת הגיבוי נבחרת לפי סוג היעד.** ``_title_conflict`` יוצא
@@ -1878,17 +1903,7 @@ def update_note(note_id: str):
             emit_event("sticky_note_updated", severity="info", user_id=int(user_id), note_id=str(note_id))
         except Exception:
             pass
-        # שליחת חותמת הזמן שנוצרה עבור העדכון הנוכחי (ללא שאילתא נוספת)
-        try:
-            updated_at_iso = updates.get('updated_at').isoformat() if updates.get('updated_at') else None
-        except Exception:
-            updated_at_iso = None
-        resp = jsonify({'ok': True, 'updated_at': updated_at_iso})
-        try:
-            resp.headers['Cache-Control'] = 'no-store'
-        except Exception:
-            pass
-        return resp
+        return _update_answer(updates.get('updated_at') or note.get('updated_at'))
     except Exception as e:
         try:
             emit_event("sticky_notes_update_error", severity="anomaly", note_id=str(note_id), error=str(e))
@@ -2118,8 +2133,16 @@ def batch_update_notes():
                 except Exception:
                     pass
 
-                updates['updated_at'] = datetime.now(timezone.utc)
-                ops: Dict[str, Any] = {'$set': updates}
+                # אותו כלל של ``update_note``: ``updated_at`` זז רק כשהתוכן או השם באמת משתנים.
+                edit = drop_unchanged_edits(note, updates, unset_fields)
+                updates, unset_fields = edit.set_fields, edit.unset_fields
+                if edit.edited:
+                    updates['updated_at'] = datetime.now(timezone.utc)
+                if not updates and not unset_fields:
+                    results.append({'id': note_id, 'ok': True, 'status': 200,
+                                    'updated_at': _updated_at_iso(note.get('updated_at'))})
+                    continue
+                ops: Dict[str, Any] = {'$set': updates} if updates else {}
                 if unset_fields:
                     ops['$unset'] = unset_fields
                 if 'title' in updates and _duplicate_title_for_note(
@@ -2137,7 +2160,8 @@ def batch_update_notes():
                     results.append({'id': note_id, 'ok': False, 'status': 409,
                                     'error': 'duplicate_title', 'max': MAX_NOTE_TITLE})
                     continue
-                results.append({'id': note_id, 'ok': True, 'status': 200, 'updated_at': updates['updated_at'].isoformat()})
+                results.append({'id': note_id, 'ok': True, 'status': 200,
+                                'updated_at': _updated_at_iso(updates.get('updated_at') or note.get('updated_at'))})
             except Exception as e:
                 try:
                     emit_event("sticky_notes_batch_item_error", severity="anomaly", error=str(e))

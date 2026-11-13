@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Tuple
 
 
 #: ``IndexNotFound`` — מונגו מחזיר אותו כשמפילים אינדקס שכבר אינו שם.
@@ -1073,6 +1073,61 @@ def files_page_pin_limit(device_limit: Any, *, given: bool) -> Tuple[int, Option
     return min(device_limit, MAX_FILES_PAGE_PINNED_NOTES), None
 
 
+#: **הפתק עצמו — התוכן והשם.** שינוי באחד מהם הוא עריכה של הפתק, ורק עריכה מקדמת את
+#: ``updated_at``. השדה הזה הוא "עודכן לאחרונה": "פתקים אחרונים" בדשבורד, החיפוש בוובאפ
+#: ובשרת ה-MCP והייצוא לגיבוי ממיינים לפיו, ובוובאפ הוא גם האסימון שמונע דריסה בין לשוניות
+#: (``prev_updated_at``). כל השאר — מיקום, גודל, מזעור ופתיחה, צבע, מצב ההצמדה, עוגן ושורה,
+#: נעיצה לעמוד הקבצים, העברה לארכיון, שינוי שם של הקובץ ומעבר בין לוחות — הוא תצוגה או מקום,
+#: ואינו "עדכון". זה הקו של ``code_snippets.updated_at`` (``docs/database/detailed-schema.rst``).
+#: עד נובמבר 2026 כל כתיבה קידמה אותו, ופתק שרק נפתח ממזעור קפץ לראש "פתקים אחרונים".
+NOTE_EDIT_FIELDS: Tuple[str, ...] = ("content", "title")
+
+
+class NoteUpdate(NamedTuple):
+    """עדכון של פתק אחרי :func:`drop_unchanged_edits` — מה לכתוב, ואילו שדות עריכה באמת משתנים."""
+
+    set_fields: Dict[str, Any]
+    unset_fields: Dict[str, Any]
+    #: שדות מ-:data:`NOTE_EDIT_FIELDS` שהעדכון משנה. ריק ⇒ העדכון אינו עריכה, ו-``updated_at`` לא זז.
+    edited: Tuple[str, ...]
+
+
+def drop_unchanged_edits(
+    stored: Mapping[str, Any],
+    set_fields: Mapping[str, Any],
+    unset_fields: Optional[Mapping[str, Any]] = None,
+) -> NoteUpdate:
+    """מוציא מעדכון של פתק את שדות העריכה שאינם משנים דבר, ומחזיר אילו כן משנים.
+
+    **המקום היחיד שמחליט אם כתיבה היא עריכה.** כל מי שמעדכן פתק קיים — ``update_note`` ו-
+    ``batch_update_notes`` בוובאפ, ``ProductionBackend.update_note`` ב-MCP — קורא לכאן, ומקדם את
+    ``updated_at`` רק כש-``edited`` אינו ריק (:data:`NOTE_EDIT_FIELDS`).
+
+    * ``stored`` הוא הפתק כמו שנקרא ממש לפני הכתיבה. שדה עריכה ב-``set_fields`` ששווה לערך
+      שבו **יוצא מהעדכון**, ולא רק אינו נספר: הלקוח מאחד שמירות, ושמירה של מזעור או של מיקום
+      יכולה לשאת איתה את אותו תוכן. בלי ההוצאה היא הייתה כותבת בחזרה תוכן שנקרא לפני רגע, וכותב
+      מקביל ששינה את התוכן בין הקריאה לכתיבה היה מאבד את השינוי שלו.
+    * ``$unset`` של שדה עריכה נספר כעריכה רק כשיש בו ערך שמור. ה-``$unset`` עצמו נשאר: מחיקה של
+      שם ריק אינה משנה דבר שאפשר לראות.
+    * **ההחלטה נשענת על הקריאה, בלי CAS, וזה מכוון.** אם כותב מקביל שינה את התוכן בין הקריאה
+      לכתיבה, תוכן שונה מהשמור נכתב ו-``updated_at`` מתקדם — וזה נכון, כי התוכן באמת משתנה. המקרה
+      היחיד שבו ההחלטה מחטיאה הוא כשהכותב המקביל כתב בדיוק את אותו ערך חדש: אז ``updated_at``
+      מתקדם פעם שנייה, באותו רגע בערך שבו הכותב ההוא כבר קידם אותו.
+    """
+    to_set = dict(set_fields)
+    to_unset = dict(unset_fields or {})
+    edited: List[str] = []
+    for field in NOTE_EDIT_FIELDS:
+        if field in to_set:
+            if to_set[field] == stored.get(field):
+                del to_set[field]
+            else:
+                edited.append(field)
+        elif field in to_unset and stored.get(field) not in (None, ""):
+            edited.append(field)
+    return NoteUpdate(set_fields=to_set, unset_fields=to_unset, edited=tuple(edited))
+
+
 #: שדות שאינם שדות יעד, אבל מתארים **מיקום על היעד הקודם**: מצב ההצמדה של לוח
 #: וריפו, העוגן לשורה או לכותרת של פתק קובץ, והנעיצה לעמוד הקבצים
 #: (:data:`FILES_PAGE_PIN_FIELD`) — פתק שהועבר לארכיון יורד מהנעיצה. בארכיון אין להם
@@ -1098,6 +1153,10 @@ def archive_note_update(*, archived_at: datetime, title: str) -> Dict[str, Any]:
     ``title`` כבר עבר את :func:`resolve_archive_title`: הארכיון מנווט לפי
     שם, ופתק בלי שם אינו עובר. שם ריק או שאינו קנוני כאן הוא באג של הקורא,
     ולכן נדחה ולא נשלם בשקט.
+
+    **``updated_at`` אינו זז, גם כשהשם ניתן בהעברה.** העברה לארכיון היא מעבר מקום ולא עריכה
+    (:data:`NOTE_EDIT_FIELDS`), ורשימת הארכיון ממוינת לפי ``archived_at``. עד נובמבר 2026 העדכון
+    קבע ``updated_at = archived_at``, והפתק קפץ לראש "פתקים אחרונים".
     """
     if not _is_archive_stamp(archived_at):
         raise NoteTargetError("archived_at_must_be_datetime")
@@ -1112,7 +1171,7 @@ def archive_note_update(*, archived_at: datetime, title: str) -> Dict[str, Any]:
     for field in ARCHIVE_DROPPED_PLACEMENT_FIELDS:
         unset[field] = ""
     return {
-        "$set": {"archived_at": archived_at, "title": title, "updated_at": archived_at},
+        "$set": {"archived_at": archived_at, "title": title},
         "$unset": unset,
     }
 

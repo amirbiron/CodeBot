@@ -981,7 +981,8 @@ def _note_write_answer(stored: dict[str, Any], *, intended: str | None, op: str)
 
     ``stored`` הוא המסמך כפי שהמסד מחזיק אותו אחרי הכתיבה: בעדכון — מה ש-
     ``find_one_and_update`` החזיר עם ``ReturnDocument.AFTER``, כלומר המצב
-    שהכתיבה **הזו** השאירה, גם כשהוובאפ כותב לאותו פתק במקביל; ביצירה — קריאה
+    שהכתיבה **הזו** השאירה, גם כשהוובאפ כותב לאותו פתק במקביל; בעדכון שאין בו מה
+    לכתוב (``drop_unchanged_edits`` הוציא הכול) — הפתק כמו שנקרא לפני ההחלטה; ביצירה — קריאה
     חוזרת לפי ה-``_id`` שה-insert החזיר (:meth:`ProductionBackend._created_note_answer`).
     ``intended`` הוא הגוף שהכלי התכוון לשמור, או ``None`` כשהכתיבה לא נגעה
     בגוף (צבע, שורה) — ואז אין מה להשוות.
@@ -3550,9 +3551,14 @@ class ProductionBackend:
         מהמסמך שהכתיבה עצמה החזירה, עם ``note.content_sha256``. וכשהעדכון כתב
         גוף, גם ``content_changed`` — השוואה בין הגוף ששמור לבין
         ``fields["content"]``.
+
+        **``updated_at`` זז רק כשהגוף משתנה** (``sticky_notes_target.drop_unchanged_edits``): גוף
+        ששווה למה ששמור יוצא מהעדכון, ושינוי צבע, שורה או מזעור אינו עריכה. כשלא נשאר מה לכתוב —
+        אין כתיבה, והתשובה בנויה מהפתק כמו שנקרא.
         """
         from bson import ObjectId  # lazy heavy import
         from pymongo import ReturnDocument
+        from sticky_notes_target import drop_unchanged_edits
 
         try:
             oid = ObjectId(str(note_id))
@@ -3584,13 +3590,17 @@ class ProductionBackend:
         # החוצה גרסה ישנה שעוד אפשר היה לשחזר, בתמורה לעותק של מה שכבר
         # יש. שינוי צבע/שורה בלבד ממילא אינו נוגע בגוף.
         snap_ref: dict[str, Any] | None = None
-        content_changes = "content" in fields and fields.get("content") != note.get("content")
+        # ``drop_unchanged_edits`` — אותו כלל של הוובאפ: שדה עריכה ששווה למה ששמור יוצא מהעדכון
+        # (ולא נכתב בחזרה על כתיבה מקבילה), ו-``updated_at`` זז רק כשהתוכן או השם באמת משתנים.
+        # שינוי צבע, שורה או מזעור אינו עריכה (``sticky_notes_target.NOTE_EDIT_FIELDS``).
+        edit = drop_unchanged_edits(note, fields)
+        content_changes = "content" in edit.edited
         if content_changes:
             ok, snap_ref = self._snapshot_note(int(user_id), note)
             if not ok:
                 return {"ok": False, "error": "snapshot_failed"}
 
-        updates = dict(fields)
+        updates = dict(edit.set_fields)
         # backfill לפתק legacy בלי scope_id — רק במסלול הכתיבה (list נשאר קריאה טהורה)
         if not note.get("scope_id"):
             fname = note.get("file_name")
@@ -3611,7 +3621,16 @@ class ProductionBackend:
                     updates["scope_id"] = sid
                     updates["file_name"] = str(fname)
 
-        updates["updated_at"] = _dt.datetime.now(_dt.timezone.utc)
+        if edit.edited:
+            updates["updated_at"] = _dt.datetime.now(_dt.timezone.utc)
+        if not updates:
+            # שום דבר לא משתנה — למשל אותו תוכן שנשלח שוב. אין כתיבה (וגם אין צילום: התוכן לא
+            # משתנה), והתשובה מתארת את הפתק כמו שנקרא לפני רגע — אותו מסמך שההחלטה נשענה עליו.
+            return _note_write_answer(
+                note,
+                intended=fields["content"] if "content" in fields else None,
+                op="update_note",
+            )
         # **אסימון כתיבה ייחודי, ולא חותמת זמן.** ``updated_at`` נראה כמו
         # אסימון פעולה אבל אינו כזה: מונגו קוטם ל-מילישניות — נמדד, שתי
         # כתיבות במרחק 3 מיקרו-שניות חוזרות **זהות** — ולכן שתי עריכות
