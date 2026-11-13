@@ -210,6 +210,8 @@ from utils import TimeUtils, detect_language_from_filename  # noqa: E402
 # פענוח ה-CRLF ששליחת טופס HTML מוסיפה לערך של textarea. זה לא ניקוי של תוכן:
 # הוובאפ שומר בדיוק את מה שהמשתמש כתב (ראו services/line_endings.py).
 from services.line_endings import decode_form_newlines  # noqa: E402
+# קישור שמוביל לעמוד נפתח בלשונית חדשה, ברנדרר של מצב הקריאה ושל גיבוי התצוגה החיה (``_render_markdown_preview``).
+from services.md_link_target import LinkTargetExtension  # noqa: E402
 # מה נחשב Markdown — הכלל של הוובאפ, שגם שרת ה-MCP קורא (ראו services/markdown_files.py).
 from services.markdown_files import (  # noqa: E402
     MARKDOWN_FILE_SUFFIXES as _MARKDOWN_FILE_SUFFIXES,
@@ -15591,6 +15593,8 @@ def _render_markdown_preview(text: str) -> Tuple[str, str]:
             "sane_lists",
             "toc",
             "admonition",
+            # קישור שמוביל לעמוד נפתח בלשונית חדשה — אותו כלל כמו בכל רנדרר בדפדפן (``services/md_link_target.py``)
+            LinkTargetExtension(),
         ],
         output_format="html5",
     )

@@ -209,6 +209,13 @@
       } else {
         console.warn('md-linkify-plugin.js לא נטען: שם קובץ כמו readme.md יוצג כקישור לאתר בתצוגה החיה');
       }
+      // קישור שמוביל לעמוד נפתח בלשונית חדשה, ועוגן בתוך המסמך נשאר באותה לשונית — בשלושת הסוגים, כולל הייצוא.
+      // הכלל וההסבר בראש webapp/static/js/md-link-target-plugin.js, שמשותף עם md_preview.html ועם repo-browser.js.
+      if (window.MdLinkTargetPlugin) {
+        md.use(window.MdLinkTargetPlugin);
+      } else {
+        console.warn('md-link-target-plugin.js לא נטען: קישור בתצוגה יחליף את העמוד במקום להיפתח בלשונית חדשה');
+      }
       if (window.markdownitEmoji) {
         md.use(window.markdownitEmoji);
       }
