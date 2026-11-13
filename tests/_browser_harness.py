@@ -96,6 +96,44 @@ CENTER_JS = """([sel, index]) => {
 }"""
 
 
+#: **איפה הדפדפן צייר תו.** ביטוי JS של פונקציה ``(el, i) => DOMRect``: המלבן של התו במיקום ``i`` בטקסט של ``el``
+#: (כמו ב-``el.textContent``, גם כשהטקסט מפוצל לכמה צמתים), או ``null`` כשאין תו כזה. ``CHAR_X_JS`` ו-``ONE_LINE_JS``
+#: בנויים עליו; משבצים אותם בתוך סקריפט מדידה (``"const x = " + CHAR_X_JS``). עבר לכאן מ-
+#: ``tests/test_md_auto_dir_browser.py`` כשבדיקה שנייה הייתה צריכה אותו (``tests/test_sticky_inline_code_dir_browser.py``).
+CHAR_RECT_JS = """(el, i) => {
+  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let n, seen = 0;
+  while ((n = w.nextNode())) {
+    if (i < seen + n.data.length) {
+      const r = document.createRange();
+      r.setStart(n, i - seen); r.setEnd(n, i - seen + 1);
+      return r.getBoundingClientRect();
+    }
+    seen += n.data.length;
+  }
+  return null;
+}"""
+
+#: ``(el, i) => x``: המרכז האופקי, בפיקסלי CSS, של התו במיקום ``i``, או ``null``. כך בודקים סדר על המסך ולא ב-DOM:
+#: ב-``--flag`` המקף הראשון צריך להיות משמאל ל-``f``, ובשם קובץ עברי הסיומת משמאל לשם.
+CHAR_X_JS = """(el, i) => {
+  const b = (""" + CHAR_RECT_JS + """)(el, i);
+  return b ? b.left + b.width / 2 : null;
+}"""
+
+#: ``(el) => bool``: האם הטקסט של ``el`` כולו על שורת מסך אחת — התו הראשון והאחרון באותו גובה. **תנאי מקדים להשוואה
+#: של ``CHAR_X_JS``**: בטקסט שנשבר לכמה שורות, תו בשורה השנייה יכול להיות מכל צד של תו בראשונה, וההשוואה אינה אומרת
+#: דבר. כך קרה בבניית ``tests/test_sticky_inline_code_dir_browser.py``: שם קובץ בכותרת של כרטיס צר נשבר לשלוש שורות,
+#: ובדיקת סדר אחת עברה בו במקרה.
+ONE_LINE_JS = """(el) => {
+  const rect = (""" + CHAR_RECT_JS + """);
+  const first = rect(el, 0), last = rect(el, el.textContent.length - 1);
+  if (!first || !last) return false;
+  const mid = (b) => (b.top + b.bottom) / 2;
+  return Math.abs(mid(first) - mid(last)) < first.height / 2;
+}"""
+
+
 def tap_on(page, touch, sel: str, index: int = 0) -> None:
     """נגיעה באלמנט שעל המסך, כשהוא כבר לא זז. אלמנט שאינו על המסך הוא כישלון הבדיקה, לא דילוג.
 

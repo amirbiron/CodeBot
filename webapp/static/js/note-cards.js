@@ -77,7 +77,10 @@
 
   /**
    * ממלא את השם של כרטיס — קטע אחרי קטע. טקסט מתחלק לרצפים, כל אחד בכיוון שלו; קוד הוא
-   * ``<code>`` מבודד בכיוון LTR, כמו קוד בשורה בפתק עצמו. ``fallback`` — מה שמוצג כשאין שם.
+   * ``<code dir="auto">``, כמו קוד בשורה בפתק עצמו (``_appendInlineSegments`` ב-``sticky-notes.js``,
+   * וההסבר שם): הדפדפן מחליט על הכיוון לפי האות החזקה הראשונה בקוד ומבודד אותו. עד נובמבר 2026
+   * הקוד היה ``dir="ltr"``, ושם קובץ בעברית בין גרשיים הוצג עם הסיומת מימין לשם.
+   * ``fallback`` — מה שמוצג כשאין שם.
    */
   function fillTitle(span, title, fallback) {
     span.textContent = '';
@@ -94,7 +97,7 @@
       if (seg.code) {
         var code = document.createElement('code');
         code.className = 'archive-card-code';
-        code.setAttribute('dir', 'ltr');
+        code.setAttribute('dir', 'auto');
         code.textContent = seg.text;
         span.appendChild(code);
         return;

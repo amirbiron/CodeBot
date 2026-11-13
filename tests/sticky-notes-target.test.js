@@ -1087,16 +1087,18 @@ function docViewMarkdownIt(){
   // התוספים שמשנים את הפענוח של שורה, מאותם קבצים שהעמוד טוען: המארקר, וזיהוי הקישורים — שבלעדיו markdown-it
   // כאן היה הופך ``app.py`` לקישור, בזמן שתצוגת המסמך מציגה אותו כטקסט (ההסבר ב-``md-linkify-plugin.js``). ובנוסף
   // התוסף שכותב ``target`` ו-``rel`` על קישור (``md-link-target-plugin.js``): גם הפתק פותח קישור בלשונית חדשה, וההשוואה
-  // כאן מוודאת ששניהם כותבים אותו קישור.
+  // כאן מוודאת ששניהם כותבים אותו קישור. ואותו דבר לתוסף שכותב ``dir="auto"`` על קוד בשורה (``md-auto-dir-plugin.js``):
+  // גם הפתק כותב אותו, וההשוואה מוודאת ששניהם מסכימים גם על הכיוון של הקוד, ולא רק על מה קוד.
   const pluginSandbox = { window: {} };
   vm.createContext(pluginSandbox);
-  for (const name of ['md-mark-plugin.js', 'md-linkify-plugin.js', 'md-link-target-plugin.js']){
+  for (const name of ['md-mark-plugin.js', 'md-linkify-plugin.js', 'md-link-target-plugin.js', 'md-auto-dir-plugin.js']){
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', name), 'utf8'), pluginSandbox);
   }
   return new MarkdownIt(options)
     .use(pluginSandbox.window.MdMarkPlugin)
     .use(pluginSandbox.window.MdLinkifyPlugin)
-    .use(pluginSandbox.window.MdLinkTargetPlugin);
+    .use(pluginSandbox.window.MdLinkTargetPlugin)
+    .use(pluginSandbox.window.MdAutoDirPlugin);
 }
 
 const mdDoc = docViewMarkdownIt();
@@ -1111,7 +1113,9 @@ const DOC_TAGS = { bold: 'strong', italic: 'em', strike: 's', mark: 'mark' };
 function inlineHtml(segs){
   return segs.map((s) => {
     if (s.type === 'text') return escapeLikeMarkdownIt(s.text);
-    if (s.type === 'code') return `<code>${escapeLikeMarkdownIt(s.text)}</code>`;
+    // ``dir="auto"`` כמו שהפתק כותב אותו (``_appendInlineSegments``). שהפתק באמת כותב אותו נבדק ב-DOM, בבדיקה
+    // "רינדור: קוד בשורה נושא את המאפיינים שתצוגת המסמך נותנת לו".
+    if (s.type === 'code') return `<code dir="auto">${escapeLikeMarkdownIt(s.text)}</code>`;
     const inner = inlineHtml(s.children);
     // ``target`` ו-``rel`` כמו שהפתק כותב אותם (``_appendInlineSegments`` ב-``sticky-notes.js``), בסדר ש-markdown-it פולט.
     if (s.type === 'link') return `<a href="${escapeLikeMarkdownIt(s.href)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
@@ -1147,14 +1151,19 @@ check('markdown-it: אותם קטעי קוד בכל השורות הקצרות', 
   // "קוד בשורה: יחידה אחת, שקודמת לכל מפריד".
   const alphabet = ['`', '*', '=', '~', 'a', ' '];
   const maxLength = 6;
-  const codes = (html) => (html.match(/<code>[\s\S]*?<\/code>/g) || []).join('|');
+  // **התגית עם המאפיינים שלה, ולא ``<code>`` בדיוק.** אחרי ש-``md-auto-dir-plugin.js`` נטען שני הצדדים פולטים
+  // ``<code dir="auto">``, וביטוי שמחפש ``<code>`` לא היה מוצא קוד באף צד — וההשוואה הייתה עוברת על שתי רשימות ריקות.
+  // ``withCode`` סופר את הקלטים שבהם נמצא קוד, כדי שזה לא יקרה בשקט שוב.
+  const codes = (html) => (html.match(/<code\b[^>]*>[\s\S]*?<\/code>/g) || []).join('|');
   let checked = 0;
+  let withCode = 0;
   const walk = (prefix) => {
     if (prefix.includes('`')){
       checked += 1;
       const ours = codes(inlineHtml(fileMgr._parseInline(prefix)));
       const theirs = codes(mdDoc.renderInline(prefix));
       if (ours !== theirs) throw new Error(`קלט ${JSON.stringify(prefix)}: בפתק ${ours}, במסמך ${theirs}`);
+      if (theirs) withCode += 1;
     }
     if (prefix.length === maxLength) return;
     for (const c of alphabet) walk(prefix + c);
@@ -1164,6 +1173,7 @@ check('markdown-it: אותם קטעי קוד בכל השורות הקצרות', 
   let expected = 0;
   for (let k = 1; k <= maxLength; k += 1) expected += alphabet.length ** k - (alphabet.length - 1) ** k;
   eq(checked, expected, 'כל הקלטים נבדקו');
+  eq(withCode > 0, true, 'ובחלק מהם נמצא קוד — ההשוואה לא רצה על רשימות ריקות');
 });
 
 // ---------- מארקדאון: הסריקה האינלינית לינארית ----------
@@ -1332,6 +1342,62 @@ check('רינדור: קוד בתווית של קישור פסול — קוד, ו
   const code = view.querySelector('.sticky-md-code');
   eq(code && code.textContent, 'x', 'הקוד מוצג כקוד');
   eq(view.textContent.includes('[x](javascript:alert(1))'), true, 'והשאר כפי שהוקלד');
+});
+
+check('רינדור: קוד בשורה נושא את המאפיינים שתצוגת המסמך נותנת לו', () => {
+  // **‏``dir="auto"``, בכל מקום שבו יש קוד בשורה** — בשורה רגילה, בתוך מודגש ובתוך קישור (הבנייה הרקורסיבית של
+  // ``_appendInlineSegments``), בכותרת, בפריט רשימה ובתא טבלה. נופל על הקוד שלפני התיקון: הקוד נבנה בלי שום מאפיין,
+  // והכיוון נכפה ב-CSS (``direction: ltr`` על ``.sticky-md-code``), ולכן שם קובץ בעברית הוצג עם הסיומת מימין לשם.
+  //
+  // **המאפיינים הצפויים נגזרים מ-markdown-it עם התוספים של תצוגת המסמך** (``docViewMarkdownIt``), ולא מוקלדים כאן:
+  // הבדיקה היא שהפתק והמסמך נותנים לקוד בשורה אותם מאפיינים. ההשוואה במחרוזות למעלה (``inlineHtml``) מניחה שהפתק
+  // כותב ``dir="auto"``; הבדיקה הזו היא שמוודאת שה-DOM באמת נושא אותו.
+  const docOpen = /<code([^>]*)>/.exec(mdDoc.renderInline('`x`'));
+  eq(!!docOpen, true, 'markdown-it פלט קוד בשורה');
+  const docAttrs = JSON.stringify([...docOpen[1].matchAll(/([\w-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]).sort());
+  eq(docAttrs, JSON.stringify([['dir', 'auto']]), 'ובתצוגת המסמך הוא נושא dir="auto" — התוסף נטען בצד של markdown-it');
+  const content = [
+    '# כותרת עם `h()`',
+    '`--flag` ו-`הפניות-שלא-חלו.md`',
+    '**מודגש עם `b()`**',
+    '[קישור עם `app.py`](https://x.com)',
+    '- פריט עם `li()`',
+    '',
+    '| שם | ערך |',
+    '|---|---|',
+    '| `foo()` מחזיר ערך | `מדריך-תצוגת-Markdown-RTL.md` |',
+  ].join('\n');
+  const { view } = renderMd(mdMgr, content);
+  const codes = view.querySelectorAll('.sticky-md-code');
+  // כמה קטעי קוד יש בתוכן — נספר ממנו ולא מוקלד, כדי שהוספת שורה לא תשאיר אותה מחוץ לבדיקה.
+  eq(codes.length, content.split('`').length >> 1, 'כל קטעי הקוד נבנו');
+  for (const code of codes) {
+    const attrs = JSON.stringify(Object.entries(code._attrs).sort());
+    eq(attrs, docAttrs, `המאפיינים של הקוד "${code.textContent}"`);
+  }
+});
+
+check('CSS: לקוד בשורה, בפתק ובשם של כרטיס, אין direction ואין unicode-bidi', () => {
+  // הכיוון של קוד בשורה הוא ``dir="auto"`` שנכתב על האלמנט (``_appendInlineSegments`` בפתק, ``fillTitle`` ב-
+  // ``note-cards.js``), והבידוד מגיע מגיליון הסגנון של הדפדפן. ``direction`` בכלל של המחבר גובר על הכיוון ש-``dir``
+  // קובע, ו-``unicode-bidi`` גובר על הבידוד — שניהם בשקט. כך היה עד נובמבר 2026, כש-``.sticky-md-code`` הצהיר
+  // ``direction: ltr`` ו-``unicode-bidi: embed``: נמדד בכרומיום שגם עם ``dir="auto"`` על הקוד, הכלל ההוא השאיר שם קובץ
+  // עברי הפוך. בדיקות הדפדפן (``tests/test_sticky_inline_code_dir_browser.py``) מודדות את התוצאה על המסך, אבל אינן
+  // רצות ב-CI; השומר הזה כן.
+  //
+  // ההערות מוסרות לפני הבדיקה, כי ההסבר ב-CSS מזכיר את שתי התכונות בשמן.
+  const targets = [['sticky-notes.css', 'sticky-md-code'], ['note-cards.css', 'archive-card-code']];
+  for (const [file, cls] of targets) {
+    const css = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'css', file), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    // כלל שהמחלקה היא הנושא שלו (החלק האחרון בסלקטור), ולא ``.sticky-md-code-block`` או אב של משהו אחר.
+    const subject = new RegExp(`\\.${cls}(?![\\w-])[^\\s>+~]*$`);
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => m[1].split(',').some((sel) => subject.test(sel.trim())));
+    eq(rules.length > 0, true, `נמצאו כללים של .${cls} ב-${file}`);
+    const offending = rules.filter((m) => /(^|[;\s])(direction|unicode-bidi)\s*:/.test(m[2])).map((m) => m[1].trim());
+    eq(offending.join(' | '), '', `כללים של .${cls} ב-${file} שמצהירים direction או unicode-bidi`);
+  }
 });
 
 check('רינדור: בלוק קוד — הגדרות אינן מוצגות, התוכן ליטרלי', () => {
@@ -5644,7 +5710,9 @@ check('כרטיס של פתק: קוד בשם מוצג כ-<code> בלי הגרש�
   eq(parts.join('|'), 'span:לבדוק |code:deploy.sh|span: לפני', 'הקטעים');
   eq(title.textContent.includes('`'), false, 'אין גרשיים גלויים');
   const code = title.children.find((c) => c.tagName.toLowerCase() === 'code');
-  eq(code.getAttribute('dir'), 'ltr', 'הקוד מבודד בכיוון LTR');
+  // ``dir="auto"`` כמו קוד בשורה בפתק עצמו (``fillTitle``): הכיוון לפי האות החזקה הראשונה בקוד. עד נובמבר 2026 זה
+  // היה ``dir="ltr"``, ושם קובץ בעברית בין גרשיים הוצג על הכרטיס עם הסיומת מימין לשם.
+  eq(code.getAttribute('dir'), 'auto', 'הכיוון של הקוד לפי התוכן שלו');
   eq(card.className, 'archive-card files-page-card', 'הווריאנט');
   eq(card.style.getPropertyValue('--archive-card-color'), '#ffffcc', 'הצבע כטוקן');
   // **וכרטיס הארכיון** — בלי וריאנט — באותו כלל, מול המנוע האמיתי של הפתק.
