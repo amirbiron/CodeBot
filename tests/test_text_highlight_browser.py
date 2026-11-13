@@ -42,10 +42,13 @@ FIXTURE = (
     "<details><summary>alpha</summary><div>alpha</div></details>"
 )
 
-#: המופעים שצריכים להיעטף: שניים ב-``#plain``, ‏``Alpha`` ב-``#split``,
-#: ואחד ב-``summary`` ואחד בגוף ה-``details``. לא ב-SVG, לא ב-``script``/
-#: ``style``, ולא ב-``.skip-me``.
-EXPECTED_HITS = 5
+#: המופעים שצריכים להיעטף: שניים ב-``#plain``; ב-``#split`` גם ``Alpha`` וגם ``alpha`` שחציו מודגש
+#: (``<b>alp</b>ha``) — התאמה שעוברת בין שני צמתי טקסט בתוך אותה שורה; ואחד ב-``summary`` ואחד בגוף
+#: ה-``details``. לא ב-SVG, לא ב-``script``/``style``, ולא ב-``.skip-me``.
+EXPECTED_HITS = 6
+
+#: כמה עטיפות נוצרות: אחת לכל התאמה, ועוד אחת לחלק השני של ``alpha`` שחציו מודגש.
+EXPECTED_WRAPS = 7
 
 PAGE = """<!doctype html>
 <html dir="rtl" lang="he"><head><meta charset="utf-8"></head><body>
@@ -135,18 +138,23 @@ def test_wraps_only_visible_text_in_document_order(page):
           };
         }"""
     )
-    assert result["count"] == EXPECTED_HITS
-    assert result["inDom"] == EXPECTED_HITS, "כל עטיפה שהוחזרה נמצאת בעץ"
+    assert result["count"] == EXPECTED_HITS, "התאמה אחת לכל מופע, גם כשהוא עטוף בשני חלקים"
+    assert result["inDom"] == EXPECTED_WRAPS, "כל החלקים בעץ"
     assert result["tags"] == ["SPAN"], "ברירת המחדל לתגית היא span"
-    assert result["texts"] == ["alpha", "alpha", "Alpha", "alpha", "alpha"]
+    # של ``alpha`` שחציו מודגש מוחזר החלק הראשון — ``alp`` שבתוך ה-``<b>``.
+    assert result["texts"] == ["alpha", "alpha", "Alpha", "alp", "alpha", "alpha"]
     assert result["ordered"], "העטיפות מוחזרות בסדר המסמך"
     # זה התיקון: הבדיקה הקודמת לפי ``tagName`` לא תפסה SVG לעולם.
     assert result["svgUntouched"] and result["svgHits"] == 0, "לא נוגעים בתוך SVG"
     assert result["svgStyleText"] == ".alpha{fill:red}", "ה-CSS שבתוך הדיאגרמה שלם"
     assert result["scriptText"] == "alpha" and result["styleText"] == ".alpha{color:red}"
     assert result["skipped"] == "alpha", "הסלקטור שהצרכן הוסיף מדלג על תת-העץ"
-    # התאמה שחוצה גבול בין צמתים אינה נתפסת — מתועד ב-docstring של הפונקציה.
-    assert result["splitHtml"] == '<span class="hit">Alpha</span> <b>alp</b>ha'
+    # התאמה שחוצה גבול בין צמתים בתוך אותה שורה נתפסת: כל צומת מקבל עטיפה משלו, עם מזהה התאמה משותף, והחלק השני
+    # מסומן כהמשך. עד נובמבר 2026 נעטף כאן רק ``Alpha``.
+    assert result["splitHtml"] == (
+        '<span class="hit" data-hl-match="2">Alpha</span> <b><span class="hit" data-hl-match="3">alp</span></b>'
+        '<span class="hit" data-hl-match="3" data-hl-continuation="">ha</span>'
+    )
     assert result["textSame"], "אף תו לא נוסף ולא נמחק"
 
 
@@ -193,7 +201,7 @@ def test_clear_restores_the_original_tree(page):
                    nodesBefore, nodesDuring, nodesAfter: countTextNodes() };
         }"""
     )
-    assert result["removed"] == EXPECTED_HITS
+    assert result["removed"] == EXPECTED_WRAPS, "כל העטיפות הוסרו, כולל החלק השני של התאמה שעוברת בין צמתים"
     assert result["same"], "ה-HTML חוזר להיות זהה"
     # ``normalize`` הוא מה שמאחד את השאריות: בלעדיו מספר צמתי הטקסט היה
     # נשאר גבוה גם כשה-HTML נראה זהה.
@@ -330,6 +338,102 @@ def test_the_tex_source_inside_a_formula_is_not_scanned(page):
     assert result["annotationDisplay"] == "none", result
     assert result["inAnnotation"] == 0, result
     assert result["count"] == 2, result
+
+
+def test_a_match_crosses_inline_elements_but_not_a_line_break(page):
+    """התאמה עוברת דרך אלמנטים בתוך שורה — עיצוב, קוד, קישור, ``bdi`` — ולא דרך שום דבר אחר.
+
+    כל מקרה כאן הוא ``alpha`` שמפוצל בין שני צמתי טקסט, ורק ההפרדה שביניהם שונה. ``br``, פסקה, תא ושורה של פתק
+    (``div``) מפרידים, וגם תת-עץ שמדלגים עליו: הביטוי ממשיך שם למקום אחר, וההתאמה הייתה מחברת טקסט שאינו רציף.
+    """
+    _reset(page)
+    result = page.evaluate(
+        """() => {
+          const root = document.getElementById('root');
+          const cases = {
+            em: '<p>al<em>pha</em></p>',
+            link: '<p><a href="#">alp</a>ha</p>',
+            nested: '<p><strong>a<code>lp</code></strong><mark>ha</mark></p>',
+            bdi: '<p><code dir="rtl">alp<bdi>ha</bdi></code></p>',
+            br: '<p>al<br>pha</p>',
+            paragraphs: '<p>al</p><p>pha</p>',
+            cells: '<table><tr><td>al</td><td>pha</td></tr></table>',
+            lines: '<div>al</div><div>pha</div>',
+            skipped: '<p>al<span class="skip-me">x</span>pha</p>',
+          };
+          const out = {};
+          for (const [name, html] of Object.entries(cases)) {
+            root.innerHTML = html;
+            const hits = TextHighlight.highlightWithin(root, 'alpha', { className: 'hit', skip: '.skip-me' });
+            out[name] = { hits: hits.length, wraps: root.querySelectorAll('.hit').length,
+                          text: [...root.querySelectorAll('.hit')].map((w) => w.textContent).join('|') };
+          }
+          return out;
+        }"""
+    )
+    assert result["em"] == {"hits": 1, "wraps": 2, "text": "al|pha"}, result["em"]
+    assert result["link"] == {"hits": 1, "wraps": 2, "text": "alp|ha"}, result["link"]
+    assert result["nested"] == {"hits": 1, "wraps": 3, "text": "a|lp|ha"}, result["nested"]
+    assert result["bdi"] == {"hits": 1, "wraps": 2, "text": "alp|ha"}, result["bdi"]
+    for name in ("br", "paragraphs", "cells", "lines", "skipped"):
+        assert result[name] == {"hits": 0, "wraps": 0, "text": ""}, (name, result[name])
+
+
+def test_hits_within_and_set_active_treat_a_split_match_as_one(page):
+    """``hitsWithin`` מוצא מחדש התאמה אחת לכל מופע, ו-``setActive`` צובע את כל החלקים שלה — ורק שלה.
+
+    צרכן שמוצא את ההתאמות מתוך העץ (המונה והניווט במסמך, הניווט בפתק) היה סופר כל חלק כהתאמה, וצרכן שמסמן את
+    העטיפה שהוחזרה היה צובע רק את החלק הראשון.
+    """
+    _reset(page)
+    result = page.evaluate(
+        """() => {
+          const root = document.getElementById('root');
+          root.innerHTML = '<p>alpha <b>alp</b>ha alpha</p>';
+          const opts = { className: 'hit' };
+          const hits = TextHighlight.highlightWithin(root, 'alpha', opts);
+          const again = TextHighlight.hitsWithin(root, 'hit');
+          const active = (i) => {
+            TextHighlight.setActive(root, 'hit', again[i]);
+            return [...root.querySelectorAll('.hit')].map((w) => w.classList.contains('is-active') ? 1 : 0).join('');
+          };
+          const second = active(1);
+          const third = active(2);
+          TextHighlight.setActive(root, 'hit', null);
+          return {
+            hits: hits.length,
+            sameHeads: again.length === hits.length && again.every((w, i) => w === hits[i]),
+            second, third,
+            cleared: root.querySelectorAll('.hit.is-active').length,
+          };
+        }"""
+    )
+    assert result["hits"] == 3
+    assert result["sameHeads"] is True, "hitsWithin מחזיר את אותן עטיפות ש-highlightWithin החזיר"
+    # ארבע עטיפות: alpha, ‏alp, ‏ha, ‏alpha. השנייה היא שני החלקים האמצעיים.
+    assert result["second"] == "0110", result
+    assert result["third"] == "0001", "המעבר לשלישית מוריד את הסימון משני החלקים של השנייה"
+    assert result["cleared"] == 0, "setActive עם null רק מוריד"
+
+
+def test_a_hebrew_file_name_with_an_isolated_extension_is_found_whole(page):
+    """שם קובץ עברי שהסיומת שלו מבודדת ב-``<bdi>`` (``RtlCode.fillInlineCode``) נמצא כשמחפשים את כולו, או את
+    הקטע שעובר מהשם לסיומת. בלי ההתאמה שעוברת בין צמתים — שתיהן לא היו נמצאות."""
+    _reset(page)
+    result = page.evaluate(
+        """() => {
+          const root = document.getElementById('root');
+          root.innerHTML = '<p>ראו את <code dir="rtl">מדריך-תצוגת-Markdown-RTL.<bdi>md</bdi></code> כאן</p>';
+          const find = (term) => {
+            const hits = TextHighlight.highlightWithin(root, term, { className: 'hit' });
+            return { hits: hits.length, parts: root.querySelectorAll('.hit').length };
+          };
+          return { whole: find('מדריך-תצוגת-Markdown-RTL.md'), across: find('RTL.md'), stem: find('Markdown') };
+        }"""
+    )
+    assert result["whole"] == {"hits": 1, "parts": 2}, result
+    assert result["across"] == {"hits": 1, "parts": 2}, result
+    assert result["stem"] == {"hits": 1, "parts": 1}, result
 
 
 def test_invalid_skip_selector_is_loud(page):

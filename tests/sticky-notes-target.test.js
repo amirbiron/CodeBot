@@ -1087,11 +1087,13 @@ function docViewMarkdownIt(){
   // התוספים שמשנים את הפענוח של שורה, מאותם קבצים שהעמוד טוען: המארקר, וזיהוי הקישורים — שבלעדיו markdown-it
   // כאן היה הופך ``app.py`` לקישור, בזמן שתצוגת המסמך מציגה אותו כטקסט (ההסבר ב-``md-linkify-plugin.js``). ובנוסף
   // התוסף שכותב ``target`` ו-``rel`` על קישור (``md-link-target-plugin.js``): גם הפתק פותח קישור בלשונית חדשה, וההשוואה
-  // כאן מוודאת ששניהם כותבים אותו קישור. ואותו דבר לתוסף שכותב ``dir="auto"`` על קוד בשורה (``md-auto-dir-plugin.js``):
-  // גם הפתק כותב אותו, וההשוואה מוודאת ששניהם מסכימים גם על הכיוון של הקוד, ולא רק על מה קוד.
+  // כאן מוודאת ששניהם כותבים אותו קישור. ואותו דבר לתוסף שכותב ``dir`` על קוד בשורה (``md-auto-dir-plugin.js``), יחד עם
+  // ``utils/rtl-code.js`` שהוא קורא ממנו את הפירוק של שם קובץ עברי: גם הפתק כותב את שניהם, וההשוואה מוודאת שהפתק והמסמך
+  // מסכימים גם על הכיוון של הקוד ועל הפירוק שלו, ולא רק על מה קוד.
   const pluginSandbox = { window: {} };
   vm.createContext(pluginSandbox);
-  for (const name of ['md-mark-plugin.js', 'md-linkify-plugin.js', 'md-link-target-plugin.js', 'md-auto-dir-plugin.js']){
+  for (const name of ['utils/rtl-code.js', 'md-mark-plugin.js', 'md-linkify-plugin.js', 'md-link-target-plugin.js',
+    'md-auto-dir-plugin.js']){
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', name), 'utf8'), pluginSandbox);
   }
   return new MarkdownIt(options)
@@ -1110,12 +1112,26 @@ const escapeLikeMarkdownIt = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const DOC_TAGS = { bold: 'strong', italic: 'em', strike: 's', mark: 'mark' };
 
+/**
+ * אלמנט ``code`` מדומה כ-HTML בצורה ש-markdown-it פולט: המאפיינים בסדר שנכתבו, ובתוכו טקסט וילדים (``<bdi>`` של
+ * הסיומת בשם קובץ עברי). ``className`` אינו מאפיין כאן — ובמסמך אין מחלקה על קוד בשורה.
+ */
+function codeHtml(el){
+  const attrs = Object.entries(el._attrs).map(([k, v]) => ` ${k}="${escapeLikeMarkdownIt(v)}"`).join('');
+  const inner = el.children.length
+    ? el.children.map((c) => (c.nodeType === 3 ? escapeLikeMarkdownIt(c.textContent)
+      : `<${String(c.tagName).toLowerCase()}>${escapeLikeMarkdownIt(c.textContent)}</${String(c.tagName).toLowerCase()}>`)).join('')
+    : escapeLikeMarkdownIt(el.textContent);
+  return `<code${attrs}>${inner}</code>`;
+}
+
 function inlineHtml(segs){
   return segs.map((s) => {
     if (s.type === 'text') return escapeLikeMarkdownIt(s.text);
-    // ``dir="auto"`` כמו שהפתק כותב אותו (``_appendInlineSegments``). שהפתק באמת כותב אותו נבדק ב-DOM, בבדיקה
-    // "רינדור: קוד בשורה נושא את המאפיינים שתצוגת המסמך נותנת לו".
-    if (s.type === 'code') return `<code dir="auto">${escapeLikeMarkdownIt(s.text)}</code>`;
+    // **הקוד נבנה בדיוק כמו בפתק** — ``fillInlineCode`` שהמנוע חושף, שקורא ל-``RtlCode.fillInlineCode`` — ולא מתואר
+    // כאן מחדש: עותק בטסט היה מאשר את עצמו. ``_appendInlineSegments`` קורא לאותה פונקציה, וזה נבדק ב-DOM, בבדיקה
+    // "רינדור: קוד בשורה נושא את מה שתצוגת המסמך נותנת לו".
+    if (s.type === 'code') return codeHtml(sandbox.window.StickyNotesText.fillInlineCode(new FakeEl('code'), s.text));
     const inner = inlineHtml(s.children);
     // ``target`` ו-``rel`` כמו שהפתק כותב אותם (``_appendInlineSegments`` ב-``sticky-notes.js``), בסדר ש-markdown-it פולט.
     if (s.type === 'link') return `<a href="${escapeLikeMarkdownIt(s.href)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
@@ -1344,24 +1360,19 @@ check('רינדור: קוד בתווית של קישור פסול — קוד, ו
   eq(view.textContent.includes('[x](javascript:alert(1))'), true, 'והשאר כפי שהוקלד');
 });
 
-check('רינדור: קוד בשורה נושא את המאפיינים שתצוגת המסמך נותנת לו', () => {
-  // **‏``dir="auto"``, בכל מקום שבו יש קוד בשורה** — בשורה רגילה, בתוך מודגש ובתוך קישור (הבנייה הרקורסיבית של
-  // ``_appendInlineSegments``), בכותרת, בפריט רשימה ובתא טבלה. נופל על הקוד שלפני התיקון: הקוד נבנה בלי שום מאפיין,
-  // והכיוון נכפה ב-CSS (``direction: ltr`` על ``.sticky-md-code``), ולכן שם קובץ בעברית הוצג עם הסיומת מימין לשם.
+check('רינדור: קוד בשורה נושא את מה שתצוגת המסמך נותנת לו', () => {
+  // **כל קוד בשורה בפתק, בכל הקשר** — בשורה רגילה, בתוך מודגש ובתוך קישור (הבנייה הרקורסיבית של
+  // ``_appendInlineSegments``), בכותרת, בפריט רשימה ובתא טבלה — **נבנה בדיוק כמו במסמך**: אותם מאפיינים ואותו תוכן.
+  // קוד רגיל: ``dir="auto"``. שם קובץ עברי שהדפדפן היה מציג עם הסיומת באמצע: ``dir="rtl"`` והסיומת ב-``<bdi>``.
   //
-  // **המאפיינים הצפויים נגזרים מ-markdown-it עם התוספים של תצוגת המסמך** (``docViewMarkdownIt``), ולא מוקלדים כאן:
-  // הבדיקה היא שהפתק והמסמך נותנים לקוד בשורה אותם מאפיינים. ההשוואה במחרוזות למעלה (``inlineHtml``) מניחה שהפתק
-  // כותב ``dir="auto"``; הבדיקה הזו היא שמוודאת שה-DOM באמת נושא אותו.
-  const docOpen = /<code([^>]*)>/.exec(mdDoc.renderInline('`x`'));
-  eq(!!docOpen, true, 'markdown-it פלט קוד בשורה');
-  const docAttrs = JSON.stringify([...docOpen[1].matchAll(/([\w-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]).sort());
-  eq(docAttrs, JSON.stringify([['dir', 'auto']]), 'ובתצוגת המסמך הוא נושא dir="auto" — התוסף נטען בצד של markdown-it');
+  // **הצפוי נגזר מ-markdown-it עם התוספים של תצוגת המסמך** (``docViewMarkdownIt``), על הטקסט של כל קוד בנפרד, ולא
+  // מוקלד כאן. נופל על הקוד שלפני הפירוק (שם הקובץ נבנה עם ``dir="auto"`` ובלי ``<bdi>``), ועל הקוד שלפני ``dir`` כלל.
   const content = [
     '# כותרת עם `h()`',
     '`--flag` ו-`הפניות-שלא-חלו.md`',
-    '**מודגש עם `b()`**',
+    '**מודגש עם `b()`** ו-`Report-דוח-Q3.md`',
     '[קישור עם `app.py`](https://x.com)',
-    '- פריט עם `li()`',
+    '- פריט עם `li()` ו-`חילוץ-חיבור-וואטסאפ-myAgent.md`',
     '',
     '| שם | ערך |',
     '|---|---|',
@@ -1372,9 +1383,15 @@ check('רינדור: קוד בשורה נושא את המאפיינים שתצו
   // כמה קטעי קוד יש בתוכן — נספר ממנו ולא מוקלד, כדי שהוספת שורה לא תשאיר אותה מחוץ לבדיקה.
   eq(codes.length, content.split('`').length >> 1, 'כל קטעי הקוד נבנו');
   for (const code of codes) {
-    const attrs = JSON.stringify(Object.entries(code._attrs).sort());
-    eq(attrs, docAttrs, `המאפיינים של הקוד "${code.textContent}"`);
+    eq(codeHtml(code), mdDoc.renderInline('`' + code.textContent + '`'), `הקוד "${code.textContent}"`);
   }
+  // שני הסוגים באמת נבדקו: בלי זה, פירוק שנשבר בשני הצדדים יחד היה עובר כאן.
+  const split = codes.filter((c) => c.children.some((k) => String(k.tagName).toLowerCase() === 'bdi'));
+  eq(split.map((c) => c.textContent).sort().join(' | '),
+    ['Report-דוח-Q3.md', 'חילוץ-חיבור-וואטסאפ-myAgent.md', 'מדריך-תצוגת-Markdown-RTL.md'].sort().join(' | '),
+    'שלושת שמות הקבצים מפורקים, וכל השאר לא');
+  eq(split.every((c) => c.getAttribute('dir') === 'rtl'), true, 'שם מפורק מקבל dir="rtl"');
+  eq(codes.filter((c) => !split.includes(c)).every((c) => c.getAttribute('dir') === 'auto'), true, 'כל השאר dir="auto"');
 });
 
 check('CSS: לקוד בשורה, בפתק ובשם של כרטיס, אין direction ואין unicode-bidi', () => {
@@ -5721,6 +5738,14 @@ check('כרטיס של פתק: קוד בשם מוצג כ-<code> בלי הגרש�
   eq(archived.className, 'archive-card', 'כרטיס הארכיון, בלי וריאנט');
   eq(archivedTitle.children.map((c) => `${c.tagName.toLowerCase()}:${c.textContent}`).join('|'),
     'span:תיקון |code:save_file', 'הקטעים בכרטיס הארכיון');
+  // **ושם קובץ עברי בשם הכרטיס נבנה כמו בפתק** (``fillInlineCode``): ``dir="rtl"`` והסיומת ב-``<bdi>``. נופל על
+  // הכרטיס שלפני הפירוק, שבנה את הקוד בעצמו עם ``dir="auto"``.
+  const named = sb.window.NoteCards.buildCard({ id: 'c3', title: 'עדכון `מדריך-תצוגת-Markdown-RTL.md`', color: '#ffffcc' }, {});
+  const fileCode = named.querySelector('.archive-card-title').children.find((c) => c.tagName.toLowerCase() === 'code');
+  eq(fileCode.getAttribute('dir'), 'rtl', 'שם קובץ עברי: dir="rtl"');
+  eq(fileCode.children.map((c) => (c.nodeType === 3 ? `text:${c.textContent}` : `${c.tagName.toLowerCase()}:${c.textContent}`)).join('|'),
+    'text:מדריך-תצוגת-Markdown-RTL.|bdi:md', 'השם, הנקודה, והסיומת ב-bdi');
+  eq(fileCode.textContent, 'מדריך-תצוגת-Markdown-RTL.md', 'והטקסט זהה למקור');
 });
 
 (async () => {

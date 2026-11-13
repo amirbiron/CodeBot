@@ -304,6 +304,35 @@ def test_typing_counts_navigates_like_the_document_search_and_escape_restores(br
     np.close()
 
 
+SPLIT_CONTENT = "**מי**לה ראשונה ו-מי**לה** שנייה\nקובץ: `מדריך-תצוגת-Markdown-RTL.md`"
+
+#: המונה, כמה עטיפות, ואילו מהן פעילות — כמחרוזת של 0 ו-1 לפי סדר המסמך.
+SPLIT_STATE_JS = """(nid) => { const n = document.querySelector(`.sticky-note[data-note-id="${nid}"]`);
+  const hits = [...n.querySelectorAll('.sticky-note-search-hit')];
+  return { count: n.querySelector('.sticky-note-search-count').textContent, wraps: hits.length,
+           active: hits.map(h => h.classList.contains('is-active') ? 1 : 0).join('') }; }"""
+
+
+def test_a_match_split_between_nodes_counts_once_and_is_marked_whole(browser):
+    """מילה שחציה מודגש, ושם קובץ עברי שהסיומת שלו ב-``<bdi>``, נמצאים — כל אחד כהתאמה אחת, והפעילה צבועה על כל
+    החלקים שלה. עד נובמבר 2026 שתיהן לא נמצאו: כל צומת טקסט נבדק לבדו."""
+    np = NotePage(browser, [note("n", SPLIT_CONTENT)])
+    np.open_search("n")
+    np.page.keyboard.type("מילה")
+    # שתי התאמות, כל אחת בשני חלקים: החצי המודגש והחצי הרגיל.
+    assert np.page.evaluate(SPLIT_STATE_JS, "n") == {"count": "1/2", "wraps": 4, "active": "1100"}
+    np.page.keyboard.press("Enter")
+    np.page.keyboard.press("Enter")
+    assert np.page.evaluate(SPLIT_STATE_JS, "n") == {"count": "2/2", "wraps": 4, "active": "0011"}
+
+    np.page.fill(np.sel("n", ".sticky-note-search-input"), "RTL.md")
+    assert np.page.evaluate(SPLIT_STATE_JS, "n") == {"count": "1/1", "wraps": 2, "active": "11"}
+    np.page.fill(np.sel("n", ".sticky-note-search-input"), "מדריך-תצוגת-Markdown-RTL.md")
+    assert np.page.evaluate(SPLIT_STATE_JS, "n") == {"count": "1/1", "wraps": 2, "active": "11"}
+    assert np.errors == []
+    np.close()
+
+
 def test_highlight_does_not_change_text_metrics(browser):
     """בלי ``padding`` ובלי שינוי משקל: בפתק צר שינוי רוחב של מילה שובר שורות מחדש.
 

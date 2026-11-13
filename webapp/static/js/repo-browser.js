@@ -2663,8 +2663,10 @@ function goToMatch(index) {
     if (searchState.view === 'rendered') {
         // הפעילה בולטת, וכל השאר נשארות מודגשות. הגלילה היא של התצוגה בלבד: ``scrollIntoView``
         // היה גולל גם את העמוד (ראו ``scrollIntoViewWithin``). המודול טעון — ההתאמות הן עטיפות שהוא יצר.
-        searchState.matches.forEach((hit, i) => hit.classList.toggle('is-active', i === index));
+        // ``setActive`` ולא ``classList`` על כל התאמה: התאמה שעוברת בין צמתים (מילה שחציה מודגש) עטופה בכמה חלקים,
+        // וכולם צריכים להיצבע כפעילים — וגם ההורדה של הסימון מהקודמת חלה על כל החלקים שלה.
         const container = document.getElementById('markdown-preview-container');
+        window.TextHighlight.setActive(container || document, IN_FILE_SEARCH_HIT_CLASS, match);
         if (container) window.TextHighlight.scrollIntoViewWithin(container, match);
         return;
     }

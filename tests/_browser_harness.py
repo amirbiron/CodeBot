@@ -134,6 +134,40 @@ ONE_LINE_JS = """(el) => {
 }"""
 
 
+#: ``(el) => {...}``: **הצורה של שם קובץ עברי שמפורק** (``RtlCode.fileNameParts`` ב-``utils/rtl-code.js``: עברית, ואחריה
+#: חלק לטיני לפני הסיומת). השם מתחיל בצד ימין, החלק הלטיני האחרון משמאל לעברית, הנקודה משמאל לחלק הלטיני, והסיומת
+#: משמאל לנקודה — כלומר הסיומת בקצה השמאלי. בלי הפירוק הנקודה והסיומת נדבקות לחלק הלטיני ויושבות בקצה הימני שלו,
+#: באמצע השם. ``one_line`` — תנאי מקדים לשאר (``ONE_LINE_JS``). משותף ל-``tests/test_sticky_inline_code_dir_browser.py``
+#: ול-``tests/test_md_auto_dir_browser.py``.
+FILE_NAME_SHAPE_JS = """(el) => {
+  const x = (""" + CHAR_X_JS + """);
+  const t = el.textContent, dot = t.lastIndexOf('.');
+  let hebrew = -1, tail = -1;
+  for (let i = dot - 1; i >= 0; i--) if (/\\p{Script=Hebrew}/u.test(t[i])) { hebrew = i; break; }
+  for (let i = hebrew + 1; i < dot; i++) if (/\\p{Script=Latin}/u.test(t[i])) { tail = i; break; }
+  return {
+    one_line: (""" + ONE_LINE_JS + """)(el),
+    starts_right: hebrew === 0 || x(el, 0) > x(el, hebrew),
+    tail_left_of_hebrew: x(el, tail) < x(el, hebrew),
+    dot_left_of_tail: x(el, dot) < x(el, tail),
+    extension_left_of_dot: x(el, dot + 1) < x(el, dot),
+  };
+}"""
+
+#: ``(el) => text``: מה שבחירה של כל התוכן של ``el`` מחזירה (``Selection.toString``) — כך בודקים שהעתקה מחזירה את
+#: הטקסט כמו שנכתב, בלי תווים נסתרים. זה אינו הלוח עצמו: את הלוח לא קוראים כאן.
+SELECTED_TEXT_JS = """(el) => {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  const text = sel.toString();
+  sel.removeAllRanges();
+  return text;
+}"""
+
+
 def tap_on(page, touch, sel: str, index: int = 0) -> None:
     """נגיעה באלמנט שעל המסך, כשהוא כבר לא זז. אלמנט שאינו על המסך הוא כישלון הבדיקה, לא דילוג.
 

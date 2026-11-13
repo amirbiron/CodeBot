@@ -35,7 +35,7 @@ import pytest
 from bson import ObjectId
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _browser_harness import CHAR_X_JS, open_admin_page, poll
+from _browser_harness import CHAR_X_JS, FILE_NAME_SHAPE_JS, SELECTED_TEXT_JS, open_admin_page, poll
 from _fake_mongo import FakeDB
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
@@ -57,6 +57,8 @@ MARKDOWN = (
     "פסקה עם `--flag` באמצע.\n\n"
     "קריאה ל-`foo()` כאן.\n\n"
     "שמרו ל-`הפניות-שלא-חלו.md` בסוף.\n\n"
+    "המדריך: `מדריך-תצוגת-Markdown-RTL.md` כאן.\n\n"
+    "הדוח: `Report-דוח-Q3.md` כאן.\n\n"
     "| שם | ערך |\n"
     "|---|---|\n"
     "| שפה | C++ |\n"
@@ -82,8 +84,12 @@ MEASURE_JS = """([root]) => {
   const code = (t) => inline.find((el) => el.textContent === t);
   const cell = (t) => [...c.querySelectorAll('td')].find((el) => el.textContent.trim() === t);
   const flag = code('--flag'), foo = code('foo()'), heb = code('הפניות-שלא-חלו.md'), cpp = cell('C++');
+  const guide = code('מדריך-תצוגת-Markdown-RTL.md'), report = code('Report-דוח-Q3.md');
   const ths = [...c.querySelectorAll('th')];
-  if (!flag || !foo || !heb || !cpp || ths.length !== 2) return 'not rendered yet';
+  if (!flag || !foo || !heb || !cpp || !guide || !report || ths.length !== 2) return 'not rendered yet';
+  // שם קובץ עברי שמפורק — ``FILE_NAME_SHAPE_JS`` ב-``tests/_browser_harness.py``.
+  const shape = """ + FILE_NAME_SHAPE_JS + """;
+  const selected = """ + SELECTED_TEXT_JS + """;
   // המרכז האופקי של התו במיקום i בתוך el, לפי מה שהדפדפן צייר.
   const x = """ + CHAR_X_JS + """;
   // המרחק בין קצה הטקסט לקצה התוכן של התא (בלי הריפוד), משני הצדדים.
@@ -106,7 +112,11 @@ MEASURE_JS = """([root]) => {
     heb_suffix_left_of_name: x(heb, dot) < x(heb, dot - 1),
     cpp_gaps: gaps(cpp),
     th_gaps: ths.map(gaps),
-    code_dirs: inline.map((el) => el.getAttribute('dir')),
+    guide_shape: shape(guide),
+    report_shape: shape(report),
+    isolated: inline.filter((el) => el.querySelector('bdi')).map((el) => el.textContent).sort(),
+    copied: {guide: selected(guide), report: selected(report)},
+    code_dirs: Object.fromEntries(inline.map((el) => [el.textContent, el.getAttribute('dir')])),
     cell_dirs: cells.map((el) => el.getAttribute('dir')),
     isolate: { code: getComputedStyle(flag).unicodeBidi, cell: getComputedStyle(cpp).unicodeBidi },
   };
@@ -215,7 +225,9 @@ def test_inline_code_and_table_cells_follow_their_own_direction(site, surface):
     assert state["cpp_c_left_of_plus"], f"C++ מוצג הפוך: {state}"
     assert state["cpp_gaps"]["left"] <= 1, f"C++ אינו מיושר לשמאל: {state['cpp_gaps']}"
     assert all(g["right"] <= 1 for g in state["th_gaps"]), f"כותרת עמודה אינה מיושרת לימין: {state['th_gaps']}"
-    assert set(state["code_dirs"]) == {"auto"}, state["code_dirs"]
+    # ``rtl`` לשני שמות הקבצים שמפורקים, ו-``auto`` לכל השאר.
+    split = {"מדריך-תצוגת-Markdown-RTL.md", "Report-דוח-Q3.md"}
+    assert state["code_dirs"] == {t: ("rtl" if t in split else "auto") for t in state["code_dirs"]}, state["code_dirs"]
     assert set(state["cell_dirs"]) == {"auto"}, state["cell_dirs"]
     assert state["isolate"] == {"code": "isolate", "cell": "isolate"}, state["isolate"]
     assert not [line for line in console if MISSING_PLUGIN_WARNING in line], console
@@ -228,3 +240,23 @@ def test_a_hebrew_file_name_keeps_its_reading_order(site, surface):
         pass
     assert state["heb_name_reads_rtl"], f"השם העברי אינו מימין לשמאל: {state}"
     assert state["heb_suffix_left_of_name"], f"הסיומת עברה לצד ימין של השם: {state}"
+
+
+#: מה ששם מפורק צריך להראות ב-``FILE_NAME_SHAPE_JS``: כל הסדר מימין לשמאל, והסיומת בקצה השמאלי.
+SPLIT_RIGHT = {"one_line": True, "starts_right": True, "tail_left_of_hebrew": True, "dot_left_of_tail": True,
+               "extension_left_of_dot": True}
+
+
+@pytest.mark.parametrize("surface", list(ROOTS))
+def test_a_hebrew_file_name_with_a_latin_part_shows_the_extension_at_the_left_end(site, surface):
+    """שם קובץ עברי שהחלק האחרון שלו לפני הסיומת לטיני — גם כשהוא מתחיל באנגלית — מוצג עם הסיומת בקצה השמאלי,
+    ובחירה שלו מחזירה אותו בדיוק. נופל על המצב שלפני הפירוק: שם ``dir="auto"`` לבדו השאיר את הסיומת צמודה לחלק
+    הלטיני, באמצע השם (נמדד בבקרה ב-``tests/test_sticky_inline_code_dir_browser.py``, על אותו קוד)."""
+    browser, server = site
+    with opened(surface, browser, server) as (state, console):
+        pass
+    assert state["guide_shape"] == SPLIT_RIGHT, state["guide_shape"]
+    assert state["report_shape"] == SPLIT_RIGHT, state["report_shape"]
+    assert state["isolated"] == sorted(["מדריך-תצוגת-Markdown-RTL.md", "Report-דוח-Q3.md"]), state["isolated"]
+    assert state["copied"] == {"guide": "מדריך-תצוגת-Markdown-RTL.md", "report": "Report-דוח-Q3.md"}, state["copied"]
+    assert not [line for line in console if "utils/rtl-code.js לא נטען" in line], console

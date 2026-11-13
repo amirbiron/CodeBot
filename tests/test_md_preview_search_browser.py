@@ -186,6 +186,33 @@ def test_the_down_arrow_searches_text_that_was_not_searched_yet(browser):
     page.close()
 
 
+def test_a_match_split_between_nodes_counts_once_and_is_marked_whole(browser):
+    """התאמה שעוברת בין צמתים — כאן ``.md`` של שם קובץ עברי, שהסיומת שלו ב-``<bdi>`` — נספרת פעם אחת, והניווט
+    מסמן את כל החלקים שלה. נופל על הבלוק שלפני: הוא ספר כל ``.md-highlight`` בעץ, ולכן כל חלק היה התאמה."""
+    page, errors, _ = _open(browser)
+    page.evaluate(
+        """() => { document.getElementById('md-content').innerHTML =
+          '<p>שמרו ל-<code dir="rtl">מדריך-תצוגת-Markdown-RTL.<bdi>md</bdi></code>'
+          + ' ול-<code dir="rtl">Report-דוח-Q3.<bdi>md</bdi></code>.</p>'; }"""
+    )
+    state = """() => ({
+      count: document.getElementById('mdSearchCount').textContent,
+      wraps: document.querySelectorAll('#md-content .md-highlight').length,
+      active: [...document.querySelectorAll('#md-content .md-highlight')]
+                .map(el => el.classList.contains('is-active') ? 1 : 0).join(''),
+    })"""
+    page.fill("#mdSearchInput", ".md")
+    page.press("#mdSearchInput", "Enter")
+    # שתי התאמות, כל אחת בשני חלקים: הנקודה בטקסט, והסיומת ב-``<bdi>``.
+    assert page.evaluate(state) == {"count": "1/2", "wraps": 4, "active": "1100"}
+    page.press("#mdSearchInput", "Enter")
+    assert page.evaluate(state) == {"count": "2/2", "wraps": 4, "active": "0011"}
+    page.press("#mdSearchInput", "Shift+Enter")
+    assert page.evaluate(state) == {"count": "1/2", "wraps": 4, "active": "1100"}
+    assert errors == []
+    page.close()
+
+
 @pytest.mark.parametrize("missing", MODULES)
 def test_without_a_module_the_box_is_disabled(browser, missing):
     """היעדר מודול הוא היעדר יכולת: תיבה מושבתת עם הסבר, לא "אין תוצאות"."""

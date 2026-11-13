@@ -73,7 +73,7 @@ function makeSandbox({ highlighter = true, hits = 3, realRender = false } = {}) 
   byId('current-repo-name').dataset.repo = 'CodeBot';
   // הסרגל מוסתר כמו בתבנית (``repo/index.html``), עד ש-``searchInFile`` מציג אותו.
   byId('in-file-search').style.display = 'none';
-  const calls = { highlight: [], clear: [], scroll: [] };
+  const calls = { highlight: [], clear: [], scroll: [], active: [] };
   const TextHighlight = highlighter ? {
     highlightWithin(root, term, opts) {
       const made = Array.from({ length: hits }, (_, i) => el(`hit-${calls.highlight.length}-${i}`));
@@ -82,6 +82,15 @@ function makeSandbox({ highlighter = true, hits = 3, realRender = false } = {}) 
     },
     clearHighlights(root, className) { calls.clear.push({ root, className }); return 0; },
     scrollIntoViewWithin(root, hit) { calls.scroll.push({ root, hit }); },
+    // כמו ``setActive`` במודול: מוריד את הסימון מכל ההתאמות של ההדגשה האחרונה ומסמן את ``hit``. החלקים של התאמה שעוברת
+    // בין צמתים אינם בדמה — את זה בודקת ``tests/test_text_highlight_browser.py``.
+    setActive(root, className, hit) {
+      calls.active.push({ root, className, hit });
+      const last = calls.highlight[calls.highlight.length - 1];
+      (last ? last.made : []).forEach((h) => h.classList.remove('is-active'));
+      if (hit) hit.classList.add('is-active');
+      return hit ? [hit] : [];
+    },
   } : undefined;
 
   const sandbox = {
@@ -185,6 +194,12 @@ check('בתצוגה המרונדרת: הבא מעביר את הסימון וגו
   const last = sb.__calls.scroll[sb.__calls.scroll.length - 1];
   eq(last.root, sb.__byId('markdown-preview-container'), 'נגלל מיכל התצוגה, ולא העמוד');
   eq(last.hit, hits[1], 'אל ההתאמה הפעילה');
+  // הסימון עובר דרך ``setActive`` של המודול — שצובע את כל החלקים של התאמה שעוברת בין צמתים — במיכל התצוגה ובמחלקה
+  // של דפדפן הריפו.
+  const marked = sb.__calls.active[sb.__calls.active.length - 1];
+  eq(marked.hit, hits[1], 'setActive על ההתאמה הפעילה');
+  eq(marked.root, sb.__byId('markdown-preview-container'), 'במיכל התצוגה');
+  eq(marked.className, 'in-file-search-hit', 'ובמחלקה של דפדפן הריפו');
   sb.findNextMatch();
   sb.findNextMatch();
   eq(JSON.stringify(activeOf(hits)), '[0]', 'מהאחרונה חוזרים לראשונה');

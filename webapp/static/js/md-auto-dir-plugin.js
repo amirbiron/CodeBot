@@ -30,6 +30,12 @@
  * ל-``renderToken``. **רנדרר שמחליף את כלל ``code_inline`` בכלל שאינו קורא ל-``renderAttrs`` מוחק את ``dir`` בשקט** — כך
  * היה ב-``live-preview.js`` עד שהכלל שם הוסר (נובמבר 2026); ``tests/md-auto-dir-plugin.test.js`` בודק שאין עוד כזה.
  *
+ * **שם קובץ עברי: ``dir="rtl"`` והסיומת ב-``<bdi>``.** ב-``מדריך-תצוגת-Markdown-RTL.md`` הנקודה יושבת בין שתי אותיות
+ * לטיניות ונדבקת אליהן, ולכן גם עם ``dir="auto"`` הסיומת מוצגת באמצע השם, צמודה לעברית. קוד בשורה ש-
+ * ``RtlCode.fileNameParts`` (``utils/rtl-code.js``) מפרק מקבל ``dir="rtl"``, והכלל של ``code_inline`` שהתוסף מתקין כותב
+ * את הסיומת ב-``<bdi>`` — והיא עוברת לקצה השמאלי. ההחלטה מתי מפרקים, והמדידה, כתובות שם פעם אחת: הפתקים והכרטיסים של
+ * פתקים בונים את אותו מבנה כצמתים (``RtlCode.fillInlineCode``), ו-``tests/sticky-notes-target.test.js`` משווה ביניהם.
+ *
  * **למה קובץ משותף.** כל מקום שיוצר את markdown-it בוובאפ מתקין אותו — ``md_preview.html``, ``live-preview.js``
  * (``ensureRenderer``, שמשמש את התצוגה החיה, את הייצוא המעוצב, את דפדפן הריפו ואת כרטיסי החיפוש בתיעוד) ומסלול הגיבוי
  * ב-``repo-browser.js`` (``renderMarkdownFallback``) — ולכן ההחלטה וההסבר כתובים פעם אחת. ``tests/md-auto-dir-plugin.test.js``
@@ -47,6 +53,23 @@
   'use strict';
 
   var CELL_OPEN_TYPES = ['th_open', 'td_open'];
+  var warnedNoRtlCode = false;
+
+  /**
+   * הפירוק של שם קובץ עברי שהדפדפן היה מציג עם הסיומת באמצע — ``RtlCode.fileNameParts`` ב-``utils/rtl-code.js``
+   * (ההחלטה וההסבר שם, משותפים לפתקים ולכרטיסי הפתקים), או ``null``. **היעדר ``window.RtlCode`` הוא היעדר יכולת
+   * סטטי** — כל תבנית שטוענת את התוסף טוענת גם אותו, ו-``tests/md-auto-dir-plugin.test.js`` בודק את זה — ולכן הקוד
+   * מוצג אז כמו לפני הפירוק, עם ``dir="auto"``, ואזהרה אחת בקונסול אומרת למה.
+   */
+  function fileNameParts(text) {
+    var rtl = root && root.RtlCode;
+    if (rtl && typeof rtl.fileNameParts === 'function') return rtl.fileNameParts(text);
+    if (!warnedNoRtlCode && typeof console !== 'undefined') {
+      warnedNoRtlCode = true;
+      console.warn('md-auto-dir-plugin: utils/rtl-code.js לא נטען — שם קובץ עברי בקוד בשורה יוצג עם הסיומת באמצע');
+    }
+    return null;
+  }
 
   function autoDir(state) {
     var tokens = state.tokens;
@@ -56,14 +79,35 @@
         token.attrSet('dir', 'auto');
       } else if (token.type === 'inline' && token.children) {
         for (var j = 0; j < token.children.length; j += 1) {
-          if (token.children[j].type === 'code_inline') token.children[j].attrSet('dir', 'auto');
+          var child = token.children[j];
+          if (child.type !== 'code_inline') continue;
+          var parts = fileNameParts(child.content);
+          child.attrSet('dir', parts ? 'rtl' : 'auto');
+          if (parts) {
+            child.meta = child.meta || {};
+            child.meta.fileName = parts;
+          }
         }
       }
     }
   }
 
+  /**
+   * קוד בשורה שהוא שם קובץ עברי: ``stem + '.'`` כטקסט, והסיומת ב-``<bdi>`` — בדיוק מה ש-``RtlCode.fillInlineCode`` בונה
+   * כצמתים בפתק. כל קוד אחר עובר לכלל שהיה מותקן לפני התוסף (ב-markdown-it, ``default_rules.code_inline`` ב-
+   * ``lib/renderer.mjs``). **``slf.renderAttrs``, ולא תגית שנכתבת ביד** — אחרת ``dir`` שנכתב על הטוקן נמחק בשקט, כמו
+   * בכלל שישב ב-``live-preview.js`` עד נובמבר 2026; הסורק ב-``tests/md-auto-dir-plugin.test.js`` בודק את זה.
+   */
   function autoDirPlugin(md) {
     md.core.ruler.push('md_auto_dir', autoDir);
+    var renderCode = md.renderer.rules.code_inline;
+    md.renderer.rules.code_inline = function (tokens, idx, options, env, slf) {
+      var token = tokens[idx];
+      var parts = token.meta && token.meta.fileName;
+      if (!parts) return renderCode(tokens, idx, options, env, slf);
+      return '<code' + slf.renderAttrs(token) + '>' + md.utils.escapeHtml(parts.stem) + '.<bdi>' +
+        md.utils.escapeHtml(parts.extension) + '</bdi></code>';
+    };
   }
 
   if (root) {

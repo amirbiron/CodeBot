@@ -36,14 +36,17 @@ const ROOT = path.join(__dirname, '..');
 const JS_DIR = path.join(ROOT, 'webapp', 'static', 'js');
 const MODULE_PATH = path.join(JS_DIR, 'md-auto-dir-plugin.js');
 
-function loadWindow(file) {
+function loadWindow(...files) {
   const sandbox = { window: {} };
   vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(path.join(JS_DIR, file), 'utf8'), sandbox);
+  for (const file of files) vm.runInContext(fs.readFileSync(path.join(JS_DIR, file), 'utf8'), sandbox);
   return sandbox.window;
 }
 
-const autoDirPlugin = loadWindow('md-auto-dir-plugin.js').MdAutoDirPlugin;
+// **עם ``utils/rtl-code.js`` באותו ``window``, כמו בכל תבנית שטוענת את התוסף** (בדיקת החיווט למטה): משם התוסף קורא את
+// הפירוק של שם קובץ עברי. ``bareAutoDirPlugin`` — בלעדיו, לבקרה.
+const autoDirPlugin = loadWindow('utils/rtl-code.js', 'md-auto-dir-plugin.js').MdAutoDirPlugin;
+const bareAutoDirPlugin = loadWindow('md-auto-dir-plugin.js').MdAutoDirPlugin;
 const sourceLines = loadWindow('md-source-lines-plugin.js').MdSourceLines;
 
 let passed = 0;
@@ -109,6 +112,28 @@ console.log('תאי טבלה מקבלים dir="auto", והיישור מהמסמ�
   const right = cells.filter((tag) => /style="text-align:right"/.test(tag));
   check('שלושת התאים בעמודה שהוגדרה ---: שומרים על text-align:right', right.length === 3, right);
   check('קוד בשורה בתוך תא — גם הוא עם dir="auto"', /<td dir="auto"><code dir="auto">foo\(\)<\/code><\/td>/.test(html), html);
+}
+
+console.log('שם קובץ עברי בקוד בשורה: dir="rtl" והסיומת ב-<bdi>');
+{
+  const md = pageMd().use(autoDirPlugin);
+  const one = (src) => md.renderInline(src);
+  check('מדריך-תצוגת-Markdown-RTL.md — מפורק',
+    one('`מדריך-תצוגת-Markdown-RTL.md`') === '<code dir="rtl">מדריך-תצוגת-Markdown-RTL.<bdi>md</bdi></code>',
+    one('`מדריך-תצוגת-Markdown-RTL.md`'));
+  check('Report-דוח-Q3.md — מפורק, גם כשהשם מתחיל באנגלית',
+    one('`Report-דוח-Q3.md`') === '<code dir="rtl">Report-דוח-Q3.<bdi>md</bdi></code>', one('`Report-דוח-Q3.md`'));
+  // ההחלטה מתי מפרקים נבדקת לעומק ב-``tests/rtl-code-file-names.test.js``; כאן — שהתוסף שואל אותה, ושהוא לא מפרק סתם.
+  for (const keep of ['ערכות.md', 'morass-Tech-theme.json', 'דוח.tar.gz', 'docs/מדריך/Guide-RTL.md', '--flag']) {
+    check(`${keep} — נשאר dir="auto" ובלי <bdi>`, one('`' + keep + '`') === `<code dir="auto">${keep}</code>`, one('`' + keep + '`'));
+  }
+  check('הטקסט עובר בריחה גם כשהשם מפורק',
+    one('`<b>דוח-RTL.md`') === '<code dir="rtl">&lt;b&gt;דוח-RTL.<bdi>md</bdi></code>', one('`<b>דוח-RTL.md`'));
+  const html = pageMd().use(autoDirPlugin).render('| שם |\n|---|\n| `מדריך-RTL.md` |');
+  check('גם בתוך תא, והתא נשאר dir="auto"', /<td dir="auto"><code dir="rtl">מדריך-RTL\.<bdi>md<\/bdi><\/code><\/td>/.test(html), html);
+  const both = pageMd().use(sourceLines.plugin).use(autoDirPlugin).render('`מדריך-RTL.md` ו-`foo()`');
+  check('יחד עם md-source-lines-plugin.js', /<code dir="rtl">מדריך-RTL\.<bdi>md<\/bdi><\/code>/.test(both) &&
+    /<code dir="auto">foo\(\)<\/code>/.test(both), both);
 }
 
 console.log('בלוק קוד לא מקבל dir — הכיוון שלו נקבע ב-utils/rtl-code.js');
@@ -229,6 +254,40 @@ console.log('חיווט: כל תבנית שמארחת רנדרר טוענת את
     missing.length === 0, missing);
 }
 
+console.log('חיווט: כל תבנית שטוענת את התוסף טוענת גם את utils/rtl-code.js, לפני שמרנדרים');
+{
+  // התוסף קורא את הפירוק של שם קובץ עברי מ-``window.RtlCode`` בזמן הרינדור. בלעדיו שם כזה מוצג עם הסיומת באמצע, ורק
+  // אזהרה בקונסול אומרת למה. "לפני שמרנדרים" — לפני התג של ``live-preview.js`` או ``repo-browser.js``, ולפני יצירה
+  // של markdown-it בסקריפט של התבנית עצמה. **ומיקום הוא סדר רק בין תגים באותו מצב ``defer``:** תג דחוי רץ אחרי כל
+  // סקריפט שאינו דחוי, גם אם הוא כתוב לפניו — ולכן ``rtl-code.js`` דחוי דורש שגם הצרכן יהיה דחוי.
+  const templates = walk(path.join(ROOT, 'webapp', 'templates'), (name) => name.endsWith('.html'));
+  const hosts = [];
+  const problems = [];
+  for (const file of templates) {
+    const src = fs.readFileSync(file, 'utf8');
+    if (src.search(/<script[^>]*js\/md-auto-dir-plugin\.js/) < 0) continue;
+    const rel = path.relative(ROOT, file);
+    hosts.push(rel);
+    const rtlMatch = /<script[^>]*js\/utils\/rtl-code\.js'\) \}\}\?v=\{\{ static_version \}\}[^>]*>/.exec(src);
+    if (!rtlMatch) { problems.push(`${rel}: לא טוען את rtl-code.js עם ?v=`); continue; }
+    const rtlDeferred = /\bdefer\b/.test(rtlMatch[0]);
+    const consumers = [
+      ...[...src.matchAll(/<script[^>]*js\/(?:live-preview|repo-browser)\.js[^>]*>/g)]
+        .map((m) => ({ at: m.index, deferred: /\bdefer\b/.test(m[0]), what: m[0].match(/js\/[\w-]+\.js/)[0] })),
+      ...[...src.matchAll(/\bwindow\.markdownit\s*[?(]/g)].map((m) => ({ at: m.index, deferred: false, what: 'window.markdownit' })),
+    ];
+    if (!consumers.length) problems.push(`${rel}: לא נמצא מי שמרנדר`);
+    for (const c of consumers) {
+      if (c.at < rtlMatch.index) problems.push(`${rel}: ${c.what} לפני rtl-code.js`);
+      if (rtlDeferred && !c.deferred) problems.push(`${rel}: rtl-code.js דחוי, ו-${c.what} לא`);
+    }
+  }
+  const known = ['_live_preview_scripts.html', 'files.html', 'md_preview.html', path.join('repo', 'base_repo.html')]
+    .map((name) => path.join('webapp', 'templates', name));
+  check('הסריקה מצאה את התבניות הידועות', known.every((rel) => hosts.includes(rel)), hosts);
+  check('בכולן rtl-code.js נטען עם ?v= לפני מי שמרנדר, ובמצב defer תואם', problems.length === 0, problems);
+}
+
 // ---------------------------------------------------------------------------
 // בקרה: אותם מקרים בלי התוסף, ועם כלל code_inline כמו זה שהוסר. בדיקה שאינה נופלת שם אינה בודקת כלום.
 // ---------------------------------------------------------------------------
@@ -241,6 +300,13 @@ console.log('בקרה — בלי התוסף');
   const html = md.render(TABLE);
   const cells = [...openTags(html, 'th'), ...openTags(html, 'td')];
   check('תאים בלי dir', cells.length === 9 && cells.every((tag) => !/\sdir=/.test(tag)), cells);
+}
+
+console.log('בקרה — התוסף בלי utils/rtl-code.js: שם קובץ עברי אינו מפורק, וכל השאר כמו תמיד');
+{
+  const md = pageMd().use(bareAutoDirPlugin);
+  const out = md.renderInline('`מדריך-תצוגת-Markdown-RTL.md` ו-`foo()`');
+  check('בלי <bdi>, ושני הקודים dir="auto"', out === '<code dir="auto">מדריך-תצוגת-Markdown-RTL.md</code> ו-<code dir="auto">foo()</code>', out);
 }
 
 console.log('בקרה — כלל code_inline שאינו כותב את המאפיינים, כמו זה שהוסר מ-live-preview.js');

@@ -170,8 +170,18 @@
   }
 
   /**
-   * עוטף כל מופע של ``term`` בצמתי הטקסט שמתחת ל-``root``, ומחזיר את
-   * העטיפות שנוצרו **בסדר המסמך**.
+   * **האלמנטים שהתאמה עוברת דרכם** — אלה שהטקסט שלהם הוא חלק מאותה שורה: עיצוב, קוד בשורה, קישור, ``bdi``. כל אלמנט
+   * אחר — פסקה, שורה של פתק, תא, פריט, ``br`` — מפריד, וגם תת-עץ שמדלגים עליו. סלקטור ולא ``tagName``, מאותה סיבה כמו
+   * ``DEFAULT_SKIP``.
+   */
+  var INLINE_SELECTOR = 'a, abbr, b, bdi, bdo, cite, code, data, del, dfn, em, i, ins, kbd, mark, q, s, samp, small, ' +
+    'span, strong, sub, sup, time, u, var';
+
+  /** הסימון של התאמה פעילה, אצל כל הצרכנים — ``setActive``. */
+  var ACTIVE_CLASS = 'is-active';
+
+  /**
+   * עוטף כל מופע של ``term`` בטקסט שמתחת ל-``root``, ומחזיר **התאמה אחת לכל מופע**, בסדר המסמך: העטיפה הראשונה שלו.
    *
    * ``opts.className`` חובה. ``opts.tagName`` ברירת מחדל ``span``.
    * ``opts.skip`` הוא סלקטור של תת-עצים נוספים שלא נסרקים, **בנוסף**
@@ -180,8 +190,15 @@
    * הקריאה מנקה קודם הדגשות קודמות באותה מחלקה, ולכן אפשר לקרוא לה שוב
    * על אותו שורש בלי לעטוף עטיפה בתוך עטיפה.
    *
-   * התאמה שחוצה גבול בין שני צמתי טקסט (למשל מילה שחציה מודגש) אינה
-   * נתפסת — כל צומת טקסט נבדק לבדו.
+   * **התאמה עוברת גבול בין צמתי טקסט בתוך אותה שורה** — מילה שחציה מודגש, או שם קובץ עברי שהסיומת שלו מבודדת ב-
+   * ``<bdi>`` (``RtlCode.fillInlineCode`` ב-``utils/rtl-code.js``). הטקסט מחולק לרצפים: צמתי טקסט עוקבים שבין שניהם
+   * יש רק אלמנטים מ-``INLINE_SELECTOR``. ההתאמה נמצאת על הטקסט המחובר של הרצף — דרך ``splitMatches``, ולכן באותם כללים
+   * בדיוק — וכל צומת שהיא עוברת בו מקבל עטיפה משלו: אי אפשר לעטוף אלמנט אחד סביב חצי של ``<b>``. כל העטיפות של אותה
+   * התאמה נושאות ``data-hl-match`` משותף, וכל אחת חוץ מהראשונה גם ``data-hl-continuation``. ``hitsWithin`` מוצא את
+   * הראשונות מחדש מתוך העץ, ו-``setActive`` מסמן את כל החלקים של אחת. עד נובמבר 2026 כל צומת טקסט נבדק לבדו, וההתאמות
+   * האלה לא נמצאו.
+   *
+   * **ומה עדיין מפריד:** כל מה שאינו בתוך שורה. ביטוי שממשיך לשורה הבאה של פתק, לפסקה הבאה או לתא הבא אינו נמצא.
    */
   function highlightWithin(root, term, opts) {
     var o = readOptions(opts, 'span');
@@ -190,39 +207,109 @@
     if (!needle) return [];
 
     var doc = docOf(root);
-    // ‏SHOW_ELEMENT | SHOW_TEXT: האלמנטים עוברים דרך המסנן רק כדי שאפשר
-    // יהיה לדחות אותם. ‏FILTER_REJECT על אלמנט ב-TreeWalker מדלג על כל
-    // תת-העץ שלו, ו-FILTER_SKIP מדלג רק עליו וממשיך לילדים.
-    // מקור: MDN, ‏Document.createTreeWalker() ו-NodeFilter.acceptNode().
-    // ‏matches זורק SyntaxError על סלקטור לא תקין — וזה הערוץ הנכון:
-    // שגיאת קורא צריכה להישמע. מקור: MDN, ‏Element.matches().
-    var walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-      acceptNode: function (node) {
-        if (node.nodeType === 1) {
-          return node.matches(o.skip) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
+    // קודם אוספים, ורק אחר כך מחליפים: החלפה תוך כדי הליכה משנה את העץ שההליכה עוברת עליו.
+    // ‏matches זורק SyntaxError על סלקטור לא תקין — וזה הערוץ הנכון: שגיאת קורא צריכה להישמע. מקור: MDN,
+    // ‏Element.matches().
+    var runs = [];
+    var run = [];
+    var flush = function () {
+      if (run.length) runs.push(run);
+      run = [];
+    };
+    var visit = function (parent) {
+      for (var child = parent.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === 3) { run.push(child); continue; }
+        if (child.nodeType !== 1) continue;
+        if (child.matches(o.skip)) { flush(); continue; }
+        var inline = child.matches(INLINE_SELECTOR);
+        if (!inline) flush();
+        visit(child);
+        if (!inline) flush();
+      }
+    };
+    visit(root);
+    flush();
+
+    var heads = [];
+    var matchId = 0;
+    for (var r = 0; r < runs.length; r++) {
+      var nodes = runs[r];
+      var text = '';
+      for (var n = 0; n < nodes.length; n++) text += nodes[n].nodeValue;
+      // הטווחים של ההתאמות בטקסט המחובר — מ-``splitMatches``, ולא רג'קס שני שיכול לחלוק עליו.
+      var ranges = [];
+      var pos = 0;
+      var parts = splitMatches(text, needle);
+      for (var p = 0; p < parts.length; p++) {
+        if (parts[p].hit) ranges.push({ start: pos, end: pos + parts[p].text.length, id: matchId++ });
+        pos += parts[p].text.length;
+      }
+      if (!ranges.length) continue;
+
+      var nodeStart = 0;
+      for (var k = 0; k < nodes.length; k++) {
+        var node = nodes[k];
+        var value = node.nodeValue;
+        var nodeEnd = nodeStart + value.length;
+        var pieces = [];
+        for (var g = 0; g < ranges.length; g++) {
+          var from = Math.max(ranges[g].start, nodeStart);
+          var to = Math.min(ranges[g].end, nodeEnd);
+          if (from < to) pieces.push({ from: from - nodeStart, to: to - nodeStart, id: ranges[g].id, head: from === ranges[g].start });
         }
-        return NodeFilter.FILTER_ACCEPT;
-      },
-    });
-
-    // קודם אוספים, ורק אחר כך מחליפים: החלפה תוך כדי הליכה משנה את העץ
-    // שההליכה עוברת עליו.
-    var probe = new RegExp(escapeRegExp(needle), 'i');
-    var targets = [];
-    var node;
-    while ((node = walker.nextNode())) {
-      if (probe.test(node.nodeValue)) targets.push(node);
+        if (pieces.length) {
+          var frag = doc.createDocumentFragment();
+          var at = 0;
+          for (var q = 0; q < pieces.length; q++) {
+            var piece = pieces[q];
+            if (piece.from > at) frag.appendChild(doc.createTextNode(value.slice(at, piece.from)));
+            var wrap = doc.createElement(o.tagName);
+            wrap.className = o.className;
+            wrap.setAttribute('data-hl-match', String(piece.id));
+            if (!piece.head) wrap.setAttribute('data-hl-continuation', '');
+            wrap.textContent = value.slice(piece.from, piece.to);
+            frag.appendChild(wrap);
+            if (piece.head) heads.push(wrap);
+            at = piece.to;
+          }
+          if (at < value.length) frag.appendChild(doc.createTextNode(value.slice(at)));
+          node.parentNode.replaceChild(frag, node);
+        }
+        nodeStart = nodeEnd;
+      }
     }
+    return heads;
+  }
 
-    var wrappers = [];
-    for (var i = 0; i < targets.length; i++) {
-      var textNode = targets[i];
-      var frag = doc.createDocumentFragment();
-      var made = appendParts(doc, frag, splitMatches(textNode.nodeValue, needle), o);
-      textNode.parentNode.replaceChild(frag, textNode);
-      for (var k = 0; k < made.length; k++) wrappers.push(made[k]);
+  /**
+   * ההתאמות שמתחת ל-``root`` במחלקה ``className``, בסדר המסמך — העטיפה הראשונה של כל אחת, כמו ש-``highlightWithin``
+   * מחזיר. לצרכן שמוצא את ההתאמות מחדש מתוך העץ (ניווט, מונה): ``querySelectorAll`` על המחלקה בלבד היה סופר כל חלק
+   * של התאמה שעוברת בין צמתים כהתאמה נפרדת.
+   */
+  function hitsWithin(root, className) {
+    if (typeof className !== 'string' || !CLASS_NAME_RE.test(className)) {
+      throw new TypeError('TextHighlight: className must be a plain CSS class name');
     }
-    return wrappers;
+    return Array.prototype.slice.call(root.querySelectorAll('.' + className + ':not([data-hl-continuation])'));
+  }
+
+  /**
+   * מסמן את ``hit`` כהתאמה הפעילה (``is-active``) — **על כל החלקים שלה** — ומוריד את הסימון מכל התאמה אחרת במחלקה.
+   * ``hit`` ריק רק מוריד. מחזיר את החלקים שסומנו. בלי זה, בהתאמה שעוברת בין צמתים רק החלק הראשון היה נצבע כפעיל.
+   */
+  function setActive(root, className, hit) {
+    if (typeof className !== 'string' || !CLASS_NAME_RE.test(className)) {
+      throw new TypeError('TextHighlight: className must be a plain CSS class name');
+    }
+    var current = root.querySelectorAll('.' + className + '.' + ACTIVE_CLASS);
+    for (var i = 0; i < current.length; i++) current[i].classList.remove(ACTIVE_CLASS);
+    if (!hit) return [];
+    var id = hit.getAttribute('data-hl-match');
+    var parts = id === null ? [hit]
+      : Array.prototype.slice.call(root.querySelectorAll('.' + className + '[data-hl-match="' + id + '"]'));
+    if (parts.indexOf(hit) === -1) parts.unshift(hit);
+    for (var k = 0; k < parts.length; k++) parts[k].classList.add(ACTIVE_CLASS);
+    return parts;
   }
 
   /**
@@ -300,6 +387,8 @@
       splitMatches: splitMatches,
       appendHighlighted: appendHighlighted,
       highlightWithin: highlightWithin,
+      hitsWithin: hitsWithin,
+      setActive: setActive,
       clearHighlights: clearHighlights,
       scrollIntoViewWithin: scrollIntoViewWithin,
     });
