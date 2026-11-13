@@ -1085,13 +1085,18 @@ function docViewMarkdownIt(){
     options[key] = m[1] === 'true';
   }
   // התוספים שמשנים את הפענוח של שורה, מאותם קבצים שהעמוד טוען: המארקר, וזיהוי הקישורים — שבלעדיו markdown-it
-  // כאן היה הופך ``app.py`` לקישור, בזמן שתצוגת המסמך מציגה אותו כטקסט (ההסבר ב-``md-linkify-plugin.js``).
+  // כאן היה הופך ``app.py`` לקישור, בזמן שתצוגת המסמך מציגה אותו כטקסט (ההסבר ב-``md-linkify-plugin.js``). ובנוסף
+  // התוסף שכותב ``target`` ו-``rel`` על קישור (``md-link-target-plugin.js``): גם הפתק פותח קישור בלשונית חדשה, וההשוואה
+  // כאן מוודאת ששניהם כותבים אותו קישור.
   const pluginSandbox = { window: {} };
   vm.createContext(pluginSandbox);
-  for (const name of ['md-mark-plugin.js', 'md-linkify-plugin.js']){
+  for (const name of ['md-mark-plugin.js', 'md-linkify-plugin.js', 'md-link-target-plugin.js']){
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', name), 'utf8'), pluginSandbox);
   }
-  return new MarkdownIt(options).use(pluginSandbox.window.MdMarkPlugin).use(pluginSandbox.window.MdLinkifyPlugin);
+  return new MarkdownIt(options)
+    .use(pluginSandbox.window.MdMarkPlugin)
+    .use(pluginSandbox.window.MdLinkifyPlugin)
+    .use(pluginSandbox.window.MdLinkTargetPlugin);
 }
 
 const mdDoc = docViewMarkdownIt();
@@ -1108,7 +1113,8 @@ function inlineHtml(segs){
     if (s.type === 'text') return escapeLikeMarkdownIt(s.text);
     if (s.type === 'code') return `<code>${escapeLikeMarkdownIt(s.text)}</code>`;
     const inner = inlineHtml(s.children);
-    if (s.type === 'link') return `<a href="${escapeLikeMarkdownIt(s.href)}">${inner}</a>`;
+    // ``target`` ו-``rel`` כמו שהפתק כותב אותם (``_appendInlineSegments`` ב-``sticky-notes.js``), בסדר ש-markdown-it פולט.
+    if (s.type === 'link') return `<a href="${escapeLikeMarkdownIt(s.href)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
     return `<${DOC_TAGS[s.type]}>${inner}</${DOC_TAGS[s.type]}>`;
   }).join('');
 }

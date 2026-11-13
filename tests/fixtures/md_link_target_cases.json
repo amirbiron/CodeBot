@@ -1,0 +1,28 @@
+{
+  "_about": "הכלל 'קישור שמוביל לעמוד נפתח בלשונית חדשה' בשתי השפות: opensInNewTab ב-webapp/static/js/md-link-target-plugin.js ו-opens_in_new_tab ב-services/md_link_target.py. כל שורה: [href כמו שנכתב ל-HTML, האם נפתח בלשונית חדשה, למה]. נקרא מ-tests/md-link-target-plugin.test.js ומ-tests/test_md_link_target.py, כדי ששני העותקים של הכלל לא ייפרדו.",
+  "cases": [
+    ["https://example.com/guide", true, "https"],
+    ["http://example.com", true, "http"],
+    ["HTTPS://Example.com", true, "הסכמה בלי תלות באותיות גדולות — markdown-it משאיר אותן כמו שנכתבו"],
+    ["//example.com/a", true, "בלי סכמה: אותו פרוטוקול כמו העמוד"],
+    ["/file/0123456789abcdef01234567", true, "נתיב באתר"],
+    ["docs/a.md", true, "נתיב יחסי"],
+    ["?tab=2", true, "רק query — עמוד אחר מבחינת הדפדפן"],
+    ["page.html#part", true, "עמוד אחר, ועוגן בו"],
+    ["%20http://x", true, "רווח מקודד בתחילה: אין סכמה, הדפדפן קורא את זה כנתיב יחסי"],
+    ["1abc:x", true, "סכמה מתחילה באות; זה נתיב יחסי"],
+    ["-x:y", true, "סכמה מתחילה באות; זה נתיב יחסי"],
+    ["#section", false, "עוגן בתוך המסמך"],
+    ["#", false, "עוגן ריק — ראש העמוד"],
+    ["#%D7%A1%D7%A2%D7%99%D7%A3", false, "עוגן לכותרת בעברית, מקודד"],
+    ["", false, "href ריק מפנה לעמוד עצמו"],
+    ["mailto:someone@example.com", false, "אפליקציית מייל, לא עמוד"],
+    ["MAILTO:someone@example.com", false, "אותה סכמה באותיות גדולות"],
+    ["tel:+972501234567", false, "חייגן, לא עמוד"],
+    ["ftp://example.com/file", false, "רק http ו-https נפתחים בלשונית חדשה"],
+    ["tg://resolve?domain=x", false, "קישור לאפליקציה"],
+    ["obsidian://open?vault=a", false, "קישור לאפליקציה"],
+    ["a+b.c-d:x", false, "סכמה עם + . - לפי RFC 3986"],
+    ["javascript:alert(1)", false, "לא עמוד; ממילא חסום ברנדררים"]
+  ]
+}
