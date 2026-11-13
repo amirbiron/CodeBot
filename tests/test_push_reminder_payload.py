@@ -11,6 +11,10 @@ from datetime import datetime, timezone
 
 push_mod = importlib.import_module('webapp.push_api')
 
+#: סימני הכיוון ש-``push_api._notification_text`` מוסיף לגוף שיש בו עברית (``tests/test_push_text_direction.py``).
+#: כתובים כרצף escape ולא כתו עצמו: bandit ו-ruff מסמנים תו כיווניות בקוד המקור כ-Trojan Source.
+RLM, RLI, PDI = '\u200f', '\u2067', '\u2069'
+
 
 class _NoNotes:
     def find_one(self, *args, **kwargs):
@@ -87,18 +91,18 @@ def _body(db, owner=1):
 
 
 def test_the_body_is_the_note_name():
-    assert _body(_NotesDB([_note(title='שם הפתק')])) == 'שם הפתק'
+    assert _body(_NotesDB([_note(title='שם הפתק')])) == f'{RLM}{RLI}שם הפתק{PDI}'
 
 
 def test_without_a_name_the_body_is_the_start_of_the_note():
-    assert _body(_NotesDB([_note()])) == 'אחת שתיים שלוש'
+    assert _body(_NotesDB([_note()])) == f'{RLM}{RLI}אחת שתיים שלוש{PDI}'
 
 
 def test_a_note_whose_id_is_a_plain_string_is_still_found():
     """תזכורות ישנות: מזהה שאינו ObjectId — מחפשים אותו כמחרוזת, כמו קודם."""
     db = _NotesDB([{'_id': 'legacy-1', 'user_id': 1, 'title': 'ישן'}])
     payload = push_mod._build_reminder_payload(db, {'note_id': 'legacy-1', 'user_id': 1})
-    assert payload['notification']['body'] == 'ישן'
+    assert payload['notification']['body'] == f'{RLM}{RLI}ישן{PDI}'
 
 
 def test_a_note_that_is_gone_leaves_the_body_empty():
@@ -130,7 +134,7 @@ def test_a_note_of_another_user_is_not_shown():
 
 def test_an_owner_stored_as_a_string_still_finds_the_note():
     """``user_id`` נשמר בתזכורות כמספר, אבל המודול כולו מקבל גם מחרוזת (``_user_id_variants``)."""
-    assert _body(_NotesDB([_note(title='שם הפתק')]), owner='1') == 'שם הפתק'
+    assert _body(_NotesDB([_note(title='שם הפתק')]), owner='1') == f'{RLM}{RLI}שם הפתק{PDI}'
 
 
 def test_a_reminder_without_an_owner_shows_nothing():

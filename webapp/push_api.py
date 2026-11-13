@@ -9,6 +9,7 @@ import os
 import hashlib
 import logging
 import re
+import unicodedata
 
 # מה נחשב תזכורת פעילה — הגדרה אחת לשלושת הצרכנים. השולח כבר סינן
 # ``ack_at`` נכון; הייבוא כאן הוא כדי שלא יהיה עותק שיסטה בפעם הבאה.
@@ -1032,8 +1033,8 @@ def _build_reminder_payload(db, reminder_doc: dict) -> dict:
     Payload format: notification object at top level (FCM standard),
     ‏``data`` object for custom handling in SW.
     """
-    title_text = "🔔 יש פתק ממתין"
-    body_text = _reminder_label(db, reminder_doc)
+    title_text = _notification_text("🔔 יש פתק ממתין")
+    body_text = _notification_text("{label}", label=_reminder_label(db, reminder_doc))
     note_id_str = str(reminder_doc.get("note_id") or "")
     file_id_str = str(reminder_doc.get("file_id") or "")
     board_id_str = str(reminder_doc.get("board_id") or "")
@@ -1237,9 +1238,112 @@ def _claim_push_event(db, event_doc: dict, ttl_seconds: int | None = None) -> st
 def _cut_for_display(text: str, max_chars: int) -> str:
     """קיצור לתצוגה בהתראה — **בתווים ולא בבייטים** (H6), עם "…" כשנחתך.
 
-    קיטום מוצהר לתצוגה בלבד: המקור נשמר במלואו, וההתראה מובילה אליו.
+    קיטום מוצהר לתצוגה בלבד: המקור נשמר במלואו, וההתראה מובילה אליו. סימני הכיוון של
+    :func:`_notification_text` נוספים **אחרי** הקיצור, ולכן אינם נספרים בתקרה.
     """
     return text if len(text) <= max_chars else text[:max_chars] + "…"
+
+
+# -- כיוון הטקסט בהתראה ---------------------------------------------------------
+#
+# התווים כתובים כרצף escape ולא כתו עצמו: bandit ו-ruff מסמנים תו כיווניות בקוד המקור
+# כ-Trojan Source.
+
+#: RIGHT-TO-LEFT MARK — תו בלתי נראה מסוג R: "אות" מימין לשמאל שאינה מוצגת.
+_RLM = "\u200f"
+#: RIGHT-TO-LEFT ISOLATE: פותח קטע מבודד שבתוכו הכיוון מימין לשמאל.
+_RLI = "\u2067"
+#: FIRST STRONG ISOLATE: פותח קטע מבודד שהכיוון שבתוכו נקבע לפי האות החזקה הראשונה בו.
+_FSI = "\u2068"
+#: POP DIRECTIONAL ISOLATE: סוגר את הבידוד האחרון שנפתח.
+_PDI = "\u2069"
+#: כל מה שפותח בידוד ונסגר ב-:data:`_PDI` — LRI (U+2066), :data:`_RLI` ו-:data:`_FSI`.
+_ISOLATE_OPENERS = frozenset({"\u2066", _RLI, _FSI})
+#: מחלקות ה-bidi של אות מימין לשמאל (עברית, ערבית) לפי ``unicodedata.bidirectional`` — אותה
+#: הגדרה של ``handlers/advisor_text.py`` ו-``.github/pr-poem/pr_poem.py``.
+_RTL_BIDI_CLASSES = frozenset({"R", "AL"})
+
+
+def _has_rtl_letter(text: str) -> bool:
+    return any(unicodedata.bidirectional(ch) in _RTL_BIDI_CLASSES for ch in text)
+
+
+def _closed_isolates(text: str) -> str:
+    """``text``, כשכל בידוד שנפתח בו נסגר בתוכו, ובלי PDI שאין לו פותח.
+
+    שם שמגיע מהמשתמש יכול לשאת תווי בידוד משלו, וקיצור לתצוגה יכול לחתוך אחרי הפותח ולפני
+    הסוגר. בידוד פתוח היה בולע את מה שבא אחרי השם — המרכאה הסוגרת והמשך הכותרת — ו-PDI
+    יתום היה סוגר מוקדם מדי את הבידוד ש-:func:`_isolated_name` פתח סביב השם. בטקסט שעומד
+    לבד PDI יתום ממילא אינו עושה דבר (UAX #9, X6a), ולכן הסרתו אינה משנה את תצוגת השם.
+    embedding או override (RLE, RLO ודומיהם) שנפתחו בשם ולא נסגרו אינם צריכים טיפול: ה-PDI
+    שסוגר את השם סוגר גם אותם (שם, X6a).
+    """
+    kept = []
+    depth = 0
+    for ch in text:
+        if ch in _ISOLATE_OPENERS:
+            depth += 1
+        elif ch == _PDI:
+            if not depth:
+                continue
+            depth -= 1
+        kept.append(ch)
+    return "".join(kept) + _PDI * depth
+
+
+def _isolated_name(name: str) -> str:
+    """שם (כותב, פתק, קובץ) כקטע מבודד: מה שבתוכו אינו מזיז את מה שסביבו, וההפך.
+
+    **שם שיש בו אות מימין לשמאל נפתח ב-RLI, ולא ב-FSI.** FSI קובע את הכיוון שבתוכו לפי
+    האות החזקה הראשונה, ולכן ``Handoff: שרשורי תגובות על פתקים — סשן 2.md`` היה נשאר בתוכו
+    משמאל לימין — ``Handoff:`` בקצה השמאלי ו-``.md`` צמוד ל"שרשורי", בדיוק התקלה שהבידוד
+    נועד לפתור. שם בלי אות כזו (``CC``, ``morass-Tech-theme.json``) נפתח ב-FSI ונקרא משמאל
+    לימין, בלי לגרור איתו את המרכאות שסביבו.
+    """
+    if not name:
+        return name
+    opener = _RLI if _has_rtl_letter(name) else _FSI
+    return opener + _closed_isolates(name) + _PDI
+
+
+def _notification_text(template: str, **names: str) -> str:
+    """כותרת או גוף של התראת פוש, מוכנים לתצוגה מימין לשמאל. **כל בוני ההתראות עוברים כאן.**
+
+    ``template`` הוא מחרוזת קבועה מהקוד, ובה ``{שם}`` לכל ערך שמגיע מהמשתמש או מהמסד; הערכים
+    עצמם אינם מפוענחים כתבנית. גוף שכולו ערך אחד נכתב ``"{body}"``.
+
+    **למה זה נחוץ.** אנדרואיד קובע את כיוון השורה לפי האות החזקה הראשונה בטקסט — אות שיש
+    לה כיוון; אימוג'י, רווח, ספרה ומרכאה אינם נחשבים — ומדלג על מה שבתוך בידוד (AOSP,
+    ``TextDirectionHeuristics.FirstStrong`` ב-``frameworks/base``, קומיט ``1cdfff5`` מ-13.11.2026).
+    ``💬 CC הגיב על "…"`` מתחילה באימוג'י ואחריו ``C``, ולכן כל השורה הוצגה משמאל לימין:
+    ``CC`` בקצה השמאלי, וקטעי העברית והאנגלית בשורה שאחרי הגלישה בסדר הפוך. אותו דבר בגוף
+    תזכורת שמתחיל ב-``# `is_latest` …`` ובשם קובץ שמתחיל באנגלית.
+
+    **מה נוסף:** כשיש בטקסט אות מימין לשמאל — :data:`_RLM` בתחילתו, כך שהשורה מימין לשמאל
+    בלי קשר למה שבא אחריו, וכל ערך מ-``names`` מבודד (:func:`_isolated_name`). טקסט בלי אות
+    כזו חוזר כמו שהוא, בלי שום תו נוסף.
+
+    **ה-RLM נחוץ גם כשהשם מבודד.** בכותרת הבידוד לבדו כבר מעביר את ההכרעה לעברית שאחרי השם,
+    כי הכלל מדלג על מה שבתוך בידוד. אבל גוף שכולו ערך אחד הוא כולו קטע מבודד, ובלי ה-RLM אין
+    בו אף אות שהכלל רואה — והשורה נופלת לברירת המחדל של המכשיר. נמדד בדפדפן, עם ריצת בקרה:
+    ``tests/test_push_text_direction_browser.py``.
+
+    **רק כאן.** הסימנים נוספים בבניית ה-payload ולא בשום מקום שבו הטקסט נשמר, נרשם ללוג או
+    מוצג במקום אחר — :func:`_reminder_label` למשל מחזיר את השם בלעדיהם. הם נוספים אחרי
+    :func:`_cut_for_display`, ולכן אינם נספרים בתקרות התווים, ובידוד שנפתח בתוך ערך שנחתך
+    נסגר בתוכו (:func:`_closed_isolates`).
+
+    **למה לא ``dir`` של ``showNotification``:** Chrome אינו מעביר אותו הלאה. Blink שומר אותו
+    ב-``NotificationData.direction``, אבל ``CreateNotificationFromData`` ב-
+    ``chrome/browser/notifications/platform_notification_service_impl.cc`` בונה את ההתראה
+    רק מ-``title`` ו-``body``, ובאנדרואיד ``NotificationPlatformBridge`` מעביר אותם ל-
+    ``setContentTitle`` / ``setContentText`` כמו שהם (Chromium, קומיט ``d6d5611`` מ-13.11.2026). וגם
+    דפדפן שכן מכבד אותו קובע כיוון לכל ההתראה, ואינו מבודד שם באנגלית בתוך משפט.
+    """
+    raw = template.format(**names)
+    if not _has_rtl_letter(raw):
+        return raw
+    return _RLM + template.format(**{key: _isolated_name(value) for key, value in names.items()})
 
 
 def _build_file_saved_payload(event_doc: dict) -> dict | None:
@@ -1260,8 +1364,8 @@ def _build_file_saved_payload(event_doc: dict) -> dict | None:
 
     file_id_str = str(event_doc.get("file_id") or "")
     created = bool(event_doc.get("created"))
-    title_text = "📄 קובץ חדש נשמר" if created else "✏️ קובץ עודכן"
-    body_text = name
+    title_text = _notification_text("📄 קובץ חדש נשמר" if created else "✏️ קובץ עודכן")
+    body_text = _notification_text("{name}", name=name)
 
     return {
         "notification": {
@@ -1322,7 +1426,8 @@ def _build_note_comment_payload(
 
     **הטקסט עובר ניקוי סודות לפני הקיצור** (K13): ההתראה מוצגת גם במסך הנעילה, וה-Service
     Worker מדווח את תחילת הגוף הגולמי ל-``/api/push/sw-report``. ניקוי אחרי קיצור היה מפספס
-    טוקן שנחתך באמצע, כי הדפוסים דורשים אורך מינימלי.
+    טוקן שנחתך באמצע, כי הדפוסים דורשים אורך מינימלי. סימני הכיוון (:func:`_notification_text`)
+    נוספים אחרון, אחרי הקיצור.
     """
     note_id = event_doc.get("note_id")
     thread_id = nt.parse_thread_id(event_doc.get("thread_id"))
@@ -1344,8 +1449,14 @@ def _build_note_comment_payload(
     # מסר בחיבור (``nt.author_label``), והוא חלק מהכותרת שבמסך הנעילה בדיוק כמו שם הפתק.
     label = " ".join(redact_secrets(nt.author_label(author, user_name="")).split())
     note_title = _cut_for_display(" ".join(redact_secrets(note_titles[note_id]).split()), _PUSH_NOTE_TITLE_MAX_CHARS)
-    title_text = f'💬 {label} הגיב על "{note_title}"' if note_title else f"💬 {label} הגיב על פתק"
-    body_text = _cut_for_display(" ".join(redact_secrets(body).split()), _PUSH_COMMENT_PREVIEW_MAX_CHARS)
+    if note_title:
+        title_text = _notification_text(
+            '💬 {label} הגיב על "{note_title}"', label=label, note_title=note_title
+        )
+    else:
+        title_text = _notification_text("💬 {label} הגיב על פתק", label=label)
+    preview = _cut_for_display(" ".join(redact_secrets(body).split()), _PUSH_COMMENT_PREVIEW_MAX_CHARS)
+    body_text = _notification_text("{body}", body=preview)
     return {
         "notification": {
             "title": title_text,
@@ -1794,8 +1905,8 @@ def test_push():
             except Exception:
                 return jsonify({"ok": False, "error": "pywebpush_not_available"}), 500
 
-        title_text = "🔔 בדיקת פוש"
-        body_text = "זוהי הודעת בדיקה"
+        title_text = _notification_text("🔔 בדיקת פוש")
+        body_text = _notification_text("זוהי הודעת בדיקה")
         
         # Payload format: notification object at top level (FCM standard)
         # data object for custom handling in SW
