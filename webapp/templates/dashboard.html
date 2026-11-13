@@ -484,28 +484,23 @@
                 <div class="card-icon">🗒️</div>
                 <div>
                     <h3>פתקים אחרונים</h3>
-                    <p>הפתקים שעודכנו לאחרונה או ממתינים לתזכורת</p>
+                    <p>הפתקים שעודכנו לאחרונה</p>
                 </div>
             </header>
             {% if notes_snapshot.has_notes %}
             <ul class="notes-list">
                 {% for note in notes_snapshot.notes %}
                 <li>
-                    <div class="note-title">{{ note.title }}</div>
+                    {# ``note.url`` הוא הקישור הקבוע ``/note/<id>``, שפותח את הפתק במקום שלו — לוח, קובץ, ריפו או ארכיון. #}
+                    <a class="note-title" href="{{ note.url }}">{{ note.title }}</a>
                     <div class="note-meta">
-                        {{ note.file_name }}
+                        {{ note.location }}
                         <span>·</span>
                         <span>{{ note.relative_time }}</span>
                     </div>
-                    {% if note.file_url %}
-                    <a class="note-link" href="{{ note.file_url }}">פתח קובץ</a>
-                    {% endif %}
                 </li>
                 {% endfor %}
             </ul>
-            {% if notes_snapshot.total > notes_snapshot.notes|length %}
-            <p class="notes-more">ועוד {{ notes_snapshot.total - notes_snapshot.notes|length }} פתקים ממתינים</p>
-            {% endif %}
             {% else %}
             <p class="timeline-empty">עוד לא הוספת פתקים להצגת המצב. תוכל להוסיף פתק דרך תצוגת Markdown של קובץ.</p>
             <a class="note-link" href="/files">פתח קובץ חדש</a>
@@ -1582,8 +1577,19 @@
     gap: 0.85rem;
 }
 
+/* שם הפתק הוא קישור לפתק — באותה צורה של שם קובץ נעוץ (``.pinned-card__name``): צבע הטקסט,
+   וקו תחתון בריחוף ובפוקוס. בערכות שצובעות כל ``a`` (``dark-mode.css``, ``high-contrast.css``)
+   הוא מקבל את צבע הקישור של הערכה, כמו השמות בכרטיס הנעוצים. */
 .note-title {
+    display: block;
     font-weight: 600;
+    color: inherit;
+    text-decoration: none;
+}
+
+.note-title:hover,
+.note-title:focus-visible {
+    text-decoration: underline;
 }
 
 .note-meta {
@@ -1594,11 +1600,6 @@
 .note-link {
     font-size: 0.85rem;
     color: #a5b4fc;
-}
-
-.notes-more {
-    font-size: 0.85rem;
-    opacity: 0.75;
 }
 
 @media (max-width: 700px) {

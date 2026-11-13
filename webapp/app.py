@@ -202,6 +202,9 @@ from note_threads import MAX_COMMENT_CHARS as MAX_THREAD_COMMENT_CHARS_FOR_TEMPL
 from note_reminder_state import active_reminder_filter  # noqa: E402
 # השם שבו פתק מוצג בשורה אחת — אותה פונקציה של התראת הפוש וחלונית הפעמון.
 from sticky_notes_target import NOTE_LABEL_FIELDS, note_label  # noqa: E402
+# איפה פתק יושב (כרטיס "פתקים אחרונים"): סוג היעד ושדותיו, ושמות הלוחות.
+from sticky_notes_target import TARGET_FIELDS, note_target_ref  # noqa: E402
+from note_boards import board_names_by_id  # noqa: E402
 
 from utils import TimeUtils, detect_language_from_filename  # noqa: E402
 # פענוח ה-CRLF ששליחת טופס HTML מוסיפה לערך של textarea. זה לא ניקוי של תוכן:
@@ -12595,35 +12598,41 @@ def _lookup_notes_map(db, user_id: int, note_ids: List[Any]) -> Dict[str, Dict[s
     return results
 
 
-def _lookup_files_map(db, file_ids: List[Any]) -> Dict[str, str]:
-    unique_ids = []
-    seen = set()
+def _lookup_files_map(db, user_id: int, file_ids: List[Any]) -> Dict[str, str]:
+    """שמות הקבצים לפי ``file_id`` — לפתקים על קובץ שלא שמור בהם ``file_name``.
+
+    שני מקרים כאלה: פתק ישן, ופתק על קובץ גדול — ``_resolve_scope`` ב-
+    ``webapp/sticky_notes_api.py`` מחפש את השם רק ב-``code_snippets``, ולכן כשהפתק נוצר על
+    קובץ גדול השם לא נמצא ולא נשמר בו. לכן החיפוש כאן בודק את ``code_snippets``, ואת מה שלא
+    נמצא שם — ב-``large_files``, ושניהם רק בקבצים של ``user_id``. עד נובמבר 2026 הוא בדק רק
+    את ``code_snippets`` ובלי ``user_id``, ופתק על קובץ גדול הוצג בדשבורד "ללא קובץ".
+
+    שתי השאילתות בהיטלה של ``file_name`` בלבד: מסמך של קובץ גדול מחזיק את כל התוכן. מזהה
+    שאינו ``ObjectId`` מדולג (``InvalidId`` — על מחרוזת זה הדבר היחיד ש-``ObjectId`` זורק),
+    וקובץ בלי שם חסר במפה. **כשל של המסד עולה לקורא** (``PyMongoError``) ואינו נבלע כאן.
+    """
+    pending: Dict[str, Any] = {}
     for fid in file_ids or []:
-        if not fid:
+        text = str(fid or '').strip()
+        if not text or text in pending:
             continue
-        val = str(fid)
-        if val in seen:
-            continue
-        seen.add(val)
-        unique_ids.append(val)
-    object_ids: List[Any] = []
-    for fid in unique_ids:
         try:
-            object_ids.append(ObjectId(fid))
-        except Exception:
+            pending[text] = ObjectId(text)
+        except InvalidId:
             continue
-    if not object_ids:
-        return {}
-    try:
-        cursor = db.code_snippets.find({'_id': {'$in': object_ids}}, {'file_name': 1})
-    except Exception:
-        return {}
     files: Dict[str, str] = {}
-    try:
-        for doc in cursor or []:
-            files[str(doc.get('_id'))] = doc.get('file_name') or 'ללא שם'
-    except Exception:
-        return {}
+    uid = int(user_id)
+    for coll in (getattr(db, 'code_snippets', None), getattr(db, 'large_files', None)):
+        if coll is None or not pending:
+            continue
+        query = {'_id': {'$in': list(pending.values())}, 'user_id': uid}
+        for doc in coll.find(query, {'file_name': 1}) or []:
+            key = str(doc.get('_id'))
+            name = doc.get('file_name')
+            if isinstance(name, str) and name.strip():
+                files[key] = name.strip()
+            # נמצא — גם בלי שם. אין טעם לחפש אותו גם בקבצים הגדולים.
+            pending.pop(key, None)
     return files
 
 
@@ -13339,37 +13348,116 @@ def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dic
     }
 
 
+#: המילה שלפני שם הלוח בשורת המיקום של "פתקים אחרונים": "לוח רעיונות". שם שכבר נפתח
+#: במילה הזו — כמו "לוח עבודה", השם של לוח ברירת המחדל (``note_boards.DEFAULT_BOARD_NAME``) —
+#: מוצג כמו שהוא, בלי "לוח לוח עבודה".
+_BOARD_LOCATION_WORD = 'לוח'
+
+
+def _board_location_label(name: Any) -> str:
+    """שורת המיקום של פתק לוח: שם הלוח, עם "לוח" לפניו אם השם לא נפתח בה. בלי שם — "לוח"."""
+    words = str(name or '').split()
+    if not words:
+        return _BOARD_LOCATION_WORD
+    if words[0] == _BOARD_LOCATION_WORD:
+        return ' '.join(words)
+    return ' '.join([_BOARD_LOCATION_WORD, *words])
+
+
+def _dashboard_note_location(
+    ref: Dict[str, Any], board_names: Dict[str, str], file_names: Dict[str, str]
+) -> str:
+    """איפה הפתק יושב, בשורה שמתחת לשם שלו בכרטיס "פתקים אחרונים".
+
+    ``ref`` הוא ``sticky_notes_target.note_target_ref`` של הפתק — אותה הכרעה של הקישור הקבוע
+    (``webapp/boards_ui.note_permalink``), ולכן השורה מתארת את המקום שהקישור פותח. עד נובמבר
+    2026 הכרטיס הכיר רק פתקים על קובץ, וכל פתק אחר — לוח, ריפו, ארכיון — הוצג "ללא קובץ".
+
+    * לוח — שם הלוח (:func:`_board_location_label`), מ-``board_names``.
+    * קובץ — השם ששמור בפתק, שהוא גם השם שהקישור פותח את הגרסה האחרונה שלו
+      (``_note_file_target_id``). פתק בלי שם שמור — מ-``file_names`` (:func:`_lookup_files_map`).
+    * קובץ בריפו — ``ריפו: <ריפו>/<נתיב>``. ארכיון — "ארכיון".
+    * מסמך בלי יעד תקין (``"unknown"``) — "מיקום לא ידוע", ולא ניחוש.
+    """
+    kind = ref.get('target')
+    if kind == 'board':
+        return _board_location_label(board_names.get(str(ref.get('board_id') or '')))
+    if kind == 'file':
+        return ref.get('file_name') or file_names.get(str(ref.get('file_id') or '')) or 'קובץ'
+    if kind == 'repo':
+        return f"ריפו: {ref.get('repo_name')}/{ref.get('repo_path')}"
+    if kind == 'archive':
+        return 'ארכיון'
+    return 'מיקום לא ידוע'
+
+
+#: השדות שהכרטיס קורא מכל פתק: מה שהשם שלו צריך (``NOTE_LABEL_FIELDS``), שדות היעד של כל
+#: הסוגים — נגזרים מ-``TARGET_FIELDS``, כדי שסוג יעד שיתווסף ייכנס מעצמו ולא ייפול ל"מיקום לא
+#: ידוע" — וזמן העדכון.
+_NOTES_SNAPSHOT_PROJECTION: Dict[str, int] = {
+    **NOTE_LABEL_FIELDS,
+    **{field: 1 for fields in TARGET_FIELDS.values() for field in fields},
+    'updated_at': 1,
+}
+
+
 def _build_notes_snapshot(db, user_id: int, limit: int = 10) -> Dict[str, Any]:
+    """כרטיס "פתקים אחרונים": הפתקים שעודכנו לאחרונה — לכל אחד שם, מיקום, זמן וקישור.
+
+    **שלוש שאילתות לכל היותר, ולא אחת לכל פתק:** הפתקים, שמות הלוחות שלהם
+    (``note_boards.board_names_by_id``), ושמות הקבצים רק לפתקים על קובץ שאין בהם שם שמור
+    (:func:`_lookup_files_map`).
+
+    הקישור הוא הקישור הקבוע ``/note/<id>``: ``webapp/boards_ui.note_permalink`` מחליט לאן
+    לפתוח, לפי סוג הפתק. עד נובמבר 2026 היה כאן רק "פתח קובץ" לפתקים על קובץ, ל-``/file/``
+    של הגרסה שעליה הפתק נוצר. ובאותו שינוי הוסרה השורה "ועוד N פתקים ממתינים", יחד עם
+    הספירה שמאחוריה: היא ספרה את כל הפתקים של המשתמש, ולא פתקים שממתינים למשהו.
+
+    כשל בקריאת שמות הלוחות או הקבצים (``PyMongoError``) נרשם בלוג, והשורה מוצגת בלי השם.
+    """
     try:
-        total_notes = db.sticky_notes.count_documents({'user_id': user_id})
-    except Exception:
-        total_notes = 0
-    try:
-        cursor = db.sticky_notes.find({'user_id': user_id}).sort('updated_at', DESCENDING).limit(limit)
+        cursor = db.sticky_notes.find(
+            {'user_id': user_id}, _NOTES_SNAPSHOT_PROJECTION
+        ).sort('updated_at', DESCENDING).limit(limit)
         note_docs = list(cursor or [])
-    except Exception:
+    except PyMongoError:
+        # הכרטיס מוצג ריק. עקבה בלוג, כדי שכשל קריאה לא ייראה רק כמו משתמש בלי פתקים.
+        logger.warning("dashboard: recent notes lookup failed", exc_info=True)
         note_docs = []
 
-    file_ids = [note.get('file_id') for note in note_docs if note.get('file_id')]
-    files_map = _lookup_files_map(db, file_ids)
+    refs = [note_target_ref(note) for note in note_docs]
+    board_names: Dict[str, str] = {}
+    board_ids = [ref.get('board_id') for ref in refs if ref.get('target') == 'board']
+    if board_ids:
+        try:
+            board_names = board_names_by_id(db.note_boards, int(user_id), board_ids)
+        except PyMongoError:
+            logger.warning("dashboard: board names lookup failed", exc_info=True)
+    file_names: Dict[str, str] = {}
+    unnamed_file_ids = [
+        ref.get('file_id') for ref in refs if ref.get('target') == 'file' and not ref.get('file_name')
+    ]
+    if unnamed_file_ids:
+        try:
+            file_names = _lookup_files_map(db, int(user_id), unnamed_file_ids)
+        except PyMongoError:
+            logger.warning("dashboard: file names lookup failed", exc_info=True)
+
     notes_payload: List[Dict[str, Any]] = []
-    for note in note_docs:
+    for note, ref in zip(note_docs, refs):
         dt = _normalize_dt(note.get('updated_at'))
-        file_id = note.get('file_id')
-        file_name = files_map.get(str(file_id), 'ללא קובץ') if file_id else 'ללא קובץ'
+        note_id = str(note.get('_id'))
         notes_payload.append({
-            'id': str(note.get('_id')),
+            'id': note_id,
             'title': _dashboard_note_title(note),
-            'file_name': file_name,
-            'file_url': f"/file/{file_id}" if file_id else None,
-            'color': note.get('color'),
+            'location': _dashboard_note_location(ref, board_names, file_names),
+            'url': f"/note/{url_quote(note_id, safe='')}",
             'timestamp': dt.isoformat() if dt else None,
             'relative_time': _format_relative(dt),
         })
 
     return {
         'notes': notes_payload,
-        'total': total_notes,
         'has_notes': bool(notes_payload),
     }
 
@@ -13684,7 +13772,7 @@ def _legacy_dashboard():
             'updated_at': datetime.now(timezone.utc).isoformat()
         }
         fallback_card = {'feature_enabled': False, 'subscriptions': 0, 'status_text': "לא זמין", 'status_variant': 'danger', 'pending_count': 0, 'last_push': None, 'next_reminder': None, 'cta_href': '/settings#push', 'cta_label': 'נהל התראות'}
-        fallback_notes = {'notes': [], 'total': 0, 'has_notes': False}
+        fallback_notes = {'notes': [], 'has_notes': False}
         fallback_attention = {
             'missing_metadata': [],
             'stale_files': [],

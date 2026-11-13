@@ -246,3 +246,72 @@ def test_missing_default_id_is_a_noop():
 
     assert reattach_orphan_notes(db, 7, ["alive"], "") == 0
     assert notes.docs[0]["board_id"] == "gone"
+
+
+# -- board_names_by_id --
+
+
+class _NamesColl:
+    """``note_boards`` לשליפת שמות: מסנן לפי ``_id`` ב-``$in`` ולפי ``user_id``, ורושם כל שאילתה."""
+
+    def __init__(self, docs=(), *, fail=None):
+        self.docs = list(docs)
+        self.fail = fail
+        self.calls = []
+
+    def find(self, query, projection=None):
+        self.calls.append((query, projection))
+        if self.fail is not None:
+            raise self.fail
+        wanted = query["_id"]["$in"]
+        return [
+            {"_id": d["_id"], "name": d.get("name")} for d in self.docs
+            if d["_id"] in wanted and d.get("user_id") == query["user_id"]
+        ]
+
+
+def test_board_names_by_id_reads_all_the_names_in_one_query_of_the_users_boards():
+    from bson import ObjectId
+
+    from note_boards import board_names_by_id
+
+    ideas, work, foreign = ObjectId(), ObjectId(), ObjectId()
+    coll = _NamesColl([
+        {"_id": ideas, "user_id": 7, "name": "רעיונות"},
+        {"_id": work, "user_id": 7, "name": "לוח עבודה"},
+        {"_id": foreign, "user_id": 99, "name": "של מישהו אחר"},
+    ])
+
+    names = board_names_by_id(coll, 7, [str(ideas), str(work), str(ideas), str(foreign)])
+
+    assert names == {str(ideas): "רעיונות", str(work): "לוח עבודה"}
+    assert len(coll.calls) == 1
+    query, projection = coll.calls[0]
+    assert query["user_id"] == 7 and projection == {"name": 1}
+    assert sorted(map(str, query["_id"]["$in"])) == sorted([str(ideas), str(work), str(foreign)])
+
+
+def test_board_names_by_id_skips_ids_that_are_not_object_ids_and_does_not_query_without_one():
+    from bson import ObjectId
+
+    from note_boards import board_names_by_id
+
+    board = ObjectId()
+    coll = _NamesColl([{"_id": board, "user_id": 7, "name": "רעיונות"}])
+
+    assert board_names_by_id(coll, 7, ["not-an-object-id", "", None]) == {}
+    assert coll.calls == []
+    assert board_names_by_id(coll, 7, ["not-an-object-id", str(board)]) == {str(board): "רעיונות"}
+
+
+def test_board_names_by_id_lets_a_database_failure_through():
+    """מפה ריקה הייתה נראית כמו "אין לוחות כאלה" — כל קורא רושם את הכשל בלוג שלו."""
+    import pytest
+    from bson import ObjectId
+    from pymongo.errors import AutoReconnect
+
+    from note_boards import board_names_by_id
+
+    coll = _NamesColl(fail=AutoReconnect("down"))
+    with pytest.raises(AutoReconnect):
+        board_names_by_id(coll, 7, [str(ObjectId())])

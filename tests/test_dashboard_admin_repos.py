@@ -216,39 +216,11 @@ def test_broken_file_is_cached_to_avoid_log_spam(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-class _StubLoader(jinja2.FileSystemLoader):
-    """base.html ותבניות משנה לא רלוונטיות כאן – מוחלפות ב-stub."""
-
-    def get_source(self, environment, template):
-        if template != "dashboard.html":
-            return ("{% block content %}{% endblock %}", template, lambda: True)
-        return super().get_source(environment, template)
-
-
 def _render(**overrides) -> str:
-    env = jinja2.Environment(loader=_StubLoader(str(TEMPLATES_DIR)), autoescape=True)
-    env.globals["url_for"] = lambda *a, **k: "#"
-    env.globals["static_version"] = "1"
-    env.filters["urlencode"] = lambda s: str(s)
+    # הרינדור המשותף לבדיקות הדשבורד — ``tests/_dashboard_render.py``.
+    from _dashboard_render import render_dashboard
 
-    ctx = dict(
-        user={"first_name": "test"},
-        stats={"total_files": 0, "total_size": "0 B", "top_languages": [], "recent_files": []},
-        activity_timeline={"groups": [], "feed": [], "has_more": False, "settings": {}},
-        push_card={},
-        notes_snapshot={},
-        whats_new={"features": [], "has_features": False, "total": 0},
-        files_need_attention={"items": [], "total": 0, "settings": {}},
-        bot_username="bot",
-        pinned_files=[],
-        max_pinned=8,
-        last_commit=None,
-        repo_name="CodeBot",
-        user_is_admin=False,
-        admin_repos=[],
-    )
-    ctx.update(overrides)
-    return env.get_template("dashboard.html").render(**ctx)
+    return render_dashboard(**overrides)
 
 
 SAMPLE_REPOS = [
