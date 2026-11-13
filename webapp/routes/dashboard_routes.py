@@ -337,7 +337,7 @@ def dashboard():
             "cta_href": "/settings#push",
             "cta_label": "נהל התראות",
         }
-        fallback_notes = {"notes": [], "total": 0, "has_notes": False}
+        fallback_notes = {"notes": [], "has_notes": False}
         fallback_attention = {
             "missing_metadata": [],
             "stale_files": [],

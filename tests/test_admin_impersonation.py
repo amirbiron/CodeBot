@@ -104,7 +104,6 @@ def app_mod(monkeypatch):
     })
     monkeypatch.setattr(app_mod, "_build_notes_snapshot", lambda *_a, **_k: {
         "notes": [],
-        "total": 0,
         "has_notes": False,
     })
     monkeypatch.setattr(app_mod, "_load_whats_new", lambda *_a, **_k: {

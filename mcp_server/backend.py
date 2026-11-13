@@ -3015,7 +3015,7 @@ class ProductionBackend:
         הפתקים שלהם (בלי גוף), ושמות הלוחות של הפריטים המוצגים.
         """
         from bson import ObjectId  # lazy heavy import
-        from bson.errors import InvalidId
+        from note_boards import board_names_by_id
         from sticky_notes_target import note_target_ref
 
         from .handlers import is_repo_note
@@ -3060,22 +3060,15 @@ class ProductionBackend:
 
         shown = visible[: max(int(limit), 0)]
         board_names: dict[str, str] = {}
-        board_oids = []
-        for item in shown:
-            board_id = item["ref"].get("board_id")
-            if item["ref"].get("target") == "board" and board_id:
-                try:
-                    board_oids.append(ObjectId(str(board_id)))
-                except InvalidId:
-                    # מחרוזת שאינה ObjectId — זה הדבר היחיד ש-ObjectId(str) זורק (pymongo 4.15.3,
-                    # ``bson/objectid.py``, ``__validate``). הפריט יוצג בלי שם לוח; באג אחר עולה הלאה.
-                    continue
-        if board_oids:
+        board_ids = [
+            item["ref"].get("board_id") for item in shown
+            if item["ref"].get("target") == "board" and item["ref"].get("board_id")
+        ]
+        if board_ids:
+            # ``note_boards.board_names_by_id`` — אותה שליפה של כרטיס "פתקים אחרונים" בדשבורד.
+            # מזהה פגום מדולג שם, והפריט שלו יוצג בלי שם לוח.
             try:
-                for board in self._boards_coll().find(
-                    {"_id": {"$in": board_oids}, "user_id": uid}, {"name": 1}
-                ):
-                    board_names[str(board.get("_id"))] = str(board.get("name") or "")
+                board_names = board_names_by_id(self._boards_coll(), uid, board_ids)
             except _PyMongoError:
                 # שם הלוח הוא קישוט של השורה; בלעדיו הפריט עדיין נושא את ה-note_id.
                 logger.warning("primer: reading board names failed", exc_info=True)

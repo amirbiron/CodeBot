@@ -160,7 +160,7 @@ def client(db, monkeypatch):
         "pending_count": 0, "last_push": None, "next_reminder": None, "cta_href": "", "cta_label": "",
     })
     monkeypatch.setattr(app_mod, "_build_notes_snapshot", lambda *_a, **_k: {
-        "notes": [], "total": 0, "has_notes": False,
+        "notes": [], "has_notes": False,
     })
     monkeypatch.setattr(app_mod, "_load_whats_new", lambda *_a, **_k: {
         "features": [], "has_features": False, "total": 0,

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +104,45 @@ def list_boards(db: Any, user_id: int) -> List[Dict[str, Any]]:
     docs = [d for d in (list(cursor) if cursor is not None else []) if isinstance(d, dict)]
     docs.sort(key=lambda d: (0 if d.get("is_default") else 1, int(d.get("order") or 0), str(d.get("name") or "")))
     return docs
+
+
+def board_names_by_id(coll: Any, user_id: int, board_ids: Iterable[Any]) -> Dict[str, str]:
+    """שמות הלוחות של המשתמש לפי מזהה — שאילתה אחת לכל המזהים, בהיטלה של השם בלבד.
+
+    בשביל מי שמציג פתקים מכמה לוחות ורוצה לכתוב ליד כל אחד באיזה לוח הוא יושב: כרטיס
+    "פתקים אחרונים" בדשבורד (``webapp/app._build_notes_snapshot``) ושורת התגובות שממתינות
+    לסוכן בפריימר של ה-MCP (``ProductionBackend.pending_note_threads``). עד נובמבר 2026
+    השליפה הייתה כתובה בתוך הפריימר, והדשבורד לא הכיר שמות לוחות בכלל.
+
+    * ``coll`` הוא אוסף ``note_boards`` עצמו, ולא ``db``: לשני הקוראים יש גישה אחרת למסד.
+    * המפתח הוא המזהה כמחרוזת, כמו ``board_id`` בפתק. לוח שאינו של ``user_id``, או שאינו
+      קיים, חסר במפה, ושם ריק נשאר מחרוזת ריקה — הקורא מחליט מה מציגים במקומו.
+    * מזהה שאינו ``ObjectId`` מדולג. על מחרוזת, ``ObjectId`` זורק רק ``InvalidId`` (נבדק
+      במקור של pymongo 4.15.3, ``bson/objectid.py``, ``__validate``), ולכן רק אותו תופסים
+      כאן. כשאין אף מזהה תקין, אין שאילתה.
+    * **כשל של המסד עולה לקורא** (``PyMongoError``) ואינו נבלע כאן: מפה ריקה הייתה נראית
+      בדיוק כמו "אין לוחות כאלה", וכל קורא רושם את הכשל בלוג שלו.
+    """
+    from bson import ObjectId  # lazy heavy import
+    from bson.errors import InvalidId
+
+    oids: List[Any] = []
+    seen = set()
+    for raw in board_ids or ():
+        text = str(raw or "")
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        try:
+            oids.append(ObjectId(text))
+        except InvalidId:
+            continue
+    if not oids:
+        return {}
+    names: Dict[str, str] = {}
+    for board in coll.find({"_id": {"$in": oids}, "user_id": int(user_id)}, {"name": 1}):
+        names[str(board.get("_id"))] = str(board.get("name") or "")
+    return names
 
 
 def reattach_orphan_notes(db: Any, user_id: int, known_board_ids: List[str], default_board_id: str) -> int:
