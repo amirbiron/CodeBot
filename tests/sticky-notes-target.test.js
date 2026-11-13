@@ -1084,10 +1084,14 @@ function docViewMarkdownIt(){
     if (!m) throw new Error(`האפשרות ${key} לא נמצאה ב-md_preview.html`);
     options[key] = m[1] === 'true';
   }
-  const markSandbox = { window: {} };
-  vm.createContext(markSandbox);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', 'md-mark-plugin.js'), 'utf8'), markSandbox);
-  return new MarkdownIt(options).use(markSandbox.window.MdMarkPlugin);
+  // התוספים שמשנים את הפענוח של שורה, מאותם קבצים שהעמוד טוען: המארקר, וזיהוי הקישורים — שבלעדיו markdown-it
+  // כאן היה הופך ``app.py`` לקישור, בזמן שתצוגת המסמך מציגה אותו כטקסט (ההסבר ב-``md-linkify-plugin.js``).
+  const pluginSandbox = { window: {} };
+  vm.createContext(pluginSandbox);
+  for (const name of ['md-mark-plugin.js', 'md-linkify-plugin.js']){
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', name), 'utf8'), pluginSandbox);
+  }
+  return new MarkdownIt(options).use(pluginSandbox.window.MdMarkPlugin).use(pluginSandbox.window.MdLinkifyPlugin);
 }
 
 const mdDoc = docViewMarkdownIt();

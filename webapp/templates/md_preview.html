@@ -1430,6 +1430,7 @@
 <script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-anchors.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/md-linkify-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-math-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-heading-level-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-source-lines-plugin.js') }}?v={{ static_version }}"></script>
@@ -1730,6 +1731,14 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     // התוסף חי ב-webapp/static/js/md-math-plugin.js, ומשותף עם live-preview.js. הבדיקה על
     // ``md.use`` מאותה סיבה כמו במארקר שמעל.
     if (window.MdMathPlugin && typeof md.use === 'function') md.use(window.MdMathPlugin, { katex: window.katex });
+    // קישור אוטומטי רק לכתובת עם פרוטוקול, ולא לשם קובץ כמו ``readme.md``. ההסבר בראש
+    // webapp/static/js/md-linkify-plugin.js, שמשותף עם live-preview.js ועם repo-browser.js. הבדיקה על ``md.use``
+    // מאותה סיבה כמו במארקר שמעל.
+    if (window.MdLinkifyPlugin && typeof md.use === 'function') {
+      md.use(window.MdLinkifyPlugin);
+    } else if (!window.MdLinkifyPlugin) {
+      console.warn('md-linkify-plugin.js לא נטען: שם קובץ כמו readme.md יוצג כקישור לאתר');
+    }
     // כותרות רק עד H4: ``#####`` / ``######`` נשארות כמו שנכתבו, כפסקה. המגבלה והסיבה לה — ב-
     // md-heading-level-plugin.js (``DOCUMENT_MAX_LEVEL``), שגם התצוגה החיה בעמודי העורך מתקינה. הפסקה מסומנת,
     // ונשארת יעד לעוגן מפורש (``ANCHOR_TARGETS`` ב-md-anchors.js).
