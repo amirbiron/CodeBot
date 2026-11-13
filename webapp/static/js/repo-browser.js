@@ -549,6 +549,13 @@ function renderMarkdownFallback(content) {
     } else {
         console.warn('md-linkify-plugin.js לא נטען: שם קובץ כמו readme.md יוצג כקישור לאתר');
     }
+    // קישור שמוביל לעמוד נפתח בלשונית חדשה, ועוגן בתוך המסמך נשאר באותה לשונית. ההסבר בראש
+    // webapp/static/js/md-link-target-plugin.js, שמשותף עם live-preview.js ועם md_preview.html.
+    if (window.MdLinkTargetPlugin) {
+        md.use(window.MdLinkTargetPlugin);
+    } else {
+        console.warn('md-link-target-plugin.js לא נטען: קישור בתצוגה יחליף את העמוד במקום להיפתח בלשונית חדשה');
+    }
     // קוד בשורה ותאי טבלה מקבלים ``dir="auto"``, כדי ש-``--flag`` או ``C++`` לא יתהפכו בעמוד עברי. ההסבר בראש
     // webapp/static/js/md-auto-dir-plugin.js, שמשותף עם live-preview.js ועם md_preview.html.
     if (window.MdAutoDirPlugin) {

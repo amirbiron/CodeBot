@@ -45,6 +45,7 @@ from services.theme_parser_service import (
     parse_vscode_theme,
     rebase_hljs_css,
 )
+from services.md_link_target import LinkTargetExtension
 from services.theme_presets_service import get_preset_by_id, list_presets
 
 logger = logging.getLogger(__name__)
@@ -373,6 +374,8 @@ def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
             "codehilite",  # הדגשת קוד (עם Pygments)
             "attr_list",  # attributes על אלמנטים
             _ContainerExtension(),  # מכולות ::: — תיבות הסבר ו-details
+            # קישור שמוביל לעמוד נפתח בלשונית חדשה, כמו בייצוא מהדפדפן (``services/md_link_target.py``)
+            LinkTargetExtension(),
         ],
         extension_configs={
             "codehilite": {
