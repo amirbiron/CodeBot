@@ -76,11 +76,12 @@
   }
 
   /**
-   * ממלא את השם של כרטיס — קטע אחרי קטע. טקסט מתחלק לרצפים, כל אחד בכיוון שלו; קוד הוא
-   * ``<code dir="auto">``, כמו קוד בשורה בפתק עצמו (``_appendInlineSegments`` ב-``sticky-notes.js``,
-   * וההסבר שם): הדפדפן מחליט על הכיוון לפי האות החזקה הראשונה בקוד ומבודד אותו. עד נובמבר 2026
-   * הקוד היה ``dir="ltr"``, ושם קובץ בעברית בין גרשיים הוצג עם הסיומת מימין לשם.
-   * ``fallback`` — מה שמוצג כשאין שם.
+   * ממלא את השם של כרטיס — קטע אחרי קטע. טקסט מתחלק לרצפים, כל אחד בכיוון שלו; קוד נבנה בדיוק
+   * כמו קוד בשורה בפתק עצמו, דרך ``fillInlineCode`` שהמנוע של הפתק חושף (``window.StickyNotesText``,
+   * וההסבר ב-``utils/rtl-code.js``): ``dir="auto"``, ובשם קובץ עברי שהדפדפן היה מציג עם הסיומת
+   * באמצע — ``dir="rtl"`` והסיומת ב-``<bdi>``. קטע קוד קיים רק כשהמנוע נטען (``codeSegments``),
+   * ולכן ``fillInlineCode`` תמיד שם כשמגיעים אליו. עד נובמבר 2026 הקוד היה ``dir="ltr"``, ושם
+   * קובץ בעברית בין גרשיים הוצג עם הסיומת מימין לשם. ``fallback`` — מה שמוצג כשאין שם.
    */
   function fillTitle(span, title, fallback) {
     span.textContent = '';
@@ -97,8 +98,7 @@
       if (seg.code) {
         var code = document.createElement('code');
         code.className = 'archive-card-code';
-        code.setAttribute('dir', 'auto');
-        code.textContent = seg.text;
+        window.StickyNotesText.fillInlineCode(code, seg.text);
         span.appendChild(code);
         return;
       }

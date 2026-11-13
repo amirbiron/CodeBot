@@ -207,16 +207,24 @@ check('קוד בשורה בשם הפתק מוצג על כרטיס הארכיון
   // העמוד מעביר את השם לרכיב הכרטיס, והרכיב מפרק אותו לפי הכלל של הפתק (``inlineCodeSegments`` —
   // הכלל עצמו נבדק מול markdown-it ב-``sticky-notes-target.test.js``). כאן: שכרטיס הארכיון משתמש בו.
   const calls = [];
+  const filled = [];
   const textApi = {
     inlineCodeSegments: (s) => {
       calls.push(s);
       return String(s).split('`').map((text, i) => ({ text, code: i % 2 === 1 })).filter((x) => x.text);
+    },
+    // הבנייה של קוד בשורה — כיוון, וסיומת של שם קובץ עברי — היא של הפתק (``fillInlineCode``), כמו הפירוק.
+    fillInlineCode: (el, text) => {
+      filled.push(text);
+      el.textContent = text;
+      return el;
     },
   };
   const p = runPage({ textApi, answer: () => [200, { ok: true, notes: [card('a', 'תיקון `save_file` בשרת')], max: 500 }] });
   await tick(); await tick();
   const title = p.cards()[0].querySelector('.archive-card-title');
   eq(calls.includes('תיקון `save_file` בשרת'), true, 'השם עבר בכלל של הפתק');
+  eq(JSON.stringify(filled), JSON.stringify(['save_file']), 'והקוד נבנה דרך fillInlineCode של הפתק');
   eq(title.children.map((c) => `${c.tagName.toLowerCase()}:${c.textContent}`).join('|'),
     'span:תיקון |code:save_file|span: בשרת', 'הקטעים');
   eq(title.textContent.includes('`'), false, 'אין גרשיים גלויים');

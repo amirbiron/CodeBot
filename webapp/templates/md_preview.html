@@ -2140,25 +2140,28 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       }
       const HIGHLIGHT_OPTS = { className: 'md-highlight' };
 
+      // **ההתאמות — ``hitsWithin``, ולא ``querySelectorAll('.md-highlight')``.** התאמה שעוברת בין צמתים (מילה שחציה
+      // מודגש, שם קובץ עברי שהסיומת שלו ב-``<bdi>``) עטופה בכמה חלקים; ספירה של כל העטיפות הייתה סופרת כל חלק לחוד.
+      // ומאותה סיבה הסימון של הפעילה עובר דרך ``setActive``, שצובע את כל החלקים שלה.
+      const hits = () => highlighter.hitsWithin(container, HIGHLIGHT_OPTS.className);
+
       function updateCount(n, term){
         if (!term) { countEl.textContent = ''; return; }
-        const active = container.querySelector('.md-highlight.is-active');
-        const activeIndex = active ? (Array.from(container.querySelectorAll('.md-highlight')).indexOf(active) + 1) : 0;
+        const activeIndex = hits().findIndex(el => el.classList.contains('is-active')) + 1;
         countEl.textContent = n > 0 ? (activeIndex ? `${activeIndex}/${n}` : `${n} תוצאות`) : 'אין תוצאות';
       }
 
       function setActiveAndScroll(target){
-        try { container.querySelectorAll('.md-highlight.is-active').forEach(el => el.classList.remove('is-active')); } catch(_){ }
+        highlighter.setActive(container, HIGHLIGHT_OPTS.className, target || null);
         if (!target) return;
-        try { target.classList.add('is-active'); } catch(_){ }
         try { target.scrollIntoView({ behavior:'smooth', block:'center' }); } catch(_){ }
       }
 
       // ניווט בין התאמות — direction: 1 להבא, -1 לקודם. אחרי האחרונה חוזרים לראשונה.
       function navigateHighlight(direction){
-        const all = Array.from(container.querySelectorAll('.md-highlight'));
+        const all = hits();
         if (all.length === 0) return;
-        const current = container.querySelector('.md-highlight.is-active');
+        const current = all.find(el => el.classList.contains('is-active'));
         const idx = current ? all.indexOf(current) : (direction === 1 ? -1 : 0);
         const target = all[(idx + direction + all.length) % all.length];
         setActiveAndScroll(target);
@@ -2171,7 +2174,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         input, nextBtn, prevBtn, clearBtn,
         search(term) {
           const n = highlighter.highlightWithin(container, term, HIGHLIGHT_OPTS).length;
-          if (n > 0) setActiveAndScroll(container.querySelector('.md-highlight'));
+          if (n > 0) setActiveAndScroll(hits()[0]);
           updateCount(n, term);
         },
         next() { navigateHighlight(1); },

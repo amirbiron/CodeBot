@@ -135,6 +135,23 @@
     return el;
   }
 
+  // **קוד בשורה: הטקסט והכיוון, דרך ``RtlCode.fillInlineCode``** (``utils/rtl-code.js``, וההסבר שם).
+  // קוד רגיל מקבל ``dir="auto"``, כמו בתצוגת המסמך (``MdAutoDirPlugin``); שם קובץ עברי שהדפדפן היה
+  // מציג עם הסיומת באמצע מקבל ``dir="rtl"`` והסיומת מבודדת ב-``<bdi>``. ולכן אין ל-``.sticky-md-code``
+  // ב-``sticky-notes.css`` שום ``direction`` או ``unicode-bidi``: ``direction`` של המחבר גובר על
+  // הכיוון שהתכונה קובעת, ו-``unicode-bidi`` על הבידוד שהדפדפן נותן לה — שניהם בשקט.
+  //
+  // **היעדר ``window.RtlCode`` הוא היעדר יכולת סטטי** (התבנית לא טענה את הקובץ — בדיקת החיווט ב-
+  // ``tests/sticky-notes-target.test.js`` דורשת שהוא נטען לפני המודול), ולא כשל: הקוד מוצג אז כמו
+  // לפני הפירוק, עם ``dir="auto"``. גם הכרטיס של פתק (``note-cards.js``) בונה קוד בשורה דרך כאן.
+  function fillInlineCode(el, text){
+    const rtl = window.RtlCode;
+    if (rtl && typeof rtl.fillInlineCode === 'function') return rtl.fillInlineCode(el, text);
+    el.setAttribute('dir', 'auto');
+    el.textContent = text;
+    return el;
+  }
+
   // ----- פלטת צבעי הפתקים -----
   //
   // **מקור שני, ולא מקור שני שהתגנב.** מקור האמת הוא
@@ -3996,15 +4013,8 @@
           if (seg.type === 'bold')        node = createEl('strong', 'sticky-md-bold');
           else if (seg.type === 'italic') node = createEl('em', 'sticky-md-italic');
           else if (seg.type === 'strike') node = createEl('del', 'sticky-md-strike');
-          // **‏``dir="auto"`` ולא ``direction: ltr`` ב-CSS**, כמו בתצוגת המסמך
-          // (``MdAutoDirPlugin`` ב-``md-auto-dir-plugin.js``, וההסבר המלא שם): הדפדפן
-          // מחליט לכל קטע קוד לפי האות החזקה הראשונה שבו, ומבודד אותו מהשורה.
-          // כלל ``direction`` קבוע הפך גם שם קובץ בעברית, כמו ``הפניות-שלא-חלו.md``,
-          // לקטע משמאל לימין, והסיומת עברה לצד ימין, לפני השם. ומאותה סיבה אין
-          // ל-``.sticky-md-code`` ב-``sticky-notes.css`` שום ``direction`` או
-          // ``unicode-bidi``: ``direction`` של המחבר גובר על הכיוון שהתכונה קובעת,
-          // ו-``unicode-bidi`` על הבידוד שהדפדפן נותן לה — שניהם בשקט.
-          else if (seg.type === 'code')   node = createEl('code', 'sticky-md-code', { dir: 'auto' });
+          // הכיוון והתוכן של הקוד — ``fillInlineCode`` למטה, אחרי הבחירה באלמנט.
+          else if (seg.type === 'code')   node = createEl('code', 'sticky-md-code');
           // ``<mark>`` ולא ``<span>``: זה האלמנט הסמנטי להדגשת רלוונטיות.
           // **בלי טענה על קוראי מסך** — רובם אינם מכריזים על ``<mark>``
           // כברירת מחדל. הבחירה היא נכונות סמנטית ותאימות לכלים שכן
@@ -4018,7 +4028,7 @@
             node.setAttribute('rel', 'noopener noreferrer');
           }
           else node = document.createTextNode(seg.text);
-          if (seg.type === 'code') node.textContent = seg.text;
+          if (seg.type === 'code') fillInlineCode(node, seg.text);
           else if (node.nodeType !== 3) this._appendInlineSegments(node, seg.children);
           container.appendChild(node);
         }
@@ -4789,7 +4799,9 @@
         if (s.active >= hits.length) s.active = hits.length - 1;
         if (opts && opts.activateFirst && s.active < 0 && hits.length) s.active = 0;
         if (s.active >= 0) {
-          hits[s.active].classList.add('is-active');
+          // ``setActive`` ולא ``classList`` על העטיפה: התאמה שעוברת בין צמתים (מילה שחציה מודגש) עטופה בכמה חלקים,
+          // וכולם צריכים להיצבע כפעילים.
+          highlighter.setActive(view, NOTE_SEARCH_HIT_CLASS, hits[s.active]);
           if (opts && opts.reveal) this._revealSearchHit(el, view, hits[s.active]);
         }
         this._renderSearchCount(el);
@@ -4828,8 +4840,11 @@
         const s = entry && entry.search;
         if (!s || !s.open || s.paused) return;
         const view = el.querySelector('.sticky-note-tasks');
-        if (!view) return;
-        const hits = view.querySelectorAll('.' + NOTE_SEARCH_HIT_CLASS);
+        const highlighter = window.TextHighlight;
+        if (!view || !highlighter) return;
+        // ``hitsWithin`` ולא ``querySelectorAll`` על המחלקה: התאמה שעוברת בין צמתים עטופה בכמה חלקים, וכל חלק היה
+        // נספר כהתאמה נפרדת.
+        const hits = highlighter.hitsWithin(view, NOTE_SEARCH_HIT_CLASS);
         const n = hits.length;
         if (!n) return;
         if (dir > 0 && (s.justAutoFocused || s.active < 0)) {
@@ -4839,7 +4854,7 @@
           s.active = (from + dir + n) % n;
         }
         s.justAutoFocused = false;
-        for (let i = 0; i < n; i += 1) hits[i].classList.toggle('is-active', i === s.active);
+        highlighter.setActive(view, NOTE_SEARCH_HIT_CLASS, hits[s.active]);
         this._revealSearchHit(el, view, hits[s.active]);
         this._renderSearchCount(el);
       }
@@ -8344,7 +8359,7 @@
     if (last < src.length) out.push({ text: src.slice(last), code: false });
     return out;
   }
-  window.StickyNotesText = Object.freeze({ inlineCodeSegments });
+  window.StickyNotesText = Object.freeze({ inlineCodeSegments, fillInlineCode });
 
   /**
    * מה שעמוד הקבצים צריך מהקובץ הזה כדי לפרוש את שורת הכרטיסים באותם מספרים שעמוד הלוח
