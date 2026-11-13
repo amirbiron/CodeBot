@@ -279,14 +279,16 @@ def _notes_card(html):
     return html[start:html.index('</article>', start)]
 
 
-def test_the_card_links_each_title_to_the_note_and_shows_where_it_is():
+def test_the_card_links_each_title_to_the_note_in_a_new_tab_and_shows_where_it_is():
     board = ObjectId()
     notes = [_note(i, title=f'פתק {i}', board_id=str(board)) for i in range(12)]
     db = _DB(notes, boards=[{'_id': board, 'user_id': USER, 'name': 'רעיונות'}])
 
     card = _notes_card(_render(_snapshot(db)))
 
-    assert f'<a class="note-title" href="/note/{notes[0]["_id"]}">פתק 0</a>' in card
+    # בלשונית חדשה, כדי שהדשבורד יישאר פתוח
+    assert (f'<a class="note-title" href="/note/{notes[0]["_id"]}" target="_blank" rel="noopener">'
+            'פתק 0</a>') in card
     assert card.count('class="note-title"') == 10
     assert 'לוח רעיונות' in card
     assert 'ממתינים' not in card, "לא 'ועוד N פתקים ממתינים', וגם לא 'ממתינים לתזכורת' בכותרת המשנה"

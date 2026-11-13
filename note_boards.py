@@ -176,9 +176,10 @@ def reattach_orphan_notes(db: Any, user_id: int, known_board_ids: List[str], def
     if not before:
         return 0
     try:
+        # בלי ``updated_at``: מעבר בין לוחות אינו עריכה של הפתק (``sticky_notes_target.NOTE_EDIT_FIELDS``).
         coll.update_many(
             orphan_query,
-            {"$set": {"board_id": str(default_board_id), "updated_at": datetime.now(timezone.utc)}},
+            {"$set": {"board_id": str(default_board_id)}},
         )
     except Exception as exc:
         logger.warning("orphan notes reattach failed: %s", exc)

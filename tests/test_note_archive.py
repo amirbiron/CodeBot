@@ -65,7 +65,8 @@ def test_the_archive_update_drops_every_field_of_every_other_target():
     }
     assert other_fields <= set(update["$unset"])
     assert set(snt.ARCHIVE_DROPPED_PLACEMENT_FIELDS) <= set(update["$unset"])
-    assert update["$set"] == {"archived_at": NOW, "title": "שם", "updated_at": NOW}
+    # בלי ``updated_at``: העברה לארכיון אינה עריכה (``NOTE_EDIT_FIELDS``), גם כשהשם ניתן בה.
+    assert update["$set"] == {"archived_at": NOW, "title": "שם"}
     assert "width" not in update["$unset"] and "height" not in update["$unset"]
 
 

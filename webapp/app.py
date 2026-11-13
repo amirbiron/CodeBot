@@ -13404,6 +13404,9 @@ _NOTES_SNAPSHOT_PROJECTION: Dict[str, int] = {
 def _build_notes_snapshot(db, user_id: int, limit: int = 10) -> Dict[str, Any]:
     """כרטיס "פתקים אחרונים": הפתקים שעודכנו לאחרונה — לכל אחד שם, מיקום, זמן וקישור.
 
+    "עודכנו" לפי ``updated_at``, שזז רק כשהתוכן או השם משתנים (``sticky_notes_target.NOTE_EDIT_FIELDS``):
+    פתק שרק נפתח ממזעור, הוזז או נצבע אינו קופץ לראש הכרטיס.
+
     **שלוש שאילתות לכל היותר, ולא אחת לכל פתק:** הפתקים, שמות הלוחות שלהם
     (``note_boards.board_names_by_id``), ושמות הקבצים רק לפתקים על קובץ שאין בהם שם שמור
     (:func:`_lookup_files_map`).
