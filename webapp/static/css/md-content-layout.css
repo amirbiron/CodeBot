@@ -37,6 +37,10 @@
 }
 #md-content table th, #md-content table td {
   padding: 0.5rem 0.75rem;
+  /* כל תא מקבל ``dir="auto"`` (``md-auto-dir-plugin.js``), ו-``start`` מיישר אותו לפי הכיוון שנקבע לו: תא עברי לימין,
+     ותא כמו ``C++`` לשמאל. בלי זה ``th`` מקבל מהדפדפן יישור למרכז. יישור שהוגדר בשורת ההפרדה (``---:``) נכתב
+     כ-``style`` על התא וגובר. ``direction`` לא נכתב כאן: כלל כזה היה גובר על ``dir`` של התא. */
+  text-align: start;
 }
 /* קוד (fenced) */
 #md-content pre code,

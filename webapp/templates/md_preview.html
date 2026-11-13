@@ -1432,6 +1432,7 @@
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-linkify-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-link-target-plugin.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/md-auto-dir-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-math-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-heading-level-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-source-lines-plugin.js') }}?v={{ static_version }}"></script>
@@ -1747,6 +1748,14 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       md.use(window.MdLinkTargetPlugin);
     } else if (!window.MdLinkTargetPlugin) {
       console.warn('md-link-target-plugin.js לא נטען: קישור במסמך יחליף את העמוד במקום להיפתח בלשונית חדשה');
+    }
+    // קוד בשורה ותאי טבלה מקבלים ``dir="auto"``, כדי ש-``--flag`` או ``C++`` לא יתהפכו בעמוד עברי. ההסבר בראש
+    // webapp/static/js/md-auto-dir-plugin.js, שמשותף עם live-preview.js ועם repo-browser.js. הבדיקה על ``md.use``
+    // מאותה סיבה כמו במארקר שמעל.
+    if (window.MdAutoDirPlugin && typeof md.use === 'function') {
+      md.use(window.MdAutoDirPlugin);
+    } else if (!window.MdAutoDirPlugin) {
+      console.warn('md-auto-dir-plugin.js לא נטען: קוד בשורה ותאי טבלה יוצגו לפי כיוון העמוד, וסימנים בקצה שלהם יתהפכו');
     }
     // כותרות רק עד H4: ``#####`` / ``######`` נשארות כמו שנכתבו, כפסקה. המגבלה והסיבה לה — ב-
     // md-heading-level-plugin.js (``DOCUMENT_MAX_LEVEL``), שגם התצוגה החיה בעמודי העורך מתקינה. הפסקה מסומנת,

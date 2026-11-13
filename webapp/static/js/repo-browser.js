@@ -556,6 +556,13 @@ function renderMarkdownFallback(content) {
     } else {
         console.warn('md-link-target-plugin.js לא נטען: קישור בתצוגה יחליף את העמוד במקום להיפתח בלשונית חדשה');
     }
+    // קוד בשורה ותאי טבלה מקבלים ``dir="auto"``, כדי ש-``--flag`` או ``C++`` לא יתהפכו בעמוד עברי. ההסבר בראש
+    // webapp/static/js/md-auto-dir-plugin.js, שמשותף עם live-preview.js ועם md_preview.html.
+    if (window.MdAutoDirPlugin) {
+        md.use(window.MdAutoDirPlugin);
+    } else {
+        console.warn('md-auto-dir-plugin.js לא נטען: קוד בשורה ותאי טבלה יוצגו לפי כיוון העמוד');
+    }
     return md.render(content || '');
 }
 

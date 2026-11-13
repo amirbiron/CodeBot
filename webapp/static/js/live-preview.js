@@ -168,27 +168,10 @@
           return window.SafeHighlight ? window.SafeHighlight.markdownItHighlight(str, lang) : '';
         },
       });
-      const defaultInlineCode = md.renderer.rules.code_inline;
-      const escapeHtml = (str) => {
-        if (md.utils && typeof md.utils.escapeHtml === 'function') {
-          return md.utils.escapeHtml(str);
-        }
-        return (str || '')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;');
-      };
-      md.renderer.rules.code_inline = (tokens, idx, options, env, slf) => {
-        try {
-          const content = tokens[idx] && typeof tokens[idx].content === 'string' ? tokens[idx].content : '';
-          const escaped = escapeHtml(content);
-          return `<code class="inline-code">${escaped}</code>`;
-        } catch (_) {
-          return defaultInlineCode ? defaultInlineCode(tokens, idx, options, env, slf) : '';
-        }
-      };
+      // **אין כאן כלל ``code_inline`` משלנו, בכוונה.** עד נובמבר 2026 ישב כאן כלל שהחזיר
+      // ``<code class="inline-code">`` בלי ``renderAttrs``, ולכן כל מאפיין שתוסף כתב על הטוקן — ובפרט ``dir="auto"``
+      // של md-auto-dir-plugin.js — נמחק בשקט. למחלקה ``inline-code`` לא היה צרכן בריפו, והכלל של markdown-it עצמו
+      // (``renderer.mjs``) מנקה את התוכן באותה צורה וכותב את המאפיינים.
       // תמיכה בהדגשת "מארקר" בתחביר Markdown: ==טקסט== -> <mark>טקסט</mark>
       // התוסף חי ב-webapp/static/js/md-mark-plugin.js, ומשותף עם md_preview.html.
       // **בכוונה בלי try/catch:** קודם הוא היה מוטמע כאן, עטוף ב-catch שבלע הכול,
@@ -215,6 +198,13 @@
         md.use(window.MdLinkTargetPlugin);
       } else {
         console.warn('md-link-target-plugin.js לא נטען: קישור בתצוגה יחליף את העמוד במקום להיפתח בלשונית חדשה');
+      }
+      // קוד בשורה ותאי טבלה מקבלים ``dir="auto"``, כדי ש-``--flag`` או ``C++`` לא יתהפכו בעמוד עברי. ההסבר בראש
+      // webapp/static/js/md-auto-dir-plugin.js, שמשותף עם md_preview.html ועם repo-browser.js.
+      if (window.MdAutoDirPlugin) {
+        md.use(window.MdAutoDirPlugin);
+      } else {
+        console.warn('md-auto-dir-plugin.js לא נטען: קוד בשורה ותאי טבלה יוצגו לפי כיוון העמוד, וסימנים בקצה שלהם יתהפכו');
       }
       if (window.markdownitEmoji) {
         md.use(window.markdownitEmoji);

@@ -34,6 +34,7 @@ DOCS_ASSETS = (
     "js/md-mark-plugin.js",
     "js/md-linkify-plugin.js",
     "js/md-link-target-plugin.js",
+    "js/md-auto-dir-plugin.js",
     "js/md-math-plugin.js",
     "js/live-preview.js",
     "js/markdown-deps.js",

@@ -154,7 +154,9 @@
         th, td {
             padding: 15px;
             border-bottom: 1px solid var(--border-color);
-            text-align: right;
+            /* ``start`` ולא ``right``: בייצוא מהעורך הציבורי כל תא נושא ``dir="auto"`` (``md-auto-dir-plugin.js``), ו-``start``
+               מיישר אותו לפי הכיוון שנקבע לו. תא בלי ``dir`` — בייצוא שמרונדר בשרת — נשאר מימין, כי העמוד ``dir="rtl"``. */
+            text-align: start;
         }
 
         th {
