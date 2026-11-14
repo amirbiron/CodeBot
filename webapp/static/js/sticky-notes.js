@@ -739,6 +739,15 @@
    * זמן:** שתי לשוניות יכולות ליצור טיוטה באותה אלפית שנייה, ומזהה מבוסס-זמן היה נותן לשתיהן אותו מפתח — בדיוק
    * השיתוף שהמזהה נועד למנוע (``_writeHeldDraft``).
    */
+  /** זמן לסדר בין טיוטות — ראו ``_writeHeldDraft``. בלי ``performance`` — ``Date.now()``. */
+  function draftClock(){
+    try {
+      if (typeof performance !== 'undefined' && performance && Number.isFinite(performance.timeOrigin)
+          && typeof performance.now === 'function') return performance.timeOrigin + performance.now();
+    } catch (_) { /* בלי performance זמין — אלפיות מ-Date.now(), והמפתח מכריע בשוויון */ }
+    return Date.now();
+  }
+
   function randomDraftId(){
     try {
       if (typeof crypto !== 'undefined' && crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -1482,11 +1491,25 @@
           is_minimized: false, created_at: null,
           updated_at: (typeof data.updated_at === 'string' && data.updated_at) || null,
         });
-        // **הפתק החדש עולה מעל כל השאר.** הוא נכנס אחרון ל-DOM, אבל זה מספיק רק מול
-        // פתקים שלא הועלו: פתק שנפתח בו שרשור, או שנגעו בו, כבר יושב מעל הבסיס —
-        // והחדש היה נפתח מתחתיו. ראו ``_raiseToFront``.
-        this._raiseToFront(this._renderNote(note, true));
+        this._addNewNote(note, true);
       } catch(e){ console.error('createNote error', e); }
+    }
+
+    /**
+     * **פתק חדש במשטח — נכנס, ועולה מעל כל השאר.** מקום אחד לשני המקורות: פתק שנוצר כאן (``createNote``), ופתק
+     * שנוצר ממקום אחר — סוכן דרך ה-MCP, לשונית, מכשיר — ומגיע בדגימה (``_applyFetchedNote``). הוא נכנס אחרון
+     * ל-DOM, אבל זה מספיק רק מול פתקים שלא הועלו: פתק שנפתח בו שרשור, או שנגעו בו, כבר יושב מעל הבסיס
+     * (``_raiseToFront``) — והחדש היה נכנס מתחתיו. עד נובמבר 2026 רק היצירה המקומית עלתה, ופתק שסוכן יצר הופיע
+     * מתחת לפתקים שבאותו מקום — בדיוק הפתק שהמשתמש עוד לא טיפל בו (דווח בשימוש). אחרי רענון כולם חוזרים לבסיס,
+     * והוא אחרון ב-DOM.
+     *
+     * **רק פתק חדש.** פתק קיים שהתעדכן ממקום אחר נשאר בשכבה שלו (``_reconcileServerNote`` אינו מעלה): אחרת פתק
+     * שסוכן מעדכן היה קופץ מעל מה שהמשתמש עובד עליו, בכל עדכון.
+     */
+    _addNewNote(note, focus){
+      const el = this._renderNote(note, focus);
+      this._raiseToFront(el);
+      return el;
     }
 
     _renderNote(note, focus){
@@ -1978,13 +2001,13 @@
     /**
      * הטיוטה של הפתק: מה שבמסך, הבסיס שהוא נשען עליו (גוף, שם ואסימון), ומתי. ראו ``_findHeldDraft`` למבנה.
      *
-     * **תחת המפתח של הרשומה הזו** (``entry.draftKey``) — נוצר בכתיבה הראשונה, או נלקח מטיוטה ששוחזרה. כל לשונית
+     * **תחת המפתח של הרשומה הזו** (``entry.draftKey``) — נוצר בכתיבה הראשונה, גם כששחזור מעביר אליו טיוטה קיימת. כל לשונית
      * כותבת ומוחקת רק את המפתח שלה: בלעדי זה לשונית שבה הפתק נקי (התראה בלי שינוי מקומי, או טקסט שחזר לבסיס) מחקה
      * את הטיוטה של לשונית אחרת שבה הוקלד — וטיוטה שנמחקה בזמן שהלשונית ההיא נהרגה ברקע אבדה.
      */
     _writeHeldDraft(entry){
       const storage = draftStorage();
-      if (!storage || !entry || !entry.el) return;
+      if (!storage || !entry || !entry.el) return false;
       const id = String(entry.el.dataset.noteId || '');
       if (!entry.draftKey) entry.draftKey = `${HELD_DRAFT_KEY_PREFIX}${id}:${randomDraftId()}`;
       const base = this._noteBase(entry);
@@ -1993,14 +2016,20 @@
       const draft = {
         v: 1,
         ts: Date.now(),
+        // הסדר בין טיוטות של לשוניות שונות (``_findHeldDraft``): זמן ברזולוציה של תת-אלפית, מאותו ציר בכל לשונית
+        // (``performance.timeOrigin`` + ``performance.now()``). ``ts`` נשאר לתוקף — באלפיות, וכמה טיוטות יכולות
+        // להיכתב באותה אלפית.
+        at: draftClock(),
         base: { content: base.content, title: base.title, updated_at: base.updated_at || null },
         local: { content: local.content, title: titleInput ? String(titleInput.value == null ? '' : titleInput.value) : local.title },
       };
       try {
         storage.setItem(entry.draftKey, JSON.stringify(draft));
+        return true;
       } catch(err) {
         // אחסון מלא — הטיוטה לא נשמרה, ומה שהוקלד אובד אם העמוד ייסגר. נרשם, כי זה בדיוק מה שהמנגנון נועד למנוע.
         console.error('sticky note: could not keep the draft that was waiting for a decision', id, err);
+        return false;
       }
     }
 
@@ -2020,8 +2049,8 @@
     }
 
     /**
-     * **הטיוטה האחרונה של הפתק**, אם יש — ``{key, draft}``, או ``null``. נקראת ולא נמחקת: הרשומה ששחזרה אותה לוקחת
-     * את המפתח שלה (``entry.draftKey``), והמחיקה תבוא עם הבחירה. כמה לשוניות יכולות להשאיר כמה טיוטות לאותו פתק:
+     * **הטיוטה האחרונה של הפתק**, אם יש — ``{key, draft}``, או ``null``. נקראת ולא נמחקת: הרשומה ששחזרה אותה מעבירה
+     * אותה למפתח משלה ומוחקת את זה שנמצא (``_restoreHeldDraft``). כמה לשוניות יכולות להשאיר כמה טיוטות לאותו פתק:
      * החדשה ביותר מוצגת, והאחרות מחכות לטעינה הבאה — כל אחת היא טקסט שהמשתמש כתב ושאינו בשרת. טיוטה שהמבנה שלה
      * אינו מה שנכתב (אחסון של הדפדפן הוא קלט חיצוני — U3), או שישנה מ-``HELD_DRAFT_MAX_AGE_MS``, נמחקת.
      */
@@ -2062,9 +2091,13 @@
           try { storage.removeItem(key); } catch(_) { /* תידחה שוב בטעינה הבאה — לא נשמרת ולא מוצגת */ }
           continue;
         }
-        if (!best || draft.ts > best.draft.ts) best = { key, draft };
+        // החדשה ביותר לפי ``at`` (ובטיוטה ישנה בלעדיו — ``ts``); ובשוויון — לפי המפתח, כדי שהבחירה תהיה זהה בכל
+        // טעינה ובכל לשונית ולא תלויה בסדר שבו הדפדפן מונה את המפתחות. השנייה אינה הולכת לאיבוד: היא מוצגת בטעינה
+        // שאחרי הבחירה.
+        const order = Number.isFinite(draft.at) ? draft.at : draft.ts;
+        if (!best || order > best.order || (order === best.order && key > best.key)) best = { key, draft, order };
       }
-      return best;
+      return best ? { key: best.key, draft: best.draft } : null;
     }
 
     /**
@@ -2114,8 +2147,19 @@
       // בדיוק את מה שבמסך, ואין על מה להחליט: הטיוטה נרשמת כשמירה שלנו שעוד לא אושרה (``_rememberUnconfirmed``),
       // והפיוס מיישר אליה את הבסיס במקום להציג "יש עדכון חדש" על הטקסט של המשתמש עצמו.
       entry.unconfirmed = [{ content: draft.local.content, title: canonicalTitleText(draft.local.title) }];
-      // הרשומה לוקחת את המפתח של הטיוטה: כתיבות ממשיכות אותה, והבחירה מוחקת אותה.
-      entry.draftKey = found.key;
+      // **הטיוטה עוברת למפתח של הלשונית הזו**, והמפתח שנמצא נמחק — רק אחרי שהכתיבה הצליחה. לקיחה של המפתח עצמו
+      // הייתה משתפת אותו עם הלשונית שכתבה אותו, אם היא עדיין פתוחה: הקלדה באחת הייתה דורסת את הטקסט של השנייה,
+      // ובחירה באחת הייתה מוחקת את הטיוטה של השנייה. לשונית כזו כותבת את המפתח שלה שוב בעריכה הבאה או בהסתרה,
+      // והטקסט שלה עד כאן כבר שמור כאן, תחת המפתח החדש.
+      entry.draftKey = null;
+      if (this._writeHeldDraft(entry) && found.key !== entry.draftKey) {
+        const storage = draftStorage();
+        if (storage) {
+          try { storage.removeItem(found.key); } catch(err) {
+            console.warn('sticky note: removing a draft after taking it over failed — it may be shown again', found.key, err);
+          }
+        }
+      }
       entry.draftAwaitingServer = true;
       if (this._renderingFromCache) return;
       this._reconcileServerNote(server, 'poll');
@@ -2142,6 +2186,18 @@
         this._saveDebounced();
         this._ensureBackgroundAutoFlush();
       }
+    }
+
+    /**
+     * טיוטה שחיכתה לשרת, והשרת ענה שהפתק נמחק (404 — מהדגימה או מהרענון בכניסה לעריכה): השחזור נגמר, לשמירה אין
+     * לאן להגיע (``_markServerGone``), והטיוטה יוצאת מהמאגר. בלי זה הפתק היה נשאר מוחזק לתמיד. הטקסט נשאר במסך,
+     * כמו בכל פתק שנמחק בזמן שעובדים עליו (``_removeIfGone``).
+     */
+    _finishDraftGone(entry){
+      if (!entry || !entry.el) return;
+      entry.draftAwaitingServer = false;
+      this._markServerGone(String(entry.el.dataset.noteId));
+      this._removeHeldDraft(entry);
     }
 
     /**
@@ -8181,8 +8237,10 @@
             if (res.ok) {
               this._reconcileServerNote(res.note, 'enter-edit', res.seq);
             } else if (res.status === 404 || res.status === 401) {
-              // נמחק או שהסשן נגמר — הדגימה מטפלת בשניהם (הורדה מהמסך / עצירה); כאן אין מה להחליף.
+              // נמחק או שהסשן נגמר — הדגימה מטפלת בשניהם (הורדה מהמסך / עצירה); כאן אין מה להחליף. אבל 404 הוא
+              // ראיה ישירה שהפתק נמחק, ולכן טיוטה שחיכתה לשרת מסיימת כאן את השחזור (``_finishDraftGone``).
               console.warn('sticky note: refresh before edit found no note', id, res.status);
+              if (res.status === 404 && entry.draftAwaitingServer) this._finishDraftGone(entry);
             } else {
               console.warn('sticky note: refresh before edit failed — editing what is on screen', id, res.status);
             }
@@ -8265,7 +8323,10 @@
           if (!isSavedNoteId(id) || !entry || !entry.el) continue;
           localSaved += 1;
           const row = remote.get(id);
-          if (!row) { missing.push(id); continue; }
+          // טיוטה שמחכה לשרת ואינה ברשימה — נבדקת ישירות, גם כשהדגימה אינה מכירה אף פתק מהמסך: זו קריאה של פתק
+          // אחד, והכרעה רק על ראיה ממנו (404, או השדות שלו — ``_applyFetchedNote``), ולא הורדה על סמך הרשימה.
+          // בלעדיה פתק כזה שנמחק, כשהיה היחיד במשטח, נשאר מוחזק לתמיד.
+          if (!row) { if (entry.draftAwaitingServer) toFetch.push(id); else missing.push(id); continue; }
           overlap += 1;
           // שמירה בתור או באוויר, או הכרעה שבדרך: המקומי חדש יותר, וה-409 יכריע אם צריך.
           // טיוטה שמחכה לשרת — נמשכת תמיד: הקריאה הטרייה היא מה שמסיים את השחזור, גם כשיש עריכה בתור.
@@ -8305,13 +8366,8 @@
           // מוחזקות לתמיד והדגימה הייתה מושכת אותו בכל סבב. עזב למשטח אחר — הפיוס מול הנתונים שלו מכריע; נמחק
           // — אין לשמירה לאן להגיע, והטיוטה יוצאת מהמאגר.
           if (entry && entry.draftAwaitingServer) {
-            if (res.ok) {
-              this._reconcileServerNote(res.note, 'poll', res.seq);
-            } else {
-              entry.draftAwaitingServer = false;
-              this._markServerGone(id);
-              this._removeHeldDraft(entry);
-            }
+            if (res.ok) this._reconcileServerNote(res.note, 'poll', res.seq);
+            else this._finishDraftGone(entry);
           }
           if (entry) this._removeIfGone(entry);
           return;
@@ -8328,7 +8384,7 @@
         // פתק חדש במשטח (נוצר ממקום אחר — סוכן, לשונית, מכשיר). רק במשטח שמציג רשימה; בפתק שנפתח מעל
         // עמוד, הכרטיסים הם של העמוד.
         if (this.overlayMode || this.notes.has(id)) return;
-        this._renderNote(res.note, false);
+        this._addNewNote(res.note, false);
         this._afterRemoteApplied();
       }
 

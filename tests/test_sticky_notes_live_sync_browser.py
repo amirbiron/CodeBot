@@ -1549,3 +1549,103 @@ def test_entering_edit_on_a_draft_from_the_cache_decides_against_the_server_righ
     assert board.held, "ההתראה הגיעה מהרשימה ולא מהרענון — הבדיקה אינה בודקת את מה שהיא מתיימרת"
     assert board.textarea(N1) == local
     board.release_list()
+
+
+# ---------------------------------------------------------------------------
+# פתק חדש מהשרת עולה למעלה; טיוטה שמחכה לשרת אינה נתקעת; שחזור מעביר למפתח חדש; סדר בין טיוטות
+# ---------------------------------------------------------------------------
+
+TOP_AT_JS = """([x, y]) => { const el = document.elementFromPoint(x, y);
+  const note = el && el.closest('.sticky-note'); return note ? note.dataset.noteId : null; }"""
+
+
+def test_a_new_note_from_the_server_lands_above_the_notes_you_touched(board):
+    """דווח בשימוש: פתק שסוכן יצר הופיע מתחת לפתק שנגעו בו באותו מקום, ורק אחרי רענון עלה. פתק חדש תמיד למעלה —
+    כך מזהים שנוצר פתק שעוד לא טיפלו בו. ופתק קיים שהתעדכן ממקום אחר אינו קופץ מעל."""
+    board.page.click(board.sel(N1, ".sticky-note-content"))  # נגיעה — הפתק עולה (``_raiseToFront``)
+    board.page.mouse.click(1000, 700)
+    assert board.page.evaluate("(id) => window.__mgr.notes.get(id).stackRank", N1) > 0, "הנגיעה לא העלתה — הבדיקה אינה בודקת"
+    board.db.sticky_notes.docs.append(_doc(N2, "פתק חדש מהסוכן", position_x=60, position_y=60, updated_at=_stored_now()))
+    board.poll_now()
+    board.wait_note(N2)
+    box = board.page.eval_on_selector(board.sel(N2), "e => { const r = e.getBoundingClientRect(); return [r.left + 40, r.top + 40]; }")
+    assert board.page.evaluate(TOP_AT_JS, box) == N2, "הפתק החדש נכנס מתחת לפתק שנגעו בו"
+    board.agent_writes(N1, "הפתק הקיים התעדכן")
+    board.poll_now()
+    board.page.wait_for_function("(sel) => document.querySelector(sel).value === 'הפתק הקיים התעדכן'",
+                                 arg=board.sel(N1, ".sticky-note-content"))
+    assert board.page.evaluate(TOP_AT_JS, box) == N2, "פתק קיים שהתעדכן קפץ מעל הפתק החדש"
+
+
+def test_a_draft_waiting_for_the_server_is_released_when_its_only_note_was_deleted(board):
+    """טיוטה ששוחזרה מהקאש ומחכה לשרת, והפתק — היחיד בלוח — נמחק. הדגימה אינה מכירה אף פתק מהמסך, ולכן לא בדקה
+    חסרים — והפתק נשאר מוחזק לתמיד. עכשיו פתק כזה נבדק ישירות, ו-404 מסיים את השחזור."""
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    board.db.sticky_notes.docs[:] = []  # נמחק לפני הפתיחה מחדש — הדגימה הראשונה כבר לא מכירה אותו
+    board.fail_list = 1
+    board.reopen()
+    board.wait_note(N1)  # מהקאש, עם הטיוטה
+    board.page.wait_for_function("() => !!window.__mgr._livePoll", timeout=8000)
+    board.poll_now()
+    board.page.wait_for_function("(id) => window.__mgr.notes.get(id).draftAwaitingServer === false", arg=N1, timeout=8000)
+    assert board.page.evaluate("(id) => window.__mgr._isSaveHeld(id)", N1) is False
+    assert board.page.evaluate(DRAFT_KEYS_JS, N1) == [], "טיוטה של פתק שנמחק נשארה במאגר"
+
+
+def test_a_404_on_entering_edit_releases_a_draft_waiting_for_the_server(board):
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    board.hold_list = True
+    board.reopen()
+    board.wait_note(N1)
+    board.db.sticky_notes.docs[:] = []
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_function("(id) => window.__mgr.notes.get(id).draftAwaitingServer === false", arg=N1, timeout=8000)
+    assert board.page.evaluate(DRAFT_KEYS_JS, N1) == []
+    board.release_list()
+
+
+def test_a_tab_that_restores_a_draft_takes_it_to_its_own_key(board):
+    """לשונית ב' שנפתחת בזמן שלשונית א' עדיין פתוחה עם טיוטה לאותו פתק — מעבירה את הטיוטה למפתח משלה. לקיחה של
+    המפתח עצמו שיתפה אותו בין השתיים: הקלדה באחת דרסה את הטקסט של השנייה, ובחירה באחת מחקה את הטיוטה של השנייה."""
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    tab_b = board.new_tab()
+    tab_b.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    board.page.keyboard.type("1")
+    tab_b.click(board.sel(N1, ".sticky-note-content"))
+    tab_b.keyboard.press("Control+End")
+    tab_b.keyboard.type("2")
+    a_text = board.textarea(N1)
+    tab_b.click(board.sel(N1, ".sticky-note-remote-update"))
+    stored = [json.loads(v)["local"]["content"] for v in board.page.evaluate(
+        "(id) => { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i);"
+        " if (k.startsWith('sticky-notes:held-draft:' + id)) out.push(localStorage.getItem(k)); } return out; }", N1)]
+    assert stored == [a_text], f"הבחירה בלשונית ב' נגעה בטיוטה של לשונית א': {stored!r}"
+    tab_b.close()
+
+
+def test_drafts_written_in_the_same_millisecond_are_ordered_reliably(board):
+    """שתי טיוטות לאותו פתק עם אותו ``ts`` (אלפיות): הסדר לפי ``at``, ברזולוציה של תת-אלפית — ולא לפי הסדר שבו
+    הדפדפן מונה את המפתחות. בודקים בשני הכיוונים, כדי שסדר המנייה לא יעבור במקרה."""
+    board.agent_writes(N1, "גרסה חדשה מהסוכן")
+    seed = """([id, newerKey, olderKey]) => {
+        for (let i = localStorage.length - 1; i >= 0; i--) { const k = localStorage.key(i);
+          if (k.startsWith('sticky-notes:held-draft:')) localStorage.removeItem(k); }
+        const base = { content: 'גרסה ישנה', title: '', updated_at: '%s' };
+        const ts = Date.now();
+        // הישנה נכתבת ראשונה, כמו במציאות — כך גם סדר הכתיבה אינו מה שמכריע.
+        localStorage.setItem('sticky-notes:held-draft:' + id + ':' + olderKey,
+          JSON.stringify({ v: 1, ts, at: ts + 0.25, base, local: { content: 'הישנה', title: '' } }));
+        localStorage.setItem('sticky-notes:held-draft:' + id + ':' + newerKey,
+          JSON.stringify({ v: 1, ts, at: ts + 0.75, base, local: { content: 'החדשה', title: '' } })); }""" % T0.isoformat()
+    for newer, older in (("a", "z"), ("z", "a")):
+        # הלשונית שנסגרת אינה מחזיקה טיוטה משלה — אחרת הכתיבה שלה בסגירה הייתה מתערבבת בטיוטות שזורעים כאן.
+        if board.page.query_selector(board.sel(N1, ".sticky-note-remote")):
+            board.page.click(board.sel(N1, ".sticky-note-remote-update"))
+        board.page.evaluate(seed, [N1, newer, older])
+        board.reopen()
+        board.wait_note(N1)
+        board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+        assert board.textarea(N1) == "החדשה", (newer, older, board.textarea(N1))
