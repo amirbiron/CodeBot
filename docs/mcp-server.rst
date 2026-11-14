@@ -291,7 +291,7 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
    * - ``codekeeper_edit_file``
      - **כתיבה:** מצא-והחלף מדויק בקובץ קיים (``old_string`` → ``new_string``) — בלי לשלוח את כל הקובץ. ``old_string`` צריך להופיע פעם אחת בדיוק, אחרת ``ambiguous_match`` עם מספר המופעים; ``replace_all=true`` מחליף את כולם. נשמר כגרסה חדשה, ורק הטקסט שהוחלף משתנה: שאר הקובץ נשאר תו בתו. לכמה מקומות באותו קובץ — ``codekeeper_multi_edit_file``, בגרסה אחת. ``expected_content_sha256`` מסרב לכתוב אם הקובץ השתנה מאז שנקרא — ראו :ref:`mcp-expected-content-sha256`. דורש ``write``
    * - ``codekeeper_multi_edit_file``
-     - **כתיבה:** כמה עריכות מדויקות בקובץ קיים, **בגרסה אחת**: רשימת זוגות ``edits``, וכל זוג הוא בדיוק הארגומנטים של ``codekeeper_edit_file`` בלי ``file_name``. הזוגות מוחלים לפי הסדר, כל זוג על התוצאה של הזוג שלפניו, והכל או כלום: זוג שנכשל מחזיר את ה-``index`` שלו, ושום דבר לא נכתב. עד ``MAX_EDIT_PAIRS`` זוגות בקריאה. ``expected_content_sha256`` כמו ב-``codekeeper_edit_file``. ראו :ref:`mcp-multi-edit`. דורש ``write``
+     - **כתיבה:** כמה עריכות מדויקות בקובץ קיים, **בגרסה אחת**: רשימת זוגות ``edits``, וכל זוג הוא בדיוק הארגומנטים של ``codekeeper_edit_file`` בלי ``file_name``. הזוגות מוחלים לפי הסדר, כל זוג על התוצאה של הזוג שלפניו, והכל או כלום: זוג שנכשל מחזיר את ה-``index`` שלו, ושום דבר לא נכתב. עד ``MAX_EDIT_PAIRS`` זוגות בקריאה. ``expected_content_sha256`` כמו ב-``codekeeper_edit_file``. ראו :ref:`mcp-multi-edit`. זוגות שיש במחרוזות שלהם לוכסן שנועד להיות טקסט יכולים להגיע כקובץ JSON שהועלה — ``edits_upload_id`` במקום ``edits`` — והשרת מפענח אותו פעם אחת בדיוק; ראו :ref:`mcp-edits-upload-id`. דורש ``write``
    * - ``codekeeper_append_file``
      - **כתיבה:** הוספת טקסט לסוף קובץ קיים (גרסה חדשה). ``expected_content_sha256`` כמו ב-``codekeeper_edit_file``. טקסט שכבר קיים כקובץ בסביבת הסוכן — ``upload_id`` במקום ``content``, ראו :ref:`mcp-uploads`. דורש ``write``
    * - ``codekeeper_update_file_description``
@@ -1075,7 +1075,24 @@ WARNING אחד לזהות לחלון, כדי שסוכן שממשיך לדפוק 
 
 תיאור הפרמטר ``upload_id`` **אינו** מונה את הסירובים האלה, בכוונה: הוא נקרא בכל שיחה שבה הכלים נטענים — גם ב-Claude.ai, שאינו יכול להעלות — והם רלוונטיים רק אחרי כשל. ואז כל אחד מהם נושא ``hint`` משלו (``_both_sent``, ``_invalid_upload_id`` ו-``_upload_not_found`` ב-``mcp_server/handlers.py``), שנוקב בפרמטר בשמו — "the content parameter" ולא "content" לבד, כי ``content`` הוא גם שם עצם.
 
-``codekeeper_edit_file`` ו-``codekeeper_multi_edit_file`` אינם מקבלים ``upload_id``: הם מצא-והחלף, ולא הזרמת תוכן.
+``codekeeper_edit_file`` אינו מקבל העלאה: הוא מצא-והחלף, ולא הזרמת תוכן. ``codekeeper_multi_edit_file`` מקבל העלאה מסוג אחר, בפרמטר בשם משלו: ``edits_upload_id`` נושא את **רשימת הזוגות** כקובץ JSON, ולא תוכן של קובץ. היא עוברת באותם עוזרים — ``_load_upload`` עם בדיקת השלמות, והשער ``_consume_upload`` — ולכן ``upload_not_found``, ``upload_storage_unavailable``, ``upload_corrupted`` ו-``upload_consumed`` שבטבלה הקודמת חלים גם עליה. הקודים שנקראים על שם פרמטר נושאים שם את השם שלו:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 66
+
+   * - תשובה
+     - מתי
+   * - ``edits_and_edits_upload_id``
+     - נשלחו גם ``edits`` שאינו ריק וגם ``edits_upload_id``
+   * - ``missing_edits``
+     - לא נשלח אף אחד מהשניים — אותה תשובה של רשימה ריקה
+   * - ``invalid_edits_upload_id``
+     - המזהה אינו בצורה שהראוט מייצר. הערך אינו מוחזר
+   * - ``invalid_edits_upload``
+     - הקובץ שהועלה אינו מערך JSON. עם ``line``, ``column`` ו-``position`` כשהפענוח נעצר במקום מסוים — מספרים בלבד. שום דבר לא נכתב, וההעלאה נשארת עד שהיא פוקעת
+
+ה-``hint``-ים של הכלי הזה נוקבים בשמות שלו — ``edits_upload_id`` ו-"the edits parameter" — ומה שהם מציעים במקום העלאה הוא ``codekeeper_edit_file`` ולא "send the content inline": מי שהעלה זוגות עשה זאת כי המחרוזות שלהם אינן עוברות בבטחה בתוך ``edits``. השמות מגיעים לעוזרים ב-``_UploadParam`` (``mcp_server/handlers.py``), אחד לכל כלי. למה הפרמטר קיים, מה ה-JSON שבקובץ צריך, ומה נשאר אחרי כל סירוב — ב-:ref:`mcp-edits-upload-id`.
 
 **המחיקה היא השער.** הסדר בגוף הכלי: שם הקובץ ← בדיוק אחד מהשניים ← צורת המזהה ← **שליפה** לפי מזהה, משתמש ו-``expires_at > now``, ו**בדיקת השלמות** מיד אחריה (למטה) ← המסלול הקיים כמו שהוא על הטקסט (תוכן ריק, התקרה, זיהוי שפה, ``file_exists``) ← **``delete_one`` באותו מסנן, ו-``deleted_count == 1`` הוא השער** ← ורק אז השמירה. השליפה אינה צורכת, ולכן ``file_exists`` ו-``existence_check_unavailable`` אינם שורפים את ההעלאה: שמירה חוזרת בשם אחר מצליחה. ומכיוון ש-``delete_one`` אטומי במסד, משתי צריכות של אותו מזהה — גם מקבילות, גם מחוץ לתור הכתיבה — רק אחת שומרת; השנייה מקבלת ``upload_not_found``.
 
@@ -1910,7 +1927,9 @@ Claude Desktop
    * - ``invalid_expected_content_sha256``
      - הערך אינו hash: צריך 64 ספרות הקס, בדיוק ``file.content_sha256`` כפי שחזר מ-``codekeeper_get_file``. שום דבר לא נקרא ולא נכתב
    * - סירוב עם ``index`` ב-``codekeeper_multi_edit_file``
-     - הזוג במקום הזה (מאפס) נכשל, בקוד של ``codekeeper_edit_file`` — או ``code_too_large`` עם ``max``, כשהתוצאה שלו הייתה חוצה את התקרה. שום דבר לא נכתב, גם לא הזוגות שלפניו. תקנו אותו ושלחו שוב את כל הבאץ'. כש-``occurrences`` שונה מ-``occurrences_in_stored_version``, זוג קודם בבאץ' שינה את הטקסט שהזוג הזה מחפש — ראו :ref:`mcp-multi-edit`
+     - הזוג במקום הזה (מאפס) נכשל, בקוד של ``codekeeper_edit_file`` — או ``code_too_large`` עם ``max``, כשהתוצאה שלו הייתה חוצה את התקרה. שום דבר לא נכתב, גם לא הזוגות שלפניו. תקנו אותו ושלחו שוב את כל הבאץ' — וכשהזוגות באו מ-``edits_upload_id``, תקנו את הקובץ, העלו אותו שוב והעבירו את המזהה החדש. כש-``occurrences`` שונה מ-``occurrences_in_stored_version``, זוג קודם בבאץ' שינה את הטקסט שהזוג הזה מחפש — ראו :ref:`mcp-multi-edit`
+   * - ``invalid_edits_upload`` ב-``codekeeper_multi_edit_file``
+     - הקובץ שהועלה ל-``edits_upload_id`` אינו מערך JSON של זוגות. ``line`` ו-``column`` (מ-1) אומרים איפה הפענוח נעצר; בלעדיהם הקובץ הוא JSON תקין שאינו מערך, או שהוא מקונן עמוק מדי או מכיל מספר ארוך מדי. השכיח: לוכסן יחיד לפני תו שאינו escape של JSON (ב-JSON לוכסן שנועד להיות טקסט נכתב כשניים), או קובץ שנפתח ב-BOM. העלאה אי אפשר לתקן: תקנו את הקובץ, העלו שוב והעבירו את המזהה החדש — ראו :ref:`mcp-edits-upload-id`
    * - ``invalid_edit`` ב-``codekeeper_multi_edit_file``
      - זוג אינו בצורה הנכונה, ו-``problems`` אומר איפה ומה, בלי להדהד את הערך. השכיח: מפתח שאינו ``old_string``, ``new_string`` או ``replace_all``, ``replace_all`` כמחרוזת (``"true"``) במקום בוליאני, או ``new_string`` חסר. ``index`` הוא הזוג הראשון שנכשל, ושום דבר לא נקרא ולא נכתב
    * - ``missing_edits`` ב-``codekeeper_multi_edit_file``

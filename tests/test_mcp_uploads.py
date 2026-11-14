@@ -13,7 +13,10 @@
    ``upload_id``, דרך ``call_tool`` מעל שכבת השמירה האמיתית
    (``tests/_save_layer_harness.py``), וחד-פעמיות בשני חוטים דרך ה-handler; ובדיקת
    השלמות (``upload_corrupted``), שרצה עם השליפה ולפני כל שער שמחליט לפי הטקסט, עם
-   שומר מבני על המקור שאין דרך שליפה או צריכה אחרת.
+   שומר מבני על המקור שאין דרך שליפה או צריכה אחרת. ו-``codekeeper_multi_edit_file``
+   עם ``edits_upload_id`` (סעיף 4ב): ההעלאה שם היא רשימת הזוגות כקובץ JSON, ומה
+   שנבדק הוא שהיא מפוענחת פעם אחת — לצד שלוש הצורות שבהן ``edits`` מגיע על החוט,
+   דרך ``POST /mcp`` עם גוף שנכתב ביד.
 5. **נראות** — שורות ה-``INFO``, בתהליך נקי ולא ב-``caplog``.
 
 **בלי ``sleep``:** הדדליין מוקטן, השעון של השער מוזז, והתפוגה נכתבת למסמך.
@@ -834,24 +837,64 @@ def test_the_upload_id_description_names_the_parameter_and_leaves_refusals_to_th
         assert f"{param} in {param}" not in doc and f"{param}, for {param}" not in doc
 
 
-@pytest.mark.parametrize("tool, param", [("codekeeper_save_file", "code"), ("codekeeper_append_file", "content")])
-def test_every_upload_refusal_carries_a_hint_that_names_the_parameter(store, backend, call, tool, param):
-    """התיאור אינו מונה את הסירובים, ולכן ההסבר שבכל סירוב הוא ההסבר היחיד שהסוכן מקבל."""
+#: כל כלי שמקבל העלאה, כפי שהטסטים קוראים לו: ``(הכלי, הפרמטר שההעלאה באה במקומו,
+#: הפרמטר שנושא את המזהה, ערך inline תקין, הסירוב כשלא נשלח אף אחד מהשניים, מה ה-hint
+#: מציע לעשות בלי העלאה)``. ב-``codekeeper_multi_edit_file`` ההעלאה היא רשימת הזוגות,
+#: הפרמטר נקרא ``edits_upload_id``, והנסיגה היא ``codekeeper_edit_file`` ולא "inline".
+_ONE_EDIT = [{"old_string": "head", "new_string": "HEAD"}]
+_TAKES_AN_UPLOAD = [
+    ("codekeeper_save_file", "code", "upload_id", "inline\n", "empty_code", "send the content inline"),
+    ("codekeeper_append_file", "content", "upload_id", "inline\n", "empty_content", "send the content inline"),
+    ("codekeeper_multi_edit_file", "edits", "edits_upload_id", _ONE_EDIT, "missing_edits", "codekeeper_edit_file"),
+]
+#: שם הפרמטר שנושא את המזהה, לכל כלי — לטסטים שרצים על כמה כלים.
+_UPLOAD_ARG = {tool: upload_arg for tool, _, upload_arg, _, _, _ in _TAKES_AN_UPLOAD}
+
+
+@pytest.mark.parametrize(
+    "tool, param, upload_arg, inline, neither_error, otherwise", _TAKES_AN_UPLOAD, ids=[row[0] for row in _TAKES_AN_UPLOAD]
+)
+def test_every_upload_refusal_carries_a_hint_that_names_the_parameter(
+    store, backend, call, tool, param, upload_arg, inline, neither_error, otherwise
+):
+    """התיאור אינו מונה את הסירובים, ולכן ההסבר שבכל סירוב הוא ההסבר היחיד שהסוכן מקבל.
+
+    **וההסבר נוקב בשמות של הכלי הזה.** העוזרים של ההעלאה משותפים, והשמות היו מוקלדים
+    בתוכם — ``upload_id`` ו-"send the content inline". ב-``codekeeper_multi_edit_file``
+    הפרמטר הוא ``edits_upload_id`` וההעלאה היא רשימת הזוגות, ולכן סירוב שנוקב שם ב-
+    ``upload_id`` שולח את הסוכן לחפש פרמטר שאין בכלי, ו-"inline" מחזיר אותו ל-``edits``.
+    """
     assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
     upload_id = _create(backend, "tail\n")
+    hints: list[str] = []
 
-    both = call(tool, file_name="log.md", upload_id=upload_id, **{param: "inline\n"})
-    assert both["error"] == f"{param}_and_upload_id"
-    assert both["hint"] == f"pass either the {param} parameter or upload_id, not both"
+    both = call(tool, file_name="log.md", **{upload_arg: upload_id, param: inline})
+    assert both["error"] == f"{param}_and_{upload_arg}"
+    assert both["hint"] == f"pass either the {param} parameter or {upload_arg}, not both"
+    hints.append(both["hint"])
 
     neither = call(tool, file_name="log.md")
-    assert neither["error"] == f"empty_{param}"
-    assert f"in the {param} parameter, or upload the file first and pass upload_id" in neither["hint"]
+    assert neither["error"] == neither_error
+    if upload_arg == "upload_id":
+        assert f"in the {param} parameter, or upload the file first and pass upload_id" in neither["hint"]
+    else:
+        # "לא נשלח" הוא רשימה ריקה, והתשובה היא זו של רשימה ריקה שנשלחה — בלי שדה נוסף.
+        assert neither == {"ok": False, "error": "missing_edits"}
 
-    for bad_id, error in (("../../etc/passwd", "invalid_upload_id"), (mcp_uploads.new_upload_id(), "upload_not_found")):
-        res = call(tool, file_name="log.md", upload_id=bad_id)
-        assert res["error"] == error
-        assert isinstance(res.get("hint"), str) and res["hint"].strip(), res
+    invalid = call(tool, file_name="log.md", **{upload_arg: "../../etc/passwd"})
+    assert invalid["error"] == f"invalid_{upload_arg}"
+    assert upload_arg in invalid["hint"], invalid
+    hints.append(invalid["hint"])
+
+    not_found = call(tool, file_name="log.md", **{upload_arg: mcp_uploads.new_upload_id()})
+    assert not_found["error"] == "upload_not_found"
+    assert otherwise in not_found["hint"], not_found
+    hints.append(not_found["hint"])
+
+    if upload_arg != "upload_id":
+        for hint in hints:
+            assert "inline" not in hint, hint
+            assert "upload_id" not in hint.replace(upload_arg, ""), hint
 
     assert len(store.uploads.docs) == 1
 
@@ -1165,22 +1208,34 @@ _CORRUPTIONS = {
 }
 
 
+#: קובץ זוגות תקין שמחליף את ``head`` ב-``tail``. ``text_changed_in_storage`` הופך בו את
+#: ``tail`` ל-``tall``, כלומר קובץ זוגות תקין **אחר** — שבלי בדיקת השלמות היה מוחל ונשמר.
+_EDITS_HEAD_TO_TAIL = '[{"old_string": "head", "new_string": "tail"}]'
+
+
 @pytest.mark.parametrize("corruption", sorted(_CORRUPTIONS))
-@pytest.mark.parametrize("tool, seed", [("codekeeper_save_file", None), ("codekeeper_append_file", "head\n")])
-def test_an_upload_that_does_not_match_its_hash_writes_nothing_and_is_gone(store, backend, call, tool, seed, corruption):
-    """``upload_corrupted``: שום גרסה, שום התראה, וההעלאה עצמה נמחקת — בשני הכלים.
+@pytest.mark.parametrize("tool, seed, uploaded", [
+    ("codekeeper_save_file", None, "tail\n"),
+    ("codekeeper_append_file", "head\n", "tail\n"),
+    ("codekeeper_multi_edit_file", "head\n", _EDITS_HEAD_TO_TAIL),
+])
+def test_an_upload_that_does_not_match_its_hash_writes_nothing_and_is_gone(
+    store, backend, call, tool, seed, uploaded, corruption
+):
+    """``upload_corrupted``: שום גרסה, שום התראה, וההעלאה עצמה נמחקת — בכל כלי שמקבל העלאה.
 
     לפני הבדיקה הטקסט המשובש נשמר בשקט: ``content_changed`` היה ``false``, כי מה
-    שנכתב שווה למה שנשלף.
+    שנכתב שווה למה שנשלף. ב-``codekeeper_multi_edit_file`` ההעלאה היא רשימת הזוגות,
+    והשיבוש הופך אותה לרשימה תקינה אחרת — שהייתה מוחלת.
     """
     if seed is not None:
         assert call("codekeeper_save_file", file_name="log.md", code=seed)["ok"] is True
     versions = len(store.code_snippets.docs)
     pushes = len(store.raw["push_events"].docs)
-    upload_id = _create(backend, "tail\n")
+    upload_id = _create(backend, uploaded)
     _CORRUPTIONS[corruption](store.uploads.docs[0])
 
-    res = call(tool, file_name="log.md", upload_id=upload_id)
+    res = call(tool, file_name="log.md", **{_UPLOAD_ARG[tool]: upload_id})
     assert res["ok"] is False and res["error"] == "upload_corrupted", res
     assert "upload the file again" in res["hint"], res
     assert len(store.code_snippets.docs) == versions
@@ -1239,6 +1294,17 @@ _GATES_AFTER_THE_READ = [
     ("codekeeper_append_file", "not_found", "tall\n", _no_setup),
     ("codekeeper_append_file", "conflict", "tall\n", _log_and_stale_expected),
     ("codekeeper_append_file", "code_too_large", "tall\n", _log_and_tiny_ceiling),
+    # ב-``codekeeper_multi_edit_file`` הטקסט הוא קובץ הזוגות, והשערים שמחליטים לפיו הם
+    # הפענוח שלו, מבנה הרשימה, ואחר כך הקובץ והזוגות עצמם.
+    ("codekeeper_multi_edit_file", "invalid_edits_upload", "tall\n", _log_exists),
+    ("codekeeper_multi_edit_file", "missing_edits", "[]", _log_exists),
+    ("codekeeper_multi_edit_file", "invalid_edit", '[{"old_string": "head"}]', _log_exists),
+    ("codekeeper_multi_edit_file", "invalid_expected_content_sha256", _EDITS_HEAD_TO_TAIL, _log_and_malformed_expected),
+    ("codekeeper_multi_edit_file", "not_found", _EDITS_HEAD_TO_TAIL, _no_setup),
+    ("codekeeper_multi_edit_file", "conflict", _EDITS_HEAD_TO_TAIL, _log_and_stale_expected),
+    ("codekeeper_multi_edit_file", "no_match", '[{"old_string": "tall", "new_string": "x"}]', _log_exists),
+    ("codekeeper_multi_edit_file", "code_too_large", '[{"old_string": "head", "new_string": "headhead"}]',
+     _log_and_tiny_ceiling),
 ]
 
 
@@ -1259,8 +1325,9 @@ def test_a_corrupted_upload_is_refused_before_the_gates_that_read_its_text(
     את הסירוב של השער — החלטה על טקסט שלא נשלח — וההעלאה נשארה חיה, בלי לוג, עד שפקעה.
     """
     extra = prepare(call, backend, monkeypatch)
+    upload_arg = _UPLOAD_ARG[tool]
     intact = _create(backend, stored_text)
-    control = call(tool, file_name="log.md", upload_id=intact, **extra)
+    control = call(tool, file_name="log.md", **{upload_arg: intact}, **extra)
     assert control.get("error") == gate, control
     versions = len(store.code_snippets.docs)
     pushes = len(store.raw["push_events"].docs)
@@ -1276,7 +1343,7 @@ def test_a_corrupted_upload_is_refused_before_the_gates_that_read_its_text(
         return discard(user_id, upload_id, **kwargs)
 
     monkeypatch.setattr(backend, "discard_upload", recorded)
-    res = call(tool, file_name="log.md", upload_id=corrupted, **extra)
+    res = call(tool, file_name="log.md", **{upload_arg: corrupted}, **extra)
     assert res["ok"] is False and res["error"] == "upload_corrupted", res
     assert discarded == [(tool, "hash_mismatch")], discarded
     assert [d["upload_id"] for d in store.uploads.docs] == [intact]
@@ -1354,14 +1421,17 @@ def test_a_corrupted_upload_is_corrupted_even_when_the_storage_does_not_answer_i
     assert store.code_snippets.docs == [] and len(store.uploads.docs) == 1
 
 
-@pytest.mark.parametrize("tool, param, seed", [
-    ("codekeeper_save_file", "code", None),
-    ("codekeeper_append_file", "content", "head\n"),
+@pytest.mark.parametrize("tool, param, seed, inline", [
+    ("codekeeper_save_file", "code", None, "inline\n"),
+    ("codekeeper_append_file", "content", "head\n", "inline\n"),
+    ("codekeeper_multi_edit_file", "edits", "head\n", _ONE_EDIT),
 ])
-def test_without_upload_id_the_upload_storage_is_not_touched(store, call, monkeypatch, tool, param, seed):
-    """בלי ``upload_id`` שום דבר לא משתנה: הבדיקה היא של העלאות, ותוכן inline אינו עובר בה.
+def test_without_upload_id_the_upload_storage_is_not_touched(store, call, monkeypatch, tool, param, seed, inline):
+    """בלי מזהה העלאה שום דבר לא משתנה: הבדיקה היא של העלאות, ותוכן inline אינו עובר בה.
 
     מקבע התנהגות שכבר הייתה נכונה, ולכן עובר גם על הקוד שלפני בדיקת השלמות — בכוונה.
+    וכך גם השורה של ``codekeeper_multi_edit_file``: היא עוברת גם על הקוד שלפני
+    ``edits_upload_id``, כי בלי הפרמטר הכלי הוא מה שהיה.
     """
     if seed is not None:
         assert call("codekeeper_save_file", file_name="log.md", code=seed)["ok"] is True
@@ -1374,10 +1444,464 @@ def test_without_upload_id_the_upload_storage_is_not_touched(store, call, monkey
                 touched.append(_method), _original(*args, **kwargs)
             )[1],
         )
-    res = call(tool, file_name="log.md", **{param: "inline\n"})
+    res = call(tool, file_name="log.md", **{param: inline})
     assert res["ok"] is True and res["content_changed"] is False, res
     assert touched == []
     assert not [key for key in res if key.startswith("upload")], res
+
+
+# ---------------------------------------------------------------------------
+# 4ב. ``edits_upload_id`` ב-``codekeeper_multi_edit_file`` — הזוגות כבתים מדויקים
+#
+# ``edits`` הוא רשימה, ולכן נשאר ב-``pre_parse_json`` של ה-SDK: רשימה שלקוח שולח
+# כמחרוזת JSON חייבת להמשיך להתפענח. המחיר: מחרוזת **בתוך** זוג עוברת פענוח JSON
+# אחד כשהרשימה הגיעה כמערך, ושניים כשהגיעה כמחרוזת — והשרת אינו יכול לדעת באיזו
+# צורה הלקוח שלח, ולמה המודל התכוון. קובץ שעולה כבתים אינו עובר באף אחת מהשכבות
+# האלה, ונשאר פענוח אחד, של השרת.
+# ---------------------------------------------------------------------------
+
+MULTI_EDIT = "codekeeper_multi_edit_file"
+
+#: לוכסן אחד. נבנה כך, ולא נכתב כ-escape בתוך המחרוזות שלמטה, כדי שמספר הלוכסנים
+#: בכל צורה ייספר בעין: ``_BS * 2`` הם שני לוכסנים בטקסט, לא אחד.
+_BS = "\\"
+#: מה שסוכן רוצה לכתוב לקובץ כשהוא מתעד escape: לוכסן, ``u`` וארבע ספרות — שישה תווים.
+_ESCAPE_AS_TEXT = _BS + "u200F"
+#: והתו שששת התווים האלה מקודדים, כשקוראים אותם כ-escape של JSON.
+_RLM = "‏"
+#: ערך שמסמן תוכן שנשלח, כדי לבדוק שאף סירוב אינו מהדהד אותו.
+_SECRET = "SECRET-VALUE-7f3a"
+
+#: מערך הזוגות כטקסט JSON — פעם עם ה-escape הנכון לששת התווים (שני לוכסנים), ופעם
+#: עם לוכסן יחיד, שב-JSON הוא ה-escape של התו עצמו.
+_PAIRS_TEXT = '[{"old_string": "X", "new_string": "' + _BS * 2 + 'u200F"}]'
+_PAIRS_CHAR = '[{"old_string": "X", "new_string": "' + _BS + 'u200F"}]'
+
+
+def _as_json_string(text: str) -> str:
+    """``text`` כערך מחרוזת של JSON, כתוב ביד: לוכסן נהיה שניים, וגרשיים מקבלים לוכסן."""
+    return '"' + text.replace(_BS, _BS * 2).replace('"', _BS + '"') + '"'
+
+
+#: ``arguments`` של ``tools/call`` **כמו שהם על החוט**, בשלוש הצורות שבהן ``edits`` עם
+#: אותו ``new_string`` יכול לצאת מלקוח. כתוב ביד ולא ב-``json.dumps``, שתמיד מכפיל
+#: לוכסנים ולכן אינו יכול לייצר את הצורה השלישית.
+_EDITS_ON_THE_WIRE = {
+    # מערך. שני הלוכסנים הם ה-escape של JSON ללוכסן אחד, והתעבורה מפענחת אותם.
+    "array": '{"file_name": "log.md", "edits": ' + _PAIRS_TEXT + "}",
+    # מחרוזת שמכילה את אותו מערך, עם escape לכל אחת משתי הרמות (ארבעה לוכסנים):
+    # התעבורה מפענחת רמה אחת, ו-``pre_parse_json`` את השנייה.
+    "json_text_escaped_for_both_levels": '{"file_name": "log.md", "edits": ' + _as_json_string(_PAIRS_TEXT) + "}",
+    # מחרוזת עם escape לרמה אחת בלבד (שני לוכסנים): שני הפענוחים אוכלים את שניהם.
+    "json_text_escaped_for_one_level": '{"file_name": "log.md", "edits": ' + _as_json_string(_PAIRS_CHAR) + "}",
+}
+#: מה שהגיע ל-``_apply_edit`` כ-``new_string`` בכל צורה — נמדד על ``mcp 1.28.1``.
+_REACHES_THE_TOOL = {
+    "array": _ESCAPE_AS_TEXT,
+    "json_text_escaped_for_both_levels": _ESCAPE_AS_TEXT,
+    "json_text_escaped_for_one_level": _RLM,
+}
+
+
+def _tool_call_with_raw_arguments(client, token: str, name: str, arguments_json: str) -> dict:
+    """``tools/call`` דרך ``POST /mcp``, כש-``arguments`` הוא טקסט JSON שנשלח כמו שהוא.
+
+    ``tool_call_over_http`` בונה את הגוף ב-``json=``, כלומר מקודד את הארגומנטים מחדש;
+    כאן הגוף הוא הבתים שהטסט כתב, כדי שפענוח התעבורה יהיה חלק ממה שנמדד.
+    """
+    body = (
+        '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "' + name
+        + '", "arguments": ' + arguments_json + "}}"
+    )
+    response = client.post(
+        "/mcp",
+        content=body.encode("utf-8"),
+        headers={"authorization": f"Bearer {token}", "content-type": "application/json",
+                 "accept": "application/json, text/event-stream"},
+    )
+    assert response.status_code == 200, response.text
+    data = next(line[len("data: "):] for line in response.text.splitlines() if line.startswith("data: "))
+    return json.loads(json.loads(data)["result"]["content"][0]["text"])
+
+
+@pytest.fixture
+def reached_apply_edit(monkeypatch) -> list[str]:
+    """ה-``new_string`` של כל קריאה ל-``_apply_edit`` — מה שהגיע לגוף הכלי אחרי כל השכבות."""
+    reached: list[str] = []
+    real = handlers._apply_edit
+
+    def recording(code, old_string, new_string, replace_all, *, max_size):
+        reached.append(new_string)
+        return real(code, old_string, new_string, replace_all, max_size=max_size)
+
+    monkeypatch.setattr(handlers, "_apply_edit", recording)
+    return reached
+
+
+@pytest.mark.parametrize("form", sorted(_EDITS_ON_THE_WIRE))
+def test_the_server_is_deterministic_for_each_form_edits_can_arrive_in(store, backend, reached_apply_edit, form):
+    """שלוש צורות של אותו ``edits``, על החוט: מה מגיע ל-``_apply_edit`` בכל אחת.
+
+    מערך ← ששת התווים. מחרוזת JSON עם escape לשתי הרמות ← ששת התווים. מחרוזת JSON
+    עם escape לרמה אחת ← התו U+200F עצמו. **השרת דטרמיניסטי לכל צורה** — וזו בדיוק
+    הבעיה: איזו צורה הלקוח שלח, ולמה המודל התכוון, הטסט הזה אינו רואה ואינו יכול
+    לראות. לכן אין כאן שום ניחוש לתקן, ו-``edits_upload_id`` הוא הדרך שאינה תלויה בזה.
+
+    ``content_changed`` הוא ``false`` בשלושתן, גם בזו שכתבה תו בלתי-נראה במקום הטקסט:
+    הוא משווה את מה שהכלי **קיבל** למה שנשמר.
+
+    מקבע התנהגות קיימת, ולכן עובר גם על הקוד שלפני ``edits_upload_id`` — בכוונה. הוא
+    הבסיס למשפט "Send edits as a JSON array" בתיאור ``edits``: מערך מפוענח פעם אחת.
+    """
+    with TestClient(app_in_mode("pat", backend, tokens=TOKENS)) as client:
+        seeded = _tool_call_with_raw_arguments(
+            client, WRITE_A, "codekeeper_save_file", '{"file_name": "log.md", "code": "a X b"}')
+        assert seeded["ok"] is True, seeded
+        res = _tool_call_with_raw_arguments(client, WRITE_A, MULTI_EDIT, _EDITS_ON_THE_WIRE[form])
+
+    assert res["ok"] is True, res
+    assert reached_apply_edit == [_REACHES_THE_TOOL[form]]
+    expected = "a " + _REACHES_THE_TOOL[form] + " b"
+    assert _stored_code(store, res["file"]["id"]) == expected
+    assert res["file"]["content_sha256"] == hashlib.sha256(expected.encode("utf-8")).hexdigest()
+    assert res["content_changed"] is False
+
+
+def test_pairs_uploaded_as_a_file_are_decoded_exactly_once(store, backend, call, reached_apply_edit, tmp_path):
+    """מקצה לקצה: קובץ ← ``PUT /api/agent/upload`` ← ``edits_upload_id`` — פענוח JSON אחד, של השרת.
+
+    בקובץ שני זוגות, ובהם שתי הצורות. שני לוכסנים לפני ``u200F`` הם ששת התווים — וזה
+    מה שסוכן שמתעד escape רוצה. לוכסן יחיד הוא ה-escape של JSON, כלומר התו עצמו: הפענוח
+    היחיד אינו מייתר את ה-escape, ותיאור הפרמטר אומר זאת.
+
+    ``content_sha256`` מחושב כאן על התוצאה הצפויה, ולא נלקח מהכלי. וה-hash שבתשובת
+    ההעלאה הוא של קובץ הזוגות ולא של הקובץ הערוך — מה שתיאור הפרמטר אומר.
+
+    **המוטציה שחייבת להפיל אותו — פענוח נוסף של ה-escapes** (``unicode_escape`` על הטקסט
+    לפני ``json.loads``): הזוג הראשון נשמר אז כתו, לא כטקסט.
+    """
+    import mcp_server.server as srv
+
+    pairs = tmp_path / "edits.json"
+    pairs.write_bytes(
+        ('[{"old_string": "X", "new_string": "' + _BS * 2 + 'u200F"},\n'
+         ' {"old_string": "Y", "new_string": "' + _BS + 'u200F"}]\n').encode("utf-8")
+    )
+    raw = pairs.read_bytes()
+    assert call("codekeeper_save_file", file_name="log.md", code="a X b Y c")["ok"] is True
+    with TestClient(app_in_mode("pat", backend, tokens=TOKENS)) as client:
+        uploaded = _put(client, raw, token=READ_A).json()
+
+    res = call(MULTI_EDIT, file_name="log.md", edits_upload_id=uploaded["upload_id"])
+
+    expected = "a " + _ESCAPE_AS_TEXT + " b " + _RLM + " c"
+    assert res["ok"] is True and res["edits_applied"] == 2 and res["replacements"] == 2, res
+    assert reached_apply_edit == [_ESCAPE_AS_TEXT, _RLM]
+    assert _stored_code(store, res["file"]["id"]) == expected
+    assert res["file"]["content_sha256"] == hashlib.sha256(expected.encode("utf-8")).hexdigest()
+    assert res["content_changed"] is False
+    assert store.uploads.docs == []
+    assert not [key for key in res if key.startswith("upload")], res
+
+    # חד-פעמי: שליחה חוזרת של אותו מזהה אינה מוצאת העלאה, ואינה כותבת.
+    versions = len(store.code_snippets.docs)
+    again = call(MULTI_EDIT, file_name="log.md", edits_upload_id=uploaded["upload_id"])
+    assert again["ok"] is False and again["error"] == "upload_not_found", again
+    assert len(store.code_snippets.docs) == versions
+
+    # ה-hash של ההעלאה הוא של קובץ הזוגות — ולכן התיאור אינו מבטיח שהוא יהיה של הקובץ.
+    assert uploaded["content_sha256"] == hashlib.sha256(raw).hexdigest() != res["file"]["content_sha256"]
+    listed = asyncio.run(srv.build_mcp(backend, public_url="https://mcp.example.com").list_tools())
+    doc = {tool.name: tool for tool in listed}[MULTI_EDIT].inputSchema["properties"]["edits_upload_id"]["description"]
+    assert "its content_sha256 is the hash of this JSON file, not of the edited file" in doc, doc
+    assert "which file.content_sha256 matches" not in doc
+
+
+def test_a_pairs_file_that_opens_with_a_bom_is_not_json(store, backend, call):
+    """הראוט שומר BOM כתו (``utf-8``, לא ``utf-8-sig``), ו-JSON אינו נפתח ב-BOM.
+
+    עורך שמוסיף BOM הוא הדרך השכיחה להגיע לכאן, ולכן המקרה עובר דרך הראוט ולא דרך
+    ``create_upload``: מה שנבדק הוא מה שקורה לבתים האלה מקצה לקצה.
+    """
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+    with TestClient(app_in_mode("pat", backend, tokens=TOKENS)) as client:
+        uploaded = _put(client, b"\xef\xbb\xbf" + _EDITS_HEAD_TO_TAIL.encode("utf-8"), token=READ_A).json()
+
+    res = call(MULTI_EDIT, file_name="log.md", edits_upload_id=uploaded["upload_id"])
+
+    assert res["ok"] is False and res["error"] == "invalid_edits_upload", res
+    assert (res["line"], res["column"], res["position"]) == (1, 1, 0)
+    assert "byte-order mark" in res["hint"]
+    assert len(store.code_snippets.docs) == 1 and len(store.uploads.docs) == 1
+
+
+def _stopped_at(text: str, token: str) -> dict[str, int]:
+    """המיקום של ``token`` ב-``text``, בשדות של הסירוב: שורה ועמודה מ-1, והיסט מ-0."""
+    at = text.index(token)
+    return {"line": text.count("\n", 0, at) + 1, "column": at - text.rfind("\n", 0, at), "position": at}
+
+
+_BROKEN_ON_LINE_3 = '[\n  {"old_string": "' + _SECRET + '",\n   "new_string": "b" "c"}\n]'
+_NOT_AN_ESCAPE = '[{"old_string": "' + _SECRET + '", "new_string": "' + _BS + 'd+"}]'
+
+#: העלאות שאינן מערך JSON: ``(הטקסט, המיקום שהסירוב נושא — או None כשאין מיקום)``.
+_NOT_AN_ARRAY_OF_PAIRS = {
+    "not_json": (f"{_SECRET} [", {"line": 1, "column": 1, "position": 0}),
+    "json_broken_on_line_3": (_BROKEN_ON_LINE_3, _stopped_at(_BROKEN_ON_LINE_3, '"c"')),
+    # לוכסן יחיד לפני תו שאינו escape של JSON — מה שיוצא כשכותבים regex בלי להכפיל.
+    "a_backslash_that_is_not_an_escape": (_NOT_AN_ESCAPE, _stopped_at(_NOT_AN_ESCAPE, _BS)),
+    "json_object": ('{"edits": ' + _EDITS_HEAD_TO_TAIL + "}", None),
+    # מערך תקין שנעטף כמחרוזת JSON — הצורה שבה לקוח שולח רשימה ב-``edits``. כאן היא
+    # **אינה** מתפענחת שוב: פענוח שני הוא בדיוק מה שהפרמטר בא למנוע.
+    "json_string_that_holds_the_array": (json.dumps(_EDITS_HEAD_TO_TAIL), None),
+    "json_null": ("null", None),
+    "json_number": ("5", None),
+    "nested_too_deep": ("[" * 50_000, None),
+    "a_number_too_long_to_convert": ("[" + "1" * 5_000 + "]", None),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_NOT_AN_ARRAY_OF_PAIRS))
+def test_an_upload_that_is_not_a_json_array_is_refused_with_numbers_only(store, backend, call, case):
+    """``invalid_edits_upload``: מיקום במספרים בלבד, שום דבר מהקובץ, ושום דבר לא נכתב.
+
+    שלוש הדרכים שבהן ``json.loads`` אומר "זה אינו JSON" — ``JSONDecodeError`` (עם מיקום),
+    ``ValueError`` על מספר ארוך מתקרת ההמרה, ו-``RecursionError`` על קינון עמוק — ומה
+    שמפוענח ואינו רשימה. ההעלאה נשארת: הסירוב בא לפני השער.
+
+    **המוטציה שחייבת להפיל את ``json_string_that_holds_the_array`` — פענוח JSON שני**
+    (``json.loads`` נוסף כשהפענוח הראשון החזיר מחרוזת): הזוג מוחל, והקובץ משתנה.
+    """
+    text, position = _NOT_AN_ARRAY_OF_PAIRS[case]
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+    upload_id = _create(backend, text)
+
+    res = call(MULTI_EDIT, file_name="log.md", edits_upload_id=upload_id)
+
+    assert res["ok"] is False and res["error"] == "invalid_edits_upload", res
+    assert {key: value for key, value in res.items() if key not in ("ok", "error", "hint")} == (position or {})
+    assert _SECRET not in json.dumps(res)
+    assert "edits_upload_id" in res["hint"] and "upload it again" in res["hint"], res
+    assert len(store.code_snippets.docs) == 1 and len(store.uploads.docs) == 1
+
+
+def test_a_list_from_an_upload_gets_the_refusals_of_edits_and_how_to_send_it_again(store, backend, call):
+    """מערך ריק, מעל התקרה, וזוג פגום — הקודים של ``edits``, מאותו קוד, ועם מה שעושים בהעלאה.
+
+    ב-``edits`` הסירובים האלה אינם נושאים ``hint``: הסוכן שולח שוב את הארגומנט, מתוקן.
+    העלאה אי אפשר לתקן — רק להעלות חדשה — ולכן כאן הסירוב אומר זאת.
+    """
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+    pair = {"old_string": "head", "new_string": "HEAD"}
+    over = handlers.MAX_EDIT_PAIRS + 1
+
+    empty = call(MULTI_EDIT, file_name="log.md", edits_upload_id=_create(backend, "[]"))
+    too_many = call(MULTI_EDIT, file_name="log.md", edits_upload_id=_create(backend, json.dumps([pair] * over)))
+    malformed = call(MULTI_EDIT, file_name="log.md", edits_upload_id=_create(backend, json.dumps(
+        [pair, {"old_string": _SECRET, "new_string": "x", "colour": _SECRET}])))
+
+    assert empty["error"] == "missing_edits"
+    assert (too_many["error"], too_many["count"], too_many["max"]) == ("too_many_edits", over, handlers.MAX_EDIT_PAIRS)
+    assert (malformed["error"], malformed["index"]) == ("invalid_edit", 1)
+    assert [problem["loc"] for problem in malformed["problems"]] == [[1, "colour"]]
+    for res in (empty, too_many, malformed):
+        assert res["ok"] is False
+        assert "upload it again" in res["hint"] and "edits_upload_id" in res["hint"], res
+        # שם המפתח הזר יוצא ב-``loc``, כמו ב-``edits``; הערכים — לעולם לא.
+        assert _SECRET not in json.dumps({key: value for key, value in res.items() if key != "problems"})
+        assert all(_SECRET not in str(problem["msg"]) for problem in res.get("problems", []))
+    assert len(store.code_snippets.docs) == 1 and len(store.uploads.docs) == 3
+
+
+def test_a_refusal_before_the_gate_leaves_the_upload_for_the_next_call(store, backend, call):
+    """``not_found``, ``conflict`` ו-hash פגום באים לפני השער: אותו מזהה עובד בקריאה הבאה.
+
+    זה מה שהשער-אחרי-הבדיקות נותן: סוכן שטעה בשם הקובץ או שקרא גרסה ישנה אינו צריך
+    להעלות את הזוגות שוב.
+    """
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+    upload_id = _create(backend, _EDITS_HEAD_TO_TAIL)
+    stale = hashlib.sha256(b"what the agent read before").hexdigest()
+    current = hashlib.sha256(b"head\n").hexdigest()
+
+    wrong_name = call(MULTI_EDIT, file_name="nope.md", edits_upload_id=upload_id)
+    changed = call(MULTI_EDIT, file_name="log.md", edits_upload_id=upload_id, expected_content_sha256=stale)
+    not_a_hash = call(MULTI_EDIT, file_name="log.md", edits_upload_id=upload_id, expected_content_sha256="x")
+
+    assert [res.get("error") for res in (wrong_name, changed, not_a_hash)] == [
+        "not_found", "conflict", "invalid_expected_content_sha256"]
+    assert len(store.code_snippets.docs) == 1 and len(store.uploads.docs) == 1
+
+    res = call(MULTI_EDIT, file_name="log.md", edits_upload_id=upload_id, expected_content_sha256=current)
+    assert res["ok"] is True and res["content_changed"] is False, res
+    assert _stored_code(store, res["file"]["id"]) == "tail\n"
+    assert store.uploads.docs == []
+
+
+def test_a_pair_that_does_not_apply_says_to_upload_the_file_again(store, backend, call):
+    """סירוב על זוג מהעלאה: אותם קוד, ``index`` ומונים — ו-hint שאומר מה עושים בהעלאה.
+
+    הבקרה היא אותו באץ' ב-``edits``: שם ה-hint אומר לשלוח שוב את הבאץ', ואינו מזכיר העלאה.
+    """
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+    batch = [{"old_string": "head", "new_string": "HEAD"}, {"old_string": "nope", "new_string": "x"}]
+
+    uploaded = call(MULTI_EDIT, file_name="log.md", edits_upload_id=_create(backend, json.dumps(batch)))
+    inline = call(MULTI_EDIT, file_name="log.md", edits=batch)
+
+    for res in (uploaded, inline):
+        assert (res["error"], res["index"]) == ("no_match", 1), res
+        assert (res["occurrences"], res["occurrences_in_stored_version"]) == (0, 0)
+        assert res["hint"].startswith("nothing was written: the batch is all or nothing. ")
+    assert "An upload cannot be changed: fix the file, upload it again and pass the new id in edits_upload_id" in uploaded["hint"]
+    assert "send the whole batch again" not in uploaded["hint"]
+    assert "Fix this pair and send the whole batch again" in inline["hint"] and "upload" not in inline["hint"]
+    assert len(store.code_snippets.docs) == 1 and len(store.uploads.docs) == 1
+
+
+def test_a_save_that_fails_after_the_gate_burns_the_edits_upload_and_says_so(store, backend, call, monkeypatch):
+    """המחיר של "המחיקה היא השער" — אותו מחיר של ``codekeeper_save_file``, ואותה תשובה."""
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+    upload_id = _create(backend, _EDITS_HEAD_TO_TAIL)
+    monkeypatch.setattr(store.dbm, "save_code_snippet_returning_id", lambda snippet: None)
+
+    res = call(MULTI_EDIT, file_name="log.md", edits_upload_id=upload_id)
+
+    assert res["ok"] is False and res["error"] == "save_failed", res
+    assert res["upload_consumed"] is True and "upload the file again" in res["hint"]
+    assert store.uploads.docs == [] and len(store.code_snippets.docs) == 1
+
+
+def test_an_edits_upload_of_someone_else_or_past_its_time_is_not_found(store, backend, call):
+    """של משתמש אחר, או שפקעה — ``upload_not_found``, אותה תשובה, ושום דבר לא נכתב."""
+    assert call("codekeeper_save_file", user=USER_B, file_name="log.md", code="head\n")["ok"] is True
+    theirs = _create(backend, _EDITS_HEAD_TO_TAIL, user=USER_A)
+
+    res = call(MULTI_EDIT, user=USER_B, file_name="log.md", edits_upload_id=theirs)
+    assert res["ok"] is False and res["error"] == "upload_not_found", res
+    assert len(store.uploads.docs) == 1
+
+    mine = _create(backend, _EDITS_HEAD_TO_TAIL, user=USER_B)
+    (doc,) = [d for d in store.uploads.docs if d["upload_id"] == mine]
+    doc["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
+    res = call(MULTI_EDIT, user=USER_B, file_name="log.md", edits_upload_id=mine)
+    assert res["ok"] is False and res["error"] == "upload_not_found", res
+    assert len(store.code_snippets.docs) == 1
+
+
+def test_upload_storage_that_does_not_answer_keeps_the_upload_and_offers_edit_file(store, backend, call):
+    """האחסון לא ענה — בשליפה, ואחר כך בשער: ``upload_storage_unavailable``, ושום דבר לא נכתב.
+
+    ה-hint מציע את ``codekeeper_edit_file`` ולא "send the content inline". ואחרי כשל של
+    המחיקה בשער ההעלאה עדיין שם, והקריאה הבאה מחילה את הזוגות פעם אחת.
+    """
+    from pymongo.errors import AutoReconnect
+
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+    upload_id = _create(backend, _EDITS_HEAD_TO_TAIL)
+    real_find, real_delete = store.uploads.find_one, store.uploads.delete_one
+
+    def unanswered(*args, **kwargs):
+        raise AutoReconnect("simulated: no answer")
+
+    store.uploads.find_one = unanswered
+    at_the_read = call(MULTI_EDIT, file_name="log.md", edits_upload_id=upload_id)
+    store.uploads.find_one = real_find
+    store.uploads.delete_one = unanswered
+    at_the_gate = call(MULTI_EDIT, file_name="log.md", edits_upload_id=upload_id)
+    store.uploads.delete_one = real_delete
+
+    for res in (at_the_read, at_the_gate):
+        assert res["ok"] is False and res["error"] == "upload_storage_unavailable", res
+        assert "codekeeper_edit_file" in res["hint"] and "inline" not in res["hint"]
+    assert len(store.code_snippets.docs) == 1 and len(store.uploads.docs) == 1
+
+    res = call(MULTI_EDIT, file_name="log.md", edits_upload_id=upload_id)
+    assert res["ok"] is True and _stored_code(store, res["file"]["id"]) == "tail\n"
+    assert store.uploads.docs == []
+
+
+def test_two_consumers_of_one_edits_upload_apply_it_exactly_once(store, backend, call):
+    """שני חוטים עוברים יחד את השליפה (``_Racing``), ורק אחד עובר את השער.
+
+    ישירות דרך ה-handler, כמו ``test_two_consumers_of_one_upload_save_exactly_once``:
+    תור הכתיבה מסדר ``call_tool`` בטור ומסתיר את המרוץ. הזוג הוא ``replace_all`` שמתאים
+    גם אחרי שהוחל פעם אחת, ולכן המפסיד מגיע תמיד לשער ולא נעצר לפניו ב-``no_match`` —
+    בלי זה התוצאה הייתה תלויה בסדר החוטים.
+    """
+    assert call("codekeeper_save_file", file_name="log.md", code="a\n")["ok"] is True
+    racing = _Racing()
+    store.raw.c["mcp_uploads"] = racing
+    upload_id = _create(backend, '[{"old_string": "a", "new_string": "ab", "replace_all": true}]')
+    answers: dict[int, dict] = {}
+
+    def consume(index: int) -> None:
+        answers[index] = handlers.multi_edit_file(
+            backend, USER_A, file_name="log.md", edits=[], edits_upload_id=upload_id)
+
+    threads = [threading.Thread(target=consume, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    outcomes = sorted((answer["ok"], answer.get("error")) for answer in answers.values())
+    assert outcomes == [(False, "upload_not_found"), (True, None)], answers
+    assert len(store.code_snippets.docs) == 2 and racing.docs == []
+
+
+def test_the_edits_upload_id_description_is_built_from_the_parts_of_upload_id():
+    """מה שהלקוח מקבל ב-``tools/list`` על ``edits_upload_id``, ועל שני המשפטים שמפנים אליו.
+
+    הפקודה, התוקף ומי שאינו יכול להעלות הם אותם חלקים של ``upload_id`` — רק שם הקובץ
+    שבפקודה שונה — ולא נוסח שהוקלד מחדש. מה ששונה הוא מה שעולה ומה עושים בלי העלאה:
+    הנסיגה היא ``codekeeper_edit_file``, ולא "use the edits parameter as usual".
+    """
+    import mcp_server.server as srv
+
+    tools = srv.build_mcp(_backend()[0], public_url="https://mcp.example.com")._tool_manager
+    multi_edit = tools.get_tool(MULTI_EDIT)
+    props = multi_edit.parameters["properties"]
+    doc = props["edits_upload_id"]["description"]
+
+    # הכלל במשפט הראשון, וכולו בתוך 120 תווים.
+    rule = doc.split(". ", 1)[0]
+    assert len(rule) <= 120, rule
+    assert rule == "Instead of edits, for edits with backslashes meant as text (a literal " + _BS + "u200F or " + _BS + "n): single-use"
+
+    # מה ש-JSON צריך, בשתי הצורות: שני לוכסנים הם הטקסט, אחד הוא התו.
+    assert "decoded exactly once" in doc
+    assert "written " + _BS * 2 + ": there " + _BS * 2 + "u200F is the six characters of text, and " + _BS + (
+        "u200F is the character U+200F itself") in doc
+
+    # אותם חלקים של ``upload_id``.
+    shared = ('curl -sS -T {} -H "Authorization: Bearer $CODEKEEPER_PAT" https://mcp.example.com/api/agent/upload'
+              f" — the reply carries upload_id, valid for {mcp_uploads.UPLOAD_TTL_SECONDS // 60} minutes")
+    assert shared.format("edits.json") in doc
+    for tool in ("codekeeper_save_file", "codekeeper_append_file"):
+        assert shared.format("report.md") in tools.get_tool(tool).parameters["properties"]["upload_id"]["description"]
+    assert doc.endswith(
+        "Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), make such edits with "
+        "codekeeper_edit_file, one edit per call."
+    ), doc
+    assert "as usual" not in doc
+    for word in ("Refusals", "upload_not_found", "upload_corrupted", "invalid_edits_upload", "edits_and_edits_upload_id"):
+        assert word not in doc, word
+
+    # ``edits`` נהיה רשות — עם רשימה ריקה ולא עם ``null`` — והמשפט הראשון שלו נשאר.
+    assert multi_edit.parameters["required"] == ["file_name"]
+    assert props["edits"]["type"] == "array" and "anyOf" not in props["edits"]
+    first, second = props["edits"]["description"].split(". ")[:2]
+    assert first == "Edits applied in order, each to the result of the one before, all or nothing, saved as one version"
+    assert second == ("Send edits as a JSON array, not as a string that holds JSON: strings inside a list that "
+                      "arrived as a string are decoded twice")
+
+    # ושני המשפטים בתיאורי הכלים: ההכרעה בין שלוש הדרכים, ומה מיוחד ב-``codekeeper_edit_file``.
+    assert ("Prefer this tool for several edits in one version; for text with backslashes meant as text (a literal "
+            + _BS + "u200F or " + _BS + "n), prefer codekeeper_edit_file, whose strings arrive as sent, or "
+            "edits_upload_id.") in multi_edit.description
+    assert ("old_string and new_string reach this tool as they were sent, so for text with backslashes meant as "
+            "text, this is the tool.") in tools.get_tool("codekeeper_edit_file").description
 
 
 def _owners(tree: ast.AST) -> dict[int, str]:
@@ -1426,7 +1950,13 @@ def test_every_upload_is_checked_as_it_is_read_and_consumed_at_one_gate():
     אינו קריאה.
 
     רשימת הכלים נגזרת מהרישום האמיתי (``list_tools``), ולא מרשימה בטסט: כלי חדש
-    עם ``upload_id`` נכנס לבדיקה בלי שמישהו יזכור להוסיף אותו.
+    עם פרמטר העלאה נכנס לבדיקה בלי שמישהו יזכור להוסיף אותו.
+
+    **"פרמטר העלאה" הוא כל פרמטר ששמו מסתיים ב-``upload_id``**, ולא רק ``upload_id``
+    בדיוק. עד ``edits_upload_id`` הגזירה חיפשה את השם המדויק, וכך גם את הארגומנט שעובר
+    ל-handler — ו-``codekeeper_multi_edit_file``, שקורא לפרמטר שלו אחרת כי ההעלאה שם
+    היא רשימת הזוגות ולא התוכן, היה יוצא מהחצי הזה של השומר בשקט. מוטציה שמראה שההרחבה
+    מסוגלת ליפול: להפסיק להעביר את ``edits_upload_id`` ל-handler.
 
     נמדד על הקוד של היום: אפס מסלולים עוקפים.
     """
@@ -1499,10 +2029,20 @@ def test_every_upload_is_checked_as_it_is_read_and_consumed_at_one_gate():
         if "_load_upload" in used and "_consume_upload" not in used:
             offenders.append(f"handlers.{handler_name} שולף העלאה ואינו עובר ב-_consume_upload")
 
-    # וכל כלי רשום עם ``upload_id`` מגיע ל-handler כזה.
+    # וכל כלי רשום עם פרמטר העלאה מגיע ל-handler כזה.
     listed = asyncio.run(srv.build_mcp(_backend()[0], public_url="https://mcp.example.com").list_tools())
-    takes_upload = {tool.name for tool in listed if "upload_id" in tool.inputSchema.get("properties", {})}
-    assert takes_upload, "אף כלי אינו מקבל upload_id — הרשימה נגזרת מהרישום, משהו השתנה שם"
+    takes_upload = {
+        tool.name: sorted(name for name in tool.inputSchema.get("properties", {}) if name.endswith("upload_id"))
+        for tool in listed
+    }
+    takes_upload = {tool: params for tool, params in takes_upload.items() if params}
+    assert takes_upload, "אף כלי אינו מקבל פרמטר העלאה — הרשימה נגזרת מהרישום, משהו השתנה שם"
+    # הכלים שהטסטים ההתנהגותיים מכסים הם בדיוק אלה שהרישום מפרסם: כלי רביעי שיקבל
+    # העלאה נכנס לשומר מעצמו, ונופל כאן עד שיוסיפו אותו גם לטבלה.
+    assert takes_upload == {tool: [upload_arg] for tool, upload_arg in _UPLOAD_ARG.items()}, (
+        "הכלים שמקבלים העלאה לפי הרישום אינם אלה שב-_TAKES_AN_UPLOAD, והטסטים ההתנהגותיים "
+        f"(ה-hint-ים, בדיקת השלמות) רצים על הטבלה: {takes_upload}"
+    )
     routed: dict[str, set[str]] = {tool: set() for tool in takes_upload}
     for node in ast.walk(trees[package / "server.py"]):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -1514,19 +2054,20 @@ def test_every_upload_is_checked_as_it_is_read_and_consumed_at_one_gate():
             for keyword in decorator.keywords
             if keyword.arg == "name" and isinstance(keyword.value, ast.Constant)
         }
-        for tool in registered & takes_upload:
+        for tool in registered & set(takes_upload):
             for call_node in ast.walk(node):
                 if (
                     isinstance(call_node, ast.Call)
                     and isinstance(call_node.func, ast.Attribute)
                     and isinstance(call_node.func.value, ast.Name)
                     and call_node.func.value.id == "handlers"
-                    and any(keyword.arg == "upload_id" for keyword in call_node.keywords)
+                    # הפרמטר שהכלי מפרסם הוא זה שעובר ל-handler, באותו שם.
+                    and {keyword.arg for keyword in call_node.keywords} >= set(takes_upload[tool])
                 ):
                     routed[tool].add(call_node.func.attr)
     for tool, targets in sorted(routed.items()):
         if not targets:
-            offenders.append(f"{tool} מקבל upload_id ואינו מעביר אותו ל-handler")
+            offenders.append(f"{tool} מקבל {takes_upload[tool]} ואינו מעביר אותו ל-handler")
         for target in targets:
             if "_consume_upload" not in names_in(handler_defs.get(target, ast.Module(body=[], type_ignores=[]))):
                 offenders.append(f"{tool} ← handlers.{target}, שאינו עובר ב-_consume_upload")

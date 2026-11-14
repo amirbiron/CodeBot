@@ -314,7 +314,14 @@ def test_strings_that_look_like_json_inside_a_pair_arrive_as_strings(mcp, store,
     """``"null"`` ו-``"[1, 2]"`` בתוך זוג מגיעים כמחרוזות, והחיפוש מוצא אותן.
 
     ``pre_parse_json`` רץ על ארגומנטים ברמה העליונה בלבד (``FuncMetadata.pre_parse_json``,
-    ``mcp 1.28.1``), ולכן מה שבתוך הזוג אינו מפוענח — גם כשהרשימה כולה נשלחה כמחרוזת.
+    ``mcp 1.28.1``), ולכן מחרוזת שבתוך הזוג אינה מפוענחת **כערך JSON משלה** — גם כשהרשימה
+    כולה נשלחה כמחרוזת.
+
+    **ה-escapes שבתוכה הם עניין אחר.** כשהרשימה נשלחה כמחרוזת, הפענוח שלה ב-``pre_parse_json``
+    מפענח גם את ה-escapes שבמחרוזות הזוגות — פענוח שני, אחרי זה של התעבורה. כאן זה לא
+    נראה, כי ``json.dumps`` מכפיל כל לוכסן. שלוש הצורות נמדדות ב-
+    ``test_the_server_is_deterministic_for_each_form_edits_can_arrive_in`` שב-
+    ``tests/test_mcp_uploads.py``, ו-``edits_upload_id`` הוא הדרך שאינה תלויה בצורה.
     """
     _seed(mcp, 'value = null\nitems = [1, 2]\nobj = {"a": 1}\n')
     edits = [_pair("null", "None"), _pair("[1, 2]", "[3]"), _pair('{"a": 1}', "{}")]

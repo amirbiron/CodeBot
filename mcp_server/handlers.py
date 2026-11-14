@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import json
 import re
 from typing import Annotated, Any, Callable, NamedTuple
 
@@ -773,29 +774,68 @@ def max_code_size() -> int:
 # אומרת זאת (``upload_consumed``). החלופה — למחוק אחרי שמירה — משאירה העלאה חיה
 # אחרי שמירה שהצליחה, ו-``append_file`` שנשלח שוב כי התשובה אבדה בדרך היה מוסיף
 # את התוכן פעמיים, בשקט.
+#
+# **ב-``codekeeper_multi_edit_file`` ההעלאה אינה תוכן הקובץ אלא רשימת הזוגות**
+# (``edits_upload_id``), והסדר הוא אותו סדר: שליפה ובדיקת שלמות ← פענוח ה-JSON,
+# פעם אחת (:func:`_edits_from_upload`) ← המסלול הקיים של ``edits`` כמו שהוא ←
+# השער ← השמירה. מה שמשתנה בין הכלים הוא רק השמות שהסירובים נוקבים בהם, והם
+# ב-:class:`_UploadParam`.
 # ---------------------------------------------------------------------------
 
 
-def _both_sent(param: str) -> dict[str, Any]:
+class _UploadParam(NamedTuple):
+    """איך כלי אחד קורא להעלאה שלו — השמות שסירוב על ההעלאה נוקב בהם.
+
+    העוזרים שמתחת כתובים פעם אחת לכל כלי שמקבל העלאה. עד ``edits_upload_id`` כל
+    הכלים קראו לפרמטר ``upload_id`` וההעלאה הייתה התוכן, ולכן ``upload_id`` ו-"send
+    the content inline" היו מוקלדים בתוך ה-hint-ים. ב-``codekeeper_multi_edit_file``
+    הפרמטר נקרא אחרת וההעלאה היא רשימת הזוגות — סוכן שקורא שם ``upload_id`` מחפש
+    פרמטר שאין בכלי, ו-"inline" שולח אותו בחזרה ל-``edits``, בדיוק המקום שממנו ברח.
+
+    **קוד נקרא על שם הפרמטר רק כשהוא מתאר פרמטר** (``code_and_upload_id``,
+    ``invalid_edits_upload_id``). ``upload_not_found``, ``upload_corrupted`` ו-
+    ``upload_storage_unavailable`` מתארים את ההעלאה, ונשארים משותפים לכל הכלים.
+
+    ``name`` — הפרמטר שנושא את המזהה. ``instead_of`` — הפרמטר שההעלאה באה במקומו.
+    ``otherwise`` — מה הסוכן עושה כשאין לו העלאה שמישה, כסוף משפט ב-hint.
+    """
+
+    name: str
+    instead_of: str
+    otherwise: str
+
+
+_SEND_THE_CONTENT_INLINE = "send the content inline"
+_CODE_UPLOAD = _UploadParam("upload_id", "code", _SEND_THE_CONTENT_INLINE)
+_CONTENT_UPLOAD = _UploadParam("upload_id", "content", _SEND_THE_CONTENT_INLINE)
+#: לא "send the edits inline": מי שהעלה זוגות עשה זאת כי המחרוזות שלהם אינן עוברות
+#: בבטחה בתוך ``edits``. ב-``codekeeper_edit_file`` המחרוזות הן פרמטרים ברמה העליונה,
+#: שמגיעים לכלי כמו שנשלחו (``_RawStringMetadata`` ב-``mcp_server/server.py``).
+_EDITS_UPLOAD = _UploadParam(
+    "edits_upload_id", "edits", "make the edits with codekeeper_edit_file, one edit per call"
+)
+
+
+def _both_sent(param: _UploadParam) -> dict[str, Any]:
     return {
         "ok": False,
-        "error": f"{param}_and_upload_id",
-        "hint": f"pass either the {param} parameter or upload_id, not both",
+        "error": f"{param.instead_of}_and_{param.name}",
+        "hint": f"pass either the {param.instead_of} parameter or {param.name}, not both",
     }
 
 
-def _invalid_upload_id(upload_id: Any) -> dict[str, Any] | None:
-    """סירוב על ``upload_id`` שאינו בצורת מזהה — או ``None``. בלי להדהד את הערך."""
+def _invalid_upload_id(upload_id: Any, param: _UploadParam) -> dict[str, Any] | None:
+    """סירוב על מזהה העלאה שאינו בצורת מזהה — או ``None``. בלי להדהד את הערך."""
     if is_upload_id(upload_id):
         return None
     return {
         "ok": False,
-        "error": "invalid_upload_id",
-        "hint": "pass upload_id exactly as PUT /api/agent/upload returned it",
+        "error": f"invalid_{param.name}",
+        "hint": f"pass {param.name} exactly as PUT /api/agent/upload returned it",
     }
 
 
-def _upload_not_found() -> dict[str, Any]:
+def _upload_not_found(param: _UploadParam) -> dict[str, Any]:
     """תשובה אחת לפגה, לנצרכה ולשל משתמש אחר — בלי לגלות איזו (כמו ``get_note``)."""
     return {
         "ok": False,
@@ -803,19 +843,19 @@ def _upload_not_found() -> dict[str, Any]:
         "hint": (
             "no pending upload with this id: an upload lasts "
             f"{UPLOAD_TTL_SECONDS // 60} minutes and the first save that uses it uses it up. "
-            "Nothing was written. Upload the file again, or send the content inline."
+            f"Nothing was written. Upload the file again, or {param.otherwise}."
         ),
     }
 
 
-def _upload_storage_unavailable() -> dict[str, Any]:
+def _upload_storage_unavailable(param: _UploadParam) -> dict[str, Any]:
     """אחסון ההעלאות לא ענה. אותה מילה של הראוט (503), כי זה אותו מצב."""
     return {
         "ok": False,
         "error": "upload_storage_unavailable",
         "hint": (
             "the upload storage did not answer; nothing was written. Retry in a minute — "
-            "if it answers upload_not_found, upload the file again — or send the content inline."
+            f"if it answers upload_not_found, upload the file again — or {param.otherwise}."
         ),
     }
 
@@ -843,15 +883,19 @@ class _PendingUpload(NamedTuple):
     לכן כל מה שבא אחריה בגוף הכלי — התקרה, ``file_exists``, ``conflict``, השער —
     רואה טקסט שכבר אומת. ``test_every_upload_is_checked_as_it_is_read_and_consumed_at_one_gate``
     מקבע שאין מקום אחר שבונה אותה.
+
+    ``param`` — איך הכלי קורא להעלאה הזו (:class:`_UploadParam`). הוא נוסע איתה,
+    ולכן גם הסירוב של השער (:func:`_consume_upload`) נוקב באותם שמות של השליפה.
     """
 
     upload_id: str
     text: str
     size_bytes: int
+    param: _UploadParam
 
 
 def _load_upload(
-    backend: Any, user_id: int, upload_id: Any, *, tool: str
+    backend: Any, user_id: int, upload_id: Any, *, tool: str, param: _UploadParam
 ) -> _PendingUpload | dict[str, Any]:
     """ההעלאה, או הסירוב שיש להחזיר — לעולם לא שניהם. בודקת צורה, שולפת ומוודאת שלמות — **אינה צורכת**.
 
@@ -873,17 +917,17 @@ def _load_upload(
     העלאה שאינה תואמת מושלכת (``discard_upload`` — ניקיון, לא השער), והתשובה
     ``upload_corrupted`` — בלי קשר למה שהמחיקה עשתה: העלאה משובשת נשארת משובשת גם
     אם צורך מקביל מחק אותה בינתיים, וגם אם האחסון לא ענה והיא תפקע ב-TTL. ``tool``
-    הוא לשורת ה-``ERROR`` שלה.
+    הוא לשורת ה-``ERROR`` שלה, ו-``param`` — השמות שהסירובים נוקבים בהם.
     """
-    bad = _invalid_upload_id(upload_id)
+    bad = _invalid_upload_id(upload_id, param)
     if bad is not None:
         return bad
     try:
         found = backend.find_upload(user_id, upload_id)
     except UploadStorageUnavailable:
-        return _upload_storage_unavailable()
+        return _upload_storage_unavailable(param)
     if found is None:
-        return _upload_not_found()
+        return _upload_not_found(param)
     text = found["text"]
     size_bytes = found["bytes"]
     problem = _upload_integrity_problem(text, found["content_sha256"])
@@ -892,7 +936,7 @@ def _load_upload(
             user_id, upload_id, tool=tool, reason=problem, size_bytes=size_bytes, chars=len(text)
         )
         return _upload_corrupted()
-    return _PendingUpload(upload_id=upload_id, text=text, size_bytes=size_bytes)
+    return _PendingUpload(upload_id=upload_id, text=text, size_bytes=size_bytes, param=param)
 
 
 def _upload_integrity_problem(text: str, stored_sha256: object) -> str | None:
@@ -934,8 +978,8 @@ def _consume_upload(
             user_id, upload.upload_id, tool=tool, size_bytes=upload.size_bytes, chars=len(upload.text)
         )
     except UploadStorageUnavailable:
-        return _upload_storage_unavailable()
-    return None if consumed else _upload_not_found()
+        return _upload_storage_unavailable(upload.param)
+    return None if consumed else _upload_not_found(upload.param)
 
 
 def _upload_used_up(res: dict[str, Any]) -> dict[str, Any]:
@@ -1039,8 +1083,10 @@ def save_file(
     upload: _PendingUpload | None = None
     if upload_id is not None:
         if isinstance(code, str) and code != "":
-            return _both_sent("code")
-        loaded = _load_upload(backend, user_id, upload_id, tool="codekeeper_save_file")
+            return _both_sent(_CODE_UPLOAD)
+        loaded = _load_upload(
+            backend, user_id, upload_id, tool="codekeeper_save_file", param=_CODE_UPLOAD
+        )
         if isinstance(loaded, dict):
             return loaded
         upload = loaded
@@ -1444,8 +1490,10 @@ def append_file(
     upload: _PendingUpload | None = None
     if upload_id is not None:
         if isinstance(content, str) and content != "":
-            return _both_sent("content")
-        loaded = _load_upload(backend, user_id, upload_id, tool="codekeeper_append_file")
+            return _both_sent(_CONTENT_UPLOAD)
+        loaded = _load_upload(
+            backend, user_id, upload_id, tool="codekeeper_append_file", param=_CONTENT_UPLOAD
+        )
         if isinstance(loaded, dict):
             return loaded
         upload = loaded
@@ -1570,11 +1618,111 @@ EDIT_PAIR_JSON_SCHEMA: dict[str, Any] = EditPair.model_json_schema()
 #: הזה ענף ב-``AdminAwareFastMCP.call_tool``.
 MAX_EDIT_PAIRS = 50
 
-#: מה שכל סירוב של זוג אומר, מעבר לקוד שלו.
-_NOTHING_WRITTEN = (
-    "nothing was written: the batch is all or nothing. Fix this pair and send the whole "
-    "batch again"
+#: שם הכלי, כפי שהוא נרשם בשורות הלוג של השמירה ושל ההעלאה.
+_MULTI_EDIT_TOOL = "codekeeper_multi_edit_file"
+
+#: מה שכל סירוב של זוג אומר, מעבר לקוד שלו — ואחריו איך שולחים שוב, לפי הדרך שבה
+#: הזוגות הגיעו: ב-``edits`` שולחים שוב את הבאץ'; העלאה אי אפשר לתקן, רק להעלות חדשה.
+_NOTHING_WRITTEN = "nothing was written: the batch is all or nothing. "
+_RESEND_THE_BATCH = "Fix this pair and send the whole batch again"
+_UPLOAD_THE_EDITS_AGAIN = (
+    "An upload cannot be changed: fix the file, upload it again and pass the new id in "
+    f"{_EDITS_UPLOAD.name}"
 )
+
+# ---------------------------------------------------------------------------
+# ``edits_upload_id`` — רשימת הזוגות כקובץ JSON שעלה ב-``PUT /api/agent/upload``.
+#
+# **מה זה סוגר.** ``edits`` הוא רשימה, ולכן נשאר ב-``pre_parse_json`` של ה-SDK
+# (ההערה בחתימת הכלי ב-``mcp_server/server.py``): רשימה שהלקוח שלח כמחרוזת JSON
+# מפוענחת שם. המחרוזות שבתוך הזוגות עוברות אז שני פענוחי JSON — של התעבורה ושל
+# ``pre_parse_json`` — וכשהרשימה נשלחה כמערך, אחד. נמדד דרך ``call_tool`` וגם דרך
+# ``POST /mcp`` על ``mcp 1.28.1``, עם ``new_string`` שנכתב לוכסן-לוכסן-``u200F``:
+# מערך ← ששת התווים; מחרוזת עם escape כפול ← ששת התווים; מחרוזת עם escape יחיד ←
+# התו U+200F עצמו. השרת דטרמיניסטי לכל צורה, ואינו יכול לדעת איזו מהן הלקוח שלח
+# ולמה המודל התכוון — ואסור לו לנחש. קובץ שעולה כבתים אינו עובר באף אחת מהשכבות
+# האלה: נשאר פענוח JSON אחד, כאן, וכותב הקובץ יודע בדיוק מהו.
+# ``tests/test_mcp_uploads.py`` מקבע את שלוש הצורות ואת הפענוח היחיד.
+#
+# **הפענוח היחיד אינו מייתר את ה-escape של JSON.** הקובץ הוא JSON, ולכן לוכסן
+# מילולי נכתב בו כשני לוכסנים. מי שכותב לוכסן יחיד לפני ``u200F`` מקבל את התו —
+# דטרמיניסטי, ושגוי אם התכוון לטקסט. תיאור הפרמטר אומר זאת.
+# ---------------------------------------------------------------------------
+
+#: מה שקובץ הזוגות צריך להיות — משפט אחד לכל הסירובים של :func:`_edits_from_upload`.
+_EDITS_UPLOAD_SHAPE = (
+    "The uploaded file must be JSON: one array of {old_string, new_string, replace_all?} "
+    "objects, UTF-8 without a byte-order mark. Nothing was written. "
+    + _UPLOAD_THE_EDITS_AGAIN
+)
+
+
+def _invalid_edits_upload(problem: str, **position: int) -> dict[str, Any]:
+    """הסירוב על קובץ זוגות שאינו מערך JSON. ``position`` — מספרים בלבד, לעולם לא טקסט מהקובץ."""
+    return {
+        "ok": False,
+        "error": "invalid_edits_upload",
+        **position,
+        "hint": f"{problem} {_EDITS_UPLOAD_SHAPE}",
+    }
+
+
+def _edits_from_upload(text: str) -> list[Any] | dict[str, Any]:
+    """הרשימה שבקובץ הזוגות, או הסירוב ``invalid_edits_upload`` — לעולם לא שניהם.
+
+    **JSON מפוענח כאן פעם אחת בדיוק** — ההערה שמעל. מה שחוזר הוא רשימה כמו זו
+    שמגיעה ב-``edits``, ומכאן אותו קוד מאמת אותה (:func:`refuse_edits`,
+    ``_EDITS_ADAPTER``): אין כאן שום ולידציה של הזוגות עצמם.
+
+    ``dict`` שחוזר מכאן הוא תמיד הסירוב: קובץ שהוא אובייקט JSON נענה באותו סירוב,
+    ואינו מוחזר.
+
+    **מה נתפס, ולמה בדיוק זה** (R10 ב-amir-bug-patterns — לא ``except Exception``). בתוך
+    ה-``try`` יש רק ``json.loads`` על ``str``, ושלוש החריגות הן שלוש הדרכים שבהן
+    הוא אומר "זה אינו JSON שאני מפענח" — נמדד בחוט עובד ב-CPython 3.11.18, 3.12.3
+    ו-3.13.18:
+
+    * ``json.JSONDecodeError`` — טקסט שאינו JSON; גם קובץ שנפתח ב-BOM, שהראוט שומר
+      כתו (``loads`` ב-``Lib/json/__init__.py``: "Unexpected UTF-8 BOM"). נושאת
+      ``lineno``, ``colno`` ו-``pos``, ורק הם יוצאים: ``msg`` נושא בפענוח של פייתון
+      טהור תו מהקובץ (``"Invalid control character {0!r} at"`` ב-``Lib/json/decoder.py``).
+    * ``ValueError`` שאינה ``JSONDecodeError`` — מספר שלם ארוך מתקרת ההמרה של
+      פייתון (``sys.get_int_max_str_digits()``; 4,300 ספרות בשלוש הגרסאות שנמדדו).
+      אין לה מיקום.
+    * ``RecursionError`` — קינון עמוק מתקרת הרקורסיה. זוג חוקי יושב בעומק 2.
+
+    ``TypeError`` — ``text`` שאינו מחרוזת — אינה נתפסת: זה חוזה שנשבר, לא קובץ פגום.
+    """
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return _invalid_edits_upload(
+            "The uploaded file is not valid JSON: line and column (1-based, in characters; "
+            "position is the 0-based offset) are where the parser stopped. A backslash meant "
+            "as text is written as two backslashes in JSON.",
+            line=exc.lineno,
+            column=exc.colno,
+            position=exc.pos,
+        )
+    except (ValueError, RecursionError):
+        return _invalid_edits_upload(
+            "The uploaded file could not be parsed as JSON: it nests too deep, or holds a "
+            "number too long to convert."
+        )
+    if not isinstance(decoded, list):
+        return _invalid_edits_upload("The uploaded file is JSON, but not an array.")
+    return decoded
+
+
+def _fix_the_upload(refusal: dict[str, Any]) -> dict[str, Any]:
+    """סירוב על **מבנה** הרשימה שבאה מהעלאה — עם מה שעושים איתו.
+
+    ``missing_edits``, ``too_many_edits`` ו-``invalid_edit`` אינם נושאים ``hint``
+    כשהרשימה הגיעה ב-``edits``: שם הסוכן שולח שוב את אותו ארגומנט, מתוקן. העלאה אי
+    אפשר לתקן, ולכן הסירוב אומר זאת — אחרת הסוכן שולח שוב את אותו מזהה ומקבל את
+    אותה תשובה.
+    """
+    return {**refusal, "hint": f"{_NOTHING_WRITTEN}{_UPLOAD_THE_EDITS_AGAIN}"}
 
 
 def refuse_edits(edits: list[Any]) -> dict[str, Any] | None:
@@ -1591,7 +1739,14 @@ def refuse_edits(edits: list[Any]) -> dict[str, Any] | None:
 
 
 def _pair_refusal(
-    index: int, err: str | None, occurrences: int, *, old_string: str, stored: str, max_size: int
+    index: int,
+    err: str | None,
+    occurrences: int,
+    *,
+    old_string: str,
+    stored: str,
+    max_size: int,
+    uploaded: bool,
 ) -> dict[str, Any]:
     """הסירוב של זוג שנכשל: הקוד של ``codekeeper_edit_file``, ``index``, והסבר.
 
@@ -1601,9 +1756,12 @@ def _pair_refusal(
     כשהם שונים, זוג קודם בבאץ' שינה את מה שהזוג הזה מחפש, וזה המקרה שסוכן יוצר
     בטעות: הוא מקבל "לא נמצא" על מחרוזת שהוא בטוח שקיימת. ה-``count`` הנוסף רץ
     רק כאן, במסלול הכשל.
+
+    ``uploaded`` — הזוגות באו מ-``edits_upload_id``, ולכן "שלח שוב את הבאץ'" אינו
+    מה שהסוכן יכול לעשות: ההעלאה נשארת כמו שהיא, והוא מעלה קובץ מתוקן.
     """
     out: dict[str, Any] = {"ok": False, "error": err or "edit_failed", "index": index}
-    hint = _NOTHING_WRITTEN
+    hint = _NOTHING_WRITTEN + (_UPLOAD_THE_EDITS_AGAIN if uploaded else _RESEND_THE_BATCH)
     if err in ("no_match", "ambiguous_match"):
         in_stored = stored.count(old_string)
         out["occurrences"] = occurrences
@@ -1627,10 +1785,11 @@ def multi_edit_file(
     file_name: str,
     edits: list[Any],
     expected_content_sha256: str | None = None,
+    edits_upload_id: str | None = None,
 ) -> dict[str, Any]:
     """Several exact find-and-replace edits on one existing file, saved as ONE new version.
 
-    **הסדר, וזו כל ההכרעה:** כל מה שזול ומקומי רץ **לפני** הקריאה מהמסד —
+    **הסדר, וזו כל ההכרעה:** כל מה שזול ומקומי רץ **לפני** הקריאה של הקובץ מהמסד —
     ``missing_file_name``, אורך הרשימה, המבנה של **כל** הזוגות, והצורה של
     ``expected_content_sha256`` — כך שקלט פגום אינו עולה קריאה, וזוג פגום
     במקום השלישי נענה מיד, לפני שזוג ראשון מוחל. אחרי הקריאה: ``not_found``,
@@ -1639,27 +1798,54 @@ def multi_edit_file(
 
     ``edits`` שאינו רשימה אינו נענה כאן: הסכימה של הכלי מבטיחה רשימה, וה-SDK
     דוחה כל דבר אחר לפני שהגוף רץ — כמו ``items`` של ``codekeeper_read_batch``.
+    גם "לא נשלח" מגיע לכאן כרשימה ריקה, מברירת המחדל של הסכימה, ולא כ-``None``.
+
+    ``edits_upload_id`` — הרשימה מקובץ JSON שהועלה במקום ``edits``, **באותו מסלול
+    ולא במסלול שני**, בתבנית של :func:`append_file`: בדיוק אחד מהשניים ←
+    :func:`_load_upload` (צורת המזהה, שליפה, שלמות — בלי לצרוך) ← פענוח ה-JSON,
+    פעם אחת (:func:`_edits_from_upload`) ← ומכאן הקוד שלמעלה כמו שהוא, על הרשימה
+    שפוענחה ← והשער :func:`_consume_upload` בתוך :func:`_resave_edited`, אחרי כל
+    הבדיקות ורגע לפני השמירה. לכן כל סירוב שלפני השער — זוג פגום, ``no_match``,
+    ``not_found``, ``conflict`` — משאיר את ההעלאה חיה, וכשל של השמירה עצמה שורף
+    אותה ואומר זאת (``upload_consumed``). ההעלאה היא שנקראת מהמסד לפני בדיקות
+    הרשימה, כי הרשימה בתוכה; הקובץ עצמו עדיין נקרא רק אחריהן. למה הפרמטר קיים —
+    בהערה שמעל :func:`_edits_from_upload`.
     """
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
     if not isinstance(edits, list):
         raise TypeError("edits must be a list; the tool's schema guarantees one")
+    upload: _PendingUpload | None = None
+    if edits_upload_id is not None:
+        if edits:
+            return _both_sent(_EDITS_UPLOAD)
+        loaded = _load_upload(
+            backend, user_id, edits_upload_id, tool=_MULTI_EDIT_TOOL, param=_EDITS_UPLOAD
+        )
+        if isinstance(loaded, dict):
+            return loaded
+        upload = loaded
+        decoded = _edits_from_upload(upload.text)
+        if isinstance(decoded, dict):
+            return decoded
+        edits = decoded
     refusal = refuse_edits(edits)
     if refusal is not None:
-        return refusal
+        return refusal if upload is None else _fix_the_upload(refusal)
     try:
         pairs = _EDITS_ADAPTER.validate_python(edits)
     except ValidationError as exc:
         problems = validation_problems(exc)
         # ``loc`` של כל בעיה נפתח באינדקס הזוג (הרשימה אומתה כולה); ``index`` הוא
         # הזוג הראשון שנכשל, כמו בסירוב של זוג שלא התאים.
-        return {
+        refusal = {
             "ok": False,
             "error": "invalid_edit",
             "index": min(problem["loc"][0] for problem in problems),
             "problems": problems,
         }
+        return refusal if upload is None else _fix_the_upload(refusal)
     bad_expected = _invalid_expected_sha256(expected_content_sha256)
     if bad_expected is not None:
         return bad_expected
@@ -1681,14 +1867,22 @@ def multi_edit_file(
         if err is not None or new_code is None:
             return _pair_refusal(
                 index, err, occurrences, old_string=pair.old_string, stored=stored,
-                max_size=max_size,
+                max_size=max_size, uploaded=upload is not None,
             )
         code = new_code
         # החלפות בפועל ולא זוגות: זוג עם ``replace_all`` שפגע בשבעה מופעים תורם
         # שבעה — בדיוק כמו ``replacements`` של ``codekeeper_edit_file``.
         replacements += occurrences
     res = _resave_edited(
-        backend, user_id, name=name, doc=doc, new_code=code, tool="codekeeper_multi_edit_file"
+        backend,
+        user_id,
+        name=name,
+        doc=doc,
+        new_code=code,
+        tool=_MULTI_EDIT_TOOL,
+        consume=None
+        if upload is None
+        else functools.partial(_consume_upload, backend, user_id, upload, tool=_MULTI_EDIT_TOOL),
     )
     if not res.get("ok"):
         return res
