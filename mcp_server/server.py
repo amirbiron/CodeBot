@@ -708,16 +708,193 @@ def _upload_id_param_doc(instead_of: str, upload_url: str, hash_after_write: str
 
     **ומה ה-hash מוכיח — מכל כלי בנפרד** (``hash_after_write``): ``_UPLOAD_HASH_AFTER_SAVE``
     או ``_UPLOAD_HASH_AFTER_APPEND``, והנימוק מעליהם.
+
+    הפקודה, התוקף ופתיח הנסיגה הם החלקים של :func:`_upload_command`,
+    :data:`_UPLOAD_REPLY_DOC` ו-:data:`_WITHOUT_UPLOAD_DOC`, שגם
+    :func:`_edits_upload_id_param_doc` נבנה מהם.
     """
     return (
         f"Instead of {instead_of}, for text already in a file in your environment: "
         "single-use, and the size ceiling still applies. Upload the file "
-        'first: curl -sS -T report.md -H "Authorization: Bearer $CODEKEEPER_PAT" '
-        f"{_shell_word(upload_url)} — the reply carries upload_id, valid for {UPLOAD_TTL_SECONDS // 60} "
-        f"minutes, {hash_after_write} "
-        "Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), use the "
-        f"{instead_of} parameter as usual."
+        f"first: {_upload_command(upload_url, 'report.md')} — {_UPLOAD_REPLY_DOC}, "
+        f"{hash_after_write} "
+        f"{_WITHOUT_UPLOAD_DOC}use the {instead_of} parameter as usual."
     )
+
+
+# החלקים שכל תיאור של פרמטר העלאה נבנה מהם — **נוסח אחד, ולא עותק לכל כלי**
+# (``prose-restates-code-fact`` ב-amir-bug-patterns): הפקודה, מה התשובה נושאת ולכמה
+# זמן, ומי אינו יכול להעלות. ``upload_id`` של ``codekeeper_save_file`` ושל
+# ``codekeeper_append_file`` ו-``edits_upload_id`` של ``codekeeper_multi_edit_file``
+# שונים במה שעולה ובמה שעושים בלי העלאה — לא באיך מעלים.
+def _upload_command(upload_url: str, file_name: str) -> str:
+    """פקודת ההעלאה — רק שם הקובץ המקומי משתנה בין התיאורים.
+
+    הכתובת עוברת :func:`_shell_word`, מהנימוק שכתוב שם. ``-T`` שולח את הקובץ כבתים,
+    בלי שהמעטפת או המודל נוגעים בתוכן שלו.
+    """
+    return (
+        f'curl -sS -T {file_name} -H "Authorization: Bearer $CODEKEEPER_PAT" '
+        f"{_shell_word(upload_url)}"
+    )
+
+
+#: מה תשובת ההעלאה נושאת, ולכמה זמן. הדקות מ-``UPLOAD_TTL_SECONDS``, לא מוקלדות.
+_UPLOAD_REPLY_DOC = f"the reply carries upload_id, valid for {UPLOAD_TTL_SECONDS // 60} minutes"
+
+#: פתיח המשפט האחרון של כל תיאור העלאה: מי אינו יכול להעלות. ההמשך — מה עושים
+#: במקום — שונה בין הכלים, ולכן אינו כאן.
+_WITHOUT_UPLOAD_DOC = "Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), "
+
+
+def _edits_upload_id_param_doc(upload_url: str) -> str:
+    """תיאור ``edits_upload_id`` של ``codekeeper_multi_edit_file``. נבנה ברישום, כמו ``upload_id``.
+
+    **המשפט הראשון נושא את הכלל** — במקום ``edits``, למה, וחד-פעמי — כי לקוח שמקצר
+    תיאור פרמטר לכ-120 תווים רואה רק אותו.
+
+    **ואחריו מה שבלעדיו התוצאה דטרמיניסטית ושגויה:** הקובץ הוא JSON, והשרת מפענח
+    אותו פעם אחת (``_edits_from_upload`` ב-``mcp_server/handlers.py``). ההעלאה מסירה
+    את אי-הוודאות של התעבורה, ולא את ה-escape של JSON עצמו: לוכסן שנועד להיות טקסט
+    נכתב בקובץ כשני לוכסנים. הדוגמה נקובה בשתי הצורות, כי ההבדל ביניהן הוא כל העניין.
+
+    **בלי הבטחת hash, בכוונה.** ה-``content_sha256`` שבתשובת ההעלאה הוא של קובץ
+    הזוגות, לא של הקובץ שנערך — ומשפט בנוסח של ``_UPLOAD_HASH_AFTER_SAVE`` היה חוזר
+    כאן על הטעות של #3502 בפעם השלישית. התיאור אומר מה ה-hash הזה **אינו**, ו-
+    ``tests/test_mcp_uploads.py`` בודק זאת מול מה שהכלי מחזיר.
+
+    **והנסיגה אינה "use the edits parameter as usual", ואינה כלי אחד לכל טקסט:** מי
+    שצריך את הפרמטר הזה צריך אותו כי ``edits`` אינו מעביר את המחרוזות שלו בבטחה, ומה
+    שהוא עושה בלי העלאה תלוי **בטקסט**. לוכסן שאינו escape של יוניקוד הולך ל-
+    ``codekeeper_edit_file``, ששם המחרוזות הן פרמטרים ברמה העליונה ומגיעות כמו שנשלחו.
+    escape של יוניקוד שנועד להיות טקסט הולך לשם עם ``expected_unicode_escapes``, השער
+    שמסרב לפני הכתיבה — ההערה מעל ``_OTHER_BACKSLASHES_DOC``, שממנה נבנה גם תיאור
+    ``new_string`` של ``codekeeper_edit_file``.
+
+    **צורת הזוג נשתלת מ-``handlers.EDIT_PAIR_SHAPE``**, שנגזרת מהמודל, ואינה מוקלדת כאן.
+
+    **ה-escape נכתב כאן במילים** ("one backslash and u200F"), ולא כ-escape: תיאור
+    שנושא escape עלול להגיע לסוכן כתו.
+
+    **ובלי רשימת הסירובים**, מהנימוק של :func:`_upload_id_param_doc`: כל אחד מהם נושא
+    ``hint`` שנוקב ב-``edits_upload_id`` בשמו (``_EDITS_UPLOAD`` ב-``handlers.py``).
+    """
+    return (
+        "Instead of edits, for edits whose strings hold backslashes meant as text: "
+        f"single-use. The file is JSON, one array of the same {handlers.EDIT_PAIR_SHAPE} "
+        "objects, and is decoded exactly once, so in the file a backslash "
+        "meant as text is written as two backslashes: two backslashes and u200F there are "
+        "the six characters of text, and one backslash and u200F is the character itself. "
+        "Write the file with your own file tools, "
+        f"then upload it: {_upload_command(upload_url, 'edits.json')} — {_UPLOAD_REPLY_DOC}; "
+        "its content_sha256 is the hash of this JSON file, not of the edited file. "
+        f"{_WITHOUT_UPLOAD_DOC}{_OTHER_BACKSLASHES_DOC} go by codekeeper_edit_file. "
+        f"{_UNICODE_ESCAPE_AS_TEXT_DOC[0].upper()}{_UNICODE_ESCAPE_AS_TEXT_DOC[1:]} "
+        f"{_UNICODE_ESCAPE_HAZARD_DOC}, so write it with codekeeper_edit_file and pass "
+        f"expected_unicode_escapes: {_UNICODE_ESCAPE_GATE_DOC}."
+    )
+
+
+# לוכסן שנועד להיות טקסט — **החלוקה היא לפי הטקסט, לא לפי הלקוח**: סוכן רואה את הטקסט
+# שלו, ואינו יודע דרך איזה לקוח הוא עובד. שני סוגים, ולכל אחד דין אחר:
+#
+# * **לוכסן שאינו escape של יוניקוד** — לוכסן ואחריו ``n`` כשני תווים, ביטוי רגולרי,
+#   נתיב. מגיע לפרמטר מחרוזת ברמה העליונה כמו שנשלח, ולכן ``codekeeper_edit_file``,
+#   בלי תנאי.
+# * **escape של יוניקוד שנועד להיות טקסט** — לוכסן, ``u`` וארבע ספרות הקס. הוא יכול
+#   להפוך לתו **לפני שכלי כלשהו רואה אותו**, בכל ארגומנט, ו-``content_changed`` אינו
+#   רואה זאת: הוא משווה את מה שהכלי קיבל למה שנשמר. נמדד באפליקציית Claude
+#   (13–14.11.2026): כל escape של תו שאינו תו בקרה מפוענח (``u0041``, ``u00E9``,
+#   ``u05D0``, ``u200B``, ``u200F``); ``u0009``, ``u000A``, לוכסן ואחריו ``n`` ושני
+#   לוכסנים — לא. ונמדד בסשן Claude Code (14.11.2026) שזה **משתנה מקריאה לקריאה**:
+#   אותה מחרוזת הגיעה פעם כששת התווים ופעם כתו, והתו כבר יושב בקלט של הקריאה כפי
+#   שהוא נרשם בתמליל הסשן — כלומר ההמרה קורית כשהקריאה נכתבת, לא בתעבורה ולא בשרת.
+#   רק קובץ בטוח: בקובץ ה-JSON הטקסט נכתב בשני לוכסנים, והצורה הזו הגיעה כמו שהיא
+#   בכל המדידות.
+#
+# **הענפים ל-escape של יוניקוד**, בסדר: מי שיכול להעלות קובץ (bash, רשת ו-
+# ``CODEKEEPER_PAT``) ← ``edits_upload_id``, בלי לבדוק דבר. מי שלא ← ``codekeeper_edit_file``
+# עם ``expected_unicode_escapes``: הסוכן מצהיר כמה escapes כאלה יש ב-``old_string`` וב-
+# ``new_string`` יחד, והשרת סופר במה שהגיע ומסרב, בלי לכתוב, כשהסכום אחר
+# (``_mismatched_unicode_escapes`` ב-``mcp_server/handlers.py``, ושם גם החוזה: escape שנכתב
+# בקריאה נספר כטקסט). סורב ← ניסיון אחד נוסף, כי ההמרה משתנה מקריאה לקריאה; סורב שוב ←
+# לומר למשתמש.
+#
+# **ולמה לא בדיקה מקדימה** — עד #3691 הענף השני היה קריאה אחת בלי כתיבה, ``query`` של
+# ``codekeeper_get_file`` שמוחזר כפי שהגיע. היא מודדת את הקריאה **ההיא**, ובמקום שבו
+# ההמרה משתנה מקריאה לקריאה אינה אומרת דבר על קריאת הכתיבה שאחריה. השער בודק את
+# הקריאה שכותבת, ברגע שהיא מגיעה.
+#
+# **בתיאורים עצמם ה-escape נכתב במילים, לא כ-escape** — תיאור שנושא escape עלול להגיע
+# לסוכן כתו, בדיוק מאותה סיבה. ``tests/test_mcp_server_build.py`` מקבע שאין escape כזה
+# בשום תיאור של כלי או של פרמטר.
+#
+# **נוסח אחד, בכמה מקומות** (``prose-restates-code-fact``): תיאור ``new_string`` של
+# ``codekeeper_edit_file`` והנסיגה של ``edits_upload_id`` נבנים מאותם קבועים; המילים
+# שמתארות את התבנית ומשפט הכלל של השער באים מ-``handlers`` (``UNICODE_ESCAPE_IN_WORDS``,
+# ``EXPECTED_UNICODE_ESCAPES_RULE``), שם יושבת גם התבנית עצמה.
+_OTHER_BACKSLASHES_DOC = (
+    "backslashes that are not a Unicode escape (a backslash and n as two characters, a "
+    "regex, a path)"
+)
+_UNICODE_ESCAPE_AS_TEXT_DOC = (
+    f"a Unicode escape meant as text ({handlers.UNICODE_ESCAPE_IN_WORDS})"
+)
+_UNICODE_ESCAPE_HAZARD_DOC = (
+    "can be turned into the character before any tool sees it, in any argument"
+)
+#: מה השער עושה, במשפט אחד — בתיאור ``new_string`` ובנסיגה של ``edits_upload_id``.
+_UNICODE_ESCAPE_GATE_DOC = (
+    "the tool then refuses, writing nothing, when the escapes did not arrive as text"
+)
+#: מי שיכול להעלות קובץ — ההיפוך של ``_WITHOUT_UPLOAD_DOC``, באותן שלוש דרישות.
+_WITH_UPLOAD_DOC = "With bash, network access and CODEKEEPER_PAT, "
+
+#: תיאור ``new_string`` של ``codekeeper_edit_file``. המשפט הראשון נושא את הכלל, כי לקוח
+#: שמקצר תיאור פרמטר לכ-120 תווים רואה רק אותו; הענפים אחריו.
+_NEW_STRING_PARAM_DOC = (
+    "The replacement, saved as it reached the tool; a Unicode escape meant as text may not "
+    f"reach it as text. {_OTHER_BACKSLASHES_DOC[0].upper()}{_OTHER_BACKSLASHES_DOC[1:]} "
+    f"arrive as sent. But {_UNICODE_ESCAPE_AS_TEXT_DOC} {_UNICODE_ESCAPE_HAZARD_DOC} — "
+    "old_string too — and content_changed does not show it: it compares what the tool "
+    f"received. {_WITH_UPLOAD_DOC}send the edit by edits_upload_id of "
+    "codekeeper_multi_edit_file instead: only a file is safe in every client. Without "
+    f"them, pass expected_unicode_escapes: {_UNICODE_ESCAPE_GATE_DOC}."
+)
+
+#: תיאור ``expected_unicode_escapes`` של ``codekeeper_edit_file``. המשפט הראשון הוא
+#: ``handlers.EXPECTED_UNICODE_ESCAPES_RULE`` — אותו משפט שהשדה של הזוג נושא בסכימה של
+#: ``edits``. הקודים נשתלים מהקבועים שהגוף מחזיר, ולא מוקלדים.
+#:
+#: **החוזה כתוב כאן, כי הוא מה שהופך סכום אחד לשער:** escape שנכתב בקריאה נספר כטקסט, ומי
+#: שרוצה את התו עצמו שולח את התו. בלי החוזה סכום אינו רואה מחרוזת אחת שאיבדה escape
+#: ושנייה ש"הרוויחה" אחד — ההערה מעל ``UNICODE_ESCAPE_RE`` ב-``handlers.py``. שמות שני
+#: השדות שבסירוב מוקלדים כאן, ו-``tests/test_mcp_multi_edit.py`` משווה אותם למה שהסירוב נושא.
+#:
+#: **משפט החוזה הוא קבוע משלו**, כי הוא כתוב גם בתיאור ``edits``: זוג של
+#: ``codekeeper_multi_edit_file`` נושא את אותה הצהרה, ומי שקורא רק את הכלי ההוא צריך לפגוש
+#: את החוזה שם, ולא רק בהפניה "exactly as in codekeeper_edit_file".
+_ESCAPE_COUNTS_AS_TEXT_DOC = (
+    "An escape written in the call counts as text: to match or to write the character "
+    "itself, send the character, not its escape"
+)
+_EXPECTED_UNICODE_ESCAPES_PARAM_DOC = (
+    f"{handlers.EXPECTED_UNICODE_ESCAPES_RULE}. A Unicode escape meant as text is "
+    f"{handlers.UNICODE_ESCAPE_IN_WORDS}: count every such sequence in old_string and in "
+    "new_string, and the tool counts them in both as they arrived. "
+    f"{_ESCAPE_COUNTS_AS_TEXT_DOC}. The reason: a total cannot see one string that lost an "
+    "escape and "
+    "another that gained one, and that happens only when an escape is written to get a "
+    "character. A client can turn such an escape into its character before the tool sees "
+    "it, and content_changed does not show that: it compares what the tool received. A "
+    f"different total is refused as {handlers.UNICODE_ESCAPES_MISMATCH}, before the file is "
+    "read, with expected, received, and received_in_old_string and received_in_new_string "
+    "to show which string changed (numbers only). If the number is right, send the same "
+    "call once more: the conversion can differ from call to call. Refused again: tell the "
+    "user that this text cannot be written from this client. 0 is a count like any other: "
+    "it refuses when an escape arrived. A value that is not a whole number of 0 or more is "
+    f"refused as {handlers.EXPECTED_UNICODE_ESCAPES_INVALID}. Omitted: no check."
+)
 
 
 # הורדה במקום קריאה להקשר (``GET /api/agent/download``, ``mcp_server/downloads.py``) — **אותו
@@ -911,6 +1088,19 @@ def _build_multi_edit_docs() -> tuple[str, str]:
     ``_OUTLINE_PARAM_DOC``. והמשפט הראשון של ``edits`` נושא את הכלל כולו, כי לקוח
     שמקצר תיאור פרמטר לכ-120 תווים רואה רק אותו. התקרה נשתלת מ-
     ``handlers.MAX_EDIT_PAIRS`` ואינה מוקלדת (``prose-restates-code-fact``).
+
+    **העדפה לחוד, נכונות לחוד.** "כמה עריכות בגרסה אחת — הכלי הזה" הוא משפט העדפה:
+    שני המסלולים נכונים, וההבדל הוא מחיר. לוכסן שנועד להיות טקסט אינו העדפה — מסלול
+    אחד כותב תוכן שגוי — ולכן הוא משפט משלו, שמנוסח כעובדה ותוצאה: ``edits`` הוא
+    רשימה, ומחרוזות בתוכו מפוענחות פעם אחת כשהרשימה הגיעה כמערך ופעמיים כשהגיעה
+    כמחרוזת JSON (ההערה מעל ``_edits_from_upload`` ב-``handlers.py``), ולכן לוכסן
+    כזה הולך ל-``codekeeper_edit_file``. ל-escape של יוניקוד יש דין משלו, והתיאור
+    מפנה אל ``edits_upload_id`` בלי לנקוב במסלול: המסלול תלוי במי שיכול להעלות קובץ,
+    והתנאי כתוב שם. החלוקה לפי הטקסט, והענפים, בהערה מעל ``_OTHER_BACKSLASHES_DOC``;
+    בתיאור הכלי רק מה שנכנס בתקרה. **צורת הזוג ב-``edits``** נשתלת מ-
+    ``handlers.EDIT_PAIR_SHAPE``, שנגזרת מהמודל. **והמשפט השני של ``edits`` — ההוראה
+    ואחריה הסיבה:** לשלוח מערך. הוא נכתב אחרי שנמדד שמערך אכן מפוענח פעם אחת
+    (``mcp 1.28.1``), ו-``tests/test_mcp_uploads.py`` מקבע את המדידה.
     """
     description = (
         "Apply several exact find-and-replace edits (old_string -> new_string) to ONE "
@@ -919,23 +1109,34 @@ def _build_multi_edit_docs() -> tuple[str, str]:
         "on the result of the ones before it, all or nothing: an edit that does not apply "
         "refuses the whole call with its index, and nothing is written. edits_applied "
         "counts edits; replacements counts the replacements made (a replace_all edit that "
-        "hit seven places counts seven). The edits parameter has the details."
+        "hit seven places counts seven). The edits parameter has the details. Prefer this "
+        "tool for several edits in one version. Backslashes meant as text are not a "
+        "preference: a string in edits can be decoded twice, so they go by "
+        "codekeeper_edit_file; a Unicode escape meant as text has its own rule — see "
+        "edits_upload_id."
         + _EXPECTED_SHA256_TOOL_DOC
         + " Requires write permission."
         + _WRITE_SHA256_DOC
     )
     edits_doc = (
         "Edits applied in order, each to the result of the one before, all or nothing, "
-        "saved as one version. Each is {old_string, new_string, replace_all?}, exactly as "
+        "saved as one version. Send edits as a JSON array, not as a string that holds "
+        "JSON: strings inside a list that arrived as a string are decoded twice. Each is "
+        f"{handlers.EDIT_PAIR_SHAPE}, exactly as "
         "in codekeeper_edit_file. An edit that does not apply refuses the whole call with "
         "the code codekeeper_edit_file gives (no_match, ambiguous_match, empty_old_string, "
         "old_and_new_identical, or code_too_large when the text would outgrow the file "
         "size limit, with max) plus index, its 0-based position; nothing is written. "
         "no_match and ambiguous_match also carry occurrences (in the text after the "
         "earlier edits) and occurrences_in_stored_version (in the file as stored): when "
-        "they differ, an earlier edit changed what this one looks for. A malformed edit (an "
+        "they differ, an earlier edit changed what this one looks for. A pair whose "
+        "old_string and new_string did not arrive with the number of Unicode escapes its "
+        f"expected_unicode_escapes declares is {handlers.UNICODE_ESCAPES_MISMATCH}, with "
+        f"index, expected, received and the count in each string. {_ESCAPE_COUNTS_AS_TEXT_DOC}. "
+        "A malformed edit (an "
         "unknown key, a missing new_string, a value of the wrong type, a replace_all that "
-        "is not a JSON true or false) is invalid_edit with index and problems, each with "
+        "is not a JSON true or false, an expected_unicode_escapes that is not a whole "
+        "number of 0 or more) is invalid_edit with index and problems, each with "
         "loc = [index, field]; values are never echoed. An empty list is missing_edits; "
         f"more than {handlers.MAX_EDIT_PAIRS} edits is too_many_edits with max, refused "
         "and not cut."
@@ -3081,6 +3282,19 @@ def build_mcp(
             "old_string must match exactly, whitespace included; if it occurs more than "
             "once, pass a longer unique snippet or set replace_all=true. For several "
             "places in one file, codekeeper_multi_edit_file saves them as one version."
+            # **שני משפטים, לפי הטקסט** — ההערה מעל ``_OTHER_BACKSLASHES_DOC``.
+            # ``old_string`` ו-``new_string`` מוצהרים ``str`` בדיוק, ברמה העליונה, ולכן
+            # ``pre_parse_json`` של ה-SDK מדלג עליהם בעצמו (``field_info.annotation is not
+            # str``, mcp 1.28.1) — מה שהגיע לשרת הוא מה שהכלי מקבל, ולכן לוכסן שאינו
+            # escape של יוניקוד בטוח כאן. מה שקרה לפני שהבקשה יצאה אינו בידי השרת:
+            # "as they were sent", לא "as you wrote them" — ו-escape של יוניקוד הוא
+            # בדיוק המקרה שבו השניים נפרדים. הענפים בתיאור ``new_string``, והשער שמסרב
+            # לפני הכתיבה נקוב כאן בשמו: המשפט בתיאור הכלי הוא הגילוי.
+            f" old_string and new_string reach this tool as they were sent, so "
+            f"{_OTHER_BACKSLASHES_DOC} are safe here. "
+            f"{_UNICODE_ESCAPE_AS_TEXT_DOC[0].upper()}{_UNICODE_ESCAPE_AS_TEXT_DOC[1:]} is "
+            f"not: it {_UNICODE_ESCAPE_HAZARD_DOC} — pass expected_unicode_escapes to "
+            "refuse such a write; see new_string."
             + _EXPECTED_SHA256_TOOL_DOC
             + " Requires write permission."
             + _WRITE_SHA256_DOC
@@ -3091,10 +3305,20 @@ def build_mcp(
         ctx: Context,
         file_name: str,
         old_string: str,
-        new_string: str,
+        # ``str`` בדיוק, עם תיאור: ``_keeps_raw_string`` קולף את ה-``Annotated``, וה-SDK
+        # קורא את ``FieldInfo.annotation``, שהוא ``str`` — המחרוזת מגיעה כמו שנשלחה.
+        new_string: Annotated[str, Field(description=_NEW_STRING_PARAM_DOC)],
         replace_all: bool = False,
         expected_content_sha256: Annotated[
             str | None, Field(description=_EXPECTED_SHA256_PARAM_DOC)
+        ] = None,
+        # ``StrictInt`` ולא ``int``: נמדד (``pydantic 2.12.3`` דרך ``mcp 1.28.1``) ש-``int``
+        # רגיל ממיר ``true`` ל-1 ו-``"2"`` ל-2 — ו-``true`` שנקרא "escape אחד" הוא בדיוק
+        # הקריאה השגויה שמעל ``StrictInt`` ב-``handlers.py``. ``None`` — "לא נשלח" — ולא
+        # ``0``: אפס הוא הצהרה, ובלי הפרמטר אין בדיקה. מספר שלילי עובר את ה-SDK ונענה
+        # בגוף, ``invalid_expected_unicode_escapes``.
+        expected_unicode_escapes: Annotated[
+            StrictInt | None, Field(description=_EXPECTED_UNICODE_ESCAPES_PARAM_DOC)
         ] = None,
     ) -> dict:
         require_write(ctx)  # reject a read-only token before touching anything
@@ -3106,6 +3330,7 @@ def build_mcp(
             new_string=new_string,
             replace_all=replace_all,
             expected_content_sha256=expected_content_sha256,
+            expected_unicode_escapes=expected_unicode_escapes,
         )
 
     @mcp.tool(
@@ -3116,12 +3341,22 @@ def build_mcp(
         # לאטומי מול כותבי MCP אחרים.
         annotations=_WRITE_TOOL,
     )
+    @_described_at_registration(edits_upload_id=_edits_upload_id_param_doc(upload_url))
     def multi_edit_file(
         ctx: Context,
         file_name: str,
         edits: Annotated[
             list[Any],
             Field(
+                # **רשות, עם רשימה ריקה כברירת מחדל — ולא ``list[Any] | None``**, מאותו
+                # נימוק של ``code`` ב-``save_file``: לרשימה ריקה כבר יש סירוב
+                # (``missing_edits``), ולכן "לא נשלח" ו"נשלח ריק" מקבלים אותה תשובה,
+                # הסכימה אינה מתירה ``null``, וה-``TypeError`` של הגוף על מה שאינו
+                # רשימה נשאר נכון. ``default_factory`` ולא ``= []`` בחתימה: רשימה אחת
+                # שמשותפת לכל הקריאות היא ברירת מחדל ניתנת-לשינוי (B006). נמדד על
+                # mcp 1.28.1: הפרמטר יוצא מ-``required``, ``null`` נדחה בוולידציה,
+                # ורשימה שנשלחה כמחרוזת JSON עדיין מפוענחת.
+                default_factory=list,
                 description=_EDITS_PARAM_DOC,
                 # **``list[Any]`` ולא ``list[EditPair]``, כמו ``items`` של
                 # ``codekeeper_read_batch``.** ה-SDK מאמת את כל הארגומנטים לפני שהגוף
@@ -3138,6 +3373,10 @@ def build_mcp(
         expected_content_sha256: Annotated[
             str | None, Field(description=_EXPECTED_SHA256_PARAM_DOC)
         ] = None,
+        # ``edits_upload_id`` ולא ``upload_id``: ב-``save_file`` וב-``append_file``
+        # ``upload_id`` הוא תוכן הקובץ, וכאן ההעלאה היא רשימת הזוגות. אותו שם לשתי
+        # משמעויות היה מלכודת לסוכן. התיאור נבנה ברישום (הדקורטור שמעל).
+        edits_upload_id: str | None = None,
     ) -> dict:
         # ``def`` ולא ``async def``, בכוונה: כלי כתיבה אסינכרוני נופל ברישום
         # (``_offload_to_thread``), כי הוא היה עוקף את תור הכתיבה.
@@ -3148,6 +3387,7 @@ def build_mcp(
             file_name=file_name,
             edits=edits,
             expected_content_sha256=expected_content_sha256,
+            edits_upload_id=edits_upload_id,
         )
 
     @mcp.tool(

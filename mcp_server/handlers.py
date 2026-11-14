@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import json
 import re
 from typing import Annotated, Any, Callable, NamedTuple
 
@@ -45,6 +46,7 @@ from note_threads import (
     agent_author,
     comment_body_error,
     parse_thread_id,
+    utf8_encodable,
     working_on_or_error,
 )
 
@@ -757,6 +759,47 @@ def max_code_size() -> int:
         return DEFAULT_MAX_CODE_SIZE
 
 
+#: מה שנאמר על טקסט שאי אפשר לקודד כ-UTF-8 — משפט אחד, לסירוב על הטקסט שנשמר
+#: (:func:`_not_utf8_text`) ולסירוב על זוג (``invalid_edit`` ב-:func:`multi_edit_file`).
+#: ה-escape נכתב במילים: escape שכתוב כ-escape בתוך hint עלול להגיע לסוכן כתו.
+_LONE_SURROGATE = (
+    "a lone surrogate: half of a surrogate pair, which UTF-8 cannot encode and the store "
+    "cannot keep. A JSON escape made of a backslash, u and a value from D800 to DFFF "
+    "produces one when its other half is missing"
+)
+
+
+def _not_utf8_text(text: str) -> dict[str, Any] | None:
+    """הסירוב על טקסט של קובץ שאי אפשר לקודד כ-UTF-8 — או ``None``. לפני השער, ולפני כל כתיבה.
+
+    **מה זה סוגר.** מחרוזת של פייתון יכולה לשאת surrogate בודד — כך מפוענח escape של
+    חצי זוג ב-JSON, בתעבורה או בקובץ זוגות שהועלה — ו-UTF-8 אינו יכול לקודד אותו. המסד
+    לא ישמור טקסט כזה: מקודד ה-BSON של pymongo זורק ``UnicodeEncodeError`` עוד לפני
+    שמשהו נשלח (נמדד על ``pymongo 4.15.3``, ב-``bson.encode`` וב-``pymongo.message._op_msg``),
+    ``save_code_snippet_returning_id`` תופס ומחזיר ``None``, והכלי עונה ``save_failed``.
+    כלומר בלי הבדיקה כאן הסירוב מגיע מאוחר ובלי סיבה — **אחרי** שהשער כבר שרף העלאה
+    (``upload_consumed``), עם אירוע ברמת error על קלט של לקוח, ועם hint שאומר להעלות שוב
+    את אותו קובץ. כאן הוא מגיע לפני השער, אומר למה, וההעלאה נשארת.
+
+    **אותה מילה של הראוט** (``invalid_utf8`` ב-``mcp_server/uploads.py``): שם בתים שאינם
+    UTF-8, כאן טקסט ש-UTF-8 אינו יכול לשאת — אותו מצב משני הכיוונים.
+
+    **הכלל עצמו כתוב פעם אחת**, ב-``note_threads.utf8_encodable``, שגוף של תגובה על פתק
+    כבר נבדק בו. גוף של פתק, תיאור ושם קובץ אינם נבדקים בו עדיין — זה לא נסגר כאן.
+
+    **הדמה של הטסטים אינה מסרבת כמו BSON**, ולכן בלי הבדיקה הטסטים ראו כשל אחר מזה של
+    הייצור: גרסה שנכתבה, ואז ``UnicodeEncodeError`` בחישוב ה-hash של הקריאה החוזרת.
+    ``tests/test_mcp_uploads.py`` מקבע גם מה BSON עושה, כדי שהטענה הזו לא תישען על זיכרון.
+    """
+    if utf8_encodable(text):
+        return None
+    return {
+        "ok": False,
+        "error": "invalid_utf8",
+        "hint": f"the text to save holds {_LONE_SURROGATE}. Nothing was written.",
+    }
+
+
 # ---------------------------------------------------------------------------
 # ``upload_id`` — תוכן שעלה ב-``PUT /api/agent/upload`` (``mcp_server/uploads.py``)
 # במקום לעבור inline דרך המודל.
@@ -773,29 +816,72 @@ def max_code_size() -> int:
 # אומרת זאת (``upload_consumed``). החלופה — למחוק אחרי שמירה — משאירה העלאה חיה
 # אחרי שמירה שהצליחה, ו-``append_file`` שנשלח שוב כי התשובה אבדה בדרך היה מוסיף
 # את התוכן פעמיים, בשקט.
+#
+# **ב-``codekeeper_multi_edit_file`` ההעלאה אינה תוכן הקובץ אלא רשימת הזוגות**
+# (``edits_upload_id``), והסדר הוא אותו סדר: שליפה ובדיקת שלמות ← פענוח ה-JSON,
+# פעם אחת (:func:`_edits_from_upload`) ← המסלול הקיים של ``edits`` כמו שהוא ←
+# השער ← השמירה. מה שמשתנה בין הכלים הוא רק השמות שהסירובים נוקבים בהם, והם
+# ב-:class:`_UploadParam`.
 # ---------------------------------------------------------------------------
 
 
-def _both_sent(param: str) -> dict[str, Any]:
+class _UploadParam(NamedTuple):
+    """איך כלי אחד קורא להעלאה שלו — השמות שסירוב על ההעלאה נוקב בהם.
+
+    העוזרים שמתחת כתובים פעם אחת לכל כלי שמקבל העלאה. עד ``edits_upload_id`` כל
+    הכלים קראו לפרמטר ``upload_id`` וההעלאה הייתה התוכן, ולכן ``upload_id`` ו-"send
+    the content inline" היו מוקלדים בתוך ה-hint-ים. ב-``codekeeper_multi_edit_file``
+    הפרמטר נקרא אחרת וההעלאה היא רשימת הזוגות — סוכן שקורא שם ``upload_id`` מחפש
+    פרמטר שאין בכלי, ו-"inline" שולח אותו בחזרה ל-``edits``, בדיוק המקום שממנו ברח.
+
+    **קוד נקרא על שם הפרמטר רק כשהוא מתאר פרמטר** (``code_and_upload_id``,
+    ``invalid_edits_upload_id``). ``upload_not_found``, ``upload_corrupted`` ו-
+    ``upload_storage_unavailable`` מתארים את ההעלאה, ונשארים משותפים לכל הכלים.
+
+    ``name`` — הפרמטר שנושא את המזהה. ``instead_of`` — הפרמטר שההעלאה באה במקומו.
+    ``otherwise`` — מה הסוכן עושה כשאין לו העלאה שמישה, כסוף משפט ב-hint.
+    """
+
+    name: str
+    instead_of: str
+    otherwise: str
+
+
+_SEND_THE_CONTENT_INLINE = "send the content inline"
+_CODE_UPLOAD = _UploadParam("upload_id", "code", _SEND_THE_CONTENT_INLINE)
+_CONTENT_UPLOAD = _UploadParam("upload_id", "content", _SEND_THE_CONTENT_INLINE)
+#: לא "send the edits inline": מי שהעלה זוגות עשה זאת כי המחרוזות שלהם אינן עוברות
+#: בבטחה בתוך ``edits``. **וגם לא "use codekeeper_edit_file":** מה שעושים בלי העלאה
+#: תלוי בטקסט — escape של יוניקוד שנועד להיות טקסט דורש בדיקה לפני שכותבים אותו בכלי
+#: כלשהו — והכלל הזה כתוב פעם אחת, בתיאור הפרמטר (``_edits_upload_id_param_doc`` ב-
+#: ``mcp_server/server.py``). ה-hint מפנה לשם, ואינו עותק שני שלו.
+_EDITS_UPLOAD = _UploadParam(
+    "edits_upload_id",
+    "edits",
+    "follow the steps the edits_upload_id parameter gives for writing without an upload",
+)
+
+
+def _both_sent(param: _UploadParam) -> dict[str, Any]:
     return {
         "ok": False,
-        "error": f"{param}_and_upload_id",
-        "hint": f"pass either the {param} parameter or upload_id, not both",
+        "error": f"{param.instead_of}_and_{param.name}",
+        "hint": f"pass either the {param.instead_of} parameter or {param.name}, not both",
     }
 
 
-def _invalid_upload_id(upload_id: Any) -> dict[str, Any] | None:
-    """סירוב על ``upload_id`` שאינו בצורת מזהה — או ``None``. בלי להדהד את הערך."""
+def _invalid_upload_id(upload_id: Any, param: _UploadParam) -> dict[str, Any] | None:
+    """סירוב על מזהה העלאה שאינו בצורת מזהה — או ``None``. בלי להדהד את הערך."""
     if is_upload_id(upload_id):
         return None
     return {
         "ok": False,
-        "error": "invalid_upload_id",
-        "hint": "pass upload_id exactly as PUT /api/agent/upload returned it",
+        "error": f"invalid_{param.name}",
+        "hint": f"pass {param.name} exactly as PUT /api/agent/upload returned it",
     }
 
 
-def _upload_not_found() -> dict[str, Any]:
+def _upload_not_found(param: _UploadParam) -> dict[str, Any]:
     """תשובה אחת לפגה, לנצרכה ולשל משתמש אחר — בלי לגלות איזו (כמו ``get_note``)."""
     return {
         "ok": False,
@@ -803,19 +889,19 @@ def _upload_not_found() -> dict[str, Any]:
         "hint": (
             "no pending upload with this id: an upload lasts "
             f"{UPLOAD_TTL_SECONDS // 60} minutes and the first save that uses it uses it up. "
-            "Nothing was written. Upload the file again, or send the content inline."
+            f"Nothing was written. Upload the file again, or {param.otherwise}."
         ),
     }
 
 
-def _upload_storage_unavailable() -> dict[str, Any]:
+def _upload_storage_unavailable(param: _UploadParam) -> dict[str, Any]:
     """אחסון ההעלאות לא ענה. אותה מילה של הראוט (503), כי זה אותו מצב."""
     return {
         "ok": False,
         "error": "upload_storage_unavailable",
         "hint": (
             "the upload storage did not answer; nothing was written. Retry in a minute — "
-            "if it answers upload_not_found, upload the file again — or send the content inline."
+            f"if it answers upload_not_found, upload the file again — or {param.otherwise}."
         ),
     }
 
@@ -843,15 +929,19 @@ class _PendingUpload(NamedTuple):
     לכן כל מה שבא אחריה בגוף הכלי — התקרה, ``file_exists``, ``conflict``, השער —
     רואה טקסט שכבר אומת. ``test_every_upload_is_checked_as_it_is_read_and_consumed_at_one_gate``
     מקבע שאין מקום אחר שבונה אותה.
+
+    ``param`` — איך הכלי קורא להעלאה הזו (:class:`_UploadParam`). הוא נוסע איתה,
+    ולכן גם הסירוב של השער (:func:`_consume_upload`) נוקב באותם שמות של השליפה.
     """
 
     upload_id: str
     text: str
     size_bytes: int
+    param: _UploadParam
 
 
 def _load_upload(
-    backend: Any, user_id: int, upload_id: Any, *, tool: str
+    backend: Any, user_id: int, upload_id: Any, *, tool: str, param: _UploadParam
 ) -> _PendingUpload | dict[str, Any]:
     """ההעלאה, או הסירוב שיש להחזיר — לעולם לא שניהם. בודקת צורה, שולפת ומוודאת שלמות — **אינה צורכת**.
 
@@ -873,17 +963,17 @@ def _load_upload(
     העלאה שאינה תואמת מושלכת (``discard_upload`` — ניקיון, לא השער), והתשובה
     ``upload_corrupted`` — בלי קשר למה שהמחיקה עשתה: העלאה משובשת נשארת משובשת גם
     אם צורך מקביל מחק אותה בינתיים, וגם אם האחסון לא ענה והיא תפקע ב-TTL. ``tool``
-    הוא לשורת ה-``ERROR`` שלה.
+    הוא לשורת ה-``ERROR`` שלה, ו-``param`` — השמות שהסירובים נוקבים בהם.
     """
-    bad = _invalid_upload_id(upload_id)
+    bad = _invalid_upload_id(upload_id, param)
     if bad is not None:
         return bad
     try:
         found = backend.find_upload(user_id, upload_id)
     except UploadStorageUnavailable:
-        return _upload_storage_unavailable()
+        return _upload_storage_unavailable(param)
     if found is None:
-        return _upload_not_found()
+        return _upload_not_found(param)
     text = found["text"]
     size_bytes = found["bytes"]
     problem = _upload_integrity_problem(text, found["content_sha256"])
@@ -892,7 +982,7 @@ def _load_upload(
             user_id, upload_id, tool=tool, reason=problem, size_bytes=size_bytes, chars=len(text)
         )
         return _upload_corrupted()
-    return _PendingUpload(upload_id=upload_id, text=text, size_bytes=size_bytes)
+    return _PendingUpload(upload_id=upload_id, text=text, size_bytes=size_bytes, param=param)
 
 
 def _upload_integrity_problem(text: str, stored_sha256: object) -> str | None:
@@ -934,8 +1024,8 @@ def _consume_upload(
             user_id, upload.upload_id, tool=tool, size_bytes=upload.size_bytes, chars=len(upload.text)
         )
     except UploadStorageUnavailable:
-        return _upload_storage_unavailable()
-    return None if consumed else _upload_not_found()
+        return _upload_storage_unavailable(upload.param)
+    return None if consumed else _upload_not_found(upload.param)
 
 
 def _upload_used_up(res: dict[str, Any]) -> dict[str, Any]:
@@ -1039,8 +1129,10 @@ def save_file(
     upload: _PendingUpload | None = None
     if upload_id is not None:
         if isinstance(code, str) and code != "":
-            return _both_sent("code")
-        loaded = _load_upload(backend, user_id, upload_id, tool="codekeeper_save_file")
+            return _both_sent(_CODE_UPLOAD)
+        loaded = _load_upload(
+            backend, user_id, upload_id, tool="codekeeper_save_file", param=_CODE_UPLOAD
+        )
         if isinstance(loaded, dict):
             return loaded
         upload = loaded
@@ -1057,6 +1149,10 @@ def save_file(
     max_size = max_code_size()
     if len(code) > max_size:
         return {"ok": False, "error": "code_too_large", "max": max_size}
+    # טקסט שהמסד לא יכול להחזיק נדחה כאן, עם הסיבה — ולא כ-``save_failed`` אחרי השער.
+    not_text = _not_utf8_text(code)
+    if not_text is not None:
+        return not_text
 
     # Auto-detect the language when the caller didn't specify one.
     lang = (language or "").strip()
@@ -1237,10 +1333,17 @@ def _resave_edited(
     ``consume`` — שער החד-פעמיות של ``upload_id`` (:func:`_consume_upload`): רץ
     אחרי בדיקת התקרה ולפני השמירה, כך שהעלאה שהתוצאה שלה גדולה מדי אינה נשרפת.
     סירוב שלו חוזר כמו שהוא, ושמירה שנכשלת אחריו אומרת שההעלאה נצרכה.
+
+    **כל מה שידוע על הטקסט לפני הכתיבה נבדק לפני השער:** התקרה, ושאפשר לקודד אותו
+    כ-UTF-8 (:func:`_not_utf8_text`). זו הנקודה שכל כלי עריכה עובר בה, ולכן כלי עריכה
+    שייכתב מחר מקבל את שתי הבדיקות בלי שמישהו יזכור להוסיף אותן.
     """
     max_size = max_code_size()
     if len(new_code) > max_size:
         return {"ok": False, "error": "code_too_large", "max": max_size}
+    not_text = _not_utf8_text(new_code)
+    if not_text is not None:
+        return not_text
     if consume is not None:
         refusal = consume()
         if refusal is not None:
@@ -1362,6 +1465,138 @@ def _changed_since_read(doc: dict[str, Any], expected: str | None) -> dict[str, 
     }
 
 
+# ---------------------------------------------------------------------------
+# השער של escape של יוניקוד — ``expected_unicode_escapes``.
+#
+# **מה הוא סוגר.** סוכן שעובד עם escape של יוניקוד **כטקסט** — לוכסן הפוך, ``u`` וארבע
+# ספרות הקס, למשל בדוגמת קוד — שולח אותו ב-``new_string``, כדי לכתוב אותו, או ב-
+# ``old_string``, כדי למצוא אותו בקובץ. יש לקוחות שהופכים אותו לתו לפני שהקריאה יוצאת:
+# נמדד באפליקציית Claude (13–14.11.2026) על כל escape של תו שאינו תו בקרה, ובסשן Claude
+# Code (14.11.2026) לפעמים כן ולפעמים לא, מקריאה לקריאה. ב-``new_string`` הכלי מקבל את
+# התו, שומר את התו, ו-``content_changed`` הוא ``false`` — הוא משווה את מה שהכלי **קיבל**
+# למה שנשמר. ב-``old_string`` הכלי מחפש את התו במקום את הטקסט: בדרך כלל ``no_match``,
+# אבל כשהתו קיים בקובץ, ההחלפה נעשית במקום הלא נכון, בלי שום סימן. המקום היחיד שיודע
+# מה הגיע הוא השרת, ברגע הקריאה ולפני השמירה: הסוכן מצהיר כמה escapes כאלה יש בשתי
+# המחרוזות שהוא התכוון לשלוח, השרת סופר את אותה תבנית במה שהגיע, ומספר אחר הוא סירוב —
+# בלי קריאה מהמסד ובלי כתיבה.
+#
+# **הצהרה אחת לשתי המחרוזות, ולא אחת לכל מחרוזת.** שער שאפשר להפעיל על מחרוזת אחת
+# ולשכוח את השנייה משאיר את החשיפה במקומה. ההצהרה מכסה כל מחרוזת שהקריאה מתאימה או
+# כותבת, והסירוב נושא גם כמה הגיע בכל אחת, כדי שהסוכן יידע איזו הומרה.
+#
+# **החוזה: escape שנכתב בקריאה נספר כטקסט.** מי שרוצה להתאים או לכתוב את התו עצמו שולח
+# את התו, לא את ה-escape שלו. הסיבה: סכום אינו רואה מחרוזת אחת שאיבדה escape ושנייה
+# ש"הרוויחה" אחד — וזה קורה רק כשכותבים escape כדי לקבל תו. אז ה-escape שלא הומר נשאר
+# בקריאה כטקסט שלא הוצהר, ומכסה על זה שהומר.
+#
+# **למה סירוב לפני הכתיבה ולא אימות אחריה.** אימות אחרי מגלה כשהתוכן השגוי כבר נשמר:
+# גרסה והתראה, ועוד גרסה והתראה לביטול — והביטול עצמו עובר באותו ערוץ שהמיר.
+#
+# **מה הוא אינו סוגר, במפורש.** (א) קריאה שמפרה את החוזה שמעל. (ב) escape של הלוכסן
+# ההפוך עצמו (``u005C``) שאחריו ``u`` וארבע ספרות: כשהוא מומר נוצר במקומו רצף חדש,
+# והספירה נשארת כמו שהייתה. (ג) לוכסן שאינו escape של יוניקוד (לוכסן ואחריו ``n``) אינו
+# נספר כלל. (ד) בלי הפרמטר אין שום בדיקה. ``tests/test_mcp_multi_edit.py`` מקבע את (א)
+# ואת (ב), כדי שהם יישארו מגבלות ידועות ולא הפתעות.
+# ---------------------------------------------------------------------------
+
+#: מה נספר: לוכסן הפוך, ``u`` וארבע ספרות הקס — הצורה שפענוח של escape הופך לתו. טווחים
+#: מפורשים ולא ``\d``, מהנימוק שמעל ``_SHA256_HEX``. **הבעלים היחיד של התבנית** (R6
+#: ב-amir-bug-patterns): גם השומר על תיאורי הכלים ב-``tests/test_mcp_server_build.py``
+#: קורא אותה מכאן, ולא מחזיק עותק.
+UNICODE_ESCAPE_RE = re.compile(r"\\u[0-9a-fA-F]{4}")
+
+#: שני הקודים של השער. קבועים ולא מחרוזות בגוף, כי תיאורי הכלים ב-``mcp_server/server.py``
+#: נוקבים בהם, ונבנים מהם.
+UNICODE_ESCAPES_MISMATCH = "unicode_escapes_mismatch"
+EXPECTED_UNICODE_ESCAPES_INVALID = "invalid_expected_unicode_escapes"
+
+#: אותה תבנית **במילים** — לתיאורי הכלים ול-``hint``-ים. במילים ולא כ-escape, כי טקסט
+#: שנושא escape עלול להגיע לסוכן כתו, בדיוק מהסיבה שהשער קיים.
+UNICODE_ESCAPE_IN_WORDS = "a backslash, u and four hex digits"
+
+#: המשפט הראשון של תיאור הפרמטר — הכלל כולו, כי לקוח שמקצר תיאור פרמטר רואה רק אותו.
+#: **נוסח אחד** לפרמטר של ``codekeeper_edit_file`` ולשדה של הזוג ב-``EditPair``.
+EXPECTED_UNICODE_ESCAPES_RULE = (
+    "How many Unicode escapes meant as text old_string and new_string hold together; with "
+    "another total, nothing is written"
+)
+
+#: מה שכל ``hint`` של השער אומר על המספרים, ומה עושים אחרי הסירוב.
+_ESCAPES_COUNTED = (
+    "expected is the number declared, and received counts, in old_string and new_string as "
+    f"they reached the tool, every place that holds {UNICODE_ESCAPE_IN_WORDS}; "
+    "received_in_old_string and received_in_new_string say how many arrived in each"
+)
+_ESCAPES_SEND_ONCE_MORE = (
+    "A client can turn such an escape into its character before the tool sees it, and that "
+    "can differ from call to call: if the number you declared is right, send {what} once "
+    "more. Refused again: tell the user that this text cannot be written from this client"
+)
+
+
+def _invalid_expected_unicode_escapes(expected: Any) -> dict[str, Any] | None:
+    """סירוב על ``expected_unicode_escapes`` שאינו מספר שלם, 0 ומעלה — או ``None``.
+
+    **קוד משלו ולא ``unicode_escapes_mismatch``**, מאותו נימוק של
+    :func:`_invalid_expected_sha256`: ערך פגום שנענה "המספר אינו תואם" היה שולח את
+    הסוכן לשלוח שוב את אותו ערך.
+
+    **``bool`` נדחה במפורש.** בפייתון ``True`` הוא ``int``, ו-``True`` שנקרא "escape
+    אחד" הוא בדיוק הקריאה השגויה שמעל ``StrictInt``. דרך MCP זה אינו מגיע לכאן — הכלי
+    מצהיר ``StrictInt``, וה-SDK דוחה ``true``, ``"2"`` ו-``2.0`` לפני הגוף (נמדד,
+    ``pydantic 2.12.3`` ו-``mcp 1.28.1``) — והרשת היא לקורא שעוקף את הסכימה. מספר
+    שלילי **כן** מגיע לכאן דרך MCP. בזוג של ``codekeeper_multi_edit_file`` אותו כלל
+    יושב במודל (``EditPair``), ונענה ``invalid_edit``.
+
+    אין תקרה עליונה: מספר גדול ממה ששתי המחרוזות יכולות להכיל פשוט אינו תואם.
+    """
+    if expected is None:
+        return None
+    if isinstance(expected, int) and not isinstance(expected, bool) and expected >= 0:
+        return None
+    return {
+        "ok": False,
+        "error": EXPECTED_UNICODE_ESCAPES_INVALID,
+        "hint": "pass a whole number, 0 or more: how many times old_string and new_string "
+        f"together hold, as text, {UNICODE_ESCAPE_IN_WORDS}. Nothing was written",
+    }
+
+
+def _count_unicode_escapes(text: str) -> int:
+    """כמה פעמים ``UNICODE_ESCAPE_RE`` נמצאת ב-``text`` — בלי לבנות רשימה של ההתאמות."""
+    return sum(1 for _ in UNICODE_ESCAPE_RE.finditer(text))
+
+
+def _mismatched_unicode_escapes(
+    old_string: str, new_string: str, expected: int | None
+) -> dict[str, int] | None:
+    """המספרים של ``unicode_escapes_mismatch`` — או ``None`` כשאין מה לסרב עליו.
+
+    ``None`` כשאין הצהרה — אז אין בדיקה — או כשהסכום שהגיע הוא זה שהוצהר. **``0`` הוא
+    הצהרה, לא היעדר הצהרה:** "אין כאן אף escape" נבדק כמו כל מספר, ולכן ההשוואה היא
+    ל-``None`` ולא לערך שקרי.
+
+    **נספרות שתי המחרוזות, והסכום הוא שמושווה** — ההערה שמעל ``UNICODE_ESCAPE_RE``. לצד
+    הסכום חוזר מה שהגיע בכל מחרוזת: בלי זה סירוב אומר שמשהו הומר, ולא איפה.
+
+    חוזרים מספרים בלבד, לעולם לא טקסט מהמחרוזות. **המפתחות חוזרים כמילון אחד, שהקורא
+    פורש לתוך הסירוב שלו:** שני הקוראים בונים סירוב בצורה אחרת (לזוג יש ``index``), ושדה
+    שיתווסף כאן מגיע לשניהם בלי שמישהו יזכור להוסיף אותו. ה-``hint`` נוסף אצל הקורא, כי
+    מה שעושים אחרי הסירוב תלוי בדרך שבה המחרוזות הגיעו.
+    """
+    if expected is None:
+        return None
+    in_old, in_new = _count_unicode_escapes(old_string), _count_unicode_escapes(new_string)
+    if in_old + in_new == expected:
+        return None
+    return {
+        "expected": expected,
+        "received": in_old + in_new,
+        "received_in_old_string": in_old,
+        "received_in_new_string": in_new,
+    }
+
+
 def edit_file(
     backend: Any,
     user_id: int,
@@ -1371,6 +1606,7 @@ def edit_file(
     new_string: str,
     replace_all: bool = False,
     expected_content_sha256: str | None = None,
+    expected_unicode_escapes: int | None = None,
 ) -> dict[str, Any]:
     """Server-side find-and-replace on the latest version of an existing file.
 
@@ -1380,6 +1616,10 @@ def edit_file(
 
     ``expected_content_sha256`` הוא השער האופטימי המשותף לכלי העריכה — ראו את
     ההערה מעל :func:`_invalid_expected_sha256`. בלעדיו אין שום בדיקה נוספת.
+
+    ``expected_unicode_escapes`` — השער של escape של יוניקוד, בהערה מעל
+    ``UNICODE_ESCAPE_RE``. הוא נבדק על הארגומנטים בלבד, ולכן **לפני** הקריאה מהמסד:
+    סירוב שלו אינו עולה קריאה, ואינו כותב דבר. גם בלעדיו אין שום בדיקה נוספת.
     """
     name = (file_name or "").strip()
     if not name:
@@ -1389,6 +1629,18 @@ def edit_file(
     bad_expected = _invalid_expected_sha256(expected_content_sha256)
     if bad_expected is not None:
         return bad_expected
+    bad_count = _invalid_expected_unicode_escapes(expected_unicode_escapes)
+    if bad_count is not None:
+        return bad_count
+    counts = _mismatched_unicode_escapes(old_string, new_string, expected_unicode_escapes)
+    if counts is not None:
+        return {
+            "ok": False,
+            "error": UNICODE_ESCAPES_MISMATCH,
+            **counts,
+            "hint": f"nothing was written: {_ESCAPES_COUNTED}. "
+            + _ESCAPES_SEND_ONCE_MORE.format(what="the same call"),
+        }
     doc, code = _load_editable(backend, user_id, name)
     if doc is None:
         return {"ok": False, "error": "not_found"}
@@ -1444,8 +1696,10 @@ def append_file(
     upload: _PendingUpload | None = None
     if upload_id is not None:
         if isinstance(content, str) and content != "":
-            return _both_sent("content")
-        loaded = _load_upload(backend, user_id, upload_id, tool="codekeeper_append_file")
+            return _both_sent(_CONTENT_UPLOAD)
+        loaded = _load_upload(
+            backend, user_id, upload_id, tool="codekeeper_append_file", param=_CONTENT_UPLOAD
+        )
         if isinstance(loaded, dict):
             return loaded
         upload = loaded
@@ -1527,6 +1781,12 @@ def validation_problems(exc: ValidationError) -> list[dict[str, Any]]:
 # **ההסבר כאן ולא ב-docstring, כי ה-docstring מתפרסם.** ``model_json_schema`` מעתיק
 # אותו ל-``description`` של הסכימה שהלקוח רואה (נמדד, pydantic 2.12.3), ולכן הוא שורה
 # אחת שמיועדת לסוכן, באנגלית כמו שאר תיאורי הכלים.
+#
+# **``expected_unicode_escapes`` — השער של escape של יוניקוד, לכל זוג בנפרד** (ההערה מעל
+# ``UNICODE_ESCAPE_RE``). ``int | None`` ולא ``0`` כברירת מחדל: אפס הוא הצהרה ("אין כאן
+# אף escape"), ו"לא נשלח" פירושו שאין בדיקה. ``strict`` של המודל דוחה כאן ``true``,
+# ``"2"`` ו-``2.0``, ו-``ge=0`` דוחה מספר שלילי — שניהם כ-``invalid_edit`` עם הזוג והשדה
+# (נמדד, ``pydantic 2.12.3``).
 class EditPair(BaseModel):
     """One edit: the arguments of codekeeper_edit_file without file_name."""
 
@@ -1535,6 +1795,23 @@ class EditPair(BaseModel):
     old_string: str
     new_string: str
     replace_all: bool = False
+    expected_unicode_escapes: int | None = Field(
+        default=None, ge=0, description=f"{EXPECTED_UNICODE_ESCAPES_RULE}."
+    )
+
+
+#: הזוג כפי שהוא נכתב בתיאורים וב-``hint``-ים: השדות מהמודל עצמו, ושדה רשות מסומן
+#: ``?``. **נגזר ולא מוקלד** (``prose-restates-code-fact`` ב-amir-bug-patterns): הצורה
+#: נכתבה ביד בשלושה מקומות, ושדה שנוסף למודל היה נשאר מחוץ לשלושתם.
+#: ``FieldInfo.is_required`` — ``pydantic/fields.py``, 2.12.3.
+EDIT_PAIR_SHAPE = (
+    "{"
+    + ", ".join(
+        name if field.is_required() else f"{name}?"
+        for name, field in EditPair.model_fields.items()
+    )
+    + "}"
+)
 
 
 #: המאמת של הרשימה כולה, בקריאה אחת — ולכן ``loc`` של כל שגיאה נפתח באינדקס
@@ -1570,11 +1847,111 @@ EDIT_PAIR_JSON_SCHEMA: dict[str, Any] = EditPair.model_json_schema()
 #: הזה ענף ב-``AdminAwareFastMCP.call_tool``.
 MAX_EDIT_PAIRS = 50
 
-#: מה שכל סירוב של זוג אומר, מעבר לקוד שלו.
-_NOTHING_WRITTEN = (
-    "nothing was written: the batch is all or nothing. Fix this pair and send the whole "
-    "batch again"
+#: שם הכלי, כפי שהוא נרשם בשורות הלוג של השמירה ושל ההעלאה.
+_MULTI_EDIT_TOOL = "codekeeper_multi_edit_file"
+
+#: מה שכל סירוב של זוג אומר, מעבר לקוד שלו — ואחריו איך שולחים שוב, לפי הדרך שבה
+#: הזוגות הגיעו: ב-``edits`` שולחים שוב את הבאץ'; העלאה אי אפשר לתקן, רק להעלות חדשה.
+_NOTHING_WRITTEN = "nothing was written: the batch is all or nothing. "
+_RESEND_THE_BATCH = "Fix this pair and send the whole batch again"
+_UPLOAD_THE_EDITS_AGAIN = (
+    "An upload cannot be changed: fix the file, upload it again and pass the new id in "
+    f"{_EDITS_UPLOAD.name}"
 )
+
+# ---------------------------------------------------------------------------
+# ``edits_upload_id`` — רשימת הזוגות כקובץ JSON שעלה ב-``PUT /api/agent/upload``.
+#
+# **מה זה סוגר.** ``edits`` הוא רשימה, ולכן נשאר ב-``pre_parse_json`` של ה-SDK
+# (ההערה בחתימת הכלי ב-``mcp_server/server.py``): רשימה שהלקוח שלח כמחרוזת JSON
+# מפוענחת שם. המחרוזות שבתוך הזוגות עוברות אז שני פענוחי JSON — של התעבורה ושל
+# ``pre_parse_json`` — וכשהרשימה נשלחה כמערך, אחד. נמדד דרך ``call_tool`` וגם דרך
+# ``POST /mcp`` על ``mcp 1.28.1``, עם ``new_string`` שנכתב לוכסן-לוכסן-``u200F``:
+# מערך ← ששת התווים; מחרוזת עם escape כפול ← ששת התווים; מחרוזת עם escape יחיד ←
+# התו U+200F עצמו. השרת דטרמיניסטי לכל צורה, ואינו יכול לדעת איזו מהן הלקוח שלח
+# ולמה המודל התכוון — ואסור לו לנחש. קובץ שעולה כבתים אינו עובר באף אחת מהשכבות
+# האלה: נשאר פענוח JSON אחד, כאן, וכותב הקובץ יודע בדיוק מהו.
+# ``tests/test_mcp_uploads.py`` מקבע את שלוש הצורות ואת הפענוח היחיד.
+#
+# **הפענוח היחיד אינו מייתר את ה-escape של JSON.** הקובץ הוא JSON, ולכן לוכסן
+# מילולי נכתב בו כשני לוכסנים. מי שכותב לוכסן יחיד לפני ``u200F`` מקבל את התו —
+# דטרמיניסטי, ושגוי אם התכוון לטקסט. תיאור הפרמטר אומר זאת.
+# ---------------------------------------------------------------------------
+
+#: מה שקובץ הזוגות צריך להיות — משפט אחד לכל הסירובים של :func:`_edits_from_upload`.
+_EDITS_UPLOAD_SHAPE = (
+    f"The uploaded file must be JSON: one array of {EDIT_PAIR_SHAPE} "
+    "objects, UTF-8 without a byte-order mark. Nothing was written. "
+    + _UPLOAD_THE_EDITS_AGAIN
+)
+
+
+def _invalid_edits_upload(problem: str, **position: int) -> dict[str, Any]:
+    """הסירוב על קובץ זוגות שאינו מערך JSON. ``position`` — מספרים בלבד, לעולם לא טקסט מהקובץ."""
+    return {
+        "ok": False,
+        "error": "invalid_edits_upload",
+        **position,
+        "hint": f"{problem} {_EDITS_UPLOAD_SHAPE}",
+    }
+
+
+def _edits_from_upload(text: str) -> list[Any] | dict[str, Any]:
+    """הרשימה שבקובץ הזוגות, או הסירוב ``invalid_edits_upload`` — לעולם לא שניהם.
+
+    **JSON מפוענח כאן פעם אחת בדיוק** — ההערה שמעל. מה שחוזר הוא רשימה כמו זו
+    שמגיעה ב-``edits``, ומכאן אותו קוד מאמת אותה (:func:`refuse_edits`,
+    ``_EDITS_ADAPTER``): אין כאן שום ולידציה של הזוגות עצמם.
+
+    ``dict`` שחוזר מכאן הוא תמיד הסירוב: קובץ שהוא אובייקט JSON נענה באותו סירוב,
+    ואינו מוחזר.
+
+    **מה נתפס, ולמה בדיוק זה** (R10 ב-amir-bug-patterns — לא ``except Exception``). בתוך
+    ה-``try`` יש רק ``json.loads`` על ``str``, ושלוש החריגות הן שלוש הדרכים שבהן
+    הוא אומר "זה אינו JSON שאני מפענח" — נמדד בחוט עובד ב-CPython 3.11.18, 3.12.3
+    ו-3.13.18:
+
+    * ``json.JSONDecodeError`` — טקסט שאינו JSON; גם קובץ שנפתח ב-BOM, שהראוט שומר
+      כתו (``loads`` ב-``Lib/json/__init__.py``: "Unexpected UTF-8 BOM"). נושאת
+      ``lineno``, ``colno`` ו-``pos``, ורק הם יוצאים: ``msg`` נושא בפענוח של פייתון
+      טהור תו מהקובץ (``"Invalid control character {0!r} at"`` ב-``Lib/json/decoder.py``).
+    * ``ValueError`` שאינה ``JSONDecodeError`` — מספר שלם ארוך מתקרת ההמרה של
+      פייתון (``sys.get_int_max_str_digits()``; 4,300 ספרות בשלוש הגרסאות שנמדדו).
+      אין לה מיקום.
+    * ``RecursionError`` — קינון עמוק מתקרת הרקורסיה. זוג חוקי יושב בעומק 2.
+
+    ``TypeError`` — ``text`` שאינו מחרוזת — אינה נתפסת: זה חוזה שנשבר, לא קובץ פגום.
+    """
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return _invalid_edits_upload(
+            "The uploaded file is not valid JSON: line and column (1-based, in characters; "
+            "position is the 0-based offset) are where the parser stopped. A backslash meant "
+            "as text is written as two backslashes in JSON.",
+            line=exc.lineno,
+            column=exc.colno,
+            position=exc.pos,
+        )
+    except (ValueError, RecursionError):
+        return _invalid_edits_upload(
+            "The uploaded file could not be parsed as JSON: it nests too deep, or holds a "
+            "number too long to convert."
+        )
+    if not isinstance(decoded, list):
+        return _invalid_edits_upload("The uploaded file is JSON, but not an array.")
+    return decoded
+
+
+def _fix_the_upload(refusal: dict[str, Any]) -> dict[str, Any]:
+    """סירוב על **מבנה** הרשימה שבאה מהעלאה — עם מה שעושים איתו.
+
+    ``missing_edits``, ``too_many_edits`` ו-``invalid_edit`` אינם נושאים ``hint``
+    כשהרשימה הגיעה ב-``edits``: שם הסוכן שולח שוב את אותו ארגומנט, מתוקן. העלאה אי
+    אפשר לתקן, ולכן הסירוב אומר זאת — אחרת הסוכן שולח שוב את אותו מזהה ומקבל את
+    אותה תשובה.
+    """
+    return {**refusal, "hint": f"{_NOTHING_WRITTEN}{_UPLOAD_THE_EDITS_AGAIN}"}
 
 
 def refuse_edits(edits: list[Any]) -> dict[str, Any] | None:
@@ -1591,7 +1968,14 @@ def refuse_edits(edits: list[Any]) -> dict[str, Any] | None:
 
 
 def _pair_refusal(
-    index: int, err: str | None, occurrences: int, *, old_string: str, stored: str, max_size: int
+    index: int,
+    err: str | None,
+    occurrences: int,
+    *,
+    old_string: str,
+    stored: str,
+    max_size: int,
+    uploaded: bool,
 ) -> dict[str, Any]:
     """הסירוב של זוג שנכשל: הקוד של ``codekeeper_edit_file``, ``index``, והסבר.
 
@@ -1601,9 +1985,12 @@ def _pair_refusal(
     כשהם שונים, זוג קודם בבאץ' שינה את מה שהזוג הזה מחפש, וזה המקרה שסוכן יוצר
     בטעות: הוא מקבל "לא נמצא" על מחרוזת שהוא בטוח שקיימת. ה-``count`` הנוסף רץ
     רק כאן, במסלול הכשל.
+
+    ``uploaded`` — הזוגות באו מ-``edits_upload_id``, ולכן "שלח שוב את הבאץ'" אינו
+    מה שהסוכן יכול לעשות: ההעלאה נשארת כמו שהיא, והוא מעלה קובץ מתוקן.
     """
     out: dict[str, Any] = {"ok": False, "error": err or "edit_failed", "index": index}
-    hint = _NOTHING_WRITTEN
+    hint = _NOTHING_WRITTEN + (_UPLOAD_THE_EDITS_AGAIN if uploaded else _RESEND_THE_BATCH)
     if err in ("no_match", "ambiguous_match"):
         in_stored = stored.count(old_string)
         out["occurrences"] = occurrences
@@ -1627,38 +2014,111 @@ def multi_edit_file(
     file_name: str,
     edits: list[Any],
     expected_content_sha256: str | None = None,
+    edits_upload_id: str | None = None,
 ) -> dict[str, Any]:
     """Several exact find-and-replace edits on one existing file, saved as ONE new version.
 
-    **הסדר, וזו כל ההכרעה:** כל מה שזול ומקומי רץ **לפני** הקריאה מהמסד —
-    ``missing_file_name``, אורך הרשימה, המבנה של **כל** הזוגות, והצורה של
-    ``expected_content_sha256`` — כך שקלט פגום אינו עולה קריאה, וזוג פגום
+    **הסדר, וזו כל ההכרעה:** כל מה שזול ומקומי רץ **לפני** הקריאה של הקובץ מהמסד —
+    ``missing_file_name``, אורך הרשימה, המבנה של **כל** הזוגות, השער של escape של
+    יוניקוד בכל זוג שהצהיר ``expected_unicode_escapes`` (ההערה מעל ``UNICODE_ESCAPE_RE``),
+    והצורה של ``expected_content_sha256`` — כך שקלט פגום אינו עולה קריאה, וזוג פגום
     במקום השלישי נענה מיד, לפני שזוג ראשון מוחל. אחרי הקריאה: ``not_found``,
     ``empty_file``, השער (צריך את התוכן), הזוגות בסדרם, ושמירה אחת. אותו סדר
     כמו ב-:func:`edit_file`.
 
     ``edits`` שאינו רשימה אינו נענה כאן: הסכימה של הכלי מבטיחה רשימה, וה-SDK
     דוחה כל דבר אחר לפני שהגוף רץ — כמו ``items`` של ``codekeeper_read_batch``.
+    גם "לא נשלח" מגיע לכאן כרשימה ריקה, מברירת המחדל של הסכימה, ולא כ-``None``.
+
+    ``edits_upload_id`` — הרשימה מקובץ JSON שהועלה במקום ``edits``, **באותו מסלול
+    ולא במסלול שני**, בתבנית של :func:`append_file`: בדיוק אחד מהשניים ←
+    :func:`_load_upload` (צורת המזהה, שליפה, שלמות — בלי לצרוך) ← פענוח ה-JSON,
+    פעם אחת (:func:`_edits_from_upload`) ← ומכאן הקוד שלמעלה כמו שהוא, על הרשימה
+    שפוענחה ← והשער :func:`_consume_upload` בתוך :func:`_resave_edited`, אחרי כל
+    הבדיקות ורגע לפני השמירה. לכן כל סירוב שלפני השער — זוג פגום, ``no_match``,
+    ``not_found``, ``conflict`` — משאיר את ההעלאה חיה, וכשל של השמירה עצמה שורף
+    אותה ואומר זאת (``upload_consumed``). ההעלאה היא שנקראת מהמסד לפני בדיקות
+    הרשימה, כי הרשימה בתוכה; הקובץ עצמו עדיין נקרא רק אחריהן. למה הפרמטר קיים —
+    בהערה שמעל :func:`_edits_from_upload`.
     """
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
     if not isinstance(edits, list):
         raise TypeError("edits must be a list; the tool's schema guarantees one")
+    upload: _PendingUpload | None = None
+    if edits_upload_id is not None:
+        if edits:
+            return _both_sent(_EDITS_UPLOAD)
+        loaded = _load_upload(
+            backend, user_id, edits_upload_id, tool=_MULTI_EDIT_TOOL, param=_EDITS_UPLOAD
+        )
+        if isinstance(loaded, dict):
+            return loaded
+        upload = loaded
+        decoded = _edits_from_upload(upload.text)
+        if isinstance(decoded, dict):
+            return decoded
+        edits = decoded
     refusal = refuse_edits(edits)
     if refusal is not None:
-        return refusal
+        return refusal if upload is None else _fix_the_upload(refusal)
     try:
         pairs = _EDITS_ADAPTER.validate_python(edits)
     except ValidationError as exc:
         problems = validation_problems(exc)
         # ``loc`` של כל בעיה נפתח באינדקס הזוג (הרשימה אומתה כולה); ``index`` הוא
         # הזוג הראשון שנכשל, כמו בסירוב של זוג שלא התאים.
-        return {
+        refusal = {
             "ok": False,
             "error": "invalid_edit",
             "index": min(problem["loc"][0] for problem in problems),
             "problems": problems,
+        }
+        return refusal if upload is None else _fix_the_upload(refusal)
+    # זוג שאחת המחרוזות שלו אינה טקסט ש-UTF-8 יכול לקודד: אותו סירוב של זוג פגום, עם
+    # ``index`` והשדה, לפני שהקובץ נקרא ולפני השער. :func:`_resave_edited` היה דוחה את
+    # התוצאה ממילא (``invalid_utf8``), אבל בלי לומר איזה זוג מתוך חמישים.
+    not_text = [
+        {"loc": [index, field], "msg": f"The string holds {_LONE_SURROGATE}"}
+        for index, pair in enumerate(pairs)
+        for field in ("old_string", "new_string")
+        if not utf8_encodable(getattr(pair, field))
+    ]
+    if not_text:
+        refusal = {
+            "ok": False,
+            "error": "invalid_edit",
+            "index": not_text[0]["loc"][0],
+            "problems": not_text,
+        }
+        return refusal if upload is None else _fix_the_upload(refusal)
+    # השער של escape של יוניקוד, לכל זוג שהצהיר מספר — על הארגומנטים בלבד, ולכן לפני
+    # שהקובץ נקרא ולפני השער של ההעלאה. הזוג הראשון שאינו תואם, עם ``index``, כמו כל
+    # סירוב של זוג. מה שעושים אחריו תלוי בדרך שבה הזוגות הגיעו: רשימה שנשלחה ב-``edits``
+    # עברה בלקוח, ושליחה נוספת יכולה להגיע אחרת; קובץ שהועלה מפוענח כאן פעם אחת, ולכן
+    # אותו קובץ ייענה תמיד אותו דבר — מתקנים אותו ומעלים שוב.
+    for index, pair in enumerate(pairs):
+        counts = _mismatched_unicode_escapes(
+            pair.old_string, pair.new_string, pair.expected_unicode_escapes
+        )
+        if counts is None:
+            continue
+        if upload is None:
+            # "as a JSON array": רשימה שנשלחה כמחרוזת מפוענחת פעמיים, וזו סיבה שנייה —
+            # עקבית, לא מקרית — לכך שה-escape הגיע כתו (ההערה מעל ``_edits_from_upload``).
+            after = _ESCAPES_SEND_ONCE_MORE.format(what="the whole batch, as a JSON array,")
+        else:
+            after = (
+                "The uploaded file is decoded exactly once, so there a backslash meant as "
+                f"text is written as two backslashes. {_UPLOAD_THE_EDITS_AGAIN}"
+            )
+        return {
+            "ok": False,
+            "error": UNICODE_ESCAPES_MISMATCH,
+            "index": index,
+            **counts,
+            "hint": f"{_NOTHING_WRITTEN}In this pair {_ESCAPES_COUNTED}. {after}",
         }
     bad_expected = _invalid_expected_sha256(expected_content_sha256)
     if bad_expected is not None:
@@ -1681,14 +2141,22 @@ def multi_edit_file(
         if err is not None or new_code is None:
             return _pair_refusal(
                 index, err, occurrences, old_string=pair.old_string, stored=stored,
-                max_size=max_size,
+                max_size=max_size, uploaded=upload is not None,
             )
         code = new_code
         # החלפות בפועל ולא זוגות: זוג עם ``replace_all`` שפגע בשבעה מופעים תורם
         # שבעה — בדיוק כמו ``replacements`` של ``codekeeper_edit_file``.
         replacements += occurrences
     res = _resave_edited(
-        backend, user_id, name=name, doc=doc, new_code=code, tool="codekeeper_multi_edit_file"
+        backend,
+        user_id,
+        name=name,
+        doc=doc,
+        new_code=code,
+        tool=_MULTI_EDIT_TOOL,
+        consume=None
+        if upload is None
+        else functools.partial(_consume_upload, backend, user_id, upload, tool=_MULTI_EDIT_TOOL),
     )
     if not res.get("ok"):
         return res

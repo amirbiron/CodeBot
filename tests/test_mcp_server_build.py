@@ -949,6 +949,47 @@ def test_no_tool_or_parameter_description_carries_an_ellipsis():
     assert not found, f"שלוש נקודות בתיאור — נקראות כטקסט שנחתך: {found}"
 
 
+#: תווים שאינם נראים בתיאור: רוחב אפס, סימני כיוון ו-BOM.
+_INVISIBLE = frozenset([*range(0x200B, 0x2010), *range(0x202A, 0x202F), *range(0x2066, 0x206A), 0xFEFF])
+
+
+def test_no_tool_or_parameter_description_carries_a_unicode_escape_or_an_invisible_character():
+    """אין escape של יוניקוד בשום תיאור ב-``tools/list``, ואין תו בלתי-נראה — כותבים במילים.
+
+    **תיאור שנושא escape עלול להגיע לסוכן כתו.** escape של יוניקוד שנועד להיות טקסט יכול
+    להפוך לתו לפני שכלי כלשהו רואה אותו (ההערה מעל ``_OTHER_BACKSLASHES_DOC`` ב-
+    ``mcp_server/server.py``), ותיאור שמסביר את זה בעזרת escape היה מציג לסוכן תו
+    בלתי-נראה במקום הדוגמה. לכן התיאורים אומרים "a backslash, u and four hex digits"
+    (``UNICODE_ESCAPE_IN_WORDS`` ב-``mcp_server/handlers.py``), ולא כותבים את ה-escape.
+    והחצי השני: תו בלתי-נראה שכבר יושב בתיאור הוא מה שנשאר מ-escape שהומר כשהתיאור
+    נכתב — כך זה נראה בקוד, ואין לו סימן אחר.
+
+    **התבנית היא ``UNICODE_ESCAPE_RE`` של ``mcp_server/handlers.py``**, אותה תבנית שהשער
+    ``expected_unicode_escapes`` סופר לפיה, ולא עותק שני כאן: מה שהשרת מחשיב escape של
+    יוניקוד הוא מה שאסור שיופיע בתיאור. שהתבנית עצמה תופסת את מה שהיא צריכה — נבדק ב-
+    ``tests/test_mcp_multi_edit.py``, מול ספירות שנכתבו ביד.
+
+    ``_tool_manager.list_tools()`` — כל הכלים, גם של אדמין, מאותה סיבה כמו בטסט שמעל.
+    """
+    from mcp_server.handlers import UNICODE_ESCAPE_RE
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+
+    found = []
+    for tool in mcp._tool_manager.list_tools():
+        texts = {"description": tool.description or ""}
+        for name, spec in (tool.parameters.get("properties") or {}).items():
+            texts[name] = spec.get("description") or ""
+            # תיאור של שדה בתוך פריט של רשימה — ``edits`` נושא את הסכימה של הזוג.
+            for field, inner in ((spec.get("items") or {}).get("properties") or {}).items():
+                texts[f"{name}[].{field}"] = inner.get("description") or ""
+        for where, text in texts.items():
+            if UNICODE_ESCAPE_RE.search(text) or any(ord(ch) in _INVISIBLE for ch in text):
+                found.append(f"{tool.name}.{where}")
+
+    assert not found, f"escape של יוניקוד או תו בלתי-נראה בתיאור — כותבים אותו במילים: {found}"
+
+
 #: שלושת המספרים שההנמקה מעל :data:`_TOOL_DESCRIPTION_MAX_CHARS` נוקבת
 #: בהם, בסדר שבו הם מופיעים שם: כמה כלים, מי הארוך ביותר, וכמה תווים יש בו.
 _CEILING_RATIONALE_RE = re.compile(
