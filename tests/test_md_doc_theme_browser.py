@@ -8,7 +8,8 @@
 גם כלל שאיש לא חשב עליו.
 
 **ומה עוד:** מחוץ לכרטיס העמוד זהה לעמוד בלי ערכת מסמך; ובערכת ממשק מובנית ערכת המסמך רדומה, והכרטיס זהה לעמוד
-בלי ערכת מסמך.
+בלי ערכת מסמך. ושני המסכים שבוחרים אותה, דרך הממשק שלהם — התיבה בגלריית הערכות, ומצב "ערכת מסמך" במודאל הערכות
+שבסרגל הניווט.
 
 העמוד אמיתי — ``/md/<id>`` דרך ``test_client``, כולל הסטטיים — והמסד ``FakeDB``. בדיקות בלי דפדפן:
 ``tests/test_md_doc_theme.py``.
@@ -461,8 +462,11 @@ def gallery(browser, monkeypatch):
     page = ctx.new_page()
     page.goto(f"http://{HOST}/settings/theme-gallery", wait_until="load")
     page.click('.tab-btn[data-tab="import"]')
+    # הרשימה נטענה, והבחירה הנוכחית ידועה — עד אז התיבה מושבתת.
     page.wait_for_function(
-        "() => document.querySelectorAll('#mdDocThemeSelect optgroup option').length > 0", timeout=10000
+        "() => document.querySelectorAll('#mdDocThemeSelect optgroup option').length > 0"
+        " && !document.querySelector('#mdDocThemeApply').disabled",
+        timeout=10000,
     )
     page.set_cookies_sent = set_cookies
     yield page, db, posted
@@ -525,3 +529,225 @@ def test_importing_with_the_box_checked_makes_the_new_theme_the_document_theme(g
     # הלשונית נשארה "ייבוא", כדי שהמצב ייראה; והערכה החדשה מסומנת בתיבה
     assert page.is_visible("#import-tab")
     assert page.input_value("#mdDocThemeSelect") == f"custom:{new_ids[0]}"
+
+
+# ---------------------------------------------------------------------------
+# מודאל הערכות שבסרגל הניווט: המצב "ערכת מסמך"
+# ---------------------------------------------------------------------------
+
+STATE_PATH = "/api/ui_prefs/md_doc_theme"
+#: כאן גם ה-CSP עובר לדפדפן, כדי שהוא יאכוף אותו כמו בייצור: המודאל טוען את ``md-doc-theme.js`` ושולח ``fetch``, ו-
+#: ``test_client`` אינו אוכף מדיניות.
+PICKER_FORWARDED_HEADERS = FORWARDED_HEADERS + ("content-security-policy",)
+
+
+@pytest.fixture
+def picker(browser, monkeypatch):
+    """``picker(ui, doc=None, *, path=None, device=None, fail_state=False)`` — עמוד אמיתי (ברירת מחדל ``/md/<id>``)
+    מול ``FakeDB``, בערכת ממשק ``ui`` ובערכת מסמך ``doc`` שבמסד. ``device`` — ערך ה-cookie של ערכת המסמך במכשיר,
+    עם תחולה ``device``. ``fail_state`` — ``GET`` הבחירה הנוכחית עונה 503, כמו מסד שלא ענה (השרת עצמו נבדק ב-
+    ``tests/test_md_doc_theme.py``). מחזיר ``(page, db, posted)`` — ``posted`` הם גופי ה-POST ל-``/api/ui_prefs``."""
+    import json
+
+    import webapp.app as wa
+
+    db = FakeDB()
+    monkeypatch.setattr(wa, "get_db", lambda: db)
+    file_id = ObjectId()
+    db.code_snippets.insert_one({
+        "_id": file_id, "user_id": USER_ID, "file_name": "doc.md", "code": MARKDOWN,
+        "programming_language": "markdown", "version": 1, "is_active": True,
+    })
+    for name, vscode in THEMES.items():
+        db.shared_themes.insert_one(_shared_doc(SHARED_SLUGS[name], vscode))
+    contexts = []
+
+    def run(ui: str, doc: str | None = None, *, path: str | None = None, device: str | None = None,
+            fail_state: bool = False):
+        db.users.delete_many({"user_id": USER_ID})
+        active_custom = ui.split(":", 1)[1] if ui.startswith("custom:") else None
+        prefs = {"theme": ui}
+        if doc:
+            prefs["md_doc_theme"] = doc
+        db.users.insert_one({
+            "user_id": USER_ID,
+            "ui_prefs": prefs,
+            "custom_themes": [
+                _custom_doc(CUSTOM_IDS[n], v, active=CUSTOM_IDS[n] == active_custom) for n, v in THEMES.items()
+            ],
+        })
+        client = wa.app.test_client()
+        client.environ_base["HTTP_X_FORWARDED_FOR"] = f"198.51.100.{next(_ADDRESSES) % 250 + 1}"
+        with client.session_transaction() as sess:
+            sess["user_id"] = USER_ID
+            sess["user_data"] = {"id": USER_ID, "first_name": "בדיקה"}
+        if device is not None:
+            client.set_cookie("ui_md_doc_theme_scope", "device")
+            client.set_cookie("ui_md_doc_theme", device)
+        posted: list[dict] = []
+
+        def handle(route, request):
+            u = urlsplit(request.url)
+            if u.hostname != HOST:
+                return route.abort()
+            if fail_state and u.path == STATE_PATH:
+                return route.fulfill(status=503, body=json.dumps({"ok": False, "error": "database_unavailable"}),
+                                     headers={"content-type": "application/json"})
+            target = u.path + (f"?{u.query}" if u.query else "")
+            r = client.open(target, method=request.method, data=request.post_data_buffer,
+                            headers={"Content-Type": request.headers.get("content-type", "")})
+            if u.path == "/api/ui_prefs" and request.method == "POST":
+                posted.append(json.loads(request.post_data or "{}"))
+            headers = {k: v for k, v in r.headers.items() if k.lower() in PICKER_FORWARDED_HEADERS}
+            route.fulfill(status=r.status_code, body=r.data, headers=headers)
+
+        ctx = browser.new_context(viewport={"width": 1280, "height": 900}, locale="he-IL")
+        contexts.append(ctx)
+        ctx.route("**/*", handle)
+        page = ctx.new_page()
+        page.goto(f"http://{HOST}{path or f'/md/{file_id}'}", wait_until="load")
+        return page, db, posted
+
+    yield run
+    for ctx in contexts:
+        ctx.close()
+
+
+def _open_picker(page, mode: str = "doc"):
+    """פותח את המודאל כמו משתמש — תפריט קיצורי הדרך, "ערכת נושא" — ובמצב ``doc`` עובר ל"ערכת מסמך"."""
+    page.click(".quick-access-toggle")
+    page.click('.quick-access-item[title="ערכת נושא"]')
+    page.wait_for_selector("#themePickerModal.is-open")
+    if mode == "doc":
+        page.click('.theme-picker__mode[data-mode="doc"]')
+        page.wait_for_selector("#themePickerGrid [data-doc-token]", timeout=10000)
+
+
+def _doc_cards(page):
+    return page.eval_on_selector_all(
+        "#themePickerGrid [data-doc-token]",
+        "els => els.map(e => [e.dataset.docToken, e.classList.contains('is-active')])",
+    )
+
+
+def _card_has_doc_theme(page) -> bool:
+    return page.evaluate("() => document.getElementById('mdCard').hasAttribute('data-md-doc-theme')")
+
+
+def test_the_modal_switches_the_document_theme_and_the_card_follows(picker):
+    page, db, posted = picker(token("custom", "dark"))
+    assert not _card_has_doc_theme(page)
+    _open_picker(page)
+    cards = _doc_cards(page)
+    # "ללא" ראשון ופעיל, ואחריו רק ערכות אישיות וציבוריות — מובנית אינה יכולה להיות ערכת מסמך
+    assert cards[0] == ["", True]
+    assert {t for t, _ in cards[1:]} == {token(kind, name) for kind in ("custom", "shared") for name in THEMES}
+    assert page.is_hidden('.theme-picker__tab[data-filter="builtin"]')
+    assert page.is_hidden('[data-testid="md-doc-theme-dormant"]')
+    assert page.text_content("#currentThemeName") == "ללא"
+
+    with page.expect_navigation(wait_until="load"):
+        page.click(f'#themePickerGrid [data-doc-token="{token("custom", "light")}"]')
+    assert posted[-1] == {"md_doc_theme": token("custom", "light"), "md_doc_theme_scope": "global"}
+    assert _pointer(db) == token("custom", "light")
+    assert _card_has_doc_theme(page)
+
+    _open_picker(page)
+    assert [t for t, active in _doc_cards(page) if active] == [token("custom", "light")]
+    assert page.text_content("#currentThemeName") == "Paper"
+
+    with page.expect_navigation(wait_until="load"):
+        page.click('#themePickerGrid [data-doc-token=""]')
+    assert posted[-1] == {"md_doc_theme": None, "md_doc_theme_scope": "global"}
+    assert _pointer(db) == "<absent>"
+    assert not _card_has_doc_theme(page)
+
+
+def test_a_choice_made_on_this_device_stays_on_it(picker):
+    # במכשיר נבחר "כבויה" — וזה גובר על הבחירה שבמסד, ולכן "ללא" פעיל
+    page, db, posted = picker(token("custom", "dark"), token("custom", "light"), device="none")
+    _open_picker(page)
+    assert _doc_cards(page)[0] == ["", True]
+    with page.expect_navigation(wait_until="load"):
+        page.click(f'#themePickerGrid [data-doc-token="{token("shared", "light")}"]')
+    assert posted[-1] == {"md_doc_theme": token("shared", "light"), "md_doc_theme_scope": "device"}
+    assert _pointer(db) == token("custom", "light")  # במסד לא נגעו
+    assert _card_has_doc_theme(page)
+
+
+def _stays_on_the_page(page, click_selector: str, active_token: str):
+    page.evaluate("() => { window.__sameDocument = true; }")
+    page.click(click_selector)
+    # ההמתנות בטסטים של המודאל — סלקטורים ולא ``wait_for_function``: האחרון מריץ ``eval`` בדף, וה-CSP של האתר, שעובר
+    # כאן (``PICKER_FORWARDED_HEADERS``), חוסם אותו.
+    page.wait_for_selector(f'#themePickerGrid [data-doc-token="{active_token}"].is-active', timeout=10000)
+    # טעינה מחדש מתוזמנת אחרי ה-toast; מחכים מעבר לה, ובודקים שזה עדיין אותו מסמך
+    page.wait_for_timeout(700)
+    assert page.evaluate("() => window.__sameDocument === true")
+
+
+def test_under_a_builtin_ui_theme_the_modal_says_so_and_saves_without_reloading(picker):
+    page, db, posted = picker("classic")
+    _open_picker(page)
+    assert page.is_visible('[data-testid="md-doc-theme-dormant"]')
+    light = token("custom", "light")
+    _stays_on_the_page(page, f'#themePickerGrid [data-doc-token="{light}"]', light)
+    assert _pointer(db) == token("custom", "light")
+    assert page.text_content("#currentThemeName") == "Paper"
+
+
+def test_on_a_page_without_the_card_the_modal_updates_in_place(picker):
+    page, db, _ = picker(token("custom", "dark"), path="/settings/theme-gallery")
+    _open_picker(page)
+    assert page.is_hidden('[data-testid="md-doc-theme-dormant"]')
+    _stays_on_the_page(page, f'#themePickerGrid [data-doc-token="{token("shared", "dark")}"]', token("shared", "dark"))
+    assert _pointer(db) == token("shared", "dark")
+
+
+def test_the_interface_mode_is_the_modal_as_it_was(picker):
+    page, _, posted = picker(token("custom", "dark"))
+    _open_picker(page, mode="ui")
+    page.wait_for_selector("#themePickerGrid [data-theme-id]")
+    grid = page.inner_html("#themePickerGrid")
+    subtitle = page.text_content(".theme-picker__subtitle")
+    label = page.text_content(".theme-picker__current-label")
+    assert "data-doc-token" not in grid
+    assert page.is_visible('.theme-picker__tab[data-filter="builtin"]')
+
+    # הלוך לערכת מסמך וחזרה: המודאל חוזר בדיוק למה שהיה
+    page.click('.theme-picker__mode[data-mode="doc"]')
+    page.wait_for_selector("#themePickerGrid [data-doc-token]")
+    page.click('.theme-picker__mode[data-mode="ui"]')
+    page.wait_for_selector("#themePickerGrid [data-theme-id]")
+    assert page.inner_html("#themePickerGrid") == grid
+    assert page.text_content(".theme-picker__subtitle") == subtitle
+    assert page.text_content(".theme-picker__current-label") == label
+    assert page.is_visible('.theme-picker__tab[data-filter="builtin"]')
+
+    # פתיחה מחדש מתחילה תמיד בערכת ממשק, גם כשנסגר במצב ערכת מסמך
+    page.click('.theme-picker__mode[data-mode="doc"]')
+    page.wait_for_selector("#themePickerGrid [data-doc-token]")
+    page.keyboard.press("Escape")
+    _open_picker(page, mode="ui")
+    page.wait_for_selector("#themePickerGrid [data-theme-id]")
+    assert page.get_attribute('.theme-picker__mode[data-mode="ui"]', "aria-pressed") == "true"
+    assert page.inner_html("#themePickerGrid") == grid
+    assert posted == []
+
+
+def test_when_the_current_choice_cannot_be_read_the_modal_offers_no_cards(picker):
+    page, _, posted = picker(token("custom", "dark"), fail_state=True)
+    _open_picker(page, mode="ui")
+    page.click('.theme-picker__mode[data-mode="doc"]')
+    page.wait_for_selector('[data-testid="md-doc-theme-state-failed"]', timeout=10000)
+    assert page.query_selector_all("#themePickerGrid [data-doc-token]") == []
+    assert page.text_content("#currentThemeName") == "לא ידוע"
+    assert posted == []
+
+
+def test_when_the_current_choice_cannot_be_read_the_gallery_box_stays_disabled(picker):
+    page, _, posted = picker(token("custom", "dark"), path="/settings/theme-gallery", fail_state=True)
+    page.click('.tab-btn[data-tab="import"]')
+    page.locator("#mdDocThemeStatus").filter(has_text="לא הצלחתי").wait_for(timeout=10000)
+    assert page.is_disabled("#mdDocThemeApply") and page.is_disabled("#mdDocThemeSelect")
+    assert posted == []

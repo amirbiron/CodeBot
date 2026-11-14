@@ -433,6 +433,12 @@ class _FakeCursor:
         return self
 
     def sort(self, key, direction=1):
+        if isinstance(key, (list, tuple)):
+            # ``sort([(key, direction), ...])``, כמו ב-pymongo (``SharedThemeService.get_all_active``): מיון יציב לפי
+            # המפתח האחרון קודם. שדה חסר (``None``) לפני כל ערך, כמו ``null`` במונגו, ובלי להשוות ``None`` לערך.
+            for k, d in reversed(list(key)):
+                self._docs.sort(key=lambda doc, k=k: (doc.get(k) is not None, doc.get(k)), reverse=int(d) < 0)
+            return self
         self._docs.sort(key=lambda d: d.get(key), reverse=int(direction) < 0)
         return self
 
