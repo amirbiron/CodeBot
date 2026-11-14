@@ -291,6 +291,29 @@ def test_the_name_in_a_search_result_card_which_is_left_to_right(fixed, chromium
         assert not hebrew_end_left, "בקרה: בהקשר שמאל-לימין, בלי בידוד, הסיומת של ערכות.md יוצאת מימין"
 
 
+#: שם קובץ עם מרכאות שמנסה לצאת מה-``title`` ולהוסיף מאפיין משלו.
+QUOTED_NAME = 'דוח "x" onmouseover="window.__escaped = 1" data-x="y.md'
+
+
+def test_a_file_name_with_quotes_stays_inside_the_title_of_its_search_card(chromium_executable):
+    """ה-``title`` של שם הקובץ בכרטיס נבנה במחרוזת, ב-``escapeHtml`` של ``global_search.js``. עד התיקון הפונקציה לא קודדה
+    מרכאות, ושם עם ``"`` יצא מהמאפיין: מה שאחריו נקרא כמאפיינים חדשים של הקישור."""
+    api = {"/api/search/global": dict(SEARCH_API["/api/search/global"], total_results=1, results=[
+        dict(SEARCH_API["/api/search/global"]["results"][0], file_name=QUOTED_NAME)])}
+    with _browser(chromium_executable) as browser:
+        page = _open(browser, {"/search": _search_page(control=False)}, "/search", api=api)
+        page.evaluate("() => window.performGlobalSearch()")
+        link = page.locator(".search-result-card .file-name").first
+        link.wait_for(state="attached")
+        attrs = link.evaluate("(el) => el.getAttributeNames()")
+        title = link.get_attribute("title")
+        text = link.evaluate("(el) => el.textContent")
+        assert not page.js_errors, page.js_errors
+    assert title == QUOTED_NAME, title
+    assert text == QUOTED_NAME, text
+    assert sorted(attrs) == ["class", "href", "target", "title"], attrs
+
+
 def _notes_search_page(control: bool) -> str:
     return _rtl_page(
         '<form id="noteSearchForm"><input id="noteSearchInput"><input type="checkbox" id="noteSearchArchive"></form>'
@@ -414,3 +437,40 @@ def test_the_name_in_pages_that_build_it_in_javascript(place, fixed, admin_live_
         assert shape == SPLIT_RIGHT, shape
     else:
         assert not shape["dot_left_of_tail"], f"בקרה: {shape}"
+
+
+def test_a_file_name_with_quotes_is_shown_whole_in_a_collection_card(admin_live_server, chromium_executable):
+    """בכרטיס של אוסף השם נקרא מ-``data-open`` (``fillCardNames`` ב-``collections.js``), והמאפיין נבנה ב-``escapeHtml`` של
+    אותו קובץ. בלי קידוד של מרכאות, שם עם ``"`` היה נחתך במאפיין — ונחתך גם בכרטיס, וגם בפתיחה."""
+    api = {"/api/collections/c1/items": {"ok": True, "items": [{"source": "regular", "file_name": QUOTED_NAME, "id": "i1"}],
+                                         "total": 1, "page": 1, "per_page": 20},
+           "/api/collections/c1": {"ok": True, "collection": _COLLECTION},
+           "/api/collections": {"ok": True, "collections": [_COLLECTION]}}
+    prefixes = sorted(api, key=len, reverse=True)
+    with _browser(chromium_executable) as browser:
+        context = browser.new_context(viewport={"width": 1280, "height": 900}, locale="he-IL")
+        context.add_cookies([{"name": "session", "value": admin_live_server.session_cookie,
+                              "domain": "127.0.0.1", "path": "/"}])
+        page = context.new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda exc: errors.append(str(exc)))
+
+        def api_route(route):
+            url_path = urlsplit(route.request.url).path
+            for prefix in prefixes:
+                if url_path.startswith(prefix):
+                    route.fulfill(status=200, content_type="application/json", body=json.dumps(api[prefix]))
+                    return
+            route.continue_()
+
+        page.route("**/api/**", api_route)
+        page.goto(f"{admin_live_server.base_url}/collections/c1", wait_until="load")
+        link = page.locator(".collection-card__link").first
+        link.wait_for(state="attached")
+        text = link.evaluate("(el) => el.textContent")
+        data_open = link.get_attribute("data-open")
+        attrs = link.evaluate("(el) => el.getAttributeNames()")
+        assert not errors, errors
+    assert data_open == QUOTED_NAME, data_open
+    assert text == QUOTED_NAME, text
+    assert "onmouseover" not in attrs, attrs

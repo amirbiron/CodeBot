@@ -813,7 +813,12 @@
   // 2 ג'יגה הוצג כ-"2048 MB".
   function humanSize(bytes){ return window.SizeFormat.formatFileSize(bytes); }
   function formatDate(s){ try{ const d=new Date(s); return d.toLocaleString('he-IL'); }catch(e){ return ''; } }
-  function escapeHtml(t){ const d=document.createElement('div'); d.textContent=String(t||''); return d.innerHTML; }
+  // מקודד גם מרכאות: הפונקציה בונה גם ערכי מאפיינים — ``title`` של שם הקובץ בכרטיס, ``href`` ו-``data-command-copy`` —
+  // ושם קובץ עם ``"`` היה יוצא מהמאפיין, וכל מה שאחריו היה נקרא כמאפיינים חדשים. בטקסט — אותה תצוגה.
+  function escapeHtml(t){
+    return String(t||'').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
 
   async function ensureCommandCatalog(){
     if (shortcutCatalog) return shortcutCatalog;
