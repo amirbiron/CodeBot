@@ -266,7 +266,8 @@ check('K11: 2xx עם {ok: true} — הצלחה; כל השאר כשל עם הסט
   eq(await fetchWith(async () => response(200, null, { notJson: true })), { ok: false, status: 200, data: null },
      'דף שגיאה שאינו JSON');
   eq((await fetchWith(async () => response(200, [{ ok: true }]))).data, null, 'רשימה אינה תשובה');
-  eq(await fetchWith(async () => { throw new TypeError('Failed to fetch'); }), { ok: false, status: 0, data: null },
+  // ``headers: null`` — בלי תשובה אין כותרות (``_apiFetch`` מעביר את ``resp.headers`` למי שצריך ``Retry-After``).
+  eq(await fetchWith(async () => { throw new TypeError('Failed to fetch'); }), { ok: false, status: 0, data: null, headers: null },
      'כשל רשת');
 });
 
@@ -278,7 +279,7 @@ check('בקשה שאינה חוזרת נגמרת בתקרה של 15 שניות �
   eq(timers.length, 1, 'נרשמה תקרה אחת, של 15 שניות');
   eq(signal.aborted, false);
   timers[0].fn();
-  eq(await req.result, { ok: false, status: 0, data: null });
+  eq(await req.result, { ok: false, status: 0, data: null, headers: null });
   eq(signal.aborted, true, 'הבקשה בוטלה, ולא רק ננטשה');
 });
 

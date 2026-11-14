@@ -29,6 +29,7 @@ import pytest
 
 flask = pytest.importorskip("flask")
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
+from playwright.sync_api import TimeoutError as PlaywrightTimeout  # noqa: E402
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
 from _notes_mongo_fake import USER, make_client  # noqa: E402
@@ -72,6 +73,10 @@ class LivePage:
         host_html = host_html or BOARD_HOST
         self.client = client
         self.db = client.db
+        # הפיקסצ'ר ``client`` סוגר כל עמוד שנפתח עליו — גם כשהבדיקה נכשלה לפני ``close``. עמוד שנשאר פתוח
+        # ממשיך לשמור ולדגום, וה-``get_db`` של המודול כבר מוחלף לדמה של הבדיקה הבאה: השמירות שלו נוחתות
+        # במסד של בדיקה אחרת, והיא נכשלת על תוכן שמעולם לא כתבה (נמדד בריצת הבקרה).
+        self._closed = False
         self.requests: list[tuple[str, str]] = []
         #: (שיטה, נתיב, סטטוס) של כל תשובה שה-blueprint החזיר — כולל 409 בתוך תשובה מרוכזת.
         self.answers: list[tuple[str, str, int]] = []
@@ -81,6 +86,13 @@ class LivePage:
         #: רשימה מלאה (לא דגימה) שנעצרת עד ``release_list`` — לבדוק מה קורה לפני שהיא מגיעה.
         self.hold_list = hold_list
         self.held = []
+        #: שמירות שנעצרות **לפני שהשרת רואה אותן**, עד ``release_saves`` — כדי לקבוע את הסדר שבו הוא מעבד אותן.
+        self.hold_saves = False
+        self.held_saves = []
+        #: כמה שמירות נענות 503 בלי שהשרת כותב — שמירה שנכשלה.
+        self.fail_saves = 0
+        #: כמה קריאות של פתק בודד נענות 429 עם ``Retry-After`` (בשניות) — ``(count, seconds)``.
+        self.rate_limit_note_get = (0, 0)
         links = "\n".join(f'<link rel="stylesheet" href="/static/{s}">' for s in STYLESHEETS)
         tags = "\n".join(f'<script src="/static/{s}"></script>' for s in SCRIPTS)
         self.html = f"""<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8">
@@ -88,6 +100,7 @@ class LivePage:
 <style>* {{ margin:0; padding:0; box-sizing:border-box; }} body {{ font-family: sans-serif; }}</style>
 {links}</head><body>{host_html}{tags}<script>{manager_js}</script></body></html>"""
         self.ctx = browser.new_context(viewport={"width": viewport[0], "height": viewport[1]}, **(context_opts or {}))
+        client.pages.append(self)
         self.page = self.ctx.new_page()
         self.errors: list[str] = []
         self.console: list[tuple[str, str]] = []
@@ -118,6 +131,22 @@ class LivePage:
             if self.fail_note_get and req.method == "GET" and path.startswith("/api/sticky-notes/note/"):
                 self.fail_note_get -= 1
                 route.fulfill(status=500, content_type="application/json", body='{"ok": false}')
+                return
+            if self.rate_limit_note_get[0] and req.method == "GET" and path.startswith("/api/sticky-notes/note/"):
+                count, seconds = self.rate_limit_note_get
+                self.rate_limit_note_get = (count - 1, seconds)
+                route.fulfill(status=429, headers={"Content-Type": "application/json", "Retry-After": str(seconds)},
+                              body='{"ok": false, "error": "rate_limited"}')
+                return
+            is_save = req.method in ("POST", "PUT") and (
+                path.endswith("/batch") or (path.startswith("/api/sticky-notes/note/") and path.count("/") == 4))
+            if self.hold_saves and is_save:
+                self.held_saves.append(route)
+                return
+            if self.fail_saves and is_save:
+                self.fail_saves -= 1
+                self.answers.append((req.method, path, 503))
+                route.fulfill(status=503, content_type="application/json", body='{"ok": false}')
                 return
             if (self.hold_list and req.method == "GET" and "versions=1" not in parts.query
                     and path.startswith("/api/sticky-notes/board/")):
@@ -160,6 +189,16 @@ class LivePage:
         for route in held:
             self._answer(route)
 
+    def release_saves(self, order=None, pause_ms=0):
+        """השרת מעבד את השמירות שנעצרו — בסדר ``order`` (אינדקסים), או בסדר שבו הגיעו. ``pause_ms`` — המתנה
+        אחרי כל אחת, כדי שהדפדפן יסיים לטפל בתשובה (כולל 409 והפיוס שאחריו) לפני שהבאה מעובדת."""
+        held, self.held_saves = self.held_saves, []
+        self.hold_saves = False
+        for i in (order if order is not None else range(len(held))):
+            self._answer(held[i])
+            if pause_ms:
+                self.page.wait_for_timeout(pause_ms)
+
     # --- השרת -----------------------------------------------------------
 
     def doc(self, note_id):
@@ -182,16 +221,26 @@ class LivePage:
                 return !!n && n.getAnimations().every(a => a.playState === 'finished'); }""", arg=nid)
 
     def poll_now(self):
-        """סבב דגימה אחד, וממתינים שיסתיים — בלי לחכות 15 שניות."""
-        self.page.evaluate("""() => new Promise((resolve) => {
-            const before = (window.__polls = (window.__polls || 0));
-            window.__mgr._livePoll.pollNow();
-            const t0 = Date.now();
-            (function wait(){
-              // הסבב נגמר כשאין בקשה באוויר; ``pollNow`` אינו מחזיר promise, ולכן דוגמים.
-              setTimeout(() => { if (Date.now() - t0 > 300) resolve(); else wait(); }, 50);
-            })();
-        })""")
+        """סבב דגימה אחד, וממתינים **שיסתיים** — בלי לחכות 15 שניות.
+
+        הסיום נצפה: ``_livePollRun`` של המנהל נעטף (פעם אחת) במונה שעולה כשהסבב נגמר — אחרי הבקשה וכל
+        הקריאות של הפתקים שהשתנו — ו-``wait_for_function`` ממתין שהמונה יעלה. ``pollNow`` כשסבב כבר באוויר
+        אינו פותח סבב שני, ואז המונה עולה כשהסבב ההוא נגמר.
+        """
+        before = self.page.evaluate("""() => {
+            const mgr = window.__mgr;
+            if (!mgr.__runCounted) {
+              const run = mgr._livePollRun.bind(mgr);
+              mgr._livePollRun = async (ctx) => {
+                try { return await run(ctx); } finally { window.__pollRuns = (window.__pollRuns || 0) + 1; }
+              };
+              mgr.__runCounted = true;
+            }
+            const before = window.__pollRuns || 0;
+            mgr._livePoll.pollNow();
+            return before;
+        }""")
+        self.page.wait_for_function("(before) => (window.__pollRuns || 0) > before", arg=before, timeout=10_000)
 
     def textarea(self, nid):
         return self.page.eval_on_selector(self.sel(nid, ".sticky-note-content"), "e => e.value")
@@ -206,6 +255,9 @@ class LivePage:
         raise AssertionError(f"השרת לא קיבל את התוכן הצפוי: {self.doc(nid)['content']!r} במקום {expected!r}")
 
     def close(self):
+        if self._closed:
+            return
+        self._closed = True
         self.ctx.close()
 
 
@@ -217,7 +269,11 @@ BOARD_MANAGER = ("window.__mgr = new window.StickyNotesManager({ board: '%s', "
 def client(monkeypatch):
     c = make_client(monkeypatch, flask)
     c.db.note_boards.docs.append({"_id": BOARD, "user_id": USER, "name": "לוח"})
-    return c
+    c.pages = []
+    yield c
+    # ראו ``LivePage.__init__``: עמוד שנשאר פתוח אחרי בדיקה שנכשלה היה כותב למסד של הבדיקה הבאה.
+    for lp in c.pages:
+        lp.close()
 
 
 @pytest.fixture
@@ -314,6 +370,8 @@ ROW_JS = """(args) => { const [sel, text] = args;
   const row = [...document.querySelectorAll(sel + ' .sticky-task-line')].find(r => r.textContent.trim() === text);
   if (!row) return null; const r = row.getBoundingClientRect();
   return { x: r.left + Math.min(20, r.width / 2), y: r.top + r.height / 2 }; }"""
+#: האם עדכון מהשרת מחכה ללחיצה שתסתיים (``_deferWhilePressed``).
+DEFERRED_JS = "(id) => !!window.__mgr.notes.get(id).deferredRemote"
 CARET_JS = """(sel) => { const t = document.querySelector(sel);
   return { value: t.value, after: t.value.slice(t.selectionStart, t.selectionStart + 10),
            focused: document.activeElement === t }; }"""
@@ -347,6 +405,7 @@ def test_an_update_during_a_press_waits_for_the_press_to_end(md_board):
     md_board.page.mouse.move(pos["x"], pos["y"])
     md_board.page.mouse.down()
     md_board.poll_now()
+    assert md_board.page.evaluate(DEFERRED_JS, N1), "תשובת הפתק לא הגיעה בזמן הלחיצה — הבדיקה אינה בודקת את מה שהיא מתיימרת"
     view = md_board.page.eval_on_selector(md_board.sel(N1, ".sticky-note-tasks"), "e => e.textContent")
     assert "שורה חדשה" not in view, "התצוגה נבנתה מחדש באמצע לחיצה"
     md_board.page.mouse.up()
@@ -390,10 +449,39 @@ def test_leaving_edit_without_changes_loads_the_waiting_update(board):
     assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None
 
 
+def _try_to_close(lp):
+    """ניסיון סגירה אמיתי (``page.close(run_before_unload=True)``, Playwright 1.49) — מחזיר את סוגי הדיאלוגים
+    שהדפדפן הציג. דיאלוג ``beforeunload`` נדחה (``dismiss`` = "להישאר בעמוד"), והעמוד נשאר פתוח."""
+    shown = []
+
+    def on_dialog(dialog):
+        shown.append(dialog.type)
+        dialog.dismiss()
+
+    lp.page.on("dialog", on_dialog)
+    lp.page.close(run_before_unload=True)
+    # ``close`` עם ``run_before_unload`` אינו ממתין לסגירה. ממתינים לאירוע ``close`` — ובזמן ההמתנה Playwright
+    # מעביר את אירוע הדיאלוג; דיאלוג שנדחה משאיר את העמוד פתוח, וההמתנה נגמרת בתום הזמן.
+    try:
+        lp.page.wait_for_event("close", timeout=2000)
+    except PlaywrightTimeout:
+        pass
+    return shown
+
+
+def test_closing_the_tab_with_nothing_held_does_not_ask(browser, client):
+    client.db.sticky_notes.docs.append(_doc(N1, "גוף"))
+    lp = LivePage(browser, client, BOARD_MANAGER)
+    lp.wait_note(N1)
+    lp.page.click(lp.sel(N1, ".sticky-note-content"))  # אינטראקציה — בלעדיה הדפדפן לא היה שואל ממילא
+    lp.page.keyboard.press("End")
+    assert _try_to_close(lp) == []
+    assert lp.page.is_closed(), "אין מה לאבד — העמוד נסגר בלי שאלה"
+    lp.close()
+
+
 def test_closing_the_tab_with_a_held_change_asks_first(board):
-    ask = """() => { const e = new Event('beforeunload', { cancelable: true });
-                     window.dispatchEvent(e); return e.defaultPrevented; }"""
-    assert board.page.evaluate(ask) is False, "אין מה לאבד — אין סיבה לשאול"
+    """הדפדפן **מציג** את השאלה — לא רק שהאירוע בוטל. השינוי המוחזק אינו נשלח בסגירה, ובלי השאלה היה נעלם."""
     board.page.click(board.sel(N1, ".sticky-note-content"))
     board.page.wait_for_timeout(400)
     board.page.keyboard.press("End")
@@ -403,7 +491,10 @@ def test_closing_the_tab_with_a_held_change_asks_first(board):
     board.poll_now()
     board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
     board.page.keyboard.type("!")
-    assert board.page.evaluate(ask) is True
+    assert _try_to_close(board) == ["beforeunload"]
+    assert not board.page.is_closed(), "בחירה להישאר משאירה את העמוד"
+    assert board.textarea(N1) == "גרסה ישנה — שלי!"
+    assert board.doc(N1)["content"] == "גרסה חדשה מהסוכן", "השינוי המוחזק לא נשלח בסגירה"
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +610,7 @@ def test_a_401_stops_the_poll(board, monkeypatch):
     with board.client.session_transaction() as sess:
         sess.clear()
     board.poll_now()
-    assert board.page.evaluate("window.__mgr._livePoll.stopped") is True
+    board.page.wait_for_function("() => window.__mgr._livePoll.stopped === true", timeout=5000)
     assert any("session ended (401)" in text for kind, text in board.console if kind == "warning")
 
 
@@ -694,6 +785,7 @@ def test_an_update_during_a_touch_press_waits_for_the_finger_to_lift(browser, cl
     touch = Touch(lp.page.context.new_cdp_session(lp.page))
     touch.start(pos["x"], pos["y"])
     lp.poll_now()
+    assert lp.page.evaluate(DEFERRED_JS, N1), "תשובת הפתק לא הגיעה בזמן המגע — הבדיקה אינה בודקת את מה שהיא מתיימרת"
     view = lp.page.eval_on_selector(lp.sel(N1, ".sticky-note-tasks"), "e => e.textContent")
     assert "שורה חדשה" not in view, "התצוגה נבנתה מחדש מתחת לאצבע"
     touch.end()
@@ -702,4 +794,273 @@ def test_an_update_during_a_touch_press_waits_for_the_finger_to_lift(browser, cl
     caret = lp.page.evaluate(CARET_JS, lp.sel(N1, ".sticky-note-content"))
     assert caret["after"].startswith("שורה שנייה"), caret
     assert not lp.errors, lp.errors
+    lp.close()
+
+
+# ---------------------------------------------------------------------------
+# סבב הריוויו: שמירה אחת בכל רגע, פתק שאינו יורד עם החלטה פתוחה, וסדר הקריאות
+# ---------------------------------------------------------------------------
+
+def _saves(lp, since=0):
+    """בקשות השמירה (``PUT`` של פתק, ``POST`` מרוכז) מאז ``since`` ברשימת הבקשות."""
+    return [r for r in lp.requests[since:] if (r[0] == "PUT" and r[1].startswith("/api/sticky-notes/note/")
+                                               and r[1].count("/") == 4) or (r[0] == "POST" and r[1].endswith("/batch"))]
+
+
+def _wait_until(lp, predicate, timeout_s=8.0, what="התנאי"):
+    import time
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        lp.page.wait_for_timeout(100)
+    raise AssertionError(f"{what} לא התקיים")
+
+
+def test_a_save_waits_for_the_one_in_flight_so_an_old_save_never_overwrites_a_newer_one(board):
+    """שתי שמירות של אותו פתק באוויר יחד, והשרת מעבד את החדשה קודם: הישנה מקבלת 409, והפיוס — שרואה את
+    החדשה כבסיס — היה שולח את הישנה שוב מעליה. שמירה אחת בכל רגע לכל פתק סוגרת את זה מהשורש."""
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_timeout(400)
+    board.page.keyboard.press("End")
+    board.hold_saves = True
+    board.page.keyboard.type(" א")
+    _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה הראשונה יצאה")
+    board.page.keyboard.type(" ב")
+    # יציאה מעריכה שולחת מיד (``_flushFor``) — גם היא ממתינה לשמירה שבאוויר, ולא שולחת לצידה.
+    board.page.locator(board.sel(N1, ".sticky-note-content")).blur()
+    board.page.wait_for_timeout(4500)  # ה-debounce, וגם סבב של השמירה הכפויה ברקע (3.5 שניות)
+    in_flight = len(board.held_saves)
+    # השרת מעבד את מה שבאוויר מהחדש לישן — הסדר שבו הישן היה נכתב אחרון.
+    board.release_saves(order=list(reversed(range(in_flight))), pause_ms=1500)
+    board.wait_saved(N1, "גרסה ישנה א ב")
+    board.page.wait_for_timeout(1500)
+    assert board.doc(N1)["content"] == "גרסה ישנה א ב", "שמירה ישנה נכתבה מעל חדשה"
+    assert in_flight == 1, f"{in_flight} שמירות של אותו פתק היו באוויר יחד"
+
+
+def test_hiding_the_tab_with_an_unsaved_edit_sends_it_once_and_shows_no_notice(board):
+    """עד נובמבר 2026 ההסתרה שלחה את אותו מטען פעמיים (``keepalive`` ומסלול מרוכז) עם אותו אסימון; אחד קיבל
+    409, והפיוס הציג "יש עדכון חדש" על הטקסט של המשתמש עצמו."""
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_timeout(400)
+    board.page.keyboard.press("End")
+    since = len(board.requests)
+    board.page.keyboard.type(" — שלי")
+    board.page.evaluate("""() => {
+        Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange')); }""")
+    board.wait_saved(N1, "גרסה ישנה — שלי")
+    board.page.wait_for_timeout(1500)
+    board.page.evaluate("""() => {
+        Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange')); }""")
+    board.page.wait_for_timeout(1200)
+    assert len(_saves(board, since)) == 1, _saves(board, since)
+    assert not [a for a in board.answers if a[2] == 409], board.answers
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None, "התראה על הטקסט של המשתמש עצמו"
+
+
+TOASTS = "window.__toasts = []; window.ckToast = (message) => { window.__toasts.push(String(message)); return true; };"
+
+
+def _overlay_page(browser, client, surface):
+    manager = (TOASTS + " window.__closed = []; window.__mgr = new window.StickyNotesManager({ %s: true, "
+               "container: document.getElementById('overlay'), anchorHost: null, "
+               "onOverlayNoteClosed: (s) => window.__closed.push(s.id) });" % surface)
+    lp = LivePage(browser, client, manager, host_html=OVERLAY_HOST)
+    url = f"/api/sticky-notes/archive/{N1}" if surface == "archive" else f"/api/sticky-notes/files-page/{N1}"
+    lp.page.evaluate(OPEN_JS, url)
+    lp.wait_note(N1)
+    return lp
+
+
+def test_closing_an_open_note_with_a_waiting_decision_keeps_it_open_and_overwrites_nothing(browser, client):
+    client.db.sticky_notes.docs.append(_doc(N1, "בארכיון", board_id=None, title="שם", archived_at=T0))
+    lp = _overlay_page(browser, client, "archive")
+    _show_notice(lp)
+    lp.page.keyboard.type("!")
+    lp.page.evaluate("() => window.__mgr.closeOverlayNote()")
+    assert lp.page.query_selector(lp.sel(N1)) is not None, "הפתק נסגר עם החלטה פתוחה"
+    assert lp.page.evaluate("window.__closed") == []
+    assert any("מחכה להחלטה" in t for t in lp.page.evaluate("window.__toasts")), lp.page.evaluate("window.__toasts")
+    lp.page.wait_for_timeout(4500)  # סבב של השמירה הכפויה ברקע — מטען שנשאר בתור היה יוצא בו
+    assert lp.doc(N1)["content"] == "עדכון", "השינוי המוחזק נשלח מעל העדכון"
+    # ואחרי ההחלטה — הסגירה עוברת.
+    lp.page.click(lp.sel(N1, ".sticky-note-remote-update"))
+    lp.page.evaluate("() => window.__mgr.closeOverlayNote()")
+    lp.page.wait_for_selector(lp.sel(N1), state="detached", timeout=8000)
+    assert lp.page.evaluate("window.__closed") == [N1]
+    assert not lp.errors, lp.errors
+    lp.close()
+
+
+def test_closing_an_open_note_whose_save_failed_keeps_it_open_until_it_is_saved(browser, client):
+    client.db.sticky_notes.docs.append(_doc(N1, "נעוץ", files_page_pinned_at=T0))
+    lp = _overlay_page(browser, client, "filesPage")
+    lp.page.click(lp.sel(N1, ".sticky-note-content"))
+    lp.page.wait_for_timeout(300)
+    lp.page.keyboard.press("End")
+    lp.fail_saves = 50
+    lp.page.keyboard.type(" — שלי")
+    lp.page.evaluate("() => window.__mgr.closeOverlayNote()")
+    assert lp.page.query_selector(lp.sel(N1)) is not None, "הפתק נסגר עם שינוי שהשרת לא קיבל"
+    assert any("עוד לא נשמרו" in t for t in lp.page.evaluate("window.__toasts")), lp.page.evaluate("window.__toasts")
+    lp.fail_saves = 0
+    lp.page.evaluate("() => window.__mgr.closeOverlayNote()")
+    lp.page.wait_for_selector(lp.sel(N1), state="detached", timeout=8000)
+    assert lp.doc(N1)["content"] == "נעוץ — שלי"
+    lp.close()
+
+
+def test_archiving_a_note_with_a_waiting_decision_is_refused(browser, client):
+    client.db.sticky_notes.docs.append(_doc(N1, "גוף", title="שם"))
+    lp = LivePage(browser, client, TOASTS + BOARD_MANAGER)
+    lp.wait_note(N1)
+    _show_notice(lp)
+    lp.page.keyboard.type("!")
+    since = len(lp.requests)
+    lp.page.evaluate("(sel) => window.__mgr._archiveNote(document.querySelector(sel))", lp.sel(N1))
+    assert not [r for r in lp.requests[since:] if r[1].endswith("/archive")], "פתק עם החלטה פתוחה נשלח לארכיון"
+    assert lp.page.query_selector(lp.sel(N1)) is not None
+    assert any("מחכה להחלטה" in t for t in lp.page.evaluate("window.__toasts"))
+    assert not lp.errors, lp.errors
+    lp.close()
+
+
+def test_switching_away_with_a_waiting_decision_keeps_the_draft_and_shows_it_again(board):
+    """הכרעת המשתמש: מעבר קובץ בדפדפן הריפו מפרק את המנהל, ואי אפשר לעצור אותו. מה שהוקלד נשמר בדפדפן
+    ומוצג שוב — עם ההתראה, וההחלטה עדיין בידי המשתמש."""
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    local = board.textarea(N1)
+    # בלי הקאש של הלוח — כך הטיוטה פוגשת ישר את הפתק מהשרת (``_restoreHeldDraft`` מתוך ``loadNotes``), ולא
+    # הרשימה היא שמעלה את ההתראה אחרי שהקאש הוצג.
+    board.page.evaluate("async () => { await window.__mgr.destroy(); localStorage.removeItem('sticky-notes:board:%s'); %s }"
+                        % (BOARD, BOARD_MANAGER))
+    since = len(board.answers)
+    board.wait_note(N1)
+    board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    assert board.textarea(N1) == local, "הטקסט שהוקלד לא חזר"
+    board.page.wait_for_timeout(1500)
+    assert board.doc(N1)["content"] == "עדכון", "הטיוטה נשמרה מעל העדכון בלי החלטה"
+    # הטיוטה עוברת את הפיוס **לפני** שהיא נכנסת לתור — שמירה שלה לפני ההחלטה הייתה רק נדחית ב-409.
+    assert not [a for a in board.answers[since:] if a[2] == 409], board.answers[since:]
+    board.page.click(board.sel(N1, ".sticky-note-remote-ignore"))
+    board.wait_saved(N1, local)
+
+
+def test_an_update_that_waited_for_a_press_does_not_override_the_newer_version_the_edit_brought(md_board):
+    """הדגימה הביאה גרסה 1 בזמן הלחיצה, והיא חיכתה; הלחיצה נכנסה לעריכה, והרענון של הכניסה הביא גרסה 2. הגרסה
+    שחיכתה ישנה ממה שבמסך — ואסור לה להחזיר את המסך אחורה, או להעלות עליה התראה."""
+    newer = MD_NEW + "\nשורה אחרונה"
+    md_board.agent_writes(N1, MD_NEW)
+    pos = md_board.page.evaluate(ROW_JS, [md_board.sel(N1), "שורה שנייה"])
+    md_board.page.mouse.move(pos["x"], pos["y"])
+    md_board.page.mouse.down()
+    md_board.poll_now()
+    assert md_board.page.evaluate(DEFERRED_JS, N1), "העדכון לא חיכה ללחיצה — הבדיקה אינה בודקת את מה שהיא מתיימרת"
+    md_board.agent_writes(N1, newer)
+    md_board.page.mouse.up()
+    md_board.page.wait_for_function("(sel) => document.querySelector(sel).value.includes('שורה אחרונה')",
+                                    arg=md_board.sel(N1, ".sticky-note-content"))
+    md_board.page.wait_for_timeout(800)  # מעבר ל-``PRESS_SETTLE_MS``, כשהעדכון שחיכה היה רץ
+    assert md_board.textarea(N1) == newer
+    assert md_board.page.query_selector(md_board.sel(N1, ".sticky-note-remote")) is None, "התראה על גרסה ישנה"
+
+
+def test_a_task_toggle_moves_the_token_so_the_next_save_is_not_refused(browser, client):
+    client.db.sticky_notes.docs.append(_doc(N1, "- [ ] משימה\nטקסט"))
+    lp = LivePage(browser, client, BOARD_MANAGER)
+    lp.wait_note(N1)
+    lp.page.click(lp.sel(N1, 'input[type="checkbox"][data-task-index="0"]'))
+    _wait_until(lp, lambda: lp.doc(N1)["content"].startswith("- [x]"), what="הסימון נשמר")
+    lp.page.wait_for_timeout(400)
+    since = len(lp.answers)
+    # הרענון בכניסה לעריכה נכשל — כך האסימון שבשמירה הוא זה שהסימון השאיר, ולא מה שהרענון היה מביא.
+    lp.fail_note_get = 1
+    row = lp.page.evaluate(ROW_JS, [lp.sel(N1), "טקסט"])
+    lp.page.mouse.click(row["x"], row["y"])
+    lp.page.wait_for_timeout(300)
+    lp.page.keyboard.press("Control+End")
+    lp.page.keyboard.type(" עוד")
+    lp.page.locator(lp.sel(N1, ".sticky-note-content")).blur()
+    lp.wait_saved(N1, "- [x] משימה\nטקסט עוד")
+    assert not [a for a in lp.answers[since:] if a[2] == 409], lp.answers[since:]
+    assert not lp.errors, lp.errors
+    lp.close()
+
+
+def test_the_poll_of_an_open_note_honors_retry_after(browser, client):
+    client.db.sticky_notes.docs.append(_doc(N1, "בארכיון", board_id=None, title="שם", archived_at=T0))
+    lp = _overlay_page(browser, client, "archive")
+    lp.rate_limit_note_get = (1, 600)
+    lp.poll_now()
+    wait = lp.page.evaluate("() => window.__mgr._livePoll.backoffUntil - Date.now()")
+    assert wait > 500_000, f"429 עם Retry-After של 10 דקות נענה בהמתנה של {wait} ms"
+    lp.close()
+
+
+def test_a_stop_while_a_poll_is_in_flight_is_not_undone_by_its_answer(board):
+    """``stop()`` מבחוץ בזמן שסבב באוויר: התשובה שלו — גם הצלחה — אינה מחייה את השרשרת. כאן ה-``run`` אינו
+    בודק ``isCurrent``, כמו צרכן שישכח: השרשרת אוכפת את זה בעצמה."""
+    result = board.page.evaluate("""async () => {
+        let calls = 0, release = null;
+        const chain = window.VisiblePoll.create({ name: 'stop-test', minMs: 50, maxMs: 200,
+          run: async () => { calls += 1; await new Promise((r) => { release = r; }); return 50; } });
+        chain.start();
+        chain.stop();
+        release();
+        await new Promise((r) => setTimeout(r, 500));
+        const out = { calls, stopped: chain.stopped };
+        chain.destroy();
+        return out;
+    }""")
+    assert result == {"calls": 1, "stopped": True}, result
+
+
+def test_closing_an_open_note_while_its_save_is_in_flight_waits_for_it_and_closes(browser, client):
+    """הסגירה ממתינה לשמירה שבאוויר (שמירה אחת בכל רגע לכל פתק) — ולא מסרבת רק כי היא עוד לא חזרה."""
+    client.db.sticky_notes.docs.append(_doc(N1, "נעוץ", files_page_pinned_at=T0))
+    lp = _overlay_page(browser, client, "filesPage")
+    lp.page.click(lp.sel(N1, ".sticky-note-content"))
+    lp.page.wait_for_timeout(300)
+    lp.page.keyboard.press("End")
+    lp.hold_saves = True
+    lp.page.keyboard.type(" — שלי")
+    _wait_until(lp, lambda: len(lp.held_saves) >= 1, what="השמירה יצאה")
+    lp.page.evaluate("() => { window.__closing = window.__mgr.closeOverlayNote(); }")
+    lp.page.wait_for_timeout(300)
+    lp.release_saves()
+    lp.page.wait_for_selector(lp.sel(N1), state="detached", timeout=8000)
+    assert lp.page.evaluate("window.__toasts") == []
+    assert lp.doc(N1)["content"] == "נעוץ — שלי"
+    lp.close()
+
+
+def test_unpinning_from_the_files_page_with_a_waiting_decision_is_refused(browser, client):
+    client.db.sticky_notes.docs.append(_doc(N1, "נעוץ", files_page_pinned_at=T0))
+    lp = _overlay_page(browser, client, "filesPage")
+    _show_notice(lp)
+    lp.page.keyboard.type("!")
+    since = len(lp.requests)
+    lp.page.evaluate("(sel) => window.__mgr._toggleFilesPagePin(document.querySelector(sel))", lp.sel(N1))
+    assert not [r for r in lp.requests[since:] if r[1].endswith("/files-page-pin")], "פתק עם החלטה פתוחה הוסר"
+    assert lp.page.query_selector(lp.sel(N1)) is not None
+    assert any("מחכה להחלטה" in t for t in lp.page.evaluate("window.__toasts"))
+    lp.close()
+
+
+def test_opening_another_note_over_a_note_with_a_waiting_decision_keeps_the_open_one(browser, client):
+    client.db.sticky_notes.docs.append(_doc(N1, "בארכיון", board_id=None, title="שם", archived_at=T0))
+    client.db.sticky_notes.docs.append(_doc(N2, "אחר", board_id=None, title="שני", archived_at=T0))
+    lp = _overlay_page(browser, client, "archive")
+    _show_notice(lp)
+    lp.page.keyboard.type("!")
+    kept = lp.page.evaluate("""async (url) => { const r = await fetch(url); const d = await r.json();
+        const el = window.__mgr.openOverlayNote(d.note); return el ? el.dataset.noteId : null; }""",
+                            f"/api/sticky-notes/archive/{N2}")
+    assert kept == N1, "הפתיחה החזירה פתק אחר — העמוד היה מסתיר את הרקע או מחליף את הפתק הפתוח"
+    assert lp.page.query_selector(lp.sel(N1)) is not None and lp.page.query_selector(lp.sel(N2)) is None
+    assert any("מחכה להחלטה" in t for t in lp.page.evaluate("window.__toasts"))
     lp.close()

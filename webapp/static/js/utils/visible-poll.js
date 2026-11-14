@@ -186,9 +186,14 @@
       // בקשה שלחה בקשה שנייה, והתשובה שהגיעה אחרונה ניצחה.
       if (inFlight) { return; }
       inFlight = true;
+      // הדור שבו הניסיון התחיל. ``stop()`` מבחוץ בזמן שהוא באוויר מעלה את הדור, ואז תוצאת הניסיון —
+      // גם הצלחה רגילה — אינה מחייה את השרשרת ואינה דורכת טיימר. השרשרת אוכפת את זה בעצמה, ולא
+      // סומכת על כך שכל ``run`` בודק ``isCurrent`` אחרי כל ``await``.
+      const gen = chainGen;
       let nextMs = maxMs;
       try { nextMs = await attempt(); } catch (e) { nextMs = failAndBackOff(e); } finally { inFlight = false; }
       if (destroyed) { return; }
+      if (gen !== chainGen) { return; }
       // 401: אין טיימר. הניסיון הבא הוא החזרה הבאה ללשונית.
       if (nextMs === STOP) { stopChain(); return; }
       stopped = false;

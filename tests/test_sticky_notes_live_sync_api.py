@@ -168,3 +168,28 @@ def test_the_stored_resolution_survives_a_real_bson_round_trip(client):
     stamp = client.api._stored_now()
     back = bson.decode(bson.encode({"t": stamp}), codec_options=CodecOptions(tz_aware=True))["t"]
     assert back.isoformat() == stamp.isoformat()
+
+
+def test_every_answer_formats_the_token_the_same_way(client):
+    """הלקוח משווה אסימונים במחרוזת, ולכן יש פורמט אחד — ``_updated_at_iso`` — לכל תשובה שנושאת אסימון: הרשימה,
+    הדגימה, הפתק הבודד, ו-409. עד נובמבר 2026 היו שני ביטויים נפרדים, ואחד מהם נפל על מסמך שהשדה בו אינו
+    ``datetime`` — והרשימה כולה החזירה 500."""
+    stale = (NOW - dt.timedelta(seconds=30)).isoformat()
+    res = client.put(f"/api/sticky-notes/note/{N1}", json={"content": "חדש", "prev_updated_at": stale})
+    assert res.status_code == 409
+    expected = client.api._updated_at_iso(NOW)
+    assert res.get_json()["updated_at"] == expected
+    assert client.api._note_token({"updated_at": NOW}) == expected
+    batch = client.post("/api/sticky-notes/batch", json={"updates": [{"id": N1, "content": "x", "prev_updated_at": stale}]})
+    (item,) = batch.get_json()["results"]
+    assert item["status"] == 409 and item["updated_at"] == expected
+
+
+def test_a_note_whose_updated_at_is_not_a_datetime_lists_without_a_token(client):
+    client.db.sticky_notes.docs[0]["updated_at"] = "2026-11-01T12:00:00"  # מסמך ישן שנכתב כמחרוזת
+    full = client.get(f"/api/sticky-notes/board/{BOARD}")
+    assert full.status_code == 200
+    by_id = {n["id"]: n for n in full.get_json()["notes"]}
+    assert by_id[N1]["updated_at"] is None
+    versions = client.get(f"/api/sticky-notes/board/{BOARD}?versions=1")
+    assert {n["id"]: n["updated_at"] for n in versions.get_json()["notes"]}[N1] is None

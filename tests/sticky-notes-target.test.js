@@ -561,12 +561,30 @@ check('שמירה: עריכה חדשה תוך כדי טיסה שורדת כשל'
   // **אובדן תוכן שנמדד בדפדפן.** ``_flushFor`` מוציא את המטען מהתור לפני
   // שהוא ממתין לרשת. הקלדה בזמן ההמתנה יצרה רשומה חדשה, וכשל דרס אותה.
   const id = 'race1';
-  fileMgr._pending.set(id, { content: 'העריכה החדשה' });
-  fileMgr._restorePending(id, { content: 'המטען הישן', position: { x: 1, y: 2 } });
+  // הפתק במנהל — מטען של פתק שירד מהמנהל אינו חוזר לתור (ראו את הבדיקה הבאה).
+  registerNote(fileMgr, id, 'העריכה החדשה');
+  try {
+    fileMgr._pending.set(id, { content: 'העריכה החדשה' });
+    fileMgr._restorePending(id, { content: 'המטען הישן', position: { x: 1, y: 2 } });
 
-  const after = fileMgr._pending.get(id);
-  eq(after.content, 'העריכה החדשה', 'החדש מנצח');
-  eq(after.position.x, 1, 'והישן ממלא מה שחסר');
+    const after = fileMgr._pending.get(id);
+    eq(after.content, 'העריכה החדשה', 'החדש מנצח');
+    eq(after.position.x, 1, 'והישן ממלא מה שחסר');
+  } finally {
+    fileMgr._pending.delete(id);
+    fileMgr.notes.delete(id);
+    if (fileMgr._saveDebounced && fileMgr._saveDebounced.cancel) fileMgr._saveDebounced.cancel();
+    if (fileMgr._autoFlushTimer) { clearInterval(fileMgr._autoFlushTimer); fileMgr._autoFlushTimer = null; }
+  }
+});
+
+check('שמירה: מטען של פתק שירד מהמנהל אינו חוזר לתור ואינו נשלח בלי אסימון', () => {
+  // האסימון חי בבסיס של הפתק. מטען שנשאר בתור אחרי שהפתק ירד היה נשלח בלי ``prev_updated_at`` — כלומר בלי
+  // בדיקת התנגשות בשרת, ודורס כל מה שהשתנה בינתיים.
+  const id = 'gone1';
+  fileMgr._restorePending(id, { content: 'מטען של פתק שאינו כאן' });
+  eq(fileMgr._pending.has(id), false, 'כשל של שמירה אינו מחזיר לתור פתק שאינו במנהל');
+  eq(fileMgr._withToken(id, { content: 'x' }), null, 'ואין מטען לשליחה בלי רשומה');
 });
 
 check('שמירה: האסימון מצורף ברגע השליחה, מהבסיס של אותו רגע — ולא נשמר בתור', () => {
@@ -6250,6 +6268,103 @@ check('פיוס: שינוי צבע בלבד מוחל, בלי לגעת בתוכן
     eq(n.el.style.backgroundColor, '#cce5ff', 'הצבע');
     eq(n.ta.value, 'גוף');
   } finally { cleanupLive('lv8'); }
+});
+
+check('פיוס: תשובה של קריאה שיצאה לפני מה שהפתק נשען עליו נזרקת, ואינה מחזירה גרסה ישנה', () => {
+  // קריאה 2 (הרענון בכניסה לעריכה) חזרה קודם עם גרסה חדשה; קריאה 1 (דגימה, או עדכון שחיכה ללחיצה) חוזרת
+  // אחריה עם הגרסה שלפני. בלי מספר הקריאה, הפיוס היה מחיל את הישנה — או מעלה עליה התראה.
+  const n = liveNote('lv9', 'ישן', 'T0');
+  try {
+    eq(fileMgr._reconcileServerNote(SRV('lv9', 'חדש יותר', 'T2'), 'poll', 2), 'applied');
+    eq(fileMgr._reconcileServerNote(SRV('lv9', 'חדש', 'T1'), 'poll', 1), 'stale', 'הקריאה המוקדמת נזרקת');
+    eq(n.ta.value, 'חדש יותר', 'התיבה על הגרסה החדשה');
+    eq(n.el.dataset.updatedAt, 'T2', 'והאסימון לא חזר אחורה');
+    // שמירה שאושרה היא מבט טרי על השרת: כל קריאה שיצאה לפניה ישנה ממנה.
+    const before = fileMgr._nextReadSeq();
+    fileMgr._onSaveConfirmed('lv9', { content: 'חדש יותר + שלי' }, 'T3', null);
+    eq(fileMgr._reconcileServerNote(SRV('lv9', 'חדש יותר', 'T2'), 'poll', before), 'stale', 'קריאה שיצאה לפני השמירה');
+    eq(n.entry.base.content, 'חדש יותר + שלי', 'הבסיס הוא מה שנשמר');
+  } finally { cleanupLive('lv9'); }
+});
+
+check('סגירת לשונית: פתק שנבדק בו 409 עם שינוי בתור מבקש אישור, גם בלי התראה פתוחה', () => {
+  // בזמן ההכרעה של 409 (``entry.resolving``) המטען בתור והפתק מוחזק — השמירה בסגירה מדלגת עליו. בלי
+  // התראה (``entry.remote``) הבדיקה הקודמת דילגה על הפתק, והשינוי נעלם בסגירה בלי שאלה.
+  const n = liveNote('lv10', 'ישן', 'T0');
+  try {
+    n.ta.value = 'ישן + שלי';
+    fileMgr._pending.set('lv10', { content: 'ישן + שלי' });
+    n.entry.resolving = true;
+    eq(fileMgr._hasHeldLocalEdits(), true, 'יש מה לאבד');
+    // גם מטען בלי שדה עריכה — הזזה — נעלם בסגירה כשהפתק מוחזק.
+    n.ta.value = 'ישן';
+    fileMgr._pending.set('lv10', { position: { x: 1, y: 2 } });
+    eq(fileMgr._hasHeldLocalEdits(), true, 'הזזה שבתור');
+    n.entry.resolving = false;
+    eq(fileMgr._hasHeldLocalEdits(), false, 'פתק שאינו מוחזק נשלח בסגירה — אין סיבה לשאול');
+  } finally { n.entry.resolving = false; cleanupLive('lv10'); }
+});
+
+check('ההתראה מבטיחה ↶ רק לטקסט — שם שהשתנה אינו חוזר בביטול', () => {
+  const n = liveNote('lv11', 'גוף', 'T0');
+  n.entry.editing = true;
+  try {
+    n.titleInput.value = 'שם שלי';
+    fileMgr._reconcileServerNote(SRV('lv11', 'גוף אחר', 'T1'), 'poll');
+    const text = () => n.el.querySelector('.sticky-note-remote-text').textContent;
+    eq(text().includes('↶'), false, 'רק השם השתנה — אין הבטחה לביטול');
+    eq(text().includes('השם'), true, 'ואומרים מה יוחלף');
+    n.ta.value = 'גוף + שלי';
+    fileMgr._syncRemoteNotice(n.el);
+    eq(text().includes('את הטקסט אפשר להחזיר עם ↶, את השם לא'), true, 'שניהם — ההבטחה מדויקת');
+  } finally { n.titleInput.value = ''; cleanupLive('lv11'); }
+});
+
+check('סימון משימה: אחרי ריקון שהעלה התראה — התיבה חוזרת, ושום סימון לא נשלח', async () => {
+  // ``_flushFor`` יכול לקבל 409 ולהעלות התראה. סימון שהיה נשלח אחריו היה רץ על גוף שהמשתמש לא ראה, ותשובת
+  // השרת הייתה מחליפה את השינויים המוחזקים.
+  const n = liveNote('lv12', '- [ ] משימה', 'T0');
+  const box = new FakeEl('input');
+  box.dataset.taskIndex = '0';
+  box.checked = true;
+  const realFlush = fileMgr._flushFor;
+  const calls = [];
+  fileMgr._flushFor = async () => { n.entry.remote = SRV('lv12', 'אחר', 'T1'); return false; };
+  try {
+    await withFetch(async (url) => { calls.push(String(url)); return okResponse(); }, () => fileMgr._onTaskToggle(n.el, box));
+    eq(box.checked, false, 'התיבה חזרה');
+    eq(calls.filter((u) => u.endsWith('/task')).length, 0, 'לא נשלח סימון');
+  } finally {
+    fileMgr._flushFor = realFlush;
+    n.entry.remote = null;
+    cleanupLive('lv12');
+  }
+});
+
+check('שמירה: לכל בקשת שמירה יש תקרת זמן — אחרת שמירה תקועה הייתה חוסמת את הפתק לנצח', async () => {
+  // שמירה אחת בכל רגע לכל פתק: שמירה שאינה חוזרת (חיבור half-open, ובשרת אין תקרה) הייתה משאירה את הפתק
+  // "באוויר", וכל שמירה שלו הייתה ממתינה לה (``wait-without-own-deadline``).
+  const n = liveNote('lv13', 'גוף', 'T0');
+  const inits = [];
+  // ``AbortSignal`` אינו חלק מ-ECMAScript ואינו קיים בהקשר של ``vm`` — כמו ``URL`` למעלה. לבדיקה הזו בלבד.
+  const hadSignal = 'AbortSignal' in sandbox;
+  sandbox.AbortSignal = AbortSignal;
+  try {
+    // כל קריאה ב-``withFetch`` משלה, וה-``fetch`` שלה יוצא לפני כל ``await`` — בדיקות אסינכרוניות אחרות מחליפות
+    // את ה-``fetch`` של הסנדבוקס במקביל, ואחרי ``await`` הוא כבר אולי לא שלנו.
+    const record = async (url, init) => { inits.push([String(url), init || {}]); return okResponse(); };
+    await withFetch(record, () => fileMgr._sendUpdate('lv13', { content: 'גוף 1' }, 0));
+    fileMgr._inFlight.delete('lv13');
+    fileMgr._pending.set('lv13', { content: 'גוף 2' });
+    await withFetch(record, () => fileMgr._performSaveBatch());
+    const put = inits.find(([u, i]) => i.method === 'PUT');
+    const batch = inits.find(([u]) => u.endsWith('/batch'));
+    eq(!!(put && put[1].signal), true, 'שמירה בודדת');
+    eq(!!(batch && batch[1].signal), true, 'שמירה מרוכזת');
+  } finally {
+    if (!hadSignal) delete sandbox.AbortSignal;
+    cleanupLive('lv13');
+  }
 });
 
 (async () => {

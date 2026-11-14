@@ -1027,13 +1027,24 @@ def _stored_now() -> datetime:
     return now.replace(microsecond=now.microsecond - now.microsecond % 1000)
 
 
-def _note_token(doc: Dict[str, Any]) -> Optional[str]:
-    """``updated_at`` של פתק כפי שהלקוח מחזיק אותו — **אותה מחרוזת בכל תשובה שמחזירה פתק**.
+def _updated_at_iso(stamp: Any) -> Optional[str]:
+    """**האסימון כמחרוזת — הפורמט היחיד שלו בכל תשובה.** ``updated_at`` הוא האסימון שהלקוח שולח
+    בשמירה הבאה (``prev_updated_at``), והלקוח משווה במחרוזת בין האסימון שבתשובת הכתיבה לזה שבדגימה
+    ובפתק הבודד. שני ביטויים נפרדים היו יכולים להיסחף לשני פורמטים, ולכן כל תשובה שנושאת אסימון —
+    הפתק המלא, ``?versions=1``, תשובת העדכון והיצירה, ``409`` וסימון משימה — עוברת כאן. ערך שאינו
+    ``datetime`` (מסמך בלי השדה) הוא ``None``, ואז הלקוח שולח בלי אסימון.
 
-    הפתק המלא (``_as_note_response``) והגרסאות (``?versions=1``) נקראים שניהם מכאן: הלקוח
-    משווה ביניהם במחרוזת, ושני ביטויים נפרדים היו יכולים להיסחף לשני פורמטים.
+    איזה זמן נכנס לכאן בתשובת עדכון: ב-``update_note`` וב-``batch_update_notes``, כשהעדכון היה עריכה —
+    הזמן שנכתב באותה כתיבה. כשלא (``drop_unchanged_edits`` החזיר ``edited`` ריק) — הזמן שהיה שמור בפתק
+    כשנקרא, ולא קריאה חוזרת אחרי הכתיבה: קריאה כזו יכולה לתפוס עריכה מקבילה מלשונית אחרת, והלקוח היה
+    מקבל אסימון של תוכן שלא ראה — והשמירה הבאה שלו הייתה דורסת אותו בלי 409.
     """
-    return doc.get('updated_at').isoformat() if doc.get('updated_at') else None
+    return stamp.isoformat() if isinstance(stamp, datetime) else None
+
+
+def _note_token(doc: Dict[str, Any]) -> Optional[str]:
+    """האסימון של מסמך פתק — :func:`_updated_at_iso` על ``updated_at`` שלו."""
+    return _updated_at_iso(doc.get('updated_at'))
 
 
 def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -1808,18 +1819,6 @@ def create_note(file_id: str):
         return jsonify({'ok': False, 'error': 'Failed to create note'}), 500
 
 
-def _updated_at_iso(stamp: Any) -> Optional[str]:
-    """``updated_at`` כמו שתשובת עדכון מחזירה אותו — האסימון שהלקוח שולח בשמירה הבאה
-    (``prev_updated_at``).
-
-    ב-``update_note`` וב-``batch_update_notes``: כשהעדכון היה עריכה — הזמן שנכתב באותה כתיבה. כשלא
-    (``drop_unchanged_edits`` החזיר ``edited`` ריק) — הזמן שהיה שמור בפתק כשנקרא, ולא קריאה חוזרת
-    אחרי הכתיבה: קריאה כזו יכולה לתפוס עריכה מקבילה מלשונית אחרת, והלקוח היה מקבל אסימון של תוכן
-    שלא ראה — והשמירה הבאה שלו הייתה דורסת אותו בלי 409.
-    """
-    return stamp.isoformat() if isinstance(stamp, datetime) else None
-
-
 def _update_answer(stamp: Any) -> Any:
     """תשובת ``ok`` של ``update_note``, עם :func:`_updated_at_iso`."""
     return _no_store(jsonify({'ok': True, 'updated_at': _updated_at_iso(stamp)}))
@@ -1951,7 +1950,7 @@ def update_note(note_id: str):
                 except Exception:
                     prev_dt = None
                 if prev_dt and isinstance(note.get('updated_at'), datetime) and prev_dt < note['updated_at']:
-                    return jsonify({'ok': False, 'error': 'Conflict', 'updated_at': note['updated_at'].isoformat()}), 409
+                    return jsonify({'ok': False, 'error': 'Conflict', 'updated_at': _updated_at_iso(note['updated_at'])}), 409
         except Exception:
             pass
         # ``updated_at`` זז רק כשהתוכן או השם באמת משתנים (``drop_unchanged_edits``): מזעור, הזזה,
@@ -2201,7 +2200,8 @@ def batch_update_notes():
                         except Exception:
                             prev_dt = None
                         if prev_dt and isinstance(note.get('updated_at'), datetime) and prev_dt < note['updated_at']:
-                            results.append({'id': note_id, 'ok': False, 'status': 409, 'error': 'Conflict', 'updated_at': note['updated_at'].isoformat()})
+                            results.append({'id': note_id, 'ok': False, 'status': 409, 'error': 'Conflict',
+                                            'updated_at': _updated_at_iso(note['updated_at'])})
                             continue
                     # stamp scope if missing — אך לא לפתק לוח, שאין לו
                     # scope ולעולם לא יהיה. ראו את השומר המקביל ב-update_note.
@@ -3362,7 +3362,7 @@ def toggle_note_task(note_id: str):
                     'ok': False,
                     'error': 'Conflict',
                     'content': note.get('content', ''),
-                    'updated_at': note['updated_at'].isoformat(),
+                    'updated_at': _updated_at_iso(note['updated_at']),
                 }), 409
 
         original = note.get('content', '') or ''
@@ -3404,12 +3404,11 @@ def toggle_note_task(note_id: str):
                 'content': (fresh.get('content', '') if fresh else original),
             }), 409
 
-        fresh_updated = fresh.get('updated_at')
         return jsonify({
             'ok': True,
             'changed': True,
             'content': fresh.get('content', ''),
-            'updated_at': fresh_updated.isoformat() if isinstance(fresh_updated, datetime) else None,
+            'updated_at': _note_token(fresh),
         })
     except Exception as e:
         try:
