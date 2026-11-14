@@ -334,6 +334,7 @@ from services.styled_export_service import (  # noqa: E402
     styled_share_page_csp,
 )
 from services.theme_parser_service import (  # noqa: E402
+    MD_DOC_THEME_UI_CONDITION,
     build_md_doc_theme_css,
     exclude_md_doc_theme_from_hljs_css,
     parse_vscode_theme,
@@ -2914,6 +2915,8 @@ def _decode_md_doc_theme(raw: Any) -> Optional[str]:
 def _resolve_md_doc_theme_token(
     user_id: Optional[int],
     user_doc: Optional[Dict[str, Any]] = None,
+    *,
+    strict: bool = False,
 ) -> tuple[str, str, Optional[Dict[str, Any]]]:
     """``(token, scope, user_doc)`` — ``token`` ריק כשאין ערכת מסמך; ערך המכשיר גובר רק במצב ``device``.
 
@@ -2921,6 +2924,10 @@ def _resolve_md_doc_theme_token(
     השליפה ש-``inject_globals`` עושה ממילא באותה בקשה — והוא מוחזר, כדי שמי שטוען את הערכה לא ישלוף שוב. ``user_doc``
     שמועבר חייב לכלול את ``ui_prefs.md_doc_theme`` ואת ``custom_themes`` (``ETAG_USER_PROJECTION`` כולל את שניהם).
     כשל במסד — ``_request_user_doc`` כבר רושם אותו ומחזיר ``None`` — מחזיר "אין ערכת מסמך": העמוד מוצג בערכת הממשק.
+
+    ``strict`` הופך את הכשל הזה ל-``MdDocThemeUnavailable``, בשביל מי שמציג את הבחירה עצמה ולא את המסמך
+    (``api_md_doc_theme_state``): שם "אין ערכת מסמך" היה מוצג כ"ללא", כשהתשובה האמיתית היא "לא ידוע". הכרעה שנגמרת
+    ב-cookie של המכשיר אינה פונה למסד, ולכן אינה נכשלת גם ב-``strict``.
     """
     scope = _normalize_theme_scope(request.cookies.get(MD_DOC_THEME_SCOPE_COOKIE))
     device_value = _decode_md_doc_theme(request.cookies.get(MD_DOC_THEME_COOKIE))
@@ -2929,6 +2936,9 @@ def _resolve_md_doc_theme_token(
 
     if user_id and user_doc is None:
         user_doc = _request_user_doc(user_id)
+        if user_doc is None and strict:
+            # ``_request_user_doc`` מחזיר ``None`` רק כשהמסד לא ענה (מסמך חסר הוא ``{}``), והוא כבר רשם את הכשל.
+            raise MdDocThemeUnavailable("user_doc")
     if not isinstance(user_doc, dict):
         return "", scope, user_doc
     # ``isinstance`` על ``ui_prefs`` ולא ``or {}``: מסמך שנערך ביד יכול להחזיק שם מחרוזת.
@@ -11990,6 +12000,8 @@ app.jinja_env.globals['LANG_ICON_SIZES'] = LANG_ICON_SIZES
 # ``base.html`` קורא לה רק בעמוד שיש בו ערכת מסמך (``md_doc_theme``), על ה-``syntax_css`` של ערכת הממשק. global ולא
 # filter: Jinja בודק שפילטר קיים כבר בהידור, גם בענף שלא נלקח, וטסטים שמרנדרים את ``base.html`` בסביבה משלהם היו נופלים.
 app.jinja_env.globals['exclude_md_doc_theme_from_hljs_css'] = exclude_md_doc_theme_from_hljs_css
+# מודאל הערכות שב-``base.html`` בודק בו אם ערכת מסמך חלה עם ערכת הממשק הנוכחית — מהמקום שהבורר של הכרטיס נבנה ממנו.
+app.jinja_env.globals['md_doc_theme_ui_condition'] = MD_DOC_THEME_UI_CONDITION
 
 
 def resolve_file_language(language: Optional[str], file_name: str = "") -> str:
@@ -20794,6 +20806,36 @@ def api_persistent_login():
         return resp
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+@app.route('/api/ui_prefs/md_doc_theme', methods=['GET'])
+@login_required
+def api_md_doc_theme_state():
+    """ערכת המסמך של הבקשה הזו: ``{ok, md_doc_theme, scope, name, found}`` — למסכים שמציגים את הבחירה ומשנים אותה.
+
+    מודאל הערכות שבסרגל הניווט ותיבת "ערכת המסמך" בגלריית הערכות קוראים מכאן (``static/js/utils/md-doc-theme.js``),
+    ולא מה-HTML של העמוד: המודאל נמצא בכל עמוד, ומצב שמרונדר לתוך ה-HTML היה צריך להיכנס למפתח הקאש ול-ETag של כל
+    עמוד ששומר HTML (למשל ``files_cache_key`` ב-``files``) — אחרת אחרי שינוי הוא היה מוצג מעותק ישן. ההכרעה היא
+    ``_resolve_md_doc_theme_token`` — זו ש-``/md/<id>`` עושה — ולכן התשובה היא מה שהמסמך יקבל במכשיר הזה.
+
+    ``md_doc_theme`` — הטוקן, או ``null`` כשאין ערכת מסמך. ``scope`` — התחולה שהבחירה הבאה נשמרת בה (``global`` /
+    ``device``, מה-cookie של התחולה). ``found`` — האם הערכה שהטוקן מצביע עליה קיימת: מצביע שנשאר אחרי שהערכה נמחקה
+    (ב-cookie של מכשיר אחר, או ערכה ציבורית שכובתה) הוא ``false``, וכך המסך יכול לומר "כבר לא קיימת" ולא להציג אותה
+    כפעילה. מסד שלא ענה ← ``503 database_unavailable``, ולא "אין ערכת מסמך": "לא ידוע" ו"ללא" לא נראים אותו דבר.
+    """
+    user_id = session['user_id']
+    try:
+        token, scope, user_doc = _resolve_md_doc_theme_token(user_id, strict=True)
+        theme = _load_md_doc_theme(user_id, token, user_doc) if token else None
+    except MdDocThemeUnavailable:
+        return jsonify({'ok': False, 'error': 'database_unavailable'}), 503
+    return jsonify({
+        'ok': True,
+        MD_DOC_THEME_PREF: token or None,
+        'scope': scope,
+        'name': theme['name'] if theme else None,
+        'found': theme is not None,
+    })
+
 
 @app.route('/api/ui_prefs', methods=['POST'])
 @_limiter_exempt()
