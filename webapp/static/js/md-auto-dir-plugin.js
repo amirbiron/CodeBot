@@ -33,8 +33,9 @@
  * **שם קובץ עברי: ``dir="rtl"`` והסיומת ב-``<bdi>``.** ב-``מדריך-תצוגת-Markdown-RTL.md`` הנקודה יושבת בין שתי אותיות
  * לטיניות ונדבקת אליהן, ולכן גם עם ``dir="auto"`` הסיומת מוצגת באמצע השם, צמודה לעברית. קוד בשורה ש-
  * ``FileName.parts`` (``utils/file-name.js``) מפרק מקבל ``dir="rtl"``, והכלל של ``code_inline`` שהתוסף מתקין כותב
- * את הסיומת ב-``<bdi>`` — והיא עוברת לקצה השמאלי. ההחלטה מתי מפרקים, וההסבר, כתובים שם פעם אחת — היא משותפת גם
- * לשמות הקבצים בממשק, ויש לה תאום בשרת. הפתקים והכרטיסים של פתקים בונים את אותו מבנה כצמתים
+ * את הסיומת ב-``<bdi>`` — והיא עוברת לקצה השמאלי. וגם בלי פירוק: קוד שנראה כמו שם קובץ עם עברית (``FileName.codeDir``)
+ * מקבל ``dir="rtl"`` — ``dir="auto"`` היה בוחר ב-``pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md`` את האות הלטינית הראשונה,
+ * והמילים היו מתהפכות. ההחלטות, וההסבר, כתובים שם פעם אחת — הן משותפות גם לשמות הקבצים בממשק, ויש להן תאום בשרת. הפתקים והכרטיסים של פתקים בונים את אותו מבנה כצמתים
  * (``RtlCode.fillInlineCode`` ב-``utils/rtl-code.js``), ו-``tests/sticky-notes-target.test.js`` משווה ביניהם.
  *
  * **למה קובץ משותף.** כל מקום שיוצר את markdown-it בוובאפ מתקין אותו — ``md_preview.html``, ``live-preview.js``
@@ -57,14 +58,14 @@
   var warnedNoFileName = false;
 
   /**
-   * הפירוק של שם קובץ עברי שהדפדפן היה מציג עם הסיומת באמצע — ``FileName.parts`` ב-``utils/file-name.js`` (ההחלטה
-   * וההסבר שם), או ``null``. **היעדר ``window.FileName`` הוא היעדר יכולת סטטי** — ``base.html`` טוען אותו ב-``<head>``
-   * של כל עמוד, ועמוד הייצוא המעוצב טוען אותו בעצמו; ``tests/md-auto-dir-plugin.test.js`` בודק את זה — ולכן הקוד
-   * מוצג אז כמו לפני הפירוק, עם ``dir="auto"``, ואזהרה אחת בקונסול אומרת למה.
+   * ``window.FileName`` (``utils/file-name.js``), שבו גרות ההחלטות על קוד בשורה שהוא שם קובץ: הכיוון (``codeDir``) והפירוק
+   * לשם ולסיומת (``parts``), עם ההסבר. **היעדר ``window.FileName`` הוא היעדר יכולת סטטי** — ``base.html`` טוען אותו
+   * ב-``<head>`` של כל עמוד, ועמוד הייצוא המעוצב טוען אותו בעצמו; ``tests/md-auto-dir-plugin.test.js`` בודק את זה — ולכן
+   * הקוד מוצג אז עם ``dir="auto"`` ובלי פירוק, ואזהרה אחת בקונסול אומרת למה.
    */
-  function fileNameParts(text) {
+  function fileNameApi() {
     var api = root && root.FileName;
-    if (api && typeof api.parts === 'function') return api.parts(text);
+    if (api && typeof api.parts === 'function' && typeof api.codeDir === 'function') return api;
     if (!warnedNoFileName && typeof console !== 'undefined') {
       warnedNoFileName = true;
       console.warn('md-auto-dir-plugin: utils/file-name.js לא נטען — שם קובץ עברי בקוד בשורה יוצג עם הסיומת באמצע');
@@ -82,8 +83,9 @@
         for (var j = 0; j < token.children.length; j += 1) {
           var child = token.children[j];
           if (child.type !== 'code_inline') continue;
-          var parts = fileNameParts(child.content);
-          child.attrSet('dir', parts ? 'rtl' : 'auto');
+          var api = fileNameApi();
+          var parts = api ? api.parts(child.content) : null;
+          child.attrSet('dir', api ? api.codeDir(child.content) : 'auto');
           if (parts) {
             child.meta = child.meta || {};
             child.meta.fileName = parts;

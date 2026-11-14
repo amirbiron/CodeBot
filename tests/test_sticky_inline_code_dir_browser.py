@@ -313,5 +313,6 @@ def test_inline_code_in_a_card_title_follows_its_own_direction(admin_live_server
     assert m["mixed_isolated"] is True
     assert m["mixed_shape"] == SPLIT_RIGHT, m["mixed_shape"]
     assert m["latin"] == {"one_line": True, "reads_ltr": True}, m["latin"]
-    assert m["dirs"] == {"שלא-חלו.md": "auto", "הפניות.md": "auto", "מדריך-RTL.md": "rtl", "deploy.sh": "auto"}, m["dirs"]
+    # שם קובץ עם עברית — ``rtl`` (``FileName.codeDir``), מפורק או לא; ``deploy.sh`` — ``auto``.
+    assert m["dirs"] == {"שלא-חלו.md": "rtl", "הפניות.md": "rtl", "מדריך-RTL.md": "rtl", "deploy.sh": "auto"}, m["dirs"]
     assert m["bidi"] == ["isolate"], m["bidi"]

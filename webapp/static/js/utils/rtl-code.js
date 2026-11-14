@@ -703,15 +703,15 @@
   }
 
   /**
-   * **שם קובץ עברי שהדפדפן היה מציג עם הסיומת באמצע** — ``{stem, extension}`` או ``null``. ההחלטה וההסבר גרים ב-
-   * ``utils/file-name.js`` (``FileName.parts``), כי היא משותפת לקוד בשורה ולשמות הקבצים בממשק, ויש לה תאום בשרת.
-   * **היעדר ``window.FileName`` הוא היעדר יכולת סטטי:** ``base.html`` טוען אותו ב-``<head>`` של כל עמוד, ועמוד הייצוא
-   * המעוצב טוען אותו בעצמו. בלעדיו הקוד מוצג בלי פירוק, ונרשמת אזהרה אחת בקונסול — כדי שתבנית שנשכחה תיראה.
+   * ``window.FileName`` (``utils/file-name.js``), שבו גרות ההחלטות על קוד בשורה שהוא שם קובץ: הכיוון (``codeDir``) והפירוק
+   * לשם ולסיומת (``parts``). הן משותפות לקוד בשורה ולשמות הקבצים בממשק, ויש להן תאום בשרת. **היעדר ``window.FileName``
+   * הוא היעדר יכולת סטטי:** ``base.html`` טוען אותו ב-``<head>`` של כל עמוד, ועמוד הייצוא המעוצב טוען אותו בעצמו.
+   * בלעדיו הקוד מוצג עם ``dir="auto"`` ובלי פירוק, ונרשמת אזהרה אחת בקונסול — כדי שתבנית שנשכחה תיראה.
    */
   var warnedNoFileName = false;
-  function fileNameParts(text) {
+  function fileNameApi() {
     var api = typeof window !== 'undefined' ? window.FileName : null;
-    if (api && typeof api.parts === 'function') return api.parts(text);
+    if (api && typeof api.parts === 'function' && typeof api.codeDir === 'function') return api;
     if (!warnedNoFileName && typeof console !== 'undefined') {
       warnedNoFileName = true;
       console.warn('rtl-code: window.FileName חסר (utils/file-name.js לא נטען) — שמות קבצים בקוד בשורה מוצגים בלי פירוק');
@@ -720,23 +720,24 @@
   }
 
   /**
-   * ממלא אלמנט של קוד בשורה בטקסט שלו, עם הכיוון שלו: שם קובץ ש-``fileNameParts`` מפרק מקבל ``dir="rtl"``, את
-   * ``stem + '.'`` כטקסט ואת הסיומת ב-``<bdi>``; כל קוד אחר מקבל ``dir="auto"`` ואת הטקסט כמו שהוא. **הבנייה
-   * לצמתים כתובה כאן פעם אחת** — הפתק (``_appendInlineSegments``) והכרטיס של פתק (``fillTitle`` ב-``note-cards.js``)
-   * עוברים דרכה. תוסף ה-markdown-it (``md-auto-dir-plugin.js``) בונה את אותו HTML כמחרוזת, וטסט ההשוואה ב-
-   * ``tests/sticky-notes-target.test.js`` מוודא שהפתק והמסמך מסכימים. ``textContent`` בלבד: הטקסט הוא מה שהמשתמש כתב.
+   * ממלא אלמנט של קוד בשורה בטקסט שלו, עם הכיוון שלו (``FileName.codeDir``): ``dir="rtl"`` לקוד שנראה כמו שם קובץ עם
+   * עברית, ו-``dir="auto"`` לכל קוד אחר. שם ש-``FileName.parts`` מפרק נכתב כ-``stem + '.'`` וטקסט, והסיומת ב-``<bdi>``.
+   * **הבנייה לצמתים כתובה כאן פעם אחת** — הפתק (``_appendInlineSegments``) והכרטיס של פתק (``fillTitle`` ב-
+   * ``note-cards.js``) עוברים דרכה. תוסף ה-markdown-it (``md-auto-dir-plugin.js``) בונה את אותו HTML כמחרוזת, וטסט
+   * ההשוואה ב-``tests/sticky-notes-target.test.js`` מוודא שהפתק והמסמך מסכימים. ``textContent`` בלבד: הטקסט הוא מה
+   * שהמשתמש כתב.
    */
   function fillInlineCode(el, text) {
     var s = text == null ? '' : String(text);
-    var parts = fileNameParts(s);
+    var api = fileNameApi();
+    var parts = api ? api.parts(s) : null;
+    el.setAttribute('dir', api ? api.codeDir(s) : 'auto');
     if (!parts) {
-      el.setAttribute('dir', 'auto');
       el.textContent = s;
       return el;
     }
     var doc = el.ownerDocument || document;
     el.textContent = '';
-    el.setAttribute('dir', 'rtl');
     el.appendChild(doc.createTextNode(parts.stem + '.'));
     var extension = doc.createElement('bdi');
     extension.textContent = parts.extension;

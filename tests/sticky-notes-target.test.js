@@ -1366,7 +1366,8 @@ check('רינדור: קוד בתווית של קישור פסול — קוד, ו
 check('רינדור: קוד בשורה נושא את מה שתצוגת המסמך נותנת לו', () => {
   // **כל קוד בשורה בפתק, בכל הקשר** — בשורה רגילה, בתוך מודגש ובתוך קישור (הבנייה הרקורסיבית של
   // ``_appendInlineSegments``), בכותרת, בפריט רשימה ובתא טבלה — **נבנה בדיוק כמו במסמך**: אותם מאפיינים ואותו תוכן.
-  // קוד רגיל: ``dir="auto"``. שם קובץ עברי שהדפדפן היה מציג עם הסיומת באמצע: ``dir="rtl"`` והסיומת ב-``<bdi>``.
+  // קוד רגיל: ``dir="auto"``. שם קובץ עם עברית: ``dir="rtl"`` (``FileName.codeDir``), ואם הדפדפן היה מציג אותו עם
+  // הסיומת באמצע — גם הסיומת ב-``<bdi>``.
   //
   // **הצפוי נגזר מ-markdown-it עם התוספים של תצוגת המסמך** (``docViewMarkdownIt``), על הטקסט של כל קוד בנפרד, ולא
   // מוקלד כאן. נופל על הקוד שלפני הפירוק (שם הקובץ נבנה עם ``dir="auto"`` ובלי ``<bdi>``), ועל הקוד שלפני ``dir`` כלל.
@@ -1376,6 +1377,7 @@ check('רינדור: קוד בשורה נושא את מה שתצוגת המסמ�
     '**מודגש עם `b()`** ו-`Report-דוח-Q3.md`',
     '[קישור עם `app.py`](https://x.com)',
     '- פריט עם `li()` ו-`חילוץ-חיבור-וואטסאפ-myAgent.md`',
+    'שם שמתחיל באנגלית: `pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md`',
     '',
     '| שם | ערך |',
     '|---|---|',
@@ -1394,7 +1396,12 @@ check('רינדור: קוד בשורה נושא את מה שתצוגת המסמ�
     ['Report-דוח-Q3.md', 'חילוץ-חיבור-וואטסאפ-myAgent.md', 'מדריך-תצוגת-Markdown-RTL.md'].sort().join(' | '),
     'שלושת שמות הקבצים מפורקים, וכל השאר לא');
   eq(split.every((c) => c.getAttribute('dir') === 'rtl'), true, 'שם מפורק מקבל dir="rtl"');
-  eq(codes.filter((c) => !split.includes(c)).every((c) => c.getAttribute('dir') === 'auto'), true, 'כל השאר dir="auto"');
+  const rest = codes.filter((c) => !split.includes(c));
+  const hebrewNames = ['הפניות-שלא-חלו.md', 'pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md'];
+  eq(rest.filter((c) => c.getAttribute('dir') === 'rtl').map((c) => c.textContent).sort().join(' | '),
+    [...hebrewNames].sort().join(' | '), 'שם קובץ עברי שלא מפורק — dir="rtl" בלי <bdi>, גם כשהוא מתחיל באנגלית');
+  eq(rest.filter((c) => !hebrewNames.includes(c.textContent)).every((c) => c.getAttribute('dir') === 'auto'), true,
+    'כל השאר dir="auto"');
 });
 
 check('CSS: לקוד בשורה, בפתק ובשם של כרטיס, אין direction ואין unicode-bidi', () => {
