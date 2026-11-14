@@ -155,6 +155,28 @@ def test_the_board_ignores_the_font_size_from_the_general_settings(logged_in):
     )
 
 
+def test_the_board_gets_its_default_font_size_from_the_server(logged_in, monkeypatch):
+    """**ברירת המחדל של הלוח מגיעה מ-``NOTE_FONT_SIZE_DEFAULT``, בעמוד המרונדר.**
+
+    הלוח מכריע את הגודל בדפדפן (``localStorage`` לכל לוח), אבל מי שלא בחר מקבל את מה שהשרת
+    רינדר ל-``STICKY_NOTE_FONT_SIZE_DEFAULT`` — אותו קבוע שמכריע את עמוד ההגדרות. הקבוע מוחלף
+    כאן בערך אחר, כדי שהבדיקה תראה שהעמוד קורא אותו בזמן הרינדור, ולא ערך שהוקלד בתבנית שבמקרה
+    שווה לו. מה שהלוח עושה עם הערך — ``tests/board-handwriting.test.js``.
+    """
+    import json
+
+    import webapp.app as webapp_app
+
+    url = '/boards/507f1f77bcf86cd799439011'
+    html = logged_in.get(url).get_data(as_text=True)
+    expected = f'window.STICKY_NOTE_FONT_SIZE_DEFAULT = {json.dumps(webapp_app.NOTE_FONT_SIZE_DEFAULT)};'
+    assert expected in html
+
+    monkeypatch.setattr(webapp_app, 'NOTE_FONT_SIZE_DEFAULT', 'large', raising=True)
+    html = logged_in.get(url).get_data(as_text=True)
+    assert 'window.STICKY_NOTE_FONT_SIZE_DEFAULT = "large";' in html
+
+
 def test_handwriting_font_is_requested_only_when_enabled(logged_in):
     """הגופן זמין לעמוד, אבל **אינו** נטען בתגית סטטית.
 

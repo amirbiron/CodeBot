@@ -192,15 +192,50 @@ def test_file_names_come_only_from_the_users_own_files():
     assert _locations(db) == ['קובץ']
 
 
-# -- ריפו, ארכיון ויעד פגום -------------------------------------------------------------
+# -- ריפו ויעד פגום -----------------------------------------------------------------------
 
 
-def test_a_repo_note_and_an_archived_note_say_where_they_are():
-    db = _DB([
-        _note(1, repo_name='CodeBot', repo_path='webapp/app.py'),
-        _note(2, archived_at=NOW - timedelta(days=1)),
-    ])
-    assert _locations(db) == ['ריפו: CodeBot/webapp/app.py', 'ארכיון']
+def test_a_repo_note_says_where_it_is():
+    db = _DB([_note(1, repo_name='CodeBot', repo_path='webapp/app.py')])
+    assert _locations(db) == ['ריפו: CodeBot/webapp/app.py']
+
+
+# -- הארכיון ------------------------------------------------------------------------------
+
+
+def test_archived_notes_are_left_out_even_when_they_were_edited_last():
+    """פתק ארכיון אינו מופיע בכרטיס, גם כשהוא זה שנערך אחרון. עד נובמבר 2026 הוא הופיע, עם השורה "ארכיון".
+
+    **הסינון בשאילתה, לפני התקרה, ולא אחריה.** שלושה פתקי ארכיון חדשים משנים־עשר הפעילים: סינון אחרי
+    ``limit(10)`` היה משאיר שבעה פתקים בכרטיס במקום עשרה. ``archived_at: None`` מפורש הוא פתק פעיל — כך גם
+    ``sticky_notes_target._is_archive_stamp`` מזהה את היעד."""
+    board = ObjectId()
+    archived = [
+        _note(i, title=f'ארכיון {i}', archived_at=NOW - timedelta(days=1)) for i in range(3)
+    ]
+    active = [_note(10 + i, title=f'פעיל {i}', board_id=str(board)) for i in range(12)]
+    active[4]['archived_at'] = None
+    db = _DB(archived + active, boards=[{'_id': board, 'user_id': USER, 'name': 'רעיונות'}])
+
+    notes = _snapshot(db)['notes']
+
+    assert [n['title'] for n in notes] == [f'פעיל {i}' for i in range(10)]
+    assert all(n['location'] != 'ארכיון' for n in notes)
+
+
+def test_the_card_asks_for_active_notes_with_the_shared_filter():
+    """השאילתה היא ``active_notes_filter`` עצמו — הפילטר של תקרת הפתקים ושל החיפוש — ולא נוסח משלה.
+
+    נוסח אחר שמסנן אותו דבר, למשל ``archived_at: {'$exists': False}``, מחזיר את אותם פתקים ולכן עובר את
+    הבדיקה שמעל. אבל הוא אינו נשען על ``user_archived_updated_idx`` באותה דרך (``active_notes_filter``
+    מסביר למה ``None`` ולא ``$exists``), ותקרה שנספרת בנוסח אחד וכרטיס שמסנן באחר הם שתי הגדרות של "פעיל"."""
+    from sticky_notes_target import active_notes_filter
+
+    db = _DB([_note(board_id=str(ObjectId()))])
+    _snapshot(db)
+
+    (query, _projection), = db.sticky_notes.calls
+    assert query == active_notes_filter(USER)
 
 
 def test_a_document_without_a_valid_target_is_not_guessed():

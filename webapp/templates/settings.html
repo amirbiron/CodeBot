@@ -1535,14 +1535,17 @@
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: 0.6rem">
           <label for="settingsNoteFontSizeSelect" style="font-size: 0.95rem">גודל הטקסט</label>
           {# האפשרויות הן העתק של ``STICKY_NOTE_FONT_MENUS.settings``, כי
-             המשתמש רואה אותן בעברית. בדיקה משווה ביניהן. #}
+             המשתמש רואה אותן בעברית. בדיקה משווה ביניהן.
+             **כל אפשרות מסומנת לפי שוויון בלבד, ובלי "אחרת".** ``note_font_size`` הוא תמיד אחד
+             הטוקנים — ``_resolve_note_font_size`` נופלת ל-``NOTE_FONT_SIZE_DEFAULT`` — ולכן אחת
+             בדיוק מסומנת. "אחרת — רגיל" נקרא כמו ברירת מחדל, וברירת המחדל אינה "רגיל". #}
           <select
             id="settingsNoteFontSizeSelect"
             class="filter-select"
             aria-label="גודל הטקסט בפתקים"
             style="padding: 0.45rem 0.65rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-primary);"
           >
-            <option value="normal" {% if note_font_size != 'large' and note_font_size != 'xlarge' %}selected{% endif %}>רגיל</option>
+            <option value="normal" {% if note_font_size == 'normal' %}selected{% endif %}>רגיל</option>
             <option value="large" {% if note_font_size == 'large' %}selected{% endif %}>גדול</option>
             <option value="xlarge" {% if note_font_size == 'xlarge' %}selected{% endif %}>גדול מאוד</option>
           </select>
