@@ -59,6 +59,8 @@ MARKDOWN = (
     "שמרו ל-`הפניות-שלא-חלו.md` בסוף.\n\n"
     "המדריך: `מדריך-תצוגת-Markdown-RTL.md` כאן.\n\n"
     "הדוח: `Report-דוח-Q3.md` כאן.\n\n"
+    "האפיון: `pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md` כאן.\n\n"
+    "המסירה: `Handoff: שרשורי תגובות על פתקים — סשן 2.md` כאן.\n\n"
     "| שם | ערך |\n"
     "|---|---|\n"
     "| שפה | C++ |\n"
@@ -77,7 +79,12 @@ ROOTS = {
 }
 
 #: המדידה. מחזירה מחרוזת עד שהתוכן רונדר, ואחר כך מילון עם ``ok``.
+#: שמות שמתחילים באות לטינית ורובם עברית. עם ``dir="auto"`` לבדו האות הלטינית הראשונה קבעה את הכיוון, והמילים
+#: התהפכו; ``FileName.codeDir`` נותן להם ``dir="rtl"``.
+LATIN_FIRST_HEBREW = ["pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md", "Handoff: שרשורי תגובות על פתקים — סשן 2.md"]
+
 MEASURE_JS = """([root]) => {
+  const LATIN_FIRST_HEBREW = """ + json.dumps(LATIN_FIRST_HEBREW, ensure_ascii=False) + """;
   const c = document.querySelector(root);
   if (!c) return 'no root';
   const inline = [...c.querySelectorAll('code')].filter((el) => !el.closest('pre'));
@@ -85,8 +92,19 @@ MEASURE_JS = """([root]) => {
   const cell = (t) => [...c.querySelectorAll('td')].find((el) => el.textContent.trim() === t);
   const flag = code('--flag'), foo = code('foo()'), heb = code('הפניות-שלא-חלו.md'), cpp = cell('C++');
   const guide = code('מדריך-תצוגת-Markdown-RTL.md'), report = code('Report-דוח-Q3.md');
+  const latinFirst = LATIN_FIRST_HEBREW.map(code);
   const ths = [...c.querySelectorAll('th')];
-  if (!flag || !foo || !heb || !cpp || !guide || !report || ths.length !== 2) return 'not rendered yet';
+  if (!flag || !foo || !heb || !cpp || !guide || !report || latinFirst.some((el) => !el) || ths.length !== 2) {
+    return 'not rendered yet';
+  }
+  // התווים לפי הסדר על המסך, מימין לשמאל — ואותו טקסט בשורה רגילה מימין לשמאל, הסדר שהיה עד ``dir="auto"``.
+  const order = (el) => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const out = []; let n;
+    while ((n = w.nextNode())) for (let i = 0; i < n.data.length; i++) { const r = document.createRange();
+      r.setStart(n, i); r.setEnd(n, i + 1); const b = r.getBoundingClientRect(); out.push([b.left, n.data[i]]); }
+    return out.sort((a, b) => b[0] - a[0]).map((v) => v[1]).join(''); };
+  const reference = (t) => { const d = document.createElement('div'); d.dir = 'rtl';
+    d.style.cssText = 'position:absolute;top:-2000px;white-space:nowrap'; d.textContent = t; document.body.appendChild(d);
+    const o = order(d); d.remove(); return o; };
   // שם קובץ עברי שמפורק — ``FILE_NAME_SHAPE_JS`` ב-``tests/_browser_harness.py``.
   const shape = """ + FILE_NAME_SHAPE_JS + """;
   // המרכז האופקי של התו במיקום i בתוך el, לפי מה שהדפדפן צייר.
@@ -114,6 +132,7 @@ MEASURE_JS = """([root]) => {
     guide_shape: shape(guide),
     report_shape: shape(report),
     isolated: inline.filter((el) => el.querySelector('bdi')).map((el) => el.textContent).sort(),
+    latin_first: latinFirst.map((el) => ({ shown: order(el), reference: reference(el.textContent) })),
     code_dirs: Object.fromEntries(inline.map((el) => [el.textContent, el.getAttribute('dir')])),
     cell_dirs: cells.map((el) => el.getAttribute('dir')),
     isolate: { code: getComputedStyle(flag).unicodeBidi, cell: getComputedStyle(cpp).unicodeBidi },
@@ -228,9 +247,12 @@ def test_inline_code_and_table_cells_follow_their_own_direction(site, surface):
     assert state["cpp_c_left_of_plus"], f"C++ מוצג הפוך: {state}"
     assert state["cpp_gaps"]["left"] <= 1, f"C++ אינו מיושר לשמאל: {state['cpp_gaps']}"
     assert all(g["right"] <= 1 for g in state["th_gaps"]), f"כותרת עמודה אינה מיושרת לימין: {state['th_gaps']}"
-    # ``rtl`` לשני שמות הקבצים שמפורקים, ו-``auto`` לכל השאר.
-    split = {"מדריך-תצוגת-Markdown-RTL.md", "Report-דוח-Q3.md"}
-    assert state["code_dirs"] == {t: ("rtl" if t in split else "auto") for t in state["code_dirs"]}, state["code_dirs"]
+    # ``rtl`` לכל שם קובץ עם עברית (``FileName.codeDir``) — מפורק או לא — ו-``auto`` לכל השאר.
+    hebrew_names = {"הפניות-שלא-חלו.md", "מדריך-תצוגת-Markdown-RTL.md", "Report-דוח-Q3.md", *LATIN_FIRST_HEBREW}
+    assert state["code_dirs"] == {t: ("rtl" if t in hebrew_names else "auto") for t in state["code_dirs"]}, state["code_dirs"]
+    # שם שמתחיל באות לטינית ורובו עברית נראה כמו בשורה מימין לשמאל — ולא הפוך, כמו עם ``dir="auto"``.
+    for item in state["latin_first"]:
+        assert item["shown"] == item["reference"], item
     assert set(state["cell_dirs"]) == {"auto"}, state["cell_dirs"]
     assert state["isolate"] == {"code": "isolate", "cell": "isolate"}, state["isolate"]
     assert not [line for line in console if MISSING_PLUGIN_WARNING in line], console

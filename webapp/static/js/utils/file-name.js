@@ -12,13 +12,22 @@
  * - שם ש-``parts`` מפרק: ``<bdi dir="rtl">STEM.<bdi>EXT</bdi></bdi>`` — השם מימין לשמאל, והסיומת מבודדת בקצה
  *   השמאלי. זה המבנה של קוד בשורה (``RtlCode.fillInlineCode`` ב-``utils/rtl-code.js``), רק כאלמנט פנימי ולא על
  *   האלמנט עצמו: על בלוק, ``dir`` היה משנה גם את היישור שלו.
- * - כל שם אחר: ``<bdi dir="auto">NAME</bdi>`` — הכיוון לפי האות החזקה הראשונה, והשם מבודד. בהקשר ימין-לשמאל זה לא
- *   משנה את הסדר של שם שמתחיל באות, ומתקן שם שמתחיל בסימן, כמו ``_draft.md``. ``dir="auto"`` כתוב במפורש, ולא
- *   נשען על ברירת המחדל של ``bdi``.
+ * - שם אחר שיש בו אות עברית: ``<bdi dir="rtl">NAME</bdi>``. **לא ``dir="auto"``:** הוא בוחר כיוון לפי האות החזקה
+ *   הראשונה, ובשם כמו ``pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md`` או ``Handoff: שרשורי תגובות … סשן 2.md`` זו אות
+ *   לטינית — השם כולו היה יוצא משמאל לימין, והמילים בסדר הפוך (כך היה בגרסה הראשונה של התיקון, נובמבר 2026).
+ *   ``dir="rtl"`` נותן בדיוק את מה שהשם קיבל עד אז בשורה מימין לשמאל, וגם בהקשר שמאל-לימין (נמדד בכרומיום).
+ * - שם בלי עברית: ``<bdi dir="auto">NAME</bdi>`` — משמאל לימין לפי האות הלטינית הראשונה, ומבודד. בהקשר ימין-לשמאל זה
+ *   לא משנה שם שמתחיל באות, ומתקן שם שמתחיל בסימן, כמו ``_draft.md``. ``dir`` כתוב תמיד במפורש, ולא נשען על ברירת
+ *   המחדל של ``bdi``.
  *
  * הטקסט עצמו לא משתנה — אין תווים נסתרים, ו-``textContent`` נשאר השם תו בתו — ולכן העתקה מחזירה את השם בדיוק, וקוד
  * שמעתיק את הטקסט ל-``title`` ממשיך לעבוד. **בלי ``innerHTML``:** השם הוא קלט של משתמש, והוא נכנס רק דרך
  * ``createElement`` ו-``textContent``. מקום שבונה שורה כמחרוזת בונה אותה בלי השם, וממלא את השם אחר כך דרך ``fill``.
+ *
+ * **קוד בשורה** (``codeDir``) אינו בהכרח שם קובץ: ``git commit -m "הודעה"`` צריך ``dir="auto"``, ו-``rtl`` היה הופך
+ * אותו. לכן שם ``rtl`` רק כשהקוד נראה כמו שם קובץ — נגמר בסיומת (``EXTENSION_RE``), בלי לוכסן — ויש בו עברית. כל
+ * קוד אחר נשאר ``auto``. ההכרעה הזו כתובה כאן ולא בכל צרכן: ``RtlCode.fillInlineCode`` (פתקים) ו-``md-auto-dir-plugin.js``
+ * (מסמכים) קוראים לה.
  *
  * **מתי מפרקים** (``parts``) — רק כשכל אלה מתקיימים, כלומר רק כשהדפדפן באמת היה מדביק את הסיומת לשם:
  *
@@ -79,6 +88,25 @@
     return false;
   }
 
+  /** האם יש בטקסט אות עברית (``HEBREW_LETTERS``). לפי נקודות קוד, כמו התאום בפייתון. */
+  function hasHebrew(text) {
+    var chars = Array.from(text == null ? '' : String(text));
+    for (var i = 0; i < chars.length; i++) {
+      if (inRanges(HEBREW_LETTERS, chars[i].codePointAt(0))) return true;
+    }
+    return false;
+  }
+
+  /**
+   * הכיוון של קוד בשורה: ``'rtl'`` לקוד שנראה כמו שם קובץ עם עברית — נגמר בסיומת (``EXTENSION_RE``), בלי לוכסן —
+   * ו-``'auto'`` לכל קוד אחר. ההסבר בראש הקובץ. כל שם ש-``parts`` מפרק הוא גם ``'rtl'`` כאן.
+   */
+  function codeDir(text) {
+    var s = text == null ? '' : String(text);
+    if (/[/\\]/.test(s) || !EXTENSION_RE.test(s)) return 'auto';
+    return hasHebrew(s) ? 'rtl' : 'auto';
+  }
+
   /**
    * השם והסיומת של שם קובץ שהדפדפן היה מציג עם הסיומת באמצע — ``{stem, extension}`` — או ``null``.
    * עובר על התווים לפי נקודות קוד (``for…of``), כמו התאום בפייתון.
@@ -111,7 +139,7 @@
     var split = parts(s);
     var outer = d.createElement('bdi');
     if (!split) {
-      outer.setAttribute('dir', 'auto');
+      outer.setAttribute('dir', hasHebrew(s) ? 'rtl' : 'auto');
       outer.textContent = s;
       return outer;
     }
@@ -133,6 +161,8 @@
   if (typeof window !== 'undefined') {
     window.FileName = Object.freeze({
       parts: parts,
+      hasHebrew: hasHebrew,
+      codeDir: codeDir,
       element: element,
       fill: fill,
       // **עותקים קפואים**, לטסטים שמשווים את הטבלאות ל-``\p{Script=…}`` של ה-Node שמריץ אותם. שינוי שלהם מבחוץ

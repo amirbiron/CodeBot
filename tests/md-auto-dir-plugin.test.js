@@ -100,7 +100,10 @@ console.log('קוד בשורה מקבל dir="auto"');
   const html = pageMd().use(autoDirPlugin).render(INLINE);
   const codes = openTags(html, 'code');
   check('חמישה קטעי קוד בשורה, בפסקה, בכותרת, בהדגשה, בקישור ובשם בעברית', codes.length === 5, codes);
-  check('כולם עם dir="auto"', codes.every((tag) => tag === '<code dir="auto">'), codes);
+  // שם הקובץ העברי (``הפניות-שלא-חלו.md``) — ``dir="rtl"`` (``FileName.codeDir``); כל השאר ``dir="auto"``.
+  check('ארבעה עם dir="auto", ושם הקובץ העברי עם dir="rtl"',
+    JSON.stringify(codes) === JSON.stringify(['<code dir="auto">', '<code dir="auto">', '<code dir="auto">', '<code dir="auto">',
+      '<code dir="rtl">']), codes);
 }
 
 console.log('תאי טבלה מקבלים dir="auto", והיישור מהמסמך נשמר');
@@ -124,8 +127,15 @@ console.log('שם קובץ עברי בקוד בשורה: dir="rtl" והסיומ�
   check('Report-דוח-Q3.md — מפורק, גם כשהשם מתחיל באנגלית',
     one('`Report-דוח-Q3.md`') === '<code dir="rtl">Report-דוח-Q3.<bdi>md</bdi></code>', one('`Report-דוח-Q3.md`'));
   // ההחלטה מתי מפרקים נבדקת לעומק ב-``tests/file-name.test.js``; כאן — שהתוסף שואל אותה, ושהוא לא מפרק סתם.
-  for (const keep of ['ערכות.md', 'morass-Tech-theme.json', 'דוח.tar.gz', 'docs/מדריך/Guide-RTL.md', '--flag']) {
-    check(`${keep} — נשאר dir="auto" ובלי <bdi>`, one('`' + keep + '`') === `<code dir="auto">${keep}</code>`, one('`' + keep + '`'));
+  for (const keep of ['morass-Tech-theme.json', 'docs/מדריך/Guide-RTL.md', '--flag', 'git commit -m "הודעה"']) {
+    const out = one('`' + keep + '`');
+    check(`${keep} — נשאר dir="auto" ובלי <bdi>`, out === `<code dir="auto">${md.utils.escapeHtml(keep)}</code>`, out);
+  }
+  // שם קובץ עם עברית שלא מפורק — ``dir="rtl"`` בלי ``<bdi>``. ``dir="auto"`` היה בוחר ב-``pdf-…`` וב-``Handoff: …`` את
+  // האות הלטינית הראשונה, והמילים היו מתהפכות.
+  for (const name of ['ערכות.md', 'דוח.tar.gz', 'pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md',
+    'Handoff: שרשורי תגובות על פתקים — סשן 2.md']) {
+    check(`${name} — dir="rtl" ובלי <bdi>`, one('`' + name + '`') === `<code dir="rtl">${name}</code>`, one('`' + name + '`'));
   }
   check('הטקסט עובר בריחה גם כשהשם מפורק',
     one('`<b>דוח-RTL.md`') === '<code dir="rtl">&lt;b&gt;דוח-RTL.<bdi>md</bdi></code>', one('`<b>דוח-RTL.md`'));
