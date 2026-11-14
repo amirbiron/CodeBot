@@ -136,7 +136,13 @@
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/apple-touch-icon-180.png') }}">
 
     <style>
-        :root {
+        /* ברירות המחדל של הצבעים — גם של כרטיס "תצוגת Markdown" כשיש לו ערכת מסמך (הבורר השני, שמוגדר כ-
+           MD_DOC_THEME_ROOT_SELECTOR ב-services/theme_parser_service.py). הכרטיס יורש את המשתנים של ערכת הממשק, וכאן
+           הוא חוזר לערכים של :root, כמו בעמוד שבו ערכת המסמך היא ערכת הממשק; המשתנים של ערכת המסמך מגיעים אחר כך
+           (md_preview.html) וגוברים. מה שאינו צבע — גודל הגופן ורוחב פס הגלילה — בבלוק :root נפרד מתחת, כי הוא חייב
+           לחול רק על השורש: --ui-font-scale נקבע ב-style של <html>, ו---scrollbar-width משתנה ב-media query. */
+        :root,
+        :root:is([data-theme="custom"], [data-theme^="shared:"]) #mdCard[data-md-doc-theme] {
             --primary: #667eea;
             --primary-dark: #5a67d8;
             --secondary: #764ba2;
@@ -154,7 +160,6 @@
             --solid-surface-text: #111827;
             --solid-surface-border: rgba(0, 0, 0, 0.12);
             --solid-surface-shadow: 0 14px 30px rgba(17, 23, 41, 0.16);
-            --ui-font-scale: 1;
             --danger-bg: color-mix(in srgb, var(--danger) 18%, transparent);
             --danger-border: color-mix(in srgb, var(--danger) 45%, transparent);
             --text-on-warning: #1c1f3a;
@@ -167,6 +172,10 @@
             --md-surface: #1b1e24;
             --md-text: #f0f0f0;
             --link-color: #0366d6;
+        }
+
+        :root {
+            --ui-font-scale: 1;
             --scrollbar-width-base: 10px;
             --scrollbar-width: calc(var(--scrollbar-width-base) / 3);
         }
@@ -1705,7 +1714,9 @@
   | replace('data-theme="custom"', 'data-theme-type="custom"')
   | replace("data-theme='custom'", "data-theme-type='custom'")
 ) %}
-{{ _custom_syntax | safe }}
+{# בעמוד שיש בו ערכת מסמך (md_preview.html), כללי highlight.js של ערכת הממשק לא חלים בתוך הכרטיס שלה — ראו
+   exclude_md_doc_theme_from_hljs_css ב-services/theme_parser_service.py. בכל עמוד אחר ה-CSS יוצא כמו שהוא. #}
+{% if md_doc_theme is defined and md_doc_theme %}{{ exclude_md_doc_theme_from_hljs_css(_custom_syntax) | safe }}{% else %}{{ _custom_syntax | safe }}{% endif %}
     </style>
     {% endif %}
     {% if custom_theme.syntax_colors %}
@@ -1735,7 +1746,8 @@
   | replace('data-theme="custom"', 'data-theme-type="custom"')
   | replace("data-theme='custom'", "data-theme-type='custom'")
 ) %}
-{{ _shared_syntax | safe }}
+{# כמו בערכה האישית שמעל. #}
+{% if md_doc_theme is defined and md_doc_theme %}{{ exclude_md_doc_theme_from_hljs_css(_shared_syntax) | safe }}{% else %}{{ _shared_syntax | safe }}{% endif %}
     </style>
     {% endif %}
     {% if shared_theme.syntax_colors %}

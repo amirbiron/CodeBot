@@ -333,7 +333,12 @@ from services.styled_export_service import (  # noqa: E402
     styled_share_csp,
     styled_share_page_csp,
 )
-from services.theme_parser_service import parse_vscode_theme, validate_theme_json  # noqa: E402
+from services.theme_parser_service import (  # noqa: E402
+    build_md_doc_theme_css,
+    exclude_md_doc_theme_from_hljs_css,
+    parse_vscode_theme,
+    validate_theme_json,
+)
 
 
 # --- Observability: הרצת פעולות כבדות בת׳רד (תואם Flask sync) ---
@@ -2868,6 +2873,181 @@ def _note_fonts_etag_key(
         return "nf:" + _encode_note_fonts(None) + ":" + NOTE_FONT_SIZE_DEFAULT
 
 
+# ─── ערכת המסמך ─────────────────────────────────────────────────────────
+#
+# ערכה מותאמת או ציבורית שחלה רק על כרטיס "תצוגת Markdown" ב-``/md/<id>``, בזמן שהממשק סביבו נשאר בערכה
+# הפעילה. ההעדפה היא **מצביע** לערכה — ``custom:<id>`` או ``shared:<slug>``, הפורמט של ``ui_prefs.theme`` — ולא
+# העתק שלה, ולכן עריכה של הערכה בבונה הערכות מגיעה למסמך מעצמה. התחולה כמו של גודל הטקסט בפתק: במצב ``device``
+# הבחירה ב-cookie של המכשיר בלבד, ובכל מצב אחר במסד. ה-CSS נבנה ב-``build_md_doc_theme_css``
+# (``services/theme_parser_service.py``), והתנאי שבו הוא חל כתוב שם בבורר ``MD_DOC_THEME_ROOT_SELECTOR``.
+# docs/webapp/custom_themes_guide.rst, md-doc-theme.
+
+#: השדה תחת ``ui_prefs``. חסר = אין ערכת מסמך.
+MD_DOC_THEME_PREF = "md_doc_theme"
+MD_DOC_THEME_COOKIE = "ui_md_doc_theme"
+MD_DOC_THEME_SCOPE_COOKIE = "ui_md_doc_theme_scope"
+#: הערך ב-cookie של המכשיר שאומר "כבויה במכשיר הזה". בלעדיו כיבוי במצב ``device`` לא היה יכול לגבור על בחירה
+#: ששמורה במסד: cookie חסר פירושו "המכשיר לא אמר כלום", וההכרעה נופלת למסד.
+MD_DOC_THEME_DEVICE_OFF = "none"
+
+
+def _decode_md_doc_theme(raw: Any) -> Optional[str]:
+    """``custom:<id>`` או ``shared:<slug>`` מנורמל; ``""`` לכבויה (רק ``MD_DOC_THEME_DEVICE_OFF``); ``None`` כשלא נאמר
+    כלום או שהערך פגום.
+
+    ``None`` ולא ``""`` על ערך פגום, מאותה סיבה כמו ב-``_decode_note_font_size``: "המכשיר לא אמר כלום" נופל למסד,
+    ו"המכשיר אמר: כבויה" גובר עליו. ולא ``_parse_theme_token``: הוא מחזיר את ערכת ברירת המחדל על ערך פגום, ואם היא
+    ציבורית ערך פגום היה נקרא כבחירה בה; וערכה מובנית אינה ערכת מסמך. הבדיקה של המזהה — ``_THEME_ID_SAFE_RE``, כמו שם.
+    הערך מגיע מ-cookie, מגוף JSON או מהמסד, ולכן הטיפוס נבדק לפני כל דבר.
+    """
+    if not isinstance(raw, str):
+        return None
+    val = raw.strip().lower()
+    if val == MD_DOC_THEME_DEVICE_OFF:
+        return ""
+    kind, sep, theme_id = val.partition(":")
+    if sep and kind in ("custom", "shared") and _THEME_ID_SAFE_RE.fullmatch(theme_id):
+        return f"{kind}:{theme_id}"
+    return None
+
+
+def _resolve_md_doc_theme_token(
+    user_id: Optional[int],
+    user_doc: Optional[Dict[str, Any]] = None,
+) -> tuple[str, str, Optional[Dict[str, Any]]]:
+    """``(token, scope, user_doc)`` — ``token`` ריק כשאין ערכת מסמך; ערך המכשיר גובר רק במצב ``device``.
+
+    אותה הכרעה כמו ``_resolve_note_font_size``. מסמך המשתמש נשלף רק כשההכרעה מגיעה למסד, דרך ``_request_user_doc`` —
+    השליפה ש-``inject_globals`` עושה ממילא באותה בקשה — והוא מוחזר, כדי שמי שטוען את הערכה לא ישלוף שוב. ``user_doc``
+    שמועבר חייב לכלול את ``ui_prefs.md_doc_theme`` ואת ``custom_themes`` (``ETAG_USER_PROJECTION`` כולל את שניהם).
+    כשל במסד — ``_request_user_doc`` כבר רושם אותו ומחזיר ``None`` — מחזיר "אין ערכת מסמך": העמוד מוצג בערכת הממשק.
+    """
+    scope = _normalize_theme_scope(request.cookies.get(MD_DOC_THEME_SCOPE_COOKIE))
+    device_value = _decode_md_doc_theme(request.cookies.get(MD_DOC_THEME_COOKIE))
+    if scope == THEME_SCOPE_DEVICE and device_value is not None:
+        return device_value, scope, user_doc
+
+    if user_id and user_doc is None:
+        user_doc = _request_user_doc(user_id)
+    if not isinstance(user_doc, dict):
+        return "", scope, user_doc
+    # ``isinstance`` על ``ui_prefs`` ולא ``or {}``: מסמך שנערך ביד יכול להחזיק שם מחרוזת.
+    prefs = user_doc.get('ui_prefs')
+    stored = _decode_md_doc_theme(prefs.get(MD_DOC_THEME_PREF) if isinstance(prefs, dict) else None)
+    return stored or "", scope, user_doc
+
+
+class MdDocThemeUnavailable(Exception):
+    """המסד לא ענה בטעינת ערכת המסמך — שונה מ"הערכה לא קיימת", שהוא ``None``."""
+
+
+def _load_md_doc_theme(
+    user_id: Optional[int],
+    token: str,
+    user_doc: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """הערכה ש-``token`` מצביע עליה: ``{token, name, variables, syntax_css, updated_at}``, או ``None`` כשאין כזו.
+
+    שני ערוצים, כי לקוראים יש שתי החלטות שונות: ``None`` — אין ``token``, או שהערכה לא קיימת (נמחקה, או ערכה ציבורית
+    שכובתה); ``MdDocThemeUnavailable`` — המסד לא ענה, ואי אפשר לדעת. העמוד מציג בשני המקרים את המסמך בערכת הממשק
+    (``_resolve_md_doc_theme``), אבל ``/api/ui_prefs`` עונה 404 על הראשון ו-503 על השני — "לא נמצא" ו"נשבר" לא
+    נראים אותו דבר. ערכה אישית נקראת מ-``custom_themes`` במסמך המשתמש; ציבורית — טרייה מ-``shared_themes``, כי
+    ה-ETag של העמוד נגזר מה-``updated_at`` שלה (הנימוק ב-``_get_shared_theme_cached``).
+    """
+    kind, _, theme_id = (token or "").partition(":")
+    if kind == "custom" and theme_id:
+        if user_doc is None and user_id:
+            user_doc = _request_user_doc(user_id)
+        if user_doc is None:
+            # ``_request_user_doc`` מחזיר ``None`` רק כשהמסד לא ענה, והוא כבר רשם את הכשל.
+            raise MdDocThemeUnavailable(token)
+        themes = user_doc.get('custom_themes') if isinstance(user_doc, dict) else None
+        if not isinstance(themes, list):
+            return None
+        for tdoc in themes:
+            if isinstance(tdoc, dict) and str(tdoc.get('id') or '').strip() == theme_id:
+                variables = tdoc.get('variables')
+                syntax_css = tdoc.get('syntax_css')
+                return {
+                    'token': token,
+                    'name': str(tdoc.get('name') or ''),
+                    'variables': variables if isinstance(variables, dict) else {},
+                    'syntax_css': syntax_css if isinstance(syntax_css, str) else '',
+                    'updated_at': tdoc.get('updated_at'),
+                }
+        return None
+    if kind == "shared" and theme_id:
+        db_ref = get_db()
+        if db_ref is None:
+            # ``get_db`` מחזיר ``None`` בחלון הצינון שאחרי כשל התחברות, והכשל עצמו כבר נרשם שם.
+            raise MdDocThemeUnavailable(token)
+        try:
+            doc = db_ref.shared_themes.find_one({'_id': theme_id, 'is_active': True})
+        except PyMongoError as exc:
+            raise MdDocThemeUnavailable(token) from exc
+        theme = _shared_theme_from_doc(doc)
+        if theme is None:
+            return None
+        return {
+            'token': token,
+            'name': str(theme.get('name') or ''),
+            'variables': theme.get('colors') or {},
+            'syntax_css': theme.get('syntax_css') or '',
+            'updated_at': doc.get('updated_at') if isinstance(doc, dict) else None,
+        }
+    return None
+
+
+def _resolve_md_doc_theme(
+    user_id: Optional[int],
+    user_doc: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """ערכת המסמך של הבקשה — ``_load_md_doc_theme`` על מה ש-``_resolve_md_doc_theme_token`` הכריע — או ``None``.
+
+    הכרעה אחת לבקשה, שממנה נגזרים גם ה-ETag ומפתח הקאש של ``/md/<id>`` וגם ה-CSS שמרונדר — כך שהם לא יכולים לתאר
+    שני מצבים שונים.
+    """
+    token, _, user_doc = _resolve_md_doc_theme_token(user_id, user_doc)
+    if not token:
+        return None
+    try:
+        return _load_md_doc_theme(user_id, token, user_doc)
+    except MdDocThemeUnavailable as exc:
+        # המסמך מוצג בערכת הממשק במקום בערכה שנבחרה לו — נרשם, כדי שאפשר יהיה לספור כמה פעמים זה קרה.
+        logger.warning(
+            "md doc theme %s: DB unavailable (%s); showing the document in the UI theme",
+            token,
+            type(exc.__cause__).__name__ if exc.__cause__ else "no connection",
+        )
+        return None
+
+
+def _md_doc_theme_etag_key(theme: Optional[Dict[str, Any]]) -> str:
+    """מפתח קצר לערכת המסמך, ל-ETag ולמפתח הקאש של ``/md/<id>``; ``""`` כשאין.
+
+    ה-CSS שלה מרונדר לתוך ה-HTML, ולכן בלי המפתח בחירה, כיבוי או עריכה של הערכה היו מחזירים 304 עם המראה הישן — אותו
+    נימוק כמו ב-``_note_fonts_etag_key``. ``updated_at`` מקודם בכל עריכה של ערכה אישית (``update_theme``) ושל ציבורית.
+    בלעדיו — בלי חותמת, ולא ``_safe_dt_from_doc``, שמחזיר את השעה הנוכחית על ``None`` ומשנה את המפתח בכל בקשה.
+    """
+    if not theme:
+        return ""
+    stamp = ""
+    updated_at = theme.get('updated_at')
+    if updated_at is not None:
+        stamp = _safe_dt_from_doc(updated_at).isoformat()
+    return f"dt:{theme.get('token')}:{stamp}"
+
+
+def _md_doc_theme_template_context(theme: Optional[Dict[str, Any]]) -> Optional[Dict[str, str]]:
+    """מה ש-``md_preview.html`` ו-``base.html`` מקבלים: ``{name, css}``, או ``None`` כשאין ערכת מסמך."""
+    if not theme:
+        return None
+    return {
+        'name': theme.get('name') or '',
+        'css': build_md_doc_theme_css(theme.get('variables'), theme.get('syntax_css')),
+    }
+
+
 #: מפתח ההעדפה של התצוגה המצומצמת בעמוד הקבצים, תחת ``ui_prefs``.
 #: השם צר בכוונה. ``webapp/FEATURE_SUGGESTIONS/DISPLAY_MODES_SPECIFICATION.md``
 #: מציע ``display_mode`` עם ``focus``/``classic``/``power``, אבל זו טיוטה
@@ -3619,6 +3799,8 @@ ETAG_USER_PROJECTION = {
     'ui_prefs.theme': 1,
     'ui_prefs.note_fonts': 1,
     'ui_prefs.note_font_size': 1,
+    # ערכת המסמך של ``/md/<id>`` (``_resolve_md_doc_theme``): הבחירה, וממנה הערכה עצמה ב-``custom_themes``.
+    f'ui_prefs.{MD_DOC_THEME_PREF}': 1,
     'custom_themes': 1,
     'custom_theme': 1,
 }
@@ -11805,6 +11987,9 @@ app.jinja_env.globals['lang_icon'] = lang_icon
 app.jinja_env.globals['lang_slug'] = get_language_slug
 app.jinja_env.globals['lang_icon_data'] = lang_icon_data
 app.jinja_env.globals['LANG_ICON_SIZES'] = LANG_ICON_SIZES
+# ``base.html`` קורא לה רק בעמוד שיש בו ערכת מסמך (``md_doc_theme``), על ה-``syntax_css`` של ערכת הממשק. global ולא
+# filter: Jinja בודק שפילטר קיים כבר בהידור, גם בענף שלא נלקח, וטסטים שמרנדרים את ``base.html`` בסביבה משלהם היו נופלים.
+app.jinja_env.globals['exclude_md_doc_theme_from_hljs_css'] = exclude_md_doc_theme_from_hljs_css
 
 
 def resolve_file_language(language: Optional[str], file_name: str = "") -> str:
@@ -17667,7 +17852,14 @@ def md_preview(file_id):
             version_context.get('state'),
             version_context.get('latest_version') or '',
         )
-    etag = _compute_file_etag(file, variant=f"{theme_key}|{note_fonts_key}|{_banner_key}")
+    # ערכת המסמך — אותה סיבה: ה-CSS שלה מרונדר לתוך ה-HTML. הכרעה אחת שממנה נגזרים גם המפתחות וגם הרינדור
+    # (``_resolve_md_doc_theme``). המפתח נוסף רק כשיש ערכת מסמך, כך שמי שאין לו אחת מקבל את אותו ETag כמו קודם.
+    md_doc_theme = _resolve_md_doc_theme(user_id, user_doc=_etag_user_doc)
+    md_doc_theme_key = _md_doc_theme_etag_key(md_doc_theme)
+    _etag_variant = f"{theme_key}|{note_fonts_key}|{_banner_key}"
+    if md_doc_theme_key:
+        _etag_variant += f"|{md_doc_theme_key}"
+    etag = _compute_file_etag(file, variant=_etag_variant)
     last_modified_dt = _file_last_modified(file)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
@@ -17716,6 +17908,9 @@ def md_preview(file_id):
                 # גרסת deploy במפתח: אחרת ה-HTML המרונדר הישן מוגש עד פקיעת ה-TTL (30 דק')
                 'sv': _STATIC_VERSION,
             }
+            # ערכת המסמך — אותו ערך כמו ב-ETag, ורק כשיש כזו, כדי שמפתח של מי שאין לו לא ישתנה.
+            if md_doc_theme_key:
+                _params['dt'] = md_doc_theme_key
             _raw = json.dumps(_params, sort_keys=True, ensure_ascii=False)
             _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:24]
             md_cache_key = f"web:md_preview:user:{user_id}:{file_id}:{_hash}"
@@ -17766,6 +17961,7 @@ def md_preview(file_id):
         bot_username=BOT_USERNAME_CLEAN,
         can_save_shared=False,
         is_admin=user_is_admin,
+        md_doc_theme=_md_doc_theme_template_context(md_doc_theme),
     )
     # אפשרות לעקיפת קאש לדף הזה לפי פרמטר no_cache/nc — לאחר הרנדר אך לפני אחסון בקאש
     if force_no_cache:
@@ -20610,6 +20806,9 @@ def api_ui_prefs():
     - theme: אחד מ-{"classic","ocean","high-contrast","dark","dim","rose-pine-dawn","nebula","custom"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
     - files_compact_view: bool — תצוגה מצומצמת בעמוד הקבצים (אופציונלי)
+    - md_doc_theme: ``custom:<id>`` / ``shared:<slug>`` / ``null`` — ערכת המסמך של ``/md/<id>``, עם
+      ``md_doc_theme_scope`` ("global" / "device") כמו בגודל הטקסט בפתק. ערכה שלא קיימת ← 404, ומסד שלא ענה ← 503.
+      במצב "global" התשובה מחזירה את מה שנקרא מהמסד אחרי הכתיבה (אופציונלי)
     - first_steps_hidden: bool — נשמר כמו שנשלח. ``True`` מסתיר את הצ'קליסט "צעדים ראשונים"
       בדשבורד; ``False`` הוא "הצג שוב": הוא מוחק גם את הנעילה, והכרטיס מוצג עד שמסתירים אותו
       שוב, גם כשכל הצעדים בוצעו (``asked_to_see_again`` ב-``webapp/first_steps.py``) (אופציונלי)
@@ -20642,6 +20841,11 @@ def api_ui_prefs():
         note_font_size_cookie_value: Optional[str] = None
         note_font_size_scope_cookie_value: Optional[str] = None
         note_font_size_scope: Optional[str] = None
+        md_doc_theme_cookie_value: Optional[str] = None
+        md_doc_theme_scope_cookie_value: Optional[str] = None
+        md_doc_theme_scope: Optional[str] = None
+        # ערכת מסמך שנכתבה למסד — נקראת בחזרה אחרי הכתיבה (למטה), והתשובה מדווחת את מה שנשמר.
+        md_doc_theme_written_to_db = False
 
         # עדכון גודל גופן במידת הצורך
         if 'font_scale' in payload:
@@ -20802,6 +21006,46 @@ def api_ui_prefs():
             note_font_size_cookie_value = size_value
             note_font_size_scope_cookie_value = resolved_size_scope
 
+        # ─── ערכת המסמך ────────────────────────────────────────────────
+        # אותה סמנטיקה ואותו בורר תחולה נפרד. הערך: ``custom:<id>``, ``shared:<slug>``, או ``null`` לכיבוי.
+        # ערכה שלא קיימת נדחית ולא נשמרת: מצביע לערכה שאין היה נשמר ב-200, והמסמך היה ממשיך בערכת הממשק בלי הסבר.
+        if 'md_doc_theme_scope' in payload:
+            md_doc_theme_scope = _normalize_theme_scope(payload.get('md_doc_theme_scope'))
+            md_doc_theme_scope_cookie_value = md_doc_theme_scope
+
+        if MD_DOC_THEME_PREF in payload:
+            raw_doc_theme = payload.get(MD_DOC_THEME_PREF)
+            if raw_doc_theme is None:
+                doc_theme_token = ""
+            else:
+                # ``MD_DOC_THEME_DEVICE_OFF`` הוא ערך פנימי של ה-cookie ולא קלט: כיבוי נשלח כ-``null``.
+                doc_theme_token = _decode_md_doc_theme(raw_doc_theme)
+                if not doc_theme_token:
+                    return jsonify({
+                        'ok': False,
+                        'error': f'{MD_DOC_THEME_PREF} must be custom:<id>, shared:<slug> or null',
+                    }), 400
+                try:
+                    doc_theme_found = _load_md_doc_theme(user_id, doc_theme_token, None) is not None
+                except MdDocThemeUnavailable:
+                    return jsonify({'ok': False, 'error': 'database_unavailable'}), 503
+                if not doc_theme_found:
+                    return jsonify({'ok': False, 'error': 'md_doc_theme_not_found'}), 404
+
+            resolved_doc_scope = (
+                THEME_SCOPE_DEVICE if md_doc_theme_scope == THEME_SCOPE_DEVICE else THEME_SCOPE_GLOBAL
+            )
+            if resolved_doc_scope != THEME_SCOPE_DEVICE:
+                # שדה יחיד בנתיב מנוקד, כמו גודל הטקסט. כיבוי מוחק את השדה, כי "חסר" הוא "אין ערכת מסמך".
+                if doc_theme_token:
+                    update_fields[f'ui_prefs.{MD_DOC_THEME_PREF}'] = doc_theme_token
+                else:
+                    unset_fields[f'ui_prefs.{MD_DOC_THEME_PREF}'] = ''
+                md_doc_theme_written_to_db = True
+            resp_payload[MD_DOC_THEME_PREF] = doc_theme_token or None
+            md_doc_theme_cookie_value = doc_theme_token or MD_DOC_THEME_DEVICE_OFF
+            md_doc_theme_scope_cookie_value = resolved_doc_scope
+
         # עדכון סוג העורך במידת הצורך (שיקוף גם ל-session)
         if 'editor' in payload:
             editor_type = (payload.get('editor') or '').strip().lower()
@@ -20865,6 +21109,8 @@ def api_ui_prefs():
                 note_fonts_scope_cookie_value,
                 note_font_size_cookie_value,
                 note_font_size_scope_cookie_value,
+                md_doc_theme_cookie_value,
+                md_doc_theme_scope_cookie_value,
             )
         )
 
@@ -20880,6 +21126,18 @@ def api_ui_prefs():
             if unset_fields:
                 update_doc['$unset'] = unset_fields
             db.users.update_one({'user_id': user_id}, update_doc, upsert=True)
+
+        if md_doc_theme_written_to_db:
+            # קוראים את מה שנשמר ולא מהדהדים את הבקשה: התשובה היא מה שהמסמך יקבל בטעינה הבאה.
+            saved_doc = db.users.find_one({'user_id': user_id}, {f'ui_prefs.{MD_DOC_THEME_PREF}': 1}) or {}
+            saved_prefs = saved_doc.get('ui_prefs')
+            saved_token = _decode_md_doc_theme(
+                saved_prefs.get(MD_DOC_THEME_PREF) if isinstance(saved_prefs, dict) else None
+            ) or None
+            if saved_token != resp_payload.get(MD_DOC_THEME_PREF):
+                logger.warning("api_ui_prefs: md_doc_theme was not saved (stored %r)", saved_token)
+                return jsonify({'ok': False, 'error': 'md_doc_theme_not_saved'}), 500
+            resp_payload[MD_DOC_THEME_PREF] = saved_token
 
         if device_theme_applied:
             # בחירה "רק במכשיר הזה" לא נכתבת למסד, אבל לצ'קליסט היא בחירה לכל המכשירים.
@@ -20917,6 +21175,13 @@ def api_ui_prefs():
             if note_font_size_scope_cookie_value is not None:
                 if note_font_size_scope_cookie_value not in _THEME_SCOPE_VALUES:
                     note_font_size_scope_cookie_value = None
+            if md_doc_theme_cookie_value is not None:
+                # אותה צורה כמו ``_decode_md_doc_theme``, כדי ש-CodeQL יראה ולידציה על הערך שנכנס ל-cookie.
+                if not re.fullmatch(r"(?:custom|shared):[a-z0-9][a-z0-9_-]{1,63}|none", str(md_doc_theme_cookie_value)):
+                    md_doc_theme_cookie_value = None
+            if md_doc_theme_scope_cookie_value is not None:
+                if md_doc_theme_scope_cookie_value not in _THEME_SCOPE_VALUES:
+                    md_doc_theme_scope_cookie_value = None
 
             if font_scale_cookie_value is not None:
                 resp.set_cookie(
@@ -20987,6 +21252,29 @@ def api_ui_prefs():
                 resp.set_cookie(
                     'ui_note_font_size_scope',
                     nfs_scope_value,
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
+            if md_doc_theme_cookie_value is not None:
+                resp.set_cookie(
+                    MD_DOC_THEME_COOKIE,
+                    md_doc_theme_cookie_value,
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
+            if md_doc_theme_scope_cookie_value is not None:
+                dt_scope_value = (
+                    THEME_SCOPE_DEVICE
+                    if md_doc_theme_scope_cookie_value == THEME_SCOPE_DEVICE
+                    else THEME_SCOPE_GLOBAL
+                )
+                resp.set_cookie(
+                    MD_DOC_THEME_SCOPE_COOKIE,
+                    dt_scope_value,
                     max_age=365*24*3600,
                     samesite='Lax',
                     secure=True,

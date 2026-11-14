@@ -949,6 +949,15 @@ def delete_theme(theme_id: str):
         db_ref.users.update_one({"user_id": user_id}, {"$pull": {"custom_themes": {"id": theme_id}}})
         if was_active:
             db_ref.users.update_one({"user_id": user_id}, {"$set": {"ui_prefs.theme": get_default_ui_theme_raw()}})
+        # ערכת המסמך שהצביעה על הערכה הזו — המצביע נמחק יחד איתה. מחיקה אופורטוניסטית: כשהבחירה אחרת, או שאין,
+        # המסנן לא תופס כלום וזה התקין. בחירה ששמורה ב-cookie של מכשיר אחר נשארת שם, ובטעינה היא לא מוצאת ערכה
+        # ומוצגת בערכת הממשק (``_load_md_doc_theme``). ``theme_id`` אומת למעלה כמזהה של ערכה במסמך הזה.
+        from webapp.app import MD_DOC_THEME_PREF  # local import to avoid circular deps
+
+        db_ref.users.update_one(
+            {"user_id": user_id, f"ui_prefs.{MD_DOC_THEME_PREF}": f"custom:{theme_id}"},
+            {"$unset": {f"ui_prefs.{MD_DOC_THEME_PREF}": ""}},
+        )
 
         return jsonify(
             {

@@ -23,6 +23,17 @@
     const uploadStatus = document.getElementById('uploadStatus');
     const revertBtn = document.getElementById('revertPreviewBtn');
     const preview = document.getElementById('theme-preview-container');
+    // ערכת המסמך (לשונית הייבוא): ערכה שחלה רק על תצוגת ה-Markdown של הקבצים. השמירה ב-/api/ui_prefs
+    // (md_doc_theme + md_doc_theme_scope), והבחירה הנוכחית מגיעה מהשרת ב-data-current / data-scope.
+    const docThemeSection = document.getElementById('mdDocThemeSection');
+    const docThemeSelect = document.getElementById('mdDocThemeSelect');
+    const docThemeScope = document.getElementById('mdDocThemeScope');
+    const docThemeApply = document.getElementById('mdDocThemeApply');
+    const docThemeStatus = document.getElementById('mdDocThemeStatus');
+    const importAsDocTheme = document.getElementById('importAsDocTheme');
+    let docThemeCurrent = docThemeSection ? (docThemeSection.dataset.current || '') : '';
+    // ``custom:<id>`` / ``shared:<slug>`` ← שם הערכה, לשורת המצב.
+    const docThemeNames = new Map();
 
     function showToast(message, type = 'info') {
         try {
@@ -269,6 +280,127 @@
         }
     }
 
+    // === ערכת המסמך ===
+    function renderDocThemeStatus() {
+        if (!docThemeStatus) return;
+        if (!docThemeCurrent) {
+            docThemeStatus.textContent = 'אין ערכת מסמך — המסמך מוצג בערכת הממשק.';
+            return;
+        }
+        const name = docThemeNames.get(docThemeCurrent);
+        // מצביע לערכה שלא ברשימה: היא נמחקה, או ערכה ציבורית שכובתה. המסמך מוצג אז בערכת הממשק.
+        docThemeStatus.textContent = name
+            ? `ערכת המסמך: ${name}`
+            : 'הערכה שנבחרה לתצוגת המסמך כבר לא קיימת — המסמך מוצג בערכת הממשק.';
+    }
+
+    function addDocThemeGroup(label, items) {
+        if (!items.length) return;
+        const group = document.createElement('optgroup');
+        group.label = label;
+        items.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item.token;
+            option.textContent = item.name;
+            group.appendChild(option);
+        });
+        docThemeSelect.appendChild(group);
+    }
+
+    async function loadDocThemeChoices() {
+        if (!docThemeSelect) return;
+        try {
+            const res = await fetch('/api/themes/list', { headers: { 'Accept': 'application/json' } });
+            const data = await res.json();
+            if (!res.ok || !data || !data.ok || !Array.isArray(data.themes)) {
+                throw new Error((data && data.error) || 'themes_list_failed');
+            }
+            const mine = [];
+            const shared = [];
+            docThemeNames.clear();
+            data.themes.forEach(theme => {
+                if (!theme || typeof theme.id !== 'string' || !theme.id) return;
+                if (theme.type !== 'custom' && theme.type !== 'shared') return;
+                const token = `${theme.type}:${theme.id}`.toLowerCase();
+                const name = (typeof theme.name === 'string' && theme.name) ? theme.name : theme.id;
+                docThemeNames.set(token, name);
+                (theme.type === 'custom' ? mine : shared).push({ token, name });
+            });
+            // הקבוצות נבנות מחדש — גם אחרי ייבוא, כשנוספה ערכה. האפשרות "ללא" אינה בקבוצה, ולכן נשארת.
+            docThemeSelect.querySelectorAll('optgroup').forEach(group => group.remove());
+            addDocThemeGroup('הערכות שלי', mine);
+            addDocThemeGroup('ערכות ציבוריות', shared);
+            docThemeSelect.value = docThemeNames.has(docThemeCurrent) ? docThemeCurrent : '';
+        } catch (error) {
+            console.error('Failed to load document theme choices:', error);
+            if (docThemeStatus) docThemeStatus.textContent = 'שגיאה בטעינת רשימת הערכות';
+            return;
+        }
+        renderDocThemeStatus();
+    }
+
+    /**
+     * שומר את ערכת המסמך ומחזיר את מה שהשרת שמר (``custom:<id>`` / ``shared:<slug>`` / ``''``).
+     * זורק בכל כשל — הקורא מציג שגיאה ולא הצלחה.
+     */
+    async function saveDocTheme(token, scope) {
+        const res = await fetch('/api/ui_prefs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ md_doc_theme: token || null, md_doc_theme_scope: scope }),
+        });
+        const data = await res.json().catch(() => null);
+        // ``data.ok`` ולא רק ``res.ok``: האנדפוינט מחזיר גם 200 עם ``ok:false`` בחלק ממסלולי הכשל.
+        if (!res.ok || !data || data.ok !== true) {
+            throw new Error((data && data.error) || 'md_doc_theme_save_failed');
+        }
+        const saved = typeof data.md_doc_theme === 'string' ? data.md_doc_theme : '';
+        docThemeCurrent = saved;
+        return saved;
+    }
+
+    function initDocTheme() {
+        if (!docThemeSection || !docThemeSelect || !docThemeApply) return;
+        if (docThemeScope) {
+            docThemeScope.value = docThemeSection.dataset.scope === 'device' ? 'device' : 'global';
+        }
+        docThemeApply.addEventListener('click', async () => {
+            const token = docThemeSelect.value || '';
+            docThemeApply.disabled = true;
+            try {
+                const saved = await saveDocTheme(token, docThemeScope ? docThemeScope.value : 'global');
+                renderDocThemeStatus();
+                showToast(saved ? 'ערכת המסמך הוחלה' : 'ערכת המסמך כובתה', 'success');
+            } catch (error) {
+                console.error('Save document theme error:', error);
+                showToast('שגיאה בשמירת ערכת המסמך', 'error');
+            } finally {
+                docThemeApply.disabled = false;
+            }
+        });
+        loadDocThemeChoices();
+    }
+
+    /**
+     * אחרי ייבוא מוצלח: אם סומן "רק על תצוגת המסמך" — הערכה החדשה נבחרת כערכת המסמך, ונשארים בלשונית הייבוא כדי
+     * שהמצב ייראה. מחזיר ``true`` כשזה המסלול, ואז הקורא לא עובר ללשונית "הערכות שלי".
+     */
+    async function afterImport(theme) {
+        if (!importAsDocTheme || !importAsDocTheme.checked || !theme || !theme.id) {
+            showToast('הערכה יובאה בהצלחה!', 'success');
+            return false;
+        }
+        try {
+            await saveDocTheme(`custom:${theme.id}`, docThemeScope ? docThemeScope.value : 'global');
+            showToast('הערכה יובאה והוחלה על תצוגת המסמך', 'success');
+        } catch (error) {
+            console.error('Apply imported theme to document error:', error);
+            showToast('הערכה יובאה, אבל לא הוחלה על תצוגת המסמך', 'error');
+        }
+        await loadDocThemeChoices();
+        return true;
+    }
+
     // === Import (Drag & Drop + JSON paste) ===
     function initImport() {
         if (uploadArea && fileInput) {
@@ -323,14 +455,14 @@
             const data = await res.json();
 
             if (data.success) {
-                showToast('הערכה יובאה בהצלחה!', 'success');
+                const appliedToDocument = await afterImport(data.theme);
                 try {
                     if (window.__themeBuilderApi && typeof window.__themeBuilderApi.fetchThemes === 'function') {
                         window.__themeBuilderApi.fetchThemes();
                     }
                 } catch (e) {}
                 const myTab = document.querySelector('[data-tab="my-themes"]');
-                if (myTab) myTab.click();
+                if (myTab && !appliedToDocument) myTab.click();
             } else {
                 showToast(data.error || 'שגיאה בייבוא הערכה', 'error');
             }
@@ -353,14 +485,14 @@
             const data = await res.json();
 
             if (data.success) {
-                showToast('הערכה יובאה בהצלחה!', 'success');
+                const appliedToDocument = await afterImport(data.theme);
                 try {
                     if (window.__themeBuilderApi && typeof window.__themeBuilderApi.fetchThemes === 'function') {
                         window.__themeBuilderApi.fetchThemes();
                     }
                 } catch (e) {}
                 const myTab = document.querySelector('[data-tab="my-themes"]');
-                if (myTab) myTab.click();
+                if (myTab && !appliedToDocument) myTab.click();
                 if (jsonInput) jsonInput.value = '';
             } else {
                 showToast(data.error || 'שגיאה בייבוא הערכה', 'error');
@@ -399,6 +531,7 @@
         initFilters();
         initImport();
         initRevertButton();
+        initDocTheme();
     }
 
     if (document.readyState === 'loading') {
