@@ -44,6 +44,8 @@ NAMES = [
     "docs/מדריך/Guide-RTL.md", "docs/מדריך/קובץ.md", "תיקייה\\Guide-RTL.md", "דוח-RTL.", "דוח-RTL.mdabcdefghi",
     "דוח-RTL.mdabcdefgh", "דוח-RTL.m d", "דוח-RTL.קובץ", "דוח-RTL.7z", "דוח-RTL.md\n", "התקינו את Node.js",
     "_draft.md", "2026-סיכום.md", "", '<b>"x"&מדריך-A.md', "<script>alert(1)</script>.md", "שם'עם'גרש-A.md",
+    # שמות שמתחילים באות לטינית ורובם עברית — הגרסה הראשונה של התיקון (``dir="auto"``) הפכה אותם.
+    "pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md", "Handoff: שרשורי תגובות על פתקים — סשן 2.md", "My README עברית.md",
 ]
 
 #: ``parts``, ``element`` (על DOM מינימלי) והטבלאות של ה-JS — כ-JSON. ``process.argv[1]`` ולא ``[2]``: ב-``node -e``
@@ -71,6 +73,23 @@ process.stdout.write(JSON.stringify({
   trees: names.map((s) => tree(F.element(s, doc))),
   hebrew: F.HEBREW_LETTERS, latin: F.LATIN_LETTERS,
 }));
+"""
+
+#: לכל נקודת קוד, הכיוון של ה-``<bdi>`` של ``"a" + התו`` (שם בלי סיומת, ולכן בלי פירוק): ``r`` ל-``rtl`` ו-``a`` ל-``auto``.
+_DIR_HARNESS = r"""
+const fs = require('fs'), vm = require('vm');
+const sb = { window: {} };
+vm.createContext(sb);
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), sb);
+const F = sb.window.FileName;
+const doc = { createTextNode: (v) => ({ v }), createElement() { return { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; },
+  appendChild() {}, set textContent(_v) {} }; } };
+let out = '';
+for (let c = 0; c <= 0x10FFFF; c++) {
+  if (c >= 0xD800 && c <= 0xDFFF) { out += '-'; continue; }
+  out += F.element('a' + String.fromCodePoint(c), doc).attrs.dir === 'rtl' ? 'r' : 'a';
+}
+process.stdout.write(out);
 """
 
 #: לכל נקודת קוד, שני שמות: ``א`` + התו + ``.md`` (האם התו נחשב אות לטינית אחרי העברית — וגם נקודה ולוכסן), והתו +
@@ -165,6 +184,23 @@ def test_python_and_javascript_agree_on_every_code_point():
 
 
 @needs_node
+def test_python_and_javascript_give_every_code_point_the_same_direction():
+    """``rtl`` לשם שיש בו אות עברית, ``auto`` לשם בלי — לכל נקודת קוד, בשני המימושים."""
+    js = _node(_DIR_HARNESS)
+    py = []
+    for code_point in range(0x110000):
+        if 0xD800 <= code_point <= 0xDFFF:
+            py.append("-")
+            continue
+        py.append("r" if 'dir="rtl"' in str(file_name_html("a" + chr(code_point))) else "a")
+    py_text = "".join(py)
+    diff = [f"U+{i:04X}" for i, (a, b) in enumerate(zip(js, py_text)) if a != b]
+    assert len(js) == len(py_text) == 0x110000
+    assert not diff, f"JS ופייתון נותנים כיוון אחר ל-{len(diff)} תווים: {diff[:20]}"
+    assert py_text.count("r") == sum(end - start + 1 for start, end in HEBREW_LETTERS), "rtl בדיוק לאותיות העבריות"
+
+
+@needs_node
 def test_the_two_tables_are_the_same_numbers():
     js = json.loads(_node(_NAMES_HARNESS, "[]"))
     assert [list(r) for r in HEBREW_LETTERS] == js["hebrew"]
@@ -185,7 +221,9 @@ def test_the_filter_builds_the_same_bdi_as_the_javascript():
     "name, expected",
     [
         ("מדריך-תצוגת-Markdown-RTL.md", '<bdi dir="rtl">מדריך-תצוגת-Markdown-RTL.<bdi>md</bdi></bdi>'),
-        ("ערכות.md", '<bdi dir="auto">ערכות.md</bdi>'),
+        ("ערכות.md", '<bdi dir="rtl">ערכות.md</bdi>'),
+        ("pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md", '<bdi dir="rtl">pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md</bdi>'),
+        ("README.md", '<bdi dir="auto">README.md</bdi>'),
         (None, '<bdi dir="auto"></bdi>'),
         ('<b>"x"&מדריך-A.md', '<bdi dir="rtl">&lt;b&gt;&#34;x&#34;&amp;מדריך-A.<bdi>md</bdi></bdi>'),
         ("<script>alert(1)</script>.md", '<bdi dir="auto">&lt;script&gt;alert(1)&lt;/script&gt;.md</bdi>'),

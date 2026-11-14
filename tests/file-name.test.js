@@ -168,11 +168,49 @@ check('שם שמפורק: <bdi dir="rtl"> עם השם והנקודה, והסיו
   eq(shape(F.element('מדריך-תצוגת-Markdown-RTL.md', doc)), '<bdi dir="rtl">מדריך-תצוגת-Markdown-RTL.<bdi>md</bdi></bdi>');
 });
 
-check('כל שם אחר: <bdi dir="auto"> — ``dir`` כתוב במפורש, ולא נשען על ברירת המחדל של bdi', () => {
+// השמות שהמשתמש מצא הפוכים בגרסה הראשונה של התיקון, עם ``<bdi dir="auto">``: האות החזקה הראשונה בהם לטינית.
+const LATIN_FIRST_HEBREW = ['pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md', 'Handoff: שרשורי תגובות על פתקים — סשן 2.md'];
+
+check('שם אחר שיש בו עברית: <bdi dir="rtl"> — גם כשהוא מתחיל באות לטינית', () => {
   const doc = fakeDocument();
-  eq(shape(F.element('ערכות.md', doc)), '<bdi dir="auto">ערכות.md</bdi>');
+  eq(shape(F.element('ערכות.md', doc)), '<bdi dir="rtl">ערכות.md</bdi>');
+  for (const name of LATIN_FIRST_HEBREW) eq(shape(F.element(name, doc)), `<bdi dir="rtl">${name}</bdi>`, name);
+  eq(shape(F.element('My README עברית.md', doc)), '<bdi dir="rtl">My README עברית.md</bdi>');
+});
+
+check('שם בלי עברית: <bdi dir="auto"> — ``dir`` כתוב במפורש, ולא נשען על ברירת המחדל של bdi', () => {
+  const doc = fakeDocument();
   eq(shape(F.element('_draft.md', doc)), '<bdi dir="auto">_draft.md</bdi>');
+  eq(shape(F.element('morass-Tech-theme.json', doc)), '<bdi dir="auto">morass-Tech-theme.json</bdi>');
   eq(shape(F.element(null, doc)), '<bdi dir="auto"></bdi>');
+});
+
+check('hasHebrew: לפי נקודות קוד, בכל מקום בטקסט', () => {
+  eq(F.hasHebrew('pdf-עברי.md'), true);
+  eq(F.hasHebrew('README.md'), false);
+  eq(F.hasHebrew('\u05be'), false, 'מקף עברי אינו אות');
+  eq(F.hasHebrew(null), false);
+});
+
+// ---------- הכיוון של קוד בשורה ----------
+
+check('codeDir: קוד שנראה כמו שם קובץ עם עברית — rtl', () => {
+  for (const name of [...LATIN_FIRST_HEBREW, 'ערכות.md', 'מדריך-תצוגת-Markdown-RTL.md', 'Report-דוח-Q3.md', 'דוח.tar.gz']) {
+    eq(F.codeDir(name), 'rtl', name);
+  }
+});
+
+check('codeDir: כל קוד אחר — auto (פקודה, קוד בלי סיומת, שם בלי עברית, נתיב)', () => {
+  for (const code of ['git commit -m "הודעה"', 'שלום עולם', '--flag', 'foo()', 'README.md', 'docs/מדריך/קובץ.md',
+    'תיקייה\\קובץ.md', '', null]) {
+    eq(F.codeDir(code), 'auto', String(code));
+  }
+});
+
+check('codeDir: כל שם ש-parts מפרק הוא גם rtl', () => {
+  for (const name of ['מדריך-תצוגת-Markdown-RTL.md', 'Report-דוח-Q3.md', 'תפריט-café.md', 'התקינו את Node.js']) {
+    eq(!!F.parts(name) && F.codeDir(name) === 'rtl', true, name);
+  }
 });
 
 check('הטקסט של ה-<bdi> הוא השם תו בתו — כך העתקה ו-``title`` מהטקסט נשארים נכונים', () => {
@@ -244,6 +282,12 @@ check('rtl-code.js קורא את הפירוק מ-FileName, ולא מחזיק ע�
   const code = doc.createElement('code');
   sb.window.RtlCode.fillInlineCode(code, 'Report-דוח-Q3.md');
   eq(shape(code), '<code dir="rtl">Report-דוח-Q3.<bdi>md</bdi></code>', 'קוד בשורה מפורק דרך FileName.parts');
+  const named = doc.createElement('code');
+  sb.window.RtlCode.fillInlineCode(named, LATIN_FIRST_HEBREW[0]);
+  eq(shape(named), `<code dir="rtl">${LATIN_FIRST_HEBREW[0]}</code>`, 'שם עברי שמתחיל באנגלית — rtl דרך FileName.codeDir');
+  const command = doc.createElement('code');
+  sb.window.RtlCode.fillInlineCode(command, 'git commit -m "הודעה"');
+  eq(shape(command), '<code dir="auto">git commit -m "הודעה"</code>', 'פקודה — auto');
 });
 
 check('rtl-code.js בלי FileName: הקוד מוצג בלי פירוק, ואזהרה אחת בקונסול', () => {

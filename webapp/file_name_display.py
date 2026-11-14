@@ -63,6 +63,11 @@ def _as_text(name: Any) -> str:
     return "" if name is None else str(name)
 
 
+def has_hebrew(name: Any) -> bool:
+    """האם יש בטקסט אות עברית (``HEBREW_LETTERS``) — ``hasHebrew`` ב-``utils/file-name.js``."""
+    return any(_in_ranges(HEBREW_LETTERS, _HEBREW_STARTS, ord(char)) for char in _as_text(name))
+
+
 def file_name_parts(name: Any) -> FileNameParts | None:
     """השם והסיומת של שם קובץ שהדפדפן היה מציג עם הסיומת באמצע, או ``None`` — ``parts`` ב-``utils/file-name.js``."""
     text = _as_text(name)
@@ -91,7 +96,9 @@ def file_name_parts(name: Any) -> FileNameParts | None:
 
 
 def file_name_html(name: Any) -> Markup:
-    """ה-``<bdi>`` של השם, כ-HTML מוכן לתבנית — אותו מבנה ש-``element`` ב-``utils/file-name.js`` בונה.
+    """ה-``<bdi>`` של השם, כ-HTML מוכן לתבנית — אותו מבנה ש-``element`` ב-``utils/file-name.js`` בונה: שם שמפורק —
+    ``dir="rtl"`` והסיומת ב-``<bdi>`` פנימי; שם אחר עם עברית — ``dir="rtl"``; שם בלי עברית — ``dir="auto"``. למה לא
+    ``auto`` לכל שם — בראש הקובץ ההוא.
 
     ``Markup.format`` מקודד כל ערך שהוא מקבל (markupsafe 3.0.3: ``EscapeFormatter(self.escape)``), ולכן שם עם ``<``,
     ``&`` או מרכאות נכנס כטקסט. בין החלקים אין רווח, כדי שהטקסט יישאר השם תו בתו.
@@ -99,7 +106,7 @@ def file_name_html(name: Any) -> Markup:
     text = _as_text(name)
     split = file_name_parts(text)
     if split is None:
-        return Markup('<bdi dir="auto">{}</bdi>').format(text)
+        return Markup('<bdi dir="{}">{}</bdi>').format("rtl" if has_hebrew(text) else "auto", text)
     return Markup('<bdi dir="rtl">{}.<bdi>{}</bdi></bdi>').format(split.stem, split.extension)
 
 

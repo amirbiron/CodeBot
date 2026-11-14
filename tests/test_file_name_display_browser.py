@@ -28,6 +28,7 @@ import pytest
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
+from markupsafe import Markup  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 from _browser_harness import FILE_NAME_SHAPE_JS, copied_to_clipboard  # noqa: E402
@@ -474,3 +475,82 @@ def test_a_file_name_with_quotes_is_shown_whole_in_a_collection_card(admin_live_
     assert data_open == QUOTED_NAME, data_open
     assert text == QUOTED_NAME, text
     assert "onmouseover" not in attrs, attrs
+
+
+# ------------------------------------- שם שמתחיל באות לטינית ורובו עברית: נשאר מימין לשמאל
+
+#: השמות שהמשתמש מצא הפוכים בגרסה הראשונה של התיקון, כשכל שם שלא מפורק קיבל ``<bdi dir="auto">``: ``auto`` בוחר כיוון
+#: לפי האות החזקה הראשונה, וכאן היא לטינית.
+LATIN_FIRST_HEBREW = ["pdf-עברי-ל-markdown-אפיון-גרסה-ראשונה.md", "Handoff: שרשורי תגובות על פתקים — סשן 2.md"]
+
+#: ``(el) => string``: התווים של ``el`` לפי הסדר על המסך, מימין לשמאל.
+VISUAL_ORDER_JS = """(el) => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const out = []; let n;
+  while ((n = w.nextNode())) for (let i = 0; i < n.data.length; i++) { const r = document.createRange();
+    r.setStart(n, i); r.setEnd(n, i + 1); const b = r.getBoundingClientRect(); out.push([b.left, n.data[i]]); }
+  return out.sort((a, b) => b[0] - a[0]).map((x) => x[1]).join(''); }"""
+
+#: הסדר שהשם קיבל עד ה-PR — טקסט רגיל בשורה מימין לשמאל, בלי בידוד — ושהמשתמש רואה כנכון.
+RTL_REFERENCE_JS = """(name) => { const d = document.createElement('div'); d.dir = 'rtl';
+  d.style.cssText = 'position:absolute;top:-2000px;white-space:nowrap'; d.textContent = name; document.body.appendChild(d);
+  const order = (""" + VISUAL_ORDER_JS + """)(d); d.remove(); return order; }"""
+
+#: הפילטר של הגרסה הראשונה של התיקון, לריצת הבקרה: ``dir="auto"`` לכל שם שלא מפורק.
+AUTO_FILTERS = {"file_name": lambda value: Markup('<bdi dir="auto">{}</bdi>').format(value)}
+
+#: ``FileName.element`` / ``fill`` של הגרסה הראשונה של התיקון, לריצת הבקרה ב-JS.
+AUTO_FILL_JS = """window.FileName = Object.freeze(Object.assign({}, window.FileName, {
+  element(name) { const b = document.createElement('bdi'); b.setAttribute('dir', 'auto');
+    b.textContent = name == null ? '' : String(name); return b; },
+  fill(el, name) { el.textContent = ''; el.appendChild(this.element(name)); return el; },
+}));"""
+
+
+def _order_matches_reference(page, selector: str, name: str) -> tuple[str, str]:
+    el = page.locator(selector).first
+    el.wait_for(state="attached")
+    return el.evaluate(VISUAL_ORDER_JS), page.evaluate(RTL_REFERENCE_JS, name)
+
+
+@pytest.mark.parametrize("fixed", [True, False], ids=["fixed", "control"])
+@pytest.mark.parametrize("name", LATIN_FIRST_HEBREW)
+def test_a_hebrew_name_that_starts_in_latin_stays_right_to_left_in_the_files_card(name, fixed, chromium_executable):
+    template_name, start, end, closing = FRAGMENTS["files"]
+    source = (TEMPLATES_DIR / template_name).read_text(encoding="utf-8")
+    begin = source.index(start)
+    file = {**FILE, "file_name": name}
+    body = _render_fragment(source[begin:source.index(end, begin) + len(end)] + closing,
+                            filters=None if fixed else AUTO_FILTERS, file=file, files=[file], files_compact_view=False,
+                            lang_icon=_lang_icon, LANG_ICON_SIZES={"file_row": 48})
+    with _browser(chromium_executable) as browser:
+        page = _open(browser, {"/files": _rtl_page(body, _content_styles(template_name))}, "/files")
+        shown, reference = _order_matches_reference(page, ".file-name-text", name)
+    if fixed:
+        assert shown == reference, f"{shown!r} != {reference!r}"
+    else:
+        assert shown != reference, "בקרה: עם dir=\"auto\" השם מתהפך — אחרת המדידה אינה מבחינה"
+
+
+@pytest.mark.parametrize("fixed", [True, False], ids=["fixed", "control"])
+def test_a_hebrew_name_that_starts_in_latin_stays_right_to_left_in_a_search_card(fixed, chromium_executable):
+    """הכרטיס הוא ``direction: ltr`` — ושם, עם ``dir="rtl"``, השם נראה בדיוק כמו בשורה מימין לשמאל."""
+    base = SEARCH_API["/api/search/global"]
+    api = {"/api/search/global": dict(base, total_results=len(LATIN_FIRST_HEBREW), results=[
+        dict(base["results"][0], file_id=f"f{i}", file_name=name) for i, name in enumerate(LATIN_FIRST_HEBREW)])}
+    page_html = _search_page(control=False)
+    if not fixed:
+        page_html = page_html.replace('<script src="/static/js/global_search.js"',
+                                      f'<script>{AUTO_FILL_JS}</script><script src="/static/js/global_search.js"')
+    with _browser(chromium_executable) as browser:
+        page = _open(browser, {"/search": page_html}, "/search", api=api)
+        page.evaluate("() => window.performGlobalSearch()")
+        page.locator(".search-result-card .file-name").nth(len(LATIN_FIRST_HEBREW) - 1).wait_for(state="attached")
+        results = []
+        for i, name in enumerate(LATIN_FIRST_HEBREW):
+            el = page.locator(".search-result-card .file-name").nth(i)
+            results.append((el.evaluate(VISUAL_ORDER_JS), page.evaluate(RTL_REFERENCE_JS, name)))
+        assert not page.js_errors, page.js_errors
+    for shown, reference in results:
+        if fixed:
+            assert shown == reference, f"{shown!r} != {reference!r}"
+        else:
+            assert shown != reference, "בקרה: עם dir=\"auto\" השם מתהפך"
