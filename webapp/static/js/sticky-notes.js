@@ -714,6 +714,43 @@
     return String(text == null ? '' : text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   }
 
+  let draftStorageWarned = false;
+  /**
+   * ``localStorage`` של הטיוטות, או ``null`` כשאין. **גם הקריאה של ``localStorage`` עצמו בתוך ``try``:** כשהאחסון
+   * חסום, ה-getter של ``window.localStorage`` זורק (HTML Standard, "SecurityError"), ו-``typeof`` אינו מגן — הוא
+   * מגן רק על שם שאינו קיים. זריקה כאן הייתה עוצרת את השמירה בהסתרת הלשונית כולה, גם של פתקים אחרים
+   * (``_setupLifecycleGuards``). האזהרה נרשמת פעם אחת, כי זה מצב קבוע של הדפדפן ולא כשל רגעי.
+   */
+  function draftStorage(){
+    try {
+      if (typeof localStorage === 'undefined' || !localStorage) return null;
+      return localStorage;
+    } catch (err) {
+      if (!draftStorageWarned) {
+        draftStorageWarned = true;
+        console.warn('sticky note: browser storage is not available — drafts waiting for a decision are not kept', err);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * מזהה אקראי לטיוטה — ``crypto.randomUUID`` או ``crypto.getRandomValues``, ובלעדיהם ``Math.random``. **לא חותמת
+   * זמן:** שתי לשוניות יכולות ליצור טיוטה באותה אלפית שנייה, ומזהה מבוסס-זמן היה נותן לשתיהן אותו מפתח — בדיוק
+   * השיתוף שהמזהה נועד למנוע (``_writeHeldDraft``).
+   */
+  function randomDraftId(){
+    try {
+      if (typeof crypto !== 'undefined' && crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+      if (typeof crypto !== 'undefined' && crypto && typeof crypto.getRandomValues === 'function') {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (_) { /* בלי crypto זמין — ``Math.random`` מתחת; מספיק למזהה שאינו סוד */ }
+    return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  }
+
   /** מספר לתצוגה עם מפריד אלפים ("4,000"), כמו בעיצוב. */
   function formatCount(n){ return Number(n).toLocaleString('he-IL'); }
 
@@ -895,6 +932,9 @@
   // **לא בקאש של הפתקים:** הוא מחזיק בכוונה רק את מה שהשרת שמר (``_afterRemoteApplied``), נכתב מחדש בכל טעינה,
   // והמפתח שלו הוא של המשטח — בזמן שהמפתח כאן הוא של הפתק, כי אותו פתק יכול להיות מוצג במשטח אחר. שבוע —
   // מעבר לזה הבסיס שהטקסט נשען עליו ישן מכדי שהשוואה אליו תגיד משהו, והטיוטה נזרקת עם אזהרה בקונסול.
+  // **לכל טיוטה מפתח משלה** — ``<קידומת><מזהה פתק>:<מזהה טיוטה>`` (``_writeHeldDraft``), ולא מפתח אחד לפתק: אותו
+  // פתק יכול להיות פתוח בכמה לשוניות, ולשונית שבה הוא נקי הייתה מוחקת את הטיוטה של הלשונית שבה הוקלד. המפתח בלי
+  // מזהה טיוטה הוא הצורה הקודמת, ונקרא עדיין (``_findHeldDraft``).
   const HELD_DRAFT_KEY_PREFIX = 'sticky-notes:held-draft:';
   const HELD_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   // כמה פעמים ``_flushFor`` ממתין לשמירה שבאוויר לפני שהוא שולח את מה שבתור. בכל פעם הוא ממתין לבקשה
@@ -1311,7 +1351,7 @@
         // המסך למקרה שעריכה הגיעה ממסלול אחר. בטאבלט סגירת לשונית אינה מציגה את שאלת ``beforeunload``, ולכן
         // זו ההגנה היחידה שם.
         for (const entry of this.notes.values()) {
-          if (entry && entry.remote) this._syncHeldDraft(entry);
+          if (entry && (entry.remote || entry.draftAwaitingServer)) this._syncHeldDraft(entry);
         }
         try {
           this._flushPendingKeepalive();
@@ -1911,7 +1951,7 @@
         if (!entry || !entry.el || entry.serverGone || !isSavedNoteId(id)) continue;
         const dirty = this._dirtyFields(entry);
         if (!dirty.content && !dirty.title) continue;
-        this._writeHeldDraft(id, entry);
+        this._writeHeldDraft(entry);
       }
     }
 
@@ -1929,15 +1969,24 @@
     _syncHeldDraft(entry){
       if (!entry || !entry.el) return;
       const id = String(entry.el.dataset.noteId || '');
-      if (!isSavedNoteId(id) || !entry.remote) return;
+      if (!isSavedNoteId(id) || !(entry.remote || entry.draftAwaitingServer)) return;
       const dirty = this._dirtyFields(entry);
-      if ((dirty.content || dirty.title) && !entry.serverGone) this._writeHeldDraft(id, entry);
-      else this._removeHeldDraft(id);
+      if ((dirty.content || dirty.title) && !entry.serverGone) this._writeHeldDraft(entry);
+      else this._removeHeldDraft(entry);
     }
 
-    /** הטיוטה של הפתק: מה שבמסך, הבסיס שהוא נשען עליו (גוף, שם ואסימון), ומתי. ראו ``_takeHeldDraft`` למבנה. */
-    _writeHeldDraft(id, entry){
-      if (typeof localStorage === 'undefined' || !localStorage) return;
+    /**
+     * הטיוטה של הפתק: מה שבמסך, הבסיס שהוא נשען עליו (גוף, שם ואסימון), ומתי. ראו ``_findHeldDraft`` למבנה.
+     *
+     * **תחת המפתח של הרשומה הזו** (``entry.draftKey``) — נוצר בכתיבה הראשונה, או נלקח מטיוטה ששוחזרה. כל לשונית
+     * כותבת ומוחקת רק את המפתח שלה: בלעדי זה לשונית שבה הפתק נקי (התראה בלי שינוי מקומי, או טקסט שחזר לבסיס) מחקה
+     * את הטיוטה של לשונית אחרת שבה הוקלד — וטיוטה שנמחקה בזמן שהלשונית ההיא נהרגה ברקע אבדה.
+     */
+    _writeHeldDraft(entry){
+      const storage = draftStorage();
+      if (!storage || !entry || !entry.el) return;
+      const id = String(entry.el.dataset.noteId || '');
+      if (!entry.draftKey) entry.draftKey = `${HELD_DRAFT_KEY_PREFIX}${id}:${randomDraftId()}`;
       const base = this._noteBase(entry);
       const local = this._localFields(entry);
       const titleInput = entry.el.querySelector('.sticky-note-title');
@@ -1948,60 +1997,74 @@
         local: { content: local.content, title: titleInput ? String(titleInput.value == null ? '' : titleInput.value) : local.title },
       };
       try {
-        localStorage.setItem(HELD_DRAFT_KEY_PREFIX + id, JSON.stringify(draft));
+        storage.setItem(entry.draftKey, JSON.stringify(draft));
       } catch(err) {
-        // אחסון חסום או מלא — הטיוטה לא נשמרה, ומה שהוקלד אובד אם העמוד ייסגר. נרשם, כי זה בדיוק מה שהמנגנון
-        // נועד למנוע.
+        // אחסון מלא — הטיוטה לא נשמרה, ומה שהוקלד אובד אם העמוד ייסגר. נרשם, כי זה בדיוק מה שהמנגנון נועד למנוע.
         console.error('sticky note: could not keep the draft that was waiting for a decision', id, err);
       }
     }
 
-    /** הבחירה נעשתה (או שאין מה לאבד) — הטיוטה יוצאת מהמאגר, ולא תוצג שוב בטעינה הבאה. */
-    _removeHeldDraft(id){
-      if (typeof localStorage === 'undefined' || !localStorage) return;
+    /** הבחירה נעשתה (או שאין מה לאבד) — הטיוטה **של הרשומה הזו** יוצאת מהמאגר, ולא תוצג שוב בטעינה הבאה. */
+    _removeHeldDraft(entry){
+      if (!entry || !entry.draftKey) return;
+      const key = entry.draftKey;
+      entry.draftKey = null;
+      const storage = draftStorage();
+      if (!storage) return;
       try {
-        localStorage.removeItem(HELD_DRAFT_KEY_PREFIX + String(id));
+        storage.removeItem(key);
       } catch(err) {
         // בלי מחיקה הטיוטה תוצג שוב בטעינה הבאה, ותעבור את הפיוס — לא אובדן, אבל שאלה מיותרת. נרשם.
-        console.warn('sticky note: removing a draft after the decision failed — it may be shown again', id, err);
+        console.warn('sticky note: removing a draft after the decision failed — it may be shown again', key, err);
       }
     }
 
     /**
-     * הטיוטה של הפתק, אם יש — נקראת **ונמחקת** (פעם אחת: מנהל שני לא יציג אותה שוב). ``null`` כשאין,
-     * כשהיא ישנה מ-``HELD_DRAFT_MAX_AGE_MS``, או כשהמבנה שלה אינו מה שנכתב (אחסון של הדפדפן הוא קלט
-     * חיצוני — U3).
+     * **הטיוטה האחרונה של הפתק**, אם יש — ``{key, draft}``, או ``null``. נקראת ולא נמחקת: הרשומה ששחזרה אותה לוקחת
+     * את המפתח שלה (``entry.draftKey``), והמחיקה תבוא עם הבחירה. כמה לשוניות יכולות להשאיר כמה טיוטות לאותו פתק:
+     * החדשה ביותר מוצגת, והאחרות מחכות לטעינה הבאה — כל אחת היא טקסט שהמשתמש כתב ושאינו בשרת. טיוטה שהמבנה שלה
+     * אינו מה שנכתב (אחסון של הדפדפן הוא קלט חיצוני — U3), או שישנה מ-``HELD_DRAFT_MAX_AGE_MS``, נמחקת.
      */
-    _takeHeldDraft(id){
-      // בלי ``localStorage`` בכלל (סביבה שאין בה אחסון) — אין טיוטות. היעדר יכולת, לא כשל.
-      if (typeof localStorage === 'undefined' || !localStorage) return null;
-      const key = HELD_DRAFT_KEY_PREFIX + id;
-      let raw = null;
-      try { raw = localStorage.getItem(key); } catch(err) {
-        console.warn('sticky note: reading a kept draft failed', id, err);
+    _findHeldDraft(id){
+      const storage = draftStorage();
+      if (!storage) return null;
+      const exact = HELD_DRAFT_KEY_PREFIX + id;
+      const keys = [];
+      try {
+        for (let i = 0; i < storage.length; i++) {
+          const key = storage.key(i);
+          if (typeof key === 'string' && (key === exact || key.startsWith(exact + ':'))) keys.push(key);
+        }
+      } catch(err) {
+        console.warn('sticky note: listing kept drafts failed', id, err);
         return null;
       }
-      if (raw === null || raw === undefined) return null;
-      try { localStorage.removeItem(key); } catch(err) {
-        console.warn('sticky note: removing a kept draft failed — it may be shown again', id, err);
-      }
-      let draft = null;
-      try { draft = JSON.parse(raw); } catch(_) { draft = null; }
       const isText = (v) => typeof v === 'string';
-      const ok = !!draft && typeof draft === 'object' && !Array.isArray(draft) && draft.v === 1
-        && Number.isFinite(draft.ts)
-        && !!draft.base && typeof draft.base === 'object' && isText(draft.base.content) && isText(draft.base.title)
-        && (draft.base.updated_at === null || isText(draft.base.updated_at))
-        && !!draft.local && typeof draft.local === 'object' && isText(draft.local.content) && isText(draft.local.title);
-      if (!ok) {
-        console.warn('sticky note: a kept draft has an unexpected shape and was dropped', id);
-        return null;
+      let best = null;
+      for (const key of keys) {
+        let raw = null;
+        try { raw = storage.getItem(key); } catch(err) {
+          console.warn('sticky note: reading a kept draft failed', key, err);
+          continue;
+        }
+        if (raw === null || raw === undefined) continue;
+        let draft = null;
+        try { draft = JSON.parse(raw); } catch(_) { draft = null; }
+        const ok = !!draft && typeof draft === 'object' && !Array.isArray(draft) && draft.v === 1
+          && Number.isFinite(draft.ts)
+          && !!draft.base && typeof draft.base === 'object' && isText(draft.base.content) && isText(draft.base.title)
+          && (draft.base.updated_at === null || isText(draft.base.updated_at))
+          && !!draft.local && typeof draft.local === 'object' && isText(draft.local.content) && isText(draft.local.title);
+        const stale = ok && Date.now() - draft.ts > HELD_DRAFT_MAX_AGE_MS;
+        if (!ok || stale) {
+          console.warn(ok ? 'sticky note: a kept draft is too old to compare and was dropped'
+                          : 'sticky note: a kept draft has an unexpected shape and was dropped', key);
+          try { storage.removeItem(key); } catch(_) { /* תידחה שוב בטעינה הבאה — לא נשמרת ולא מוצגת */ }
+          continue;
+        }
+        if (!best || draft.ts > best.draft.ts) best = { key, draft };
       }
-      if (Date.now() - draft.ts > HELD_DRAFT_MAX_AGE_MS) {
-        console.warn('sticky note: a kept draft is too old to compare and was dropped', id);
-        return null;
-      }
-      return draft;
+      return best;
     }
 
     /**
@@ -2009,16 +2072,18 @@
      * שהשרת מחזיק אותו עכשיו עובר את הפיוס מול הבסיס הזה — כמו בכל מקור אחר (``_reconcileServerNote``):
      * השתנה מאז — ההתראה חוזרת; לא השתנה — אין על מה להחליט, והטיוטה נשמרת כרגיל, עם האסימון של הבסיס.
      *
-     * **רק מול מה שהשרת מחזיק עכשיו, לא מול הקאש.** הקאש ישן מהשרת בהגדרה — עדכון שהעלה את ההתראה לא נכנס אליו
-     * (``_afterRemoteApplied`` כותב רק מה שהוחל) — ופיוס מולו היה מחליט "אין על מה להחליט" ושולח את הטיוטה, רק
-     * כדי שתידחה ב-409. בטעינה מהקאש הטיוטה נשארת במאגר, והרשימה מהשרת בונה את הפתק מחדש (הוא עוד לא נגעו בו)
-     * ומשחזרת אותה מולה.
+     * **בשני שלבים, וההחלטה רק מול מה שהשרת מחזיק עכשיו — לא מול הקאש.** הקאש ישן מהשרת בהגדרה (העדכון שהעלה את
+     * ההתראה לא נכנס אליו), ופיוס מולו היה מציג בחירה על גרסה ישנה, או שולח את הטיוטה רק כדי שתידחה ב-409. לכן
+     * בטעינה מהקאש הטיוטה **מוצגת** מיד — הטקסט שלך, ולא הגרסה מהקאש — אבל ההחלטה ממתינה (``draftAwaitingServer``):
+     * השמירות של הפתק מוחזקות (``_isSaveHeld``), והקריאה הטרייה הראשונה מהשרת — הרשימה, או הדגימה — עוברת את הפיוס
+     * ומסיימת את השחזור (``_reconcileServerNote``). עד נובמבר 2026 הטיוטה לא שוחזרה בכלל בטעינה מהקאש, ופתק שנגעו
+     * בו לפני שהרשימה הגיעה נערך על הגרסה מהקאש — והכתיבה הבאה של הטיוטה דרסה את הטקסט שחיכה.
      */
     _restoreHeldDraft(entry, note){
       if (!entry || !entry.el || !note || !isSavedNoteId(String(note.id))) return;
-      if (this._renderingFromCache) return;
-      const draft = this._takeHeldDraft(String(note.id));
-      if (!draft) return;
+      const found = this._findHeldDraft(String(note.id));
+      if (!found) return;
+      const draft = found.draft;
       // **עותק של מה שהשרת החזיר, לפני שהרשומה משתנה.** ``_renderNote`` שומר את ``note`` עצמו כ-``entry.data``,
       // ולכן כתיבה של הטיוטה לרשומה הייתה כותבת גם לתוך התשובה של השרת — והפיוס היה רואה "שרת" שמחזיק את
       // הטקסט המקומי ואת האסימון הישן. ההתראה הייתה נשמרת על הגרסה המזויפת, ו"התעלם" היה מיישר את הבסיס
@@ -2049,13 +2114,34 @@
       // בדיוק את מה שבמסך, ואין על מה להחליט: הטיוטה נרשמת כשמירה שלנו שעוד לא אושרה (``_rememberUnconfirmed``),
       // והפיוס מיישר אליה את הבסיס במקום להציג "יש עדכון חדש" על הטקסט של המשתמש עצמו.
       entry.unconfirmed = [{ content: draft.local.content, title: canonicalTitleText(draft.local.title) }];
-      const outcome = this._reconcileServerNote(server, 'poll');
-      if (outcome === 'notified' || outcome === 'deferred') return;
+      // הרשומה לוקחת את המפתח של הטיוטה: כתיבות ממשיכות אותה, והבחירה מוחקת אותה.
+      entry.draftKey = found.key;
+      entry.draftAwaitingServer = true;
+      if (this._renderingFromCache) return;
+      this._reconcileServerNote(server, 'poll');
+    }
+
+    /**
+     * **סוף השחזור** — הקריאה הטרייה הראשונה מהשרת עברה את הפיוס מול הבסיס של הטיוטה. נפתחה התראה — הטיוטה נשארת
+     * (``_showRemoteNotice`` כתב אותה שוב); לא נפתחה — אין על מה להחליט: מה שבמסך, כולל מה שהוקלד בזמן ההמתנה,
+     * נשלח כרגיל עם האסימון של הבסיס, והטיוטה יוצאת מהמאגר.
+     */
+    _afterDraftRestored(entry, outcome){
+      if (outcome === 'notified') return;
+      const el = entry.el;
       const dirty = this._dirtyFields(entry);
+      const local = this._localFields(entry);
+      const titleInput = el.querySelector('.sticky-note-title');
       const fragment = {};
-      if (dirty.content) fragment.content = draft.local.content;
-      if (dirty.title) fragment.title = draft.local.title;
-      if (Object.keys(fragment).length) this._queueSave(el, fragment);
+      if (dirty.content) fragment.content = local.content;
+      if (dirty.title) fragment.title = titleInput ? String(titleInput.value == null ? '' : titleInput.value) : local.title;
+      this._removeHeldDraft(entry);
+      if (Object.keys(fragment).length) {
+        this._queueSave(el, fragment);
+      } else if (this._pending.has(String(el.dataset.noteId))) {
+        this._saveDebounced();
+        this._ensureBackgroundAutoFlush();
+      }
     }
 
     /**
@@ -7604,7 +7690,8 @@
       /** האם השמירות של הפתק מוחזקות — עדכון מהשרת מחכה להחלטה, או שבודקים עכשיו 409. */
       _isSaveHeld(id){
         const entry = this.notes.get(String(id));
-        return !!(entry && (entry.remote || entry.resolving));
+        // ``draftAwaitingServer`` — טיוטה ששוחזרה מהקאש ועוד לא נבדקה מול השרת (``_restoreHeldDraft``).
+        return !!(entry && (entry.remote || entry.resolving || entry.draftAwaitingServer));
       }
 
       /** האם יש לפתק שמירה בתור או באוויר — כלומר המקומי חדש יותר ממה שהשרת יודע. */
@@ -7802,6 +7889,17 @@
         // לחיצה באמצע — התצוגה שתחת האצבע היא זו שההיסט של הלחיצה מחושב מולה.
         if (this._deferWhilePressed(entry, server, source, seq)) return 'deferred';
         if (hasSeq) entry.readSeq = seq;
+        // טיוטה ששוחזרה מהקאש וחיכתה לשרת — הקריאה הזו מסיימת את השחזור (``_restoreHeldDraft``).
+        const finishingDraft = !!entry.draftAwaitingServer;
+        entry.draftAwaitingServer = false;
+        const outcome = this._reconcileFields(entry, server, source);
+        if (finishingDraft) this._afterDraftRestored(entry, outcome);
+        return outcome;
+      }
+
+      /** הפיוס עצמו, שדה-שדה — ראו ``_reconcileServerNote``. */
+      _reconcileFields(entry, server, source){
+        const id = server.id;
         const base = this._noteBase(entry);
         this._applyRemoteColor(entry, server.color);
         const token = typeof server.updated_at === 'string' && server.updated_at ? server.updated_at : null;
@@ -7976,7 +8074,7 @@
         // הבחירה שחיכתה כאן נעשתה (או שכבר אין על מה להחליט) — הטיוטה יוצאת מהמאגר, ולא תוצג שוב בטעינה הבאה.
         // רק כשבאמת חיכתה בחירה בפתק הזה: עדכון שהוחל על פתק נקי בלשונית אחרת אינו נוגע בטיוטה של הלשונית
         // שבה המשתמש הקליד.
-        if (hadDecision && isSavedNoteId(String(el.dataset.noteId))) this._removeHeldDraft(String(el.dataset.noteId));
+        if (hadDecision) this._removeHeldDraft(entry);
         // השמירות שהוחזקו ממשיכות — עכשיו עם האסימון שהתיישר.
         const id = String(el.dataset.noteId);
         if (this._pending.has(id)) {
@@ -8073,7 +8171,9 @@
         const id = el && el.dataset ? String(el.dataset.noteId || '') : '';
         const entry = this._getEntry(el);
         if (!entry || !isSavedNoteId(id) || entry.refreshing) return;
-        if (this._hasUnsentEdits(id) || this._isSaveHeld(id)) return;
+        // טיוטה ששוחזרה מהקאש ומחכה לשרת — הרענון הוא קריאה טרייה, והוא מסיים את השחזור (כמו הדגימה). בלעדיה, מה
+        // שבתור או מוחזק חדש יותר ממה שהשרת יודע, ואין מה להחליף.
+        if (!entry.draftAwaitingServer && (this._hasUnsentEdits(id) || this._isSaveHeld(id))) return;
         entry.refreshing = (async () => {
           try {
             const res = await this._fetchServerNote(id);
@@ -8168,6 +8268,8 @@
           if (!row) { missing.push(id); continue; }
           overlap += 1;
           // שמירה בתור או באוויר, או הכרעה שבדרך: המקומי חדש יותר, וה-409 יכריע אם צריך.
+          // טיוטה שמחכה לשרת — נמשכת תמיד: הקריאה הטרייה היא מה שמסיים את השחזור, גם כשיש עריכה בתור.
+          if (entry.draftAwaitingServer) { toFetch.push(id); continue; }
           if (this._hasUnsentEdits(id) || this._isSaveHeld(id)) continue;
           const base = this._noteBase(entry);
           if (row.updated_at !== base.updated_at) { toFetch.push(id); continue; }
@@ -8199,6 +8301,18 @@
         if (entry && typeof res.seq === 'number' && (entry.readSeq || 0) > res.seq) return;
         const gone = (res.status === 404) || (res.ok && !this._noteBelongsHere(res.note));
         if (gone) {
+          // טיוטה שחיכתה לשרת (``_restoreHeldDraft``) — גם פתק שעזב מסיים את השחזור, אחרת השמירות שלו היו
+          // מוחזקות לתמיד והדגימה הייתה מושכת אותו בכל סבב. עזב למשטח אחר — הפיוס מול הנתונים שלו מכריע; נמחק
+          // — אין לשמירה לאן להגיע, והטיוטה יוצאת מהמאגר.
+          if (entry && entry.draftAwaitingServer) {
+            if (res.ok) {
+              this._reconcileServerNote(res.note, 'poll', res.seq);
+            } else {
+              entry.draftAwaitingServer = false;
+              this._markServerGone(id);
+              this._removeHeldDraft(entry);
+            }
+          }
           if (entry) this._removeIfGone(entry);
           return;
         }
@@ -8848,7 +8962,7 @@
       this._syncEntryFromFragment(id, pending);
       // עריכה בזמן שבחירה ממתינה — השמירה לשרת מוחזקת, והטיוטה בדפדפן מתעדכנת (``_syncHeldDraft``).
       const heldEntry = this.notes.get(String(id));
-      if (heldEntry && heldEntry.remote) this._syncHeldDraft(heldEntry);
+      if (heldEntry && (heldEntry.remote || heldEntry.draftAwaitingServer)) this._syncHeldDraft(heldEntry);
       // advance per-note pending version to avoid dropping newer edits after batch
       try {
         const nextSeq = (this._pendingSeq.get(id) || 0) + 1;
