@@ -6290,19 +6290,37 @@ check('פיוס: תשובה של קריאה שיצאה לפני מה שהפתק 
 check('סגירת לשונית: פתק שנבדק בו 409 עם שינוי בתור מבקש אישור, גם בלי התראה פתוחה', () => {
   // בזמן ההכרעה של 409 (``entry.resolving``) המטען בתור והפתק מוחזק — השמירה בסגירה מדלגת עליו. בלי
   // התראה (``entry.remote``) הבדיקה הקודמת דילגה על הפתק, והשינוי נעלם בסגירה בלי שאלה.
-  const n = liveNote('lv10', 'ישן', 'T0');
+  // מנהל משלה: ``_hasHeldLocalEdits`` עובר על כל הפתקים, ובדיקות אסינכרוניות אחרות משאירות ב-``fileMgr`` פתקים
+  // עם שמירה באוויר בזמן שזו רצה.
+  const mgr = new StickyNotesManager('lv10-file');
+  const n = registerNote(mgr, 'lv10', 'ישן');
+  n.el.dataset.updatedAt = 'T0';
+  n.entry.base = { content: 'ישן', title: '', updated_at: 'T0' };
+  n.entry.unconfirmed = [];
   try {
     n.ta.value = 'ישן + שלי';
-    fileMgr._pending.set('lv10', { content: 'ישן + שלי' });
+    mgr._pending.set('lv10', { content: 'ישן + שלי' });
     n.entry.resolving = true;
-    eq(fileMgr._hasHeldLocalEdits(), true, 'יש מה לאבד');
+    eq(mgr._hasHeldLocalEdits(), true, 'יש מה לאבד');
     // גם מטען בלי שדה עריכה — הזזה — נעלם בסגירה כשהפתק מוחזק.
     n.ta.value = 'ישן';
-    fileMgr._pending.set('lv10', { position: { x: 1, y: 2 } });
-    eq(fileMgr._hasHeldLocalEdits(), true, 'הזזה שבתור');
+    mgr._pending.set('lv10', { position: { x: 1, y: 2 } });
+    eq(mgr._hasHeldLocalEdits(), true, 'הזזה שבתור');
     n.entry.resolving = false;
-    eq(fileMgr._hasHeldLocalEdits(), false, 'פתק שאינו מוחזק נשלח בסגירה — אין סיבה לשאול');
-  } finally { n.entry.resolving = false; cleanupLive('lv10'); }
+    eq(mgr._hasHeldLocalEdits(), false, 'פתק שאינו מוחזק נשלח בסגירה — אין סיבה לשאול');
+    // ומטען שמחכה מאחורי שמירה שבאוויר — שמירה אחת בכל רגע, והתשובה לא תגיע לעמוד שנסגר.
+    mgr._inFlight.set('lv10', { data: {}, promise: new Promise(() => {}) });
+    eq(mgr._hasHeldLocalEdits(), true, 'מטען מאחורי שמירה שבאוויר');
+    mgr._pending.delete('lv10');
+    eq(mgr._hasHeldLocalEdits(), false, 'שמירה באוויר בלי מטען אחריה — היא keepalive, אין מה לאבד');
+  } finally {
+    n.entry.resolving = false;
+    mgr._pending.clear();
+    mgr._inFlight.clear();
+    mgr.notes.clear();
+    if (mgr._saveDebounced && mgr._saveDebounced.cancel) mgr._saveDebounced.cancel();
+    if (mgr._autoFlushTimer) { clearInterval(mgr._autoFlushTimer); mgr._autoFlushTimer = null; }
+  }
 });
 
 check('ההתראה מבטיחה ↶ רק לטקסט — שם שהשתנה אינו חוזר בביטול', () => {

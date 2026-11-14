@@ -703,6 +703,17 @@
    */
   function codePointLength(text){ return [...String(text == null ? '' : text)].length; }
 
+  /**
+   * טקסט כמו שתיבת טקסט מחזירה אותו מ-``value``: ``\r\n`` ו-``\r`` בודד הופכים ל-``\n``. זה ה-"API value"
+   * של ``textarea`` ב-HTML Standard (normalize newlines), ונמדד בכרומיום: ``'a\r\nb\rc'`` חוזר כ-``'a\nb\nc'``.
+   * **ההשוואה בין מה שבתיבה למה שבשרת עוברת כאן**, כי השרת שומר את הגוף כמו שנשלח — וסוכן ב-MCP יכול לכתוב
+   * ``\r\n``. בלי זה פתק כזה נראה "משונה מהבסיס" מהרגע שנטען: עדכון ממקום אחר היה מעלה עליו התראה במקום
+   * להתחלף, וסגירה או העברה לארכיון היו נעצרות על שינוי שהמשתמש לא עשה.
+   */
+  function asTextareaValue(text){
+    return String(text == null ? '' : text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  }
+
   /** מספר לתצוגה עם מפריד אלפים ("4,000"), כמו בעיצוב. */
   function formatCount(n){ return Number(n).toLocaleString('he-IL'); }
 
@@ -1881,12 +1892,16 @@
     // **הכרעת המשתמש:** התחיל לשנות פתק בדפדפן הריפו, הגיע עדכון ממקום אחר והופיעה ההתראה, ובלי לבחור עבר
     // לקובץ אחר — "לשמור ולהציג שוב". את המעבר אי אפשר לעצור (הקובץ החדש כבר נטען כשהמנהל מתפרק), ובלי
     // זה מה שהוקלד היה נעלם: ``_flushAll`` מדלג על פתק מוחזק, כי שליחה שלו הייתה דורסת את העדכון.
+    // **ולא רק כשההתראה כבר פתוחה:** הפירוק מסמן את המנהל כמת לפני ``_flushAll``, ולכן שמירה שקיבלה בו 409
+    // אינה מגיעה לפיוס (``_resolveSaveConflict`` עוצר על מנהל מת) — ההתראה לא נפתחת, והמטען נשאר רק במסך.
+    // ושמירה שנכשלה או נדחתה בפירוק משאירה את הטקסט רק במסך באותה מידה. לכן הכלל הוא "כל טקסט שהשרת לא
+    // אישר" (``_hasUnsavedLocalEdits``), וכשהפתק יוצג שוב הפיוס יכריע אם יש על מה להחליט.
     // הטיוטה היא שלושה דברים: מה שהוקלד, הבסיס שהוא נשען עליו (גוף, שם ואסימון), ומתי.
 
-    /** כותב לדפדפן כל פתק שההתראה פתוחה בו ושיש בו שינוי מקומי — לפני ``_clearAllNotes`` של ``destroy``. */
+    /** כותב לדפדפן כל פתק שבמסך שלו טקסט שהשרת לא אישר — לפני ``_clearAllNotes`` של ``destroy``. */
     _persistHeldDrafts(){
       for (const [id, entry] of this.notes.entries()) {
-        if (!entry || !entry.el || !entry.remote || !isSavedNoteId(id)) continue;
+        if (!entry || !entry.el || entry.serverGone || !isSavedNoteId(id)) continue;
         const dirty = this._dirtyFields(entry);
         if (!dirty.content && !dirty.title) continue;
         const base = this._noteBase(entry);
@@ -1980,6 +1995,10 @@
       this._resetUndoToServer(el, draft.local.content);
       this._checkContentLength(el, draft.local.content);
       this._syncTaskView(el);
+      // **הטקסט של הטיוטה אולי כבר בשרת** — שמירה שיצאה בפירוק, שהתשובה עליה לא הגיעה למנהל שמת. אז השרת מחזיק
+      // בדיוק את מה שבמסך, ואין על מה להחליט: הטיוטה נרשמת כשמירה שלנו שעוד לא אושרה (``_rememberUnconfirmed``),
+      // והפיוס מיישר אליה את הבסיס במקום להציג "יש עדכון חדש" על הטקסט של המשתמש עצמו.
+      entry.unconfirmed = [{ content: draft.local.content, title: canonicalTitleText(draft.local.title) }];
       const outcome = this._reconcileServerNote(server, 'poll');
       if (outcome === 'notified' || outcome === 'deferred') return;
       const dirty = this._dirtyFields(entry);
@@ -3224,7 +3243,7 @@
       const cur = this._openOverlay;
       const entry = cur ? this.notes.get(cur.id) : null;
       if (!entry || !entry.el) { this._openOverlay = null; return true; }
-      if (this._isSaveHeld(cur.id) || this._hasUnsentEdits(cur.id)) {
+      if (this._isSaveHeld(cur.id) || this._hasUnsavedLocalEdits(cur.id)) {
         this._explainCannotLeave(this._isSaveHeld(cur.id) ? 'held' : 'unsaved', 'לפתוח פתק אחר');
         return false;
       }
@@ -7450,7 +7469,28 @@
       _dirtyFields(entry){
         const base = this._noteBase(entry);
         const local = this._localFields(entry);
-        return { content: local.content !== base.content, title: local.title !== base.title };
+        // שורות חדשות כמו בתיבה — ראו ``asTextareaValue``.
+        return { content: asTextareaValue(local.content) !== asTextareaValue(base.content), title: local.title !== base.title };
+      }
+
+      /**
+       * **האם יש בפתק שינוי שהשרת לא מחזיק** — שמירה בתור או באוויר, או טקסט במסך ששונה ממה שהשרת אישר.
+       * החלק השני הוא שמירה שנדחתה: דחייה סופית (400, שם תפוס) מוציאה את המטען מהתור, והטקסט נשאר רק במסך —
+       * בלי שמירה בתור, אבל גם לא בשרת. פתק שהשרת אמר שאינו קיים (``entry.serverGone``) — לשמירה אין לאן
+       * להגיע, וזה לא נחשב.
+       */
+      _hasUnsavedLocalEdits(id){
+        if (this._hasUnsentEdits(id)) return true;
+        const entry = this.notes.get(String(id));
+        if (!entry || !entry.el || entry.serverGone) return false;
+        const dirty = this._dirtyFields(entry);
+        return dirty.content || dirty.title;
+      }
+
+      /** השרת ענה שהפתק אינו קיים (404 על שמירה או על הקריאה שאחרי 409) — ראו ``_hasUnsavedLocalEdits``. */
+      _markServerGone(id){
+        const entry = this.notes.get(String(id));
+        if (entry) entry.serverGone = true;
       }
 
       /**
@@ -7939,16 +7979,26 @@
       }
 
       /**
-       * האם יש פתק מוחזק (``_isSaveHeld``: עדכון שמחכה להחלטה, **או 409 שנבדק עכשיו**) עם שינוי מקומי —
-       * סגירה עכשיו הייתה מאבדת אותו, כי השמירה בסגירה מדלגת על פתק מוחזק. שינוי מקומי הוא שדה עריכה ששונה
-       * מהבסיס, או כל מטען בתור (גם הזזה או צבע, שאינם שדות עריכה).
+       * **האם סגירה עכשיו הייתה מאבדת שינוי** — השמירה בסגירה (``_flushPendingKeepalive``) אינה שולחת אותו:
+       *
+       * - פתק מוחזק (``_isSaveHeld``: עדכון שמחכה להחלטה, **או 409 שנבדק עכשיו**) עם שינוי מקומי — שדה עריכה
+       *   ששונה מהבסיס, או כל מטען בתור (גם הזזה או צבע, שאינם שדות עריכה);
+       * - פתק שיש לו מטען בתור **מאחורי שמירה שבאוויר** — שמירה אחת בכל רגע לכל פתק, ולכן המטען מחכה לתשובה
+       *   שהעמוד הנסגר לא יקבל. השאלה של הדפדפן משאירה את העמוד חי, והתשובה מגיעה בזמן שהיא פתוחה.
+       *
+       * פתק שהשמירה שלו יצאה בסגירה עצמה אינו כאן: היא ``keepalive``, וממשיכה גם אחרי שהעמוד נסגר.
        */
       _hasHeldLocalEdits(){
         for (const [id, entry] of this.notes.entries()) {
-          if (!entry || !this._isSaveHeld(id)) continue;
-          if (this._pending.has(String(id))) return true;
-          const dirty = this._dirtyFields(entry);
-          if (dirty.content || dirty.title) return true;
+          if (!entry) continue;
+          const key = String(id);
+          if (this._isSaveHeld(key)) {
+            if (this._pending.has(key)) return true;
+            const dirty = this._dirtyFields(entry);
+            if (dirty.content || dirty.title) return true;
+          } else if (this._pending.has(key) && this._inFlight.has(key)) {
+            return true;
+          }
         }
         return false;
       }
@@ -8903,6 +8953,7 @@
       if (res.status === 404) {
         // הפתק נמחק בשרת. מה שבתור לא יישמר לעולם — הסימון הגלוי של כשל השמירה אומר את זה.
         this._markSaveFailed(key);
+        this._markServerGone(key);
         this._pending.delete(key);
         return false;
       }
@@ -8991,6 +9042,7 @@
               this._restorePending(id, original);
             } else {
               this._forgetUnconfirmed(id, snap);
+              if (Number(resp.status) === 404) this._markServerGone(id);
               if ((this._pendingSeq.get(String(id)) || 0) === (seqAtSend || 0)) {
                 // כשל סופי לא ינוסה שוב — אבל רק אם לא הוקלד משהו חדש בינתיים. מחיקה עיוורת כאן
                 // מוחקת בדיוק את מה שהמשתמש כתב.
@@ -9105,6 +9157,7 @@
                     // הסימון הגלוי — אבל רק אם לא הוקלד משהו חדש בינתיים,
                     // בדיוק כמו במסלול ההצלחה.
                     if (snap) this._forgetUnconfirmed(id, snap.sent);
+                    if (Number(result.status) === 404) this._markServerGone(id);
                     if (snap && currentSeq === snap.seq) {
                       this._pending.delete(id);
                     }
@@ -9172,7 +9225,9 @@
       if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
         this._stopBackgroundAutoFlush();
       }
-      return !this._hasUnsentEdits(id) && !this._isSaveHeld(id);
+      // "סגור" = השרת מחזיק את מה שבמסך. לא רק "אין מה לשלוח": שמירה שנדחתה כבר אינה בתור, והטקסט שלה עדיין
+      // לא בשרת (``_hasUnsavedLocalEdits``).
+      return !this._hasUnsavedLocalEdits(id) && !this._isSaveHeld(id);
     }
 
     /**
@@ -9196,7 +9251,7 @@
         }
       }
       if (this._isSaveHeld(id)) return 'held';
-      return this._hasUnsentEdits(id) ? 'unsaved' : 'ok';
+      return this._hasUnsavedLocalEdits(id) ? 'unsaved' : 'ok';
     }
 
     /** למה הפתק נשאר במסך — הודעה למשתמש, בעברית. ``action``: מה הוא ניסה לעשות. */
