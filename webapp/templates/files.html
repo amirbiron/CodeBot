@@ -439,7 +439,7 @@
                 <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; min-width:0;">
                     {% if not files_compact_view %}{{ lang_icon(file.language, LANG_ICON_SIZES.file_row) }}{% endif %}
                     <div style="min-width:0;">
-                        <h3 class="file-name-text" title="{{ file.file_name }}" style="margin: 0; font-size: 1.25rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; word-break:break-word; max-width:100%;">{{ file.file_name }}</h3>
+                        <h3 class="file-name-text" title="{{ file.file_name }}" style="margin: 0; font-size: 1.25rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; word-break:break-word; max-width:100%;">{{ file.file_name|file_name }}</h3>
                         <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
                             <span class="lang-badge" data-lang="{{ file.language|lower }}">{{ file.language }}</span>
                             {% if not files_compact_view %}

@@ -43,9 +43,9 @@ function loadWindow(...files) {
   return sandbox.window;
 }
 
-// **עם ``utils/rtl-code.js`` באותו ``window``, כמו בכל תבנית שטוענת את התוסף** (בדיקת החיווט למטה): משם התוסף קורא את
+// **עם ``utils/file-name.js`` באותו ``window``, כמו בכל עמוד שטוען את התוסף** (בדיקת החיווט למטה): משם התוסף קורא את
 // הפירוק של שם קובץ עברי. ``bareAutoDirPlugin`` — בלעדיו, לבקרה.
-const autoDirPlugin = loadWindow('utils/rtl-code.js', 'md-auto-dir-plugin.js').MdAutoDirPlugin;
+const autoDirPlugin = loadWindow('utils/file-name.js', 'md-auto-dir-plugin.js').MdAutoDirPlugin;
 const bareAutoDirPlugin = loadWindow('md-auto-dir-plugin.js').MdAutoDirPlugin;
 const sourceLines = loadWindow('md-source-lines-plugin.js').MdSourceLines;
 
@@ -123,7 +123,7 @@ console.log('שם קובץ עברי בקוד בשורה: dir="rtl" והסיומ�
     one('`מדריך-תצוגת-Markdown-RTL.md`'));
   check('Report-דוח-Q3.md — מפורק, גם כשהשם מתחיל באנגלית',
     one('`Report-דוח-Q3.md`') === '<code dir="rtl">Report-דוח-Q3.<bdi>md</bdi></code>', one('`Report-דוח-Q3.md`'));
-  // ההחלטה מתי מפרקים נבדקת לעומק ב-``tests/rtl-code-file-names.test.js``; כאן — שהתוסף שואל אותה, ושהוא לא מפרק סתם.
+  // ההחלטה מתי מפרקים נבדקת לעומק ב-``tests/file-name.test.js``; כאן — שהתוסף שואל אותה, ושהוא לא מפרק סתם.
   for (const keep of ['ערכות.md', 'morass-Tech-theme.json', 'דוח.tar.gz', 'docs/מדריך/Guide-RTL.md', '--flag']) {
     check(`${keep} — נשאר dir="auto" ובלי <bdi>`, one('`' + keep + '`') === `<code dir="auto">${keep}</code>`, one('`' + keep + '`'));
   }
@@ -254,38 +254,52 @@ console.log('חיווט: כל תבנית שמארחת רנדרר טוענת את
     missing.length === 0, missing);
 }
 
-console.log('חיווט: כל תבנית שטוענת את התוסף טוענת גם את utils/rtl-code.js, לפני שמרנדרים');
+console.log('חיווט: כל עמוד שטוען את התוסף מקבל את utils/file-name.js לפניו');
 {
-  // התוסף קורא את הפירוק של שם קובץ עברי מ-``window.RtlCode`` בזמן הרינדור. בלעדיו שם כזה מוצג עם הסיומת באמצע, ורק
-  // אזהרה בקונסול אומרת למה. "לפני שמרנדרים" — לפני התג של ``live-preview.js`` או ``repo-browser.js``, ולפני יצירה
-  // של markdown-it בסקריפט של התבנית עצמה. **ומיקום הוא סדר רק בין תגים באותו מצב ``defer``:** תג דחוי רץ אחרי כל
-  // סקריפט שאינו דחוי, גם אם הוא כתוב לפניו — ולכן ``rtl-code.js`` דחוי דורש שגם הצרכן יהיה דחוי.
-  const templates = walk(path.join(ROOT, 'webapp', 'templates'), (name) => name.endsWith('.html'));
+  // התוסף קורא את הפירוק של שם קובץ עברי מ-``window.FileName`` בזמן הרינדור. בלעדיו שם כזה מוצג עם הסיומת באמצע, ורק
+  // אזהרה בקונסול אומרת למה. ``base.html`` טוען אותו ב-``<head>``, בלי ``defer`` — לפני כל בלוק של עמוד, ולכן לפני כל
+  // סקריפט, דחוי או לא. כל תבנית שטוענת את התוסף יורשת מ-``base.html``, חוץ מה-partial ``_live_preview_scripts.html``:
+  // כל מי שכולל אותו יורש מ-``base.html``, או טוען את ``file-name.js`` בעצמו לפני ה-include (עמוד הייצוא המעוצב).
+  const templatesDir = path.join(ROOT, 'webapp', 'templates');
+  const templates = walk(templatesDir, (name) => name.endsWith('.html'));
+  const read = (file) => fs.readFileSync(file, 'utf8');
+  const tagRe = (attrs) => new RegExp(`<script src="\\{\\{ url_for\\('static', filename='js/utils/file-name\\.js'\\) \\}\\}\\?v=\\{\\{ static_version \\}\\}"${attrs}></script>`);
+
+  const base = read(path.join(templatesDir, 'base.html'));
+  const headEnd = base.indexOf('</head>');
+  const baseTag = tagRe('').exec(base);
+  check('base.html טוען את file-name.js עם ?v=, בלי defer, בתוך <head>', !!baseTag && baseTag.index < headEnd,
+    baseTag ? baseTag.index : 'לא נמצא');
+
+  // יורש מ-``base.html``, ישירות או דרך תבנית ביניים (``base_boards.html``, ``repo/base_repo.html``).
+  const extendsBase = (file, seen = new Set()) => {
+    const m = /\{%\s*extends\s+"([^"]+)"\s*%\}/.exec(read(file));
+    if (!m) return false;
+    if (m[1] === 'base.html') return true;
+    const parent = path.join(templatesDir, m[1]);
+    return !seen.has(parent) && fs.existsSync(parent) && extendsBase(parent, new Set([...seen, parent]));
+  };
   const hosts = [];
   const problems = [];
   for (const file of templates) {
-    const src = fs.readFileSync(file, 'utf8');
+    const src = read(file);
     if (src.search(/<script[^>]*js\/md-auto-dir-plugin\.js/) < 0) continue;
     const rel = path.relative(ROOT, file);
     hosts.push(rel);
-    const rtlMatch = /<script[^>]*js\/utils\/rtl-code\.js'\) \}\}\?v=\{\{ static_version \}\}[^>]*>/.exec(src);
-    if (!rtlMatch) { problems.push(`${rel}: לא טוען את rtl-code.js עם ?v=`); continue; }
-    const rtlDeferred = /\bdefer\b/.test(rtlMatch[0]);
-    const consumers = [
-      ...[...src.matchAll(/<script[^>]*js\/(?:live-preview|repo-browser)\.js[^>]*>/g)]
-        .map((m) => ({ at: m.index, deferred: /\bdefer\b/.test(m[0]), what: m[0].match(/js\/[\w-]+\.js/)[0] })),
-      ...[...src.matchAll(/\bwindow\.markdownit\s*[?(]/g)].map((m) => ({ at: m.index, deferred: false, what: 'window.markdownit' })),
-    ];
-    if (!consumers.length) problems.push(`${rel}: לא נמצא מי שמרנדר`);
-    for (const c of consumers) {
-      if (c.at < rtlMatch.index) problems.push(`${rel}: ${c.what} לפני rtl-code.js`);
-      if (rtlDeferred && !c.deferred) problems.push(`${rel}: rtl-code.js דחוי, ו-${c.what} לא`);
+    if (extendsBase(file)) continue;
+    if (path.basename(file) !== '_live_preview_scripts.html') { problems.push(`${rel}: אינו יורש מ-base.html`); continue; }
+    for (const includer of templates) {
+      const isrc = read(includer);
+      const inc = isrc.search(/\{%\s*include\s+"_live_preview_scripts\.html"\s*%\}/);
+      if (inc < 0 || extendsBase(includer)) continue;
+      const own = tagRe(' defer').exec(isrc) || tagRe('').exec(isrc);
+      if (!own || own.index > inc) problems.push(`${path.relative(ROOT, includer)}: כולל את ${rel} בלי file-name.js לפניו`);
     }
   }
   const known = ['_live_preview_scripts.html', 'files.html', 'md_preview.html', path.join('repo', 'base_repo.html')]
     .map((name) => path.join('webapp', 'templates', name));
   check('הסריקה מצאה את התבניות הידועות', known.every((rel) => hosts.includes(rel)), hosts);
-  check('בכולן rtl-code.js נטען עם ?v= לפני מי שמרנדר, ובמצב defer תואם', problems.length === 0, problems);
+  check('בכולן file-name.js נטען לפני התוסף', problems.length === 0, problems);
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +316,7 @@ console.log('בקרה — בלי התוסף');
   check('תאים בלי dir', cells.length === 9 && cells.every((tag) => !/\sdir=/.test(tag)), cells);
 }
 
-console.log('בקרה — התוסף בלי utils/rtl-code.js: שם קובץ עברי אינו מפורק, וכל השאר כמו תמיד');
+console.log('בקרה — התוסף בלי utils/file-name.js: שם קובץ עברי אינו מפורק, וכל השאר כמו תמיד');
 {
   const md = pageMd().use(bareAutoDirPlugin);
   const out = md.renderInline('`מדריך-תצוגת-Markdown-RTL.md` ו-`foo()`');

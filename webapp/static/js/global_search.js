@@ -657,6 +657,13 @@
     } else {
       const cardsHtml = data.results.map(renderCard).join('');
       results.innerHTML = '<div class="results-container"><div class="global-search-results stagger-feed" role="list">' + cardsHtml + '</div></div>';
+      // השם נכנס אחרי השלד, דרך ``FileName.fill`` (``utils/file-name.js``) — לא כמחרוזת ב-``innerHTML``. כך שם עברי
+      // שנגמר בחלק לטיני מוצג עם הסיומת בקצה השמאלי, וכל שם מבודד מהכרטיס, שהוא ``direction: ltr``
+      // (``global_search.css``) — בלי הבידוד גם ``ערכות.md`` יצא שם עם הסיומת מימין. כרטיס אחד לכל תוצאה, באותו סדר.
+      const nameLinks = results.querySelectorAll('.search-result-card .file-name');
+      data.results.forEach(function (r, i) {
+        if (nameLinks[i]) window.FileName.fill(nameLinks[i], r.file_name || '');
+      });
     }
 
     renderPagination(pagination, data);
@@ -678,9 +685,8 @@
         '<div class="result-card-header">' +
           '<div class="file-info">' +
             '<span class="file-icon" aria-hidden="true">' + icon + '</span>' +
-            '<a href="/file/' + r.file_id + '" target="_blank" class="file-name" title="' + escapeHtml(r.file_name || '') + '">' +
-              escapeHtml(r.file_name || '') +
-            '</a>' +
+            // השם עצמו נכנס אחרי ה-``innerHTML``, ב-``displayResults``.
+            '<a href="/file/' + r.file_id + '" target="_blank" class="file-name" title="' + escapeHtml(r.file_name || '') + '"></a>' +
           '</div>' +
           badgeHtml +
         '</div>' +
@@ -762,7 +768,9 @@
       // Bootstrap, ולכן list-group-item לא עיצב כאן דבר וההצעות נדבקו זו לזו.
       a.className = 'search-suggestion';
       a.setAttribute('role', 'option');
-      a.textContent = String(s || '');
+      // הצעה יכולה להיות שם קובץ (``search_engine.py``, ``get_user_filenames``) — ``FileName.fill`` מציג אותו עם הסיומת
+      // בקצה השמאלי, וכל הצעה אחרת מבודדת בכיוון שלה. הטקסט עצמו לא משתנה.
+      window.FileName.fill(a, String(s || ''));
       a.addEventListener('click', function(e){
         e.preventDefault();
         input.value = String(s || '');
@@ -805,7 +813,12 @@
   // 2 ג'יגה הוצג כ-"2048 MB".
   function humanSize(bytes){ return window.SizeFormat.formatFileSize(bytes); }
   function formatDate(s){ try{ const d=new Date(s); return d.toLocaleString('he-IL'); }catch(e){ return ''; } }
-  function escapeHtml(t){ const d=document.createElement('div'); d.textContent=String(t||''); return d.innerHTML; }
+  // מקודד גם מרכאות: הפונקציה בונה גם ערכי מאפיינים — ``title`` של שם הקובץ בכרטיס, ``href`` ו-``data-command-copy`` —
+  // ושם קובץ עם ``"`` היה יוצא מהמאפיין, וכל מה שאחריו היה נקרא כמאפיינים חדשים. בטקסט — אותה תצוגה.
+  function escapeHtml(t){
+    return String(t||'').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
 
   async function ensureCommandCatalog(){
     if (shortcutCatalog) return shortcutCatalog;

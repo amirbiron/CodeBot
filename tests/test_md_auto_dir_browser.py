@@ -263,4 +263,5 @@ def test_a_hebrew_file_name_with_a_latin_part_shows_the_extension_at_the_left_en
     assert state["isolated"] == sorted(["מדריך-תצוגת-Markdown-RTL.md", "Report-דוח-Q3.md"]), state["isolated"]
     assert state["clipboard"] == {"guide": "מדריך-תצוגת-Markdown-RTL.md", "report": "Report-דוח-Q3.md"}, \
         f"Ctrl+C וקריאה מהלוח מחזירים את השם כמו שנכתב: {state['clipboard']}"
-    assert not [line for line in console if "utils/rtl-code.js לא נטען" in line], console
+    # האזהרות שהתוסף ו-``rtl-code.js`` רושמים כש-``window.FileName`` חסר (``utils/file-name.js`` לא נטען).
+    assert not [line for line in console if "file-name.js לא נטען" in line or "window.FileName חסר" in line], console

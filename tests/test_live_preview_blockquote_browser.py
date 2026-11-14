@@ -150,16 +150,20 @@ def _served_url_for(endpoint: str, filename: str) -> str:
     return "/" + filename
 
 
-def _render_fragment(fragment: str, **context) -> str:
+def _render_fragment(fragment: str, *, filters: dict | None = None, **context) -> str:
     """מרנדר קטע מתבנית של עמוד ב-Jinja, כמו השרת: ``{% include %}`` נפתר מתיקיית התבניות.
 
     ``StrictUndefined`` בכוונה: משתנה שהבדיקה לא סיפקה נכשל בקול, ולא מתרנדר כמחרוזת ריקה
-    שנראית כמו עמוד תקין.
+    שנראית כמו עמוד תקין. ``filters`` מחליף את הפילטרים של האפליקציה — לריצת בקרה.
     """
     from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
+    from webapp.file_name_display import TEMPLATE_FILTERS
+
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True, undefined=StrictUndefined)
     env.globals["url_for"] = _served_url_for
+    # הפילטרים של האפליקציה שהתבניות משתמשות בהם (``file_name``), מאותו מקום שהאפליקציה רושמת אותם.
+    env.filters.update(TEMPLATE_FILTERS if filters is None else filters)
     return env.from_string(fragment).render(static_version="test", **context)
 
 

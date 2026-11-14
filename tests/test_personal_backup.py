@@ -606,6 +606,9 @@ class TestRestore:
         assert "is_admin" not in set_doc
         assert "role" not in set_doc
         assert "attention_settings.evil_extra" not in set_doc
+        # ``stale_days`` ו-``show_stale_files`` הוסרו עם הקבוצה "לא עודכן זמן רב" — גם מגיבוי ישן הם לא משוחזרים.
+        assert "attention_settings.stale_days" not in set_doc
+        assert "attention_settings.show_stale_files" not in set_doc
         assert set_doc.get("attention_settings.enabled") is True
 
     def test_restore_overwrite_does_not_toggle_metadata_when_zip_file_missing(self, backup_service, mock_db):

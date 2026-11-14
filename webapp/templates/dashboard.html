@@ -3,6 +3,16 @@
 {% block title %}דשבורד - CodeKeeper{% endblock %}
 
 {% block content %}
+{#- הכותרת של אירוע בציר הזמן. באירוע קובץ (``meta.file_name``, מ-``_build_file_timeline_event``) השם נבנה בפילטר
+    ``file_name``, כדי ששם עברי שנגמר בחלק לטיני יוצג עם הסיומת בקצה השמאלי; הטקסט שווה ל-``event.title``. "טען עוד"
+    בונה את אותה כותרת ב-JS (``createTimelineItem``). #}
+{% macro timeline_title(event) -%}
+{%- if event.meta and event.meta.file_name -%}
+{{ event.meta.action }} {{ event.meta.file_name|file_name }}
+{%- else -%}
+{{ event.title }}
+{%- endif -%}
+{%- endmacro %}
 <h1 class="page-title">דשבורד</h1>
 
 <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 3rem;">
@@ -126,7 +136,7 @@
                 <div class="pinned-card__icon">{{ lang_icon(file.language, LANG_ICON_SIZES.file_row) }}</div>
                 <div class="pinned-card__content">
                     <a class="pinned-card__name" href="/file/{{ file.id }}" title="{{ file.file_name }}">
-                        {{ file.file_name }}
+                        {{ file.file_name|file_name }}
                     </a>
                     <div class="pinned-card__meta">
                         <span class="lang-badge" data-lang="{{ file.language|lower }}">{{ file.language }}</span>
@@ -351,7 +361,7 @@
                                 <div class="timeline-item-header">
                                     <div class="timeline-icon">{{ event.icon }}</div>
                                     <div class="timeline-texts">
-                                        <div class="timeline-title">{{ event.title }}</div>
+                                        <div class="timeline-title">{{ timeline_title(event) }}</div>
                                         <div class="timeline-subtitle">{{ event.subtitle }}</div>
                                     </div>
                                     <div class="timeline-time">{{ event.relative_time }}</div>
@@ -395,7 +405,7 @@
                                     <div class="timeline-item-header">
                                         <div class="timeline-icon">{{ event.icon }}</div>
                                         <div class="timeline-texts">
-                                            <div class="timeline-title">{{ event.title }}</div>
+                                            <div class="timeline-title">{{ timeline_title(event) }}</div>
                                             <div class="timeline-subtitle">{{ event.subtitle }}</div>
                                         </div>
                                         <div class="timeline-time">{{ event.relative_time }}</div>
@@ -494,7 +504,8 @@
                     {# ``note.url`` הוא הקישור הקבוע ``/note/<id>``, שפותח את הפתק במקום שלו — לוח, קובץ, ריפו או ארכיון. בלשונית חדשה, כדי שהדשבורד יישאר פתוח. #}
                     <a class="note-title" href="{{ note.url }}" target="_blank" rel="noopener">{{ note.title }}</a>
                     <div class="note-meta">
-                        {{ note.location }}
+                        {# פתק על קובץ: השם כ-``<bdi>`` (הפילטר ``file_name``). כל מיקום אחר — לוח, ריפו, ארכיון — טקסט. #}
+                        {% if note.location_kind == 'file' %}{{ note.location|file_name }}{% else %}{{ note.location }}{% endif %}
                         <span>·</span>
                         <span>{{ note.relative_time }}</span>
                     </div>
@@ -514,13 +525,12 @@
                     <i class="fas fa-exclamation-triangle"></i>
                     קבצים שדורשים טיפול
                 </h2>
-                {# ``None`` פירושו שהספירה נכשלה, לא שאין קבצים. סכום על None
-                   היה זורק, והצגת 0 הייתה משקרת — לכן מקף. #}
+                {# ``None`` פירושו שהספירה נכשלה, לא שאין קבצים. הצגת 0 הייתה משקרת — לכן מקף. #}
                 <span class="badge badge-warning" data-attention-total-badge>
-                    {% if files_need_attention.total_missing is none or files_need_attention.total_stale is none %}
+                    {% if files_need_attention.total_missing is none %}
                     <span title="הספירה לא זמינה כרגע">—</span>
                     {% else %}
-                    {{ files_need_attention.total_missing + files_need_attention.total_stale }}
+                    {{ files_need_attention.total_missing }}
                     {% endif %}
                 </span>
             </header>
@@ -541,7 +551,7 @@
                         <div class="attention-item__info">
                             <span class="attention-item__icon">{{ lang_icon(file.language, LANG_ICON_SIZES.list) }}</span>
                             <div class="attention-item__details">
-                                <a href="/file/{{ file.id }}" class="attention-item__name">{{ file.file_name }}</a>
+                                <a href="/file/{{ file.id }}" class="attention-item__name">{{ file.file_name|file_name }}</a>
                                 <span class="attention-item__reason">{{ file.reason_text }}</span>
                             </div>
                         </div>
@@ -575,63 +585,6 @@
                 {% endif %}
             </section>
             {% endif %}
-
-            {# --- קבוצה 2: לא עודכן זמן רב --- #}
-            {% if files_need_attention.stale_files %}
-            <section class="attention-group" data-group="stale">
-                <h3 class="attention-group__title">
-                    <span class="attention-group__icon">⏰</span>
-                    לא עודכן זמן רב
-                    <span class="attention-group__count" data-group-count="stale">
-                        ({{ files_need_attention.shown_stale }}{% if files_need_attention.total_stale is not none and files_need_attention.total_stale > files_need_attention.shown_stale %}/{{ files_need_attention.total_stale }}{% endif %})
-                    </span>
-                </h3>
-                <ul class="attention-list" data-attention-list="stale">
-                    {% for file in files_need_attention.stale_files %}
-                    <li class="attention-item" data-file-id="{{ file.id }}">
-                        <div class="attention-item__info">
-                            <span class="attention-item__icon">{{ lang_icon(file.language, LANG_ICON_SIZES.list) }}</span>
-                            <div class="attention-item__details">
-                                <a href="/file/{{ file.id }}" class="attention-item__name">{{ file.file_name }}</a>
-                                <span class="attention-item__reason">{{ file.reason_text }}</span>
-                            </div>
-                        </div>
-                        <div class="attention-item__actions">
-                            <a href="/edit/{{ file.id }}" 
-                               class="btn btn-sm btn-icon"
-                               title="פתח לעריכה">
-                                <i class="fas fa-external-link-alt"></i>
-                            </a>
-                            <button type="button"
-                                    class="btn btn-sm btn-icon attention-dismiss"
-                                    data-action="dismiss"
-                                    data-file-id="{{ file.id }}"
-                                    title="טפל מאוחר יותר">
-                                <i class="fas fa-clock"></i>
-                            </button>
-                        </div>
-                    </li>
-                    {% endfor %}
-                </ul>
-                {% if files_need_attention.total_stale is not none and files_need_attention.total_stale > files_need_attention.shown_stale %}
-                <p class="attention-more">
-                    ועוד {{ files_need_attention.total_stale - files_need_attention.shown_stale }} קבצים נוספים...
-                    <a href="/files?filter=stale&days={{ files_need_attention.settings.stale_days }}" class="attention-more-link">הצג הכל</a>
-                </p>
-                {% endif %}
-            </section>
-            {% endif %}
-
-            {# --- הגדרות --- #}
-            <footer class="attention-footer">
-                <span class="attention-footer-hint">
-                    ⚙️ קובץ נחשב "ישן" אחרי {{ files_need_attention.settings.stale_days }} ימים
-                </span>
-                <a href="/settings#attention" class="attention-settings-link">
-                    <i class="fas fa-cog"></i>
-                    הגדרות
-                </a>
-            </footer>
         </article>
         {% endif %}
         <article class="activity-card languages-card glass-card widget-languages widget-languages--activity">
@@ -2222,37 +2175,6 @@
     margin-right: 0.5rem;
 }
 
-.attention-footer {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-}
-
-.attention-footer-hint {
-    font-size: 0.8rem;
-    opacity: 0.6;
-}
-
-.attention-settings-link {
-    font-size: 0.85rem;
-    color: inherit;
-    opacity: 0.7;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-}
-
-.attention-settings-link:hover {
-    opacity: 1;
-    color: #fbbf24;
-}
-
 /* Quick Edit Modal */
 .attention-modal {
     position: fixed;
@@ -2394,7 +2316,6 @@
 }
 
 ::root[data-theme="rose-pine-dawn"] .attention-item__name:hover,
-::root[data-theme="rose-pine-dawn"] .attention-settings-link:hover,
 ::root[data-theme="rose-pine-dawn"] .attention-more-link {
     color: #ea9d34;
 }
@@ -2769,7 +2690,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const title = document.createElement('div');
         title.className = 'timeline-title';
-        title.textContent = String(event.title || '');
+        // אירוע קובץ: הפעולה כטקסט, והשם כ-``<bdi>`` (``FileName.element``) — כמו ``timeline_title`` בראש התבנית.
+        const meta = (event.meta && typeof event.meta === 'object') ? event.meta : null;
+        if (meta && meta.file_name && window.FileName) {
+            title.textContent = String(meta.action || '') + ' ';
+            title.appendChild(window.FileName.element(meta.file_name));
+        } else {
+            title.textContent = String(event.title || '');
+        }
 
         const subtitle = document.createElement('div');
         subtitle.className = 'timeline-subtitle';
@@ -2905,7 +2833,7 @@ document.addEventListener('DOMContentLoaded', () => {
             originalTags = currentTags;
 
             quickEditForm.querySelector('[data-field="file_id"]').value = fileId;
-            quickEditForm.querySelector('[data-field="file_name_display"]').textContent = fileName;
+            window.FileName.fill(quickEditForm.querySelector('[data-field="file_name_display"]'), fileName);
             quickEditForm.querySelector('#quickEditDescription').value = currentDesc;
             quickEditForm.querySelector('#quickEditTags').value = currentTags;
 

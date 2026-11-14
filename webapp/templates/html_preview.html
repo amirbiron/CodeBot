@@ -44,7 +44,7 @@
         <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
             <span style="font-size: 3rem;">🌐</span>
             <div>
-                <h1 style="margin: 0;">תצוגת דפדפן: <span class="file-name-text">{{ file.file_name }}</span></h1>
+                <h1 style="margin: 0;">תצוגת דפדפן: <span class="file-name-text">{{ file.file_name|file_name }}</span></h1>
                 <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
                     <span class="lang-badge" data-lang="{{ file.language|lower }}">{{ file.language }}</span>
                 </div>

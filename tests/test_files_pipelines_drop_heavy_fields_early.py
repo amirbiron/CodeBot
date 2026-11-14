@@ -276,12 +276,24 @@ def test_files_page_never_sorts_or_groups_full_documents(recorder, url, label):
 def test_files_need_attention_never_sorts_or_groups_full_documents(recorder):
     """הווידג'ט בדשבורד, דרך הפונקציה שהראוט קורא לה."""
     webapp_app._build_files_need_attention(
-        _StubDB(recorder), 123, max_items=10, stale_days=60, dismissed_ids=[]
+        _StubDB(recorder), 123, max_items=10, dismissed_ids=[]
     )
 
     assert recorder.pipelines, "לא הורץ שום aggregate — הטסט לא בדק כלום"
     for index, pipeline in enumerate(recorder.pipelines):
         assert_heavy_fields_drop_early(pipeline, f"files_need_attention · צינור {index}")
+
+
+def test_files_need_attention_runs_only_the_missing_metadata_group(recorder):
+    """הקבוצה "לא עודכן זמן רב" הוסרה (נובמבר 2026), ואיתה הספירה והשליפה שלה בכל טעינה של הדשבורד: נשארו שני
+    צינורות — ספירה ושליפה של "חסר תיאור או תגיות" — ואין בתשובה מפתחות של הקבוצה שהוסרה."""
+    result = webapp_app._build_files_need_attention(
+        _StubDB(recorder), 123, max_items=10, dismissed_ids=[]
+    )
+
+    assert len(recorder.pipelines) == 2, f"צפויים שני צינורות (ספירה ושליפה), הורצו {len(recorder.pipelines)}"
+    assert not {"stale_files", "total_stale", "shown_stale"} & set(result), sorted(result)
+    assert "stale_days" not in result["settings"], result["settings"]
 
 
 # ------------------------------------------ אפס אינו "לא ידוע"
@@ -311,11 +323,10 @@ def test_a_failed_count_is_unknown_and_not_zero(monkeypatch):
     monkeypatch.setattr(webapp_app, "cache", _CacheDisabled(), raising=True)
 
     result = webapp_app._build_files_need_attention(
-        _StubDB(collection), 123, max_items=10, stale_days=60, dismissed_ids=[]
+        _StubDB(collection), 123, max_items=10, dismissed_ids=[]
     )
 
     assert result["total_missing"] is None, "ספירה שנכשלה הוצגה כאפס"
-    assert result["total_stale"] is None, "ספירה שנכשלה הוצגה כאפס"
 
 
 def test_the_dashboard_renders_a_dash_instead_of_a_wrong_number():
@@ -326,7 +337,8 @@ def test_the_dashboard_renders_a_dash_instead_of_a_wrong_number():
     והוא יישאר ירוק גם אם התבנית תשתנה. לכן הבלוק נחתך מהקובץ ומורץ כמו
     שהוא.
 
-    ב-Jinja החישוב הוא Python, ולכן ``None + None`` זורק ``TypeError``.
+    עד נובמבר 2026 התג סכם שתי קבוצות, וסכום על ``None`` זורק ב-Jinja ``TypeError``. מאז שהקבוצה "לא עודכן
+    זמן רב" הוסרה התג מציג את הקבוצה היחידה, והשאלה נשארה: ספירה שנכשלה מוצגת כמקף, ולא כמספר.
     """
     import re
     from pathlib import Path
@@ -345,18 +357,17 @@ def test_the_dashboard_renders_a_dash_instead_of_a_wrong_number():
 
     class _Unknown:
         total_missing = None
-        total_stale = 3
 
     rendered = template.render(files_need_attention=_Unknown())
     assert "—" in rendered, f"ספירה לא ידועה לא הוצגה כמקף: {rendered!r}"
     assert "0" not in re.sub(r"<[^>]*>", "", rendered), "הוצג מספר במקום 'לא ידוע'"
 
     class _Known:
-        total_missing = 2
-        total_stale = 3
+        total_missing = 5
 
     rendered = template.render(files_need_attention=_Known())
-    assert "5" in rendered, f"סכום תקין לא רונדר: {rendered!r}"
+    assert "5" in rendered, f"ספירה תקינה לא רונדרה: {rendered!r}"
+    assert "total_stale" not in block, "התג עדיין קורא את הקבוצה שהוסרה"
 
 
 # --------------------------------------------- הבודק עצמו
