@@ -1601,6 +1601,13 @@
             min-width: 0;
         }
 
+        /* בזמן שמירה של ערכת מסמך כל הבחירה נעולה (``docSaving`` ב-``initThemePicker``), וכך גם נראית. הבורר תופס רק
+           כרטיסים של ערכת מסמך, כך שמעבר ל"ערכת ממשק" באמצע שמירה לא מעמעם את הכרטיסים שם */
+        .theme-picker__grid[aria-busy="true"] [data-doc-token] {
+            opacity: 0.6;
+            cursor: progress;
+        }
+
         /* הכרטיס "ללא ערכת מסמך" — השם יורד שורה ולא נחתך: בטלפון הכרטיס צר מכדי להכיל אותו */
         .theme-picker__name-wrap {
             white-space: normal;
@@ -3113,6 +3120,11 @@
     let docStateGen = 0;
     // רשימת הערכות לא נטענה. במצב "ערכת מסמך" זה חשוב: בלי הדגל הרשת הייתה מציגה רק "ללא", כאילו אין ערכות.
     let themesLoadFailed = false;
+    // שמירה של ערכת מסמך שבדרך. עד שהיא חוזרת כל הבחירה נעולה — כל כרטיס, בלחיצה ובמקלדת — כי ``docState`` מתעדכן
+    // רק כשהיא חוזרת: בחירה נוספת הייתה נבדקת מול מצב ישן (A, אחריו B, ושוב A — ה-A השני נזרק כ"כבר פעילה", ו-B
+    // נשמר), ושתי שמירות במקביל היו מסתיימות בסדר שאין עליו שליטה. ``CkMdDocTheme.save`` נושא תקרת זמן, והנעילה
+    // משתחררת ב-``finally`` — חוץ מכשהעמוד נטען מחדש אחרי ההצלחה, ואז היא נשארת עד הטעינה.
+    let docSaving = false;
     const modesEl = modalEl.querySelector('.theme-picker__modes');
     const modeBtns = modesEl ? modesEl.querySelectorAll('.theme-picker__mode') : [];
     const docNoteEl = document.getElementById('themePickerDocNote');
@@ -3657,20 +3669,18 @@
      * שהכרטיס יקבל אותה; בכל מקום אחר הרשת מתעדכנת.
      */
     async function selectDocTheme(token) {
-        if (docState === null || !window.CkMdDocTheme) return;
+        if (docState === null || docSaving || !window.CkMdDocTheme) return;
         if (token === docState.token) return;
-        const card = Array.from(gridEl.querySelectorAll('.theme-picker__card'))
-            .find((el) => (el.dataset.docToken || '') === token);
-        if (card) {
-            card.style.opacity = '0.7';
-            card.style.pointerEvents = 'none';
-        }
+        docSaving = true;
+        gridEl.setAttribute('aria-busy', 'true');
+        let reloading = false;
         try {
             const saved = await window.CkMdDocTheme.save(token, docState.scope);
             docState = { token: saved, scope: docState.scope, found: !!saved, name: themeNameForToken(saved) };
             const message = saved ? 'ערכת המסמך הוחלה' : 'ערכת המסמך כובתה';
             if (document.getElementById('mdCard') && docThemeApplies()) {
                 showToast(message, 'success');
+                reloading = true;
                 reloadWithoutCache();
                 return;
             }
@@ -3681,9 +3691,9 @@
             console.error('Error saving the document theme:', error);
             showToast('שגיאה בשמירת ערכת המסמך', 'error');
         } finally {
-            if (card) {
-                card.style.opacity = '';
-                card.style.pointerEvents = '';
+            if (!reloading) {
+                docSaving = false;
+                gridEl.removeAttribute('aria-busy');
             }
         }
     }

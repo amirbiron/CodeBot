@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import itertools
+import json
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
@@ -543,10 +544,12 @@ PICKER_FORWARDED_HEADERS = FORWARDED_HEADERS + ("content-security-policy",)
 
 @pytest.fixture
 def picker(browser, monkeypatch):
-    """``picker(ui, doc=None, *, path=None, device=None, fail_state=False)`` — עמוד אמיתי (ברירת מחדל ``/md/<id>``)
-    מול ``FakeDB``, בערכת ממשק ``ui`` ובערכת מסמך ``doc`` שבמסד. ``device`` — ערך ה-cookie של ערכת המסמך במכשיר,
-    עם תחולה ``device``. ``fail_state`` — ``GET`` הבחירה הנוכחית עונה 503, כמו מסד שלא ענה (השרת עצמו נבדק ב-
-    ``tests/test_md_doc_theme.py``). מחזיר ``(page, db, posted)`` — ``posted`` הם גופי ה-POST ל-``/api/ui_prefs``."""
+    """``picker(ui, doc=None, *, path=None, device=None, fail_state=False, hold=())`` — עמוד אמיתי (ברירת מחדל
+    ``/md/<id>``) מול ``FakeDB``, בערכת ממשק ``ui`` ובערכת מסמך ``doc`` שבמסד. ``device`` — ערך ה-cookie של ערכת
+    המסמך במכשיר, עם תחולה ``device``. ``fail_state`` — ``GET`` הבחירה הנוכחית עונה 503, כמו מסד שלא ענה (השרת עצמו
+    נבדק ב-``tests/test_md_doc_theme.py``). ``hold`` — בקשות (``"POST /api/ui_prefs"``) שהשרת לא עונה עליהן עד
+    ש-``page.release()``: כך בקשה שבדרך נשארת בדרך כמה שהטסט צריך. ``page.held`` — הבקשות שמחכות. מחזיר
+    ``(page, db, posted)`` — ``posted`` הם גופי ה-POST ל-``/api/ui_prefs``, ברגע שנשלחו."""
     import json
 
     import webapp.app as wa
@@ -563,7 +566,7 @@ def picker(browser, monkeypatch):
     contexts = []
 
     def run(ui: str, doc: str | None = None, *, path: str | None = None, device: str | None = None,
-            fail_state: bool = False):
+            fail_state: bool = False, hold: tuple[str, ...] = ()):
         db.users.delete_many({"user_id": USER_ID})
         active_custom = ui.split(":", 1)[1] if ui.startswith("custom:") else None
         prefs = {"theme": ui}
@@ -585,6 +588,14 @@ def picker(browser, monkeypatch):
             client.set_cookie("ui_md_doc_theme_scope", "device")
             client.set_cookie("ui_md_doc_theme", device)
         posted: list[dict] = []
+        held: list = []
+
+        def forward(route, request, u):
+            target = u.path + (f"?{u.query}" if u.query else "")
+            r = client.open(target, method=request.method, data=request.post_data_buffer,
+                            headers={"Content-Type": request.headers.get("content-type", "")})
+            headers = {k: v for k, v in r.headers.items() if k.lower() in PICKER_FORWARDED_HEADERS}
+            route.fulfill(status=r.status_code, body=r.data, headers=headers)
 
         def handle(route, request):
             u = urlsplit(request.url)
@@ -593,18 +604,24 @@ def picker(browser, monkeypatch):
             if fail_state and u.path == STATE_PATH:
                 return route.fulfill(status=503, body=json.dumps({"ok": False, "error": "database_unavailable"}),
                                      headers={"content-type": "application/json"})
-            target = u.path + (f"?{u.query}" if u.query else "")
-            r = client.open(target, method=request.method, data=request.post_data_buffer,
-                            headers={"Content-Type": request.headers.get("content-type", "")})
             if u.path == "/api/ui_prefs" and request.method == "POST":
                 posted.append(json.loads(request.post_data or "{}"))
-            headers = {k: v for k, v in r.headers.items() if k.lower() in PICKER_FORWARDED_HEADERS}
-            route.fulfill(status=r.status_code, body=r.data, headers=headers)
+            if f"{request.method} {u.path}" in hold:
+                # לא נענית עכשיו: השרת "עוד עובד" עליה, עד ``page.release()``.
+                held.append((route, request, u))
+                return None
+            forward(route, request, u)
+
+        def release():
+            while held:
+                forward(*held.pop(0))
 
         ctx = browser.new_context(viewport={"width": 1280, "height": 900}, locale="he-IL")
         contexts.append(ctx)
         ctx.route("**/*", handle)
         page = ctx.new_page()
+        page.held = held
+        page.release = release
         page.goto(f"http://{HOST}{path or f'/md/{file_id}'}", wait_until="load")
         return page, db, posted
 
@@ -751,3 +768,62 @@ def test_when_the_current_choice_cannot_be_read_the_gallery_box_stays_disabled(p
     page.locator("#mdDocThemeStatus").filter(has_text="לא הצלחתי").wait_for(timeout=10000)
     assert page.is_disabled("#mdDocThemeApply") and page.is_disabled("#mdDocThemeSelect")
     assert posted == []
+
+
+def test_while_a_choice_is_being_saved_the_whole_selection_waits_for_it(picker):
+    # A פעילה; לוחצים B, ובזמן שהשמירה שלה בדרך — שוב A, כרטיס שלישי, ו-Enter על כרטיס. עד שהשמירה חוזרת שום בחירה
+    # נוספת לא יוצאת: ``docState`` עוד אומר A, ובלי הנעילה ה-A השני היה נזרק כ"כבר פעילה" והשלישי היה שמירה במקביל.
+    a, b, c = token("custom", "light"), token("shared", "dark"), token("custom", "plain")
+    page, db, posted = picker(token("custom", "dark"), a, path="/settings/theme-gallery", hold=("POST /api/ui_prefs",))
+    _open_picker(page)
+    page.click(f'#themePickerGrid [data-doc-token="{b}"]')
+    page.wait_for_selector('#themePickerGrid[aria-busy="true"]')
+    page.click(f'#themePickerGrid [data-doc-token="{a}"]')
+    page.click(f'#themePickerGrid [data-doc-token="{c}"]')
+    page.focus(f'#themePickerGrid [data-doc-token="{c}"]')
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(300)
+    assert posted == [{"md_doc_theme": b, "md_doc_theme_scope": "global"}]
+    assert len(page.held) == 1
+
+    page.release()
+    page.wait_for_selector(f'#themePickerGrid [data-doc-token="{b}"].is-active', timeout=10000)
+    assert page.get_attribute("#themePickerGrid", "aria-busy") is None
+    assert _pointer(db) == b
+
+    # הנעילה השתחררה: הבחירה הבאה יוצאת ונשמרת
+    page.click(f'#themePickerGrid [data-doc-token="{a}"]')
+    page.wait_for_selector('#themePickerGrid[aria-busy="true"]')
+    page.release()
+    page.wait_for_selector(f'#themePickerGrid [data-doc-token="{a}"].is-active', timeout=10000)
+    assert posted[-1] == {"md_doc_theme": a, "md_doc_theme_scope": "global"} and len(posted) == 2
+    assert _pointer(db) == a
+
+
+def test_the_gallery_import_waits_for_the_current_choice_before_it_can_apply_to_the_document(picker):
+    # מי שבחר "רק במכשיר הזה": עד שהשרת ענה, הבורר מציג "לכל המכשירים", ולכן תיבת הסימון שליד הייבוא נעולה — וגם
+    # ייבוא עם התיבה מסומנת (בעקיפת הנעילה) לא שומר כלום. אחרי התשובה הייבוא שומר בתחולה של המכשיר.
+    page, db, posted = picker(token("custom", "dark"), path="/settings/theme-gallery", device=token("custom", "light"),
+                              hold=(f"GET {STATE_PATH}",))
+    page.click('.tab-btn[data-tab="import"]')
+    assert page.is_disabled("#importAsDocTheme")
+
+    page.evaluate(
+        "() => { const c = document.getElementById('importAsDocTheme'); c.disabled = false; c.checked = true; }"
+    )
+    page.fill("#jsonInput", json.dumps({**PLAIN, "name": "Mist"}))
+    page.click("#importJsonBtn")
+    page.locator("#theme-toast").filter(has_text="לא הוחלה").wait_for(timeout=10000)
+    assert posted == []
+    assert _pointer(db) == "<absent>"
+
+    page.release()
+    page.locator("#mdDocThemeStatus").filter(has_text="Paper").wait_for(timeout=10000)
+    assert not page.is_disabled("#importAsDocTheme")
+    assert page.input_value("#mdDocThemeScope") == "device"
+    page.check("#importAsDocTheme")
+    page.fill("#jsonInput", json.dumps({**PLAIN, "name": "Fog"}))
+    page.click("#importJsonBtn")
+    page.locator("#mdDocThemeStatus").filter(has_text="Fog").wait_for(timeout=10000)
+    assert posted[-1]["md_doc_theme_scope"] == "device"
+    assert _pointer(db) == "<absent>"  # במסד לא נגעו

@@ -304,6 +304,8 @@
     }
 
     // התיבה פעילה רק כשהבחירה הנוכחית ידועה: אחרת "ללא" שמוצג בה כברירת מחדל היה נראה כמו המצב, ו"החל" היה מכבה.
+    // וכך גם תיבת הסימון שליד הייבוא: התחולה שהיא שומרת בה היא זו שבבורר, ועד שהשרת ענה הבורר מציג את ברירת המחדל
+    // ("לכל המכשירים") — ייבוא באמצע היה כותב לכל המכשירים בחירה של מי שבחר "רק במכשיר הזה".
     function syncDocThemeControls() {
         const known = docThemeCurrent !== null;
         if (docThemeSelect) {
@@ -312,6 +314,7 @@
         }
         if (docThemeScope) docThemeScope.disabled = !known;
         if (docThemeApply) docThemeApply.disabled = !known;
+        if (importAsDocTheme) importAsDocTheme.disabled = !known;
         renderDocThemeStatus();
     }
 
@@ -379,6 +382,8 @@
      */
     async function saveDocTheme(token, scope) {
         if (!docThemeApi) throw new Error('CkMdDocTheme is not loaded');
+        // השער היחיד לשני המסלולים ששומרים — "החל" והייבוא: בלי בחירה נוכחית ידועה גם התחולה בבורר אינה ידועה.
+        if (docThemeCurrent === null) throw new Error('md_doc_theme_state_unknown');
         const saved = await docThemeApi.save(token, scope);
         docThemeCurrent = saved;
         return saved;
