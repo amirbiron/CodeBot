@@ -1465,6 +1465,111 @@ def _changed_since_read(doc: dict[str, Any], expected: str | None) -> dict[str, 
     }
 
 
+# ---------------------------------------------------------------------------
+# השער של escape של יוניקוד — ``expected_unicode_escapes``.
+#
+# **מה הוא סוגר.** סוכן שרוצה לכתוב escape של יוניקוד **כטקסט** — לוכסן הפוך, ``u``
+# וארבע ספרות הקס, למשל בדוגמת קוד — שולח אותו ב-``new_string``. יש לקוחות שהופכים
+# אותו לתו לפני שהקריאה יוצאת: נמדד באפליקציית Claude (13–14.11.2026) על כל escape של
+# תו שאינו תו בקרה, ובסשן Claude Code (14.11.2026) לפעמים כן ולפעמים לא, מקריאה לקריאה.
+# הכלי מקבל את התו, שומר את התו, ו-``content_changed`` הוא ``false`` — הוא משווה את מה
+# שהכלי **קיבל** למה שנשמר. המקום היחיד שיודע מה הגיע הוא השרת, ברגע הקריאה ולפני
+# השמירה: הסוכן מצהיר כמה escapes כאלה יש ב-``new_string`` שהוא התכוון לשלוח, השרת
+# סופר את אותה תבנית במה שהגיע, ומספר אחר הוא סירוב — בלי קריאה מהמסד ובלי כתיבה.
+#
+# **למה סירוב לפני הכתיבה ולא אימות אחריה.** אימות אחרי מגלה כשהתוכן השגוי כבר נשמר:
+# גרסה והתראה, ועוד גרסה והתראה לביטול — והביטול עצמו עובר באותו ערוץ שהמיר.
+#
+# **מה הוא אינו סוגר, במפורש.** רק ``new_string`` נספר: ``old_string`` שה-escape שלו
+# הומר מחפש טקסט אחר ממה שהסוכן התכוון אליו. לוכסן שאינו escape של יוניקוד (לוכסן
+# ואחריו ``n``) אינו נספר כלל. ובלי הפרמטר אין שום בדיקה.
+# ---------------------------------------------------------------------------
+
+#: מה נספר: לוכסן הפוך, ``u`` וארבע ספרות הקס — הצורה שפענוח של escape הופך לתו. טווחים
+#: מפורשים ולא ``\d``, מהנימוק שמעל ``_SHA256_HEX``. **הבעלים היחיד של התבנית** (R6
+#: ב-amir-bug-patterns): גם השומר על תיאורי הכלים ב-``tests/test_mcp_server_build.py``
+#: קורא אותה מכאן, ולא מחזיק עותק.
+UNICODE_ESCAPE_RE = re.compile(r"\\u[0-9a-fA-F]{4}")
+
+#: שני הקודים של השער. קבועים ולא מחרוזות בגוף, כי תיאורי הכלים ב-``mcp_server/server.py``
+#: נוקבים בהם, ונבנים מהם.
+UNICODE_ESCAPES_MISMATCH = "unicode_escapes_mismatch"
+EXPECTED_UNICODE_ESCAPES_INVALID = "invalid_expected_unicode_escapes"
+
+#: אותה תבנית **במילים** — לתיאורי הכלים ול-``hint``-ים. במילים ולא כ-escape, כי טקסט
+#: שנושא escape עלול להגיע לסוכן כתו, בדיוק מהסיבה שהשער קיים.
+UNICODE_ESCAPE_IN_WORDS = "a backslash, u and four hex digits"
+
+#: המשפט הראשון של תיאור הפרמטר — הכלל כולו, כי לקוח שמקצר תיאור פרמטר רואה רק אותו.
+#: **נוסח אחד** לפרמטר של ``codekeeper_edit_file`` ולשדה של הזוג ב-``EditPair``.
+EXPECTED_UNICODE_ESCAPES_RULE = (
+    "How many Unicode escapes meant as text new_string holds; the tool refuses, writing "
+    "nothing, if another number reached it"
+)
+
+#: מה שכל ``hint`` של השער אומר על שני המספרים, ומה עושים אחרי הסירוב.
+_ESCAPES_COUNTED = (
+    "expected is the number declared, and received counts, in new_string as it reached the "
+    f"tool, every place that holds {UNICODE_ESCAPE_IN_WORDS}"
+)
+_ESCAPES_SEND_ONCE_MORE = (
+    "A client can turn such an escape into its character before the tool sees it, and that "
+    "can differ from call to call: if the number you declared is right, send {what} once "
+    "more. Refused again: tell the user that this text cannot be written from this client"
+)
+
+
+def _invalid_expected_unicode_escapes(expected: Any) -> dict[str, Any] | None:
+    """סירוב על ``expected_unicode_escapes`` שאינו מספר שלם, 0 ומעלה — או ``None``.
+
+    **קוד משלו ולא ``unicode_escapes_mismatch``**, מאותו נימוק של
+    :func:`_invalid_expected_sha256`: ערך פגום שנענה "המספר אינו תואם" היה שולח את
+    הסוכן לשלוח שוב את אותו ערך.
+
+    **``bool`` נדחה במפורש.** בפייתון ``True`` הוא ``int``, ו-``True`` שנקרא "escape
+    אחד" הוא בדיוק הקריאה השגויה שמעל ``StrictInt``. דרך MCP זה אינו מגיע לכאן — הכלי
+    מצהיר ``StrictInt``, וה-SDK דוחה ``true``, ``"2"`` ו-``2.0`` לפני הגוף (נמדד,
+    ``pydantic 2.12.3`` ו-``mcp 1.28.1``) — והרשת היא לקורא שעוקף את הסכימה. מספר
+    שלילי **כן** מגיע לכאן דרך MCP. בזוג של ``codekeeper_multi_edit_file`` אותו כלל
+    יושב במודל (``EditPair``), ונענה ``invalid_edit``.
+
+    אין תקרה עליונה: מספר גדול ממה ש-``new_string`` יכול להכיל פשוט אינו תואם.
+    """
+    if expected is None:
+        return None
+    if isinstance(expected, int) and not isinstance(expected, bool) and expected >= 0:
+        return None
+    return {
+        "ok": False,
+        "error": EXPECTED_UNICODE_ESCAPES_INVALID,
+        "hint": "pass a whole number, 0 or more: how many times new_string holds, as text, "
+        f"{UNICODE_ESCAPE_IN_WORDS}. Nothing was written",
+    }
+
+
+def _unicode_escapes_mismatch(new_string: str, expected: int | None) -> dict[str, Any] | None:
+    """``unicode_escapes_mismatch`` כש-``new_string`` שהגיע אינו נושא את מספר ה-escapes שהוצהר.
+
+    ``None`` כשאין הצהרה — אז אין בדיקה — או כשהמספרים שווים. **``0`` הוא הצהרה, לא
+    היעדר הצהרה:** "אין כאן אף escape" נבדק כמו כל מספר, ולכן ההשוואה היא ל-``None``
+    ולא לערך שקרי.
+
+    בתשובה שני מספרים, ולעולם לא טקסט מ-``new_string``. ה-``hint`` נוסף אצל הקורא,
+    כי מה שעושים אחרי הסירוב תלוי בדרך שבה המחרוזת הגיעה.
+    """
+    if expected is None:
+        return None
+    received = sum(1 for _ in UNICODE_ESCAPE_RE.finditer(new_string))
+    if received == expected:
+        return None
+    return {
+        "ok": False,
+        "error": UNICODE_ESCAPES_MISMATCH,
+        "expected": expected,
+        "received": received,
+    }
+
+
 def edit_file(
     backend: Any,
     user_id: int,
@@ -1474,6 +1579,7 @@ def edit_file(
     new_string: str,
     replace_all: bool = False,
     expected_content_sha256: str | None = None,
+    expected_unicode_escapes: int | None = None,
 ) -> dict[str, Any]:
     """Server-side find-and-replace on the latest version of an existing file.
 
@@ -1483,6 +1589,10 @@ def edit_file(
 
     ``expected_content_sha256`` הוא השער האופטימי המשותף לכלי העריכה — ראו את
     ההערה מעל :func:`_invalid_expected_sha256`. בלעדיו אין שום בדיקה נוספת.
+
+    ``expected_unicode_escapes`` — השער של escape של יוניקוד, בהערה מעל
+    ``UNICODE_ESCAPE_RE``. הוא נבדק על הארגומנטים בלבד, ולכן **לפני** הקריאה מהמסד:
+    סירוב שלו אינו עולה קריאה, ואינו כותב דבר. גם בלעדיו אין שום בדיקה נוספת.
     """
     name = (file_name or "").strip()
     if not name:
@@ -1492,6 +1602,16 @@ def edit_file(
     bad_expected = _invalid_expected_sha256(expected_content_sha256)
     if bad_expected is not None:
         return bad_expected
+    bad_count = _invalid_expected_unicode_escapes(expected_unicode_escapes)
+    if bad_count is not None:
+        return bad_count
+    mismatch = _unicode_escapes_mismatch(new_string, expected_unicode_escapes)
+    if mismatch is not None:
+        return {
+            **mismatch,
+            "hint": f"nothing was written: {_ESCAPES_COUNTED}. "
+            + _ESCAPES_SEND_ONCE_MORE.format(what="the same call"),
+        }
     doc, code = _load_editable(backend, user_id, name)
     if doc is None:
         return {"ok": False, "error": "not_found"}
@@ -1632,6 +1752,12 @@ def validation_problems(exc: ValidationError) -> list[dict[str, Any]]:
 # **ההסבר כאן ולא ב-docstring, כי ה-docstring מתפרסם.** ``model_json_schema`` מעתיק
 # אותו ל-``description`` של הסכימה שהלקוח רואה (נמדד, pydantic 2.12.3), ולכן הוא שורה
 # אחת שמיועדת לסוכן, באנגלית כמו שאר תיאורי הכלים.
+#
+# **``expected_unicode_escapes`` — השער של escape של יוניקוד, לכל זוג בנפרד** (ההערה מעל
+# ``UNICODE_ESCAPE_RE``). ``int | None`` ולא ``0`` כברירת מחדל: אפס הוא הצהרה ("אין כאן
+# אף escape"), ו"לא נשלח" פירושו שאין בדיקה. ``strict`` של המודל דוחה כאן ``true``,
+# ``"2"`` ו-``2.0``, ו-``ge=0`` דוחה מספר שלילי — שניהם כ-``invalid_edit`` עם הזוג והשדה
+# (נמדד, ``pydantic 2.12.3``).
 class EditPair(BaseModel):
     """One edit: the arguments of codekeeper_edit_file without file_name."""
 
@@ -1640,6 +1766,23 @@ class EditPair(BaseModel):
     old_string: str
     new_string: str
     replace_all: bool = False
+    expected_unicode_escapes: int | None = Field(
+        default=None, ge=0, description=f"{EXPECTED_UNICODE_ESCAPES_RULE}."
+    )
+
+
+#: הזוג כפי שהוא נכתב בתיאורים וב-``hint``-ים: השדות מהמודל עצמו, ושדה רשות מסומן
+#: ``?``. **נגזר ולא מוקלד** (``prose-restates-code-fact`` ב-amir-bug-patterns): הצורה
+#: נכתבה ביד בשלושה מקומות, ושדה שנוסף למודל היה נשאר מחוץ לשלושתם.
+#: ``FieldInfo.is_required`` — ``pydantic/fields.py``, 2.12.3.
+EDIT_PAIR_SHAPE = (
+    "{"
+    + ", ".join(
+        name if field.is_required() else f"{name}?"
+        for name, field in EditPair.model_fields.items()
+    )
+    + "}"
+)
 
 
 #: המאמת של הרשימה כולה, בקריאה אחת — ולכן ``loc`` של כל שגיאה נפתח באינדקס
@@ -1708,7 +1851,7 @@ _UPLOAD_THE_EDITS_AGAIN = (
 
 #: מה שקובץ הזוגות צריך להיות — משפט אחד לכל הסירובים של :func:`_edits_from_upload`.
 _EDITS_UPLOAD_SHAPE = (
-    "The uploaded file must be JSON: one array of {old_string, new_string, replace_all?} "
+    f"The uploaded file must be JSON: one array of {EDIT_PAIR_SHAPE} "
     "objects, UTF-8 without a byte-order mark. Nothing was written. "
     + _UPLOAD_THE_EDITS_AGAIN
 )
@@ -1847,8 +1990,9 @@ def multi_edit_file(
     """Several exact find-and-replace edits on one existing file, saved as ONE new version.
 
     **הסדר, וזו כל ההכרעה:** כל מה שזול ומקומי רץ **לפני** הקריאה של הקובץ מהמסד —
-    ``missing_file_name``, אורך הרשימה, המבנה של **כל** הזוגות, והצורה של
-    ``expected_content_sha256`` — כך שקלט פגום אינו עולה קריאה, וזוג פגום
+    ``missing_file_name``, אורך הרשימה, המבנה של **כל** הזוגות, השער של escape של
+    יוניקוד בכל זוג שהצהיר ``expected_unicode_escapes`` (ההערה מעל ``UNICODE_ESCAPE_RE``),
+    והצורה של ``expected_content_sha256`` — כך שקלט פגום אינו עולה קריאה, וזוג פגום
     במקום השלישי נענה מיד, לפני שזוג ראשון מוחל. אחרי הקריאה: ``not_found``,
     ``empty_file``, השער (צריך את התוכן), הזוגות בסדרם, ושמירה אחת. אותו סדר
     כמו ב-:func:`edit_file`.
@@ -1920,6 +2064,32 @@ def multi_edit_file(
             "problems": not_text,
         }
         return refusal if upload is None else _fix_the_upload(refusal)
+    # השער של escape של יוניקוד, לכל זוג שהצהיר מספר — על הארגומנטים בלבד, ולכן לפני
+    # שהקובץ נקרא ולפני השער של ההעלאה. הזוג הראשון שאינו תואם, עם ``index``, כמו כל
+    # סירוב של זוג. מה שעושים אחריו תלוי בדרך שבה הזוגות הגיעו: רשימה שנשלחה ב-``edits``
+    # עברה בלקוח, ושליחה נוספת יכולה להגיע אחרת; קובץ שהועלה מפוענח כאן פעם אחת, ולכן
+    # אותו קובץ ייענה תמיד אותו דבר — מתקנים אותו ומעלים שוב.
+    for index, pair in enumerate(pairs):
+        mismatch = _unicode_escapes_mismatch(pair.new_string, pair.expected_unicode_escapes)
+        if mismatch is None:
+            continue
+        if upload is None:
+            # "as a JSON array": רשימה שנשלחה כמחרוזת מפוענחת פעמיים, וזו סיבה שנייה —
+            # עקבית, לא מקרית — לכך שה-escape הגיע כתו (ההערה מעל ``_edits_from_upload``).
+            after = _ESCAPES_SEND_ONCE_MORE.format(what="the whole batch, as a JSON array,")
+        else:
+            after = (
+                "The uploaded file is decoded exactly once, so there a backslash meant as "
+                f"text is written as two backslashes. {_UPLOAD_THE_EDITS_AGAIN}"
+            )
+        return {
+            "ok": False,
+            "error": mismatch["error"],
+            "index": index,
+            "expected": mismatch["expected"],
+            "received": mismatch["received"],
+            "hint": f"{_NOTHING_WRITTEN}In this pair {_ESCAPES_COUNTED}. {after}",
+        }
     bad_expected = _invalid_expected_sha256(expected_content_sha256)
     if bad_expected is not None:
         return bad_expected

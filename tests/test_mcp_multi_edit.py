@@ -119,6 +119,15 @@ def _pair(old: str, new: str, **extra) -> dict:
     return {"old_string": old, "new_string": new, **extra}
 
 
+#: לוכסן אחד. נבנה ב-``chr`` ולא נכתב כ-escape, כדי שמה שהטסט שולח לא יהיה תלוי באיך
+#: הקובץ הזה נכתב — escape של יוניקוד שנכתב כאן כ-escape עלול להישמר כתו.
+_BS = chr(92)
+#: escape של יוניקוד **כטקסט** — לוכסן, ``u`` וארבע ספרות הקס, ששה תווים — והתו שהוא
+#: נהיה כשלקוח ממיר אותו לפני שהקריאה יוצאת.
+_AS_TEXT = _BS + "u200F"
+_AS_CHARACTER = chr(0x200F)
+
+
 # ---------------------------------------------------------------------------
 # 1. כולם או כלום, וגרסה אחת
 # ---------------------------------------------------------------------------
@@ -460,8 +469,9 @@ class _CountingBackend:
         ({"edits": [_pair("a", "A")] * 51}, "too_many_edits"),
         ({"edits": [_pair("a", "A")], "expected_content_sha256": "not-a-hash"},
          "invalid_expected_content_sha256"),
+        ({"edits": [_pair("a", _AS_CHARACTER, expected_unicode_escapes=1)]}, "unicode_escapes_mismatch"),
     ],
-    ids=["malformed_pair_3", "empty", "over_the_cap", "malformed_hash"],
+    ids=["malformed_pair_3", "empty", "over_the_cap", "malformed_hash", "escape_arrived_as_character"],
 )
 def test_what_is_wrong_with_the_request_itself_costs_no_read(monkeypatch, arguments, error):
     """כל מה שזול ומקומי נבדק לפני ``_load_editable``: אפס קריאות מהמסד, אפס שמירות.
@@ -721,6 +731,312 @@ def test_a_value_that_is_not_a_sha256_hex_is_its_own_refusal(mcp, store, tool, v
 
     assert res["ok"] is False and res["error"] == "invalid_expected_content_sha256", res
     assert _snapshot(store) == before
+
+
+# ---------------------------------------------------------------------------
+# 7ב. השער של escape של יוניקוד — ``expected_unicode_escapes``
+#
+# סוכן שכותב escape של יוניקוד כטקסט מצהיר כמה כאלה יש ב-``new_string``. יש לקוחות
+# שהופכים escape כזה לתו לפני שהקריאה יוצאת, והשרת הוא המקום היחיד שיודע מה הגיע: הוא
+# סופר את אותה תבנית במה שהגיע, ומספר אחר הוא סירוב — לפני כל קריאה מהמסד, ובלי כתיבה.
+#
+# **מה שהטסטים שולחים הוא מה שמגיע לכלי אחרי הלקוח**: ``_AS_CHARACTER`` הוא הקריאה
+# שלקוח ממיר היה שולח, ו-``_AS_TEXT`` — הקריאה שלקוח שאינו ממיר שולח. מה שלקוח אמיתי
+# עושה אינו נמדד כאן, ואינו יכול להימדד בטסט של שרת.
+# ---------------------------------------------------------------------------
+
+#: שני הכלים שנושאים את השער: כפרמטר, וכשדה של זוג.
+GATE_TOOLS = ("codekeeper_edit_file", TOOL)
+
+
+def _gate_arguments(tool: str, new_string: str, **declared) -> dict:
+    """עריכה של ``"alpha\\nbeta\\n"`` שמחליפה את ``beta`` ב-``new_string``.
+
+    ``declared`` הוא ``expected_unicode_escapes=<מספר>``, או ריק — בלי הצהרה. ב-
+    ``codekeeper_multi_edit_file`` הזוג שנושא אותה יושב במקום 1, אחרי זוג תקין, כדי
+    שה-``index`` שבסירוב יהיה של הזוג ולא אפס במקרה.
+    """
+    if tool == "codekeeper_edit_file":
+        return {"old_string": "beta", "new_string": new_string, **declared}
+    return {"edits": [_pair("alpha", "ALPHA"), _pair("beta", new_string, **declared)]}
+
+
+def _gate_result(tool: str, new_string: str) -> str:
+    """מה שהעריכה של :func:`_gate_arguments` משאירה בקובץ כשהיא עוברת."""
+    return ("ALPHA" if tool == TOOL else "alpha") + "\n" + new_string + "\n"
+
+
+@pytest.mark.parametrize("tool", GATE_TOOLS)
+def test_escapes_that_arrived_as_text_pass_the_declared_count(mcp, store, tool):
+    """שני escapes הוצהרו, ושניהם הגיעו כששה תווים: הכתיבה עוברת, והטקסט הוא שנשמר."""
+    _seed(mcp, "alpha\nbeta\n")
+    new_string = f"x {_AS_TEXT} y {_AS_TEXT}"
+
+    res = _call(mcp, tool, file_name=NAME, **_gate_arguments(tool, new_string, expected_unicode_escapes=2))
+
+    assert res["ok"] is True, res
+    assert latest(store.code_snippets, USER, NAME)["code"] == _gate_result(tool, new_string)
+    assert res["file"]["content_sha256"] == _sha(_gate_result(tool, new_string))
+
+
+@pytest.mark.parametrize("tool", GATE_TOOLS)
+def test_an_escape_that_arrived_as_its_character_is_refused_and_nothing_is_written(mcp, store, tool):
+    """הסוכן הצהיר על escape אחד, והכלי קיבל את התו: ``unicode_escapes_mismatch``, ושום דבר לא נכתב.
+
+    זה המקרה שבגללו השער קיים. בלי ההצהרה הקריאה הזו נשמרת, עם ``content_changed: false``
+    — הכלי שמר בדיוק את מה שהגיע אליו, והטקסט שהסוכן התכוון אליו אינו בקובץ.
+
+    בסירוב שני מספרים ו-``hint``, ולעולם לא טקסט מ-``new_string``. ה-``hint`` אומר מה
+    עושים: שליחה אחת נוספת, כי ההמרה משתנה מקריאה לקריאה, ואחריה — לומר למשתמש.
+
+    **המוטציות שחייבות להפיל אותו — ביטול הספירה** (``_unicode_escapes_mismatch`` מחזיר
+    ``None``), **והסירוב אחרי השמירה**: בראשונה הקריאה מצליחה, ובשנייה הסירוב חוזר אבל
+    הגרסה כבר נכתבה וההתראה כבר יצאה.
+    """
+    _seed(mcp, "alpha\nbeta\n")
+    before, pushes = _snapshot(store), _push_count(store)
+
+    res = _call(mcp, tool, file_name=NAME,
+                **_gate_arguments(tool, f"{SECRET} {_AS_CHARACTER}", expected_unicode_escapes=1))
+
+    assert (res["ok"], res["error"]) == (False, "unicode_escapes_mismatch"), res
+    assert (res["expected"], res["received"]) == (1, 0)
+    assert set(res) == {"ok", "error", "expected", "received", "hint"} | ({"index"} if tool == TOOL else set())
+    if tool == TOOL:
+        assert res["index"] == 1
+    assert "once more" in res["hint"] and "tell the user" in res["hint"]
+    echoed = json.dumps(res, ensure_ascii=False)
+    assert SECRET not in echoed and _AS_CHARACTER not in echoed
+    assert _snapshot(store) == before
+    assert _push_count(store) == pushes
+
+
+@pytest.mark.parametrize("tool", GATE_TOOLS)
+def test_zero_is_a_declaration_and_not_the_absence_of_one(mcp, store, tool):
+    """``0`` אומר "אין כאן אף escape", ונבדק כמו כל מספר — לשני הכיוונים.
+
+    **המוטציה שחייבת להפיל אותו — בדיקת אמת במקום השוואה ל-``None``** (``if not expected``):
+    אז אפס נקרא "לא נשלח", והקריאה הראשונה נכתבת.
+    """
+    _seed(mcp, "alpha\nbeta\n")
+    before = _snapshot(store)
+
+    refused = _call(mcp, tool, file_name=NAME, **_gate_arguments(tool, _AS_TEXT, expected_unicode_escapes=0))
+
+    assert (refused["ok"], refused["error"]) == (False, "unicode_escapes_mismatch"), refused
+    assert (refused["expected"], refused["received"]) == (0, 1)
+    assert _snapshot(store) == before
+
+    passed = _call(mcp, tool, file_name=NAME, **_gate_arguments(tool, "plain", expected_unicode_escapes=0))
+    assert passed["ok"] is True, passed
+
+
+@pytest.mark.parametrize("tool", GATE_TOOLS)
+@pytest.mark.parametrize("new_string", [_AS_TEXT, _AS_CHARACTER], ids=["as_text", "as_character"])
+def test_without_the_declaration_nothing_is_counted(mcp, store, tool, new_string):
+    """הפרמטר תוספתי: בלי הצהרה אין בדיקה, והמחרוזת נשמרת כמו שהגיעה — בשתי הצורות."""
+    _seed(mcp, "alpha\nbeta\n")
+
+    res = _call(mcp, tool, file_name=NAME, **_gate_arguments(tool, new_string))
+
+    assert res["ok"] is True, res
+    assert latest(store.code_snippets, USER, NAME)["code"] == _gate_result(tool, new_string)
+
+
+#: מה נספר ומה לא — ``(new_string, כמה escapes של יוניקוד יש בו)``. **המספרים נכתבו
+#: ביד**, ולא חושבו בתבנית של השרת: טסט שסופר באותה תבנית שהוא בודק אינו מסוגל ליפול.
+_COUNTED = {
+    "one": (_BS + "u0041", 1),
+    "adjacent": (_BS + "u0041" + _BS + "u0042", 2),
+    "lower_and_upper_hex": (_BS + "u00e9 " + _BS + "u00E9", 2),
+    # שני לוכסנים ואחריהם ``u0041``: הלוכסן השני פותח רצף אחד.
+    "two_backslashes": (_BS * 2 + "u0041", 1),
+    # חמש ספרות: ארבע הראשונות הן הרצף, והחמישית טקסט.
+    "five_digits": (_BS + "u00411", 1),
+    "three_digits": (_BS + "u004", 0),
+    "capital_u": (_BS + "U0041", 0),
+    "no_backslash": ("u0041", 0),
+    "backslash_n": (_BS + "n", 0),
+    "the_character_itself": ("A" + _AS_CHARACTER, 0),
+    # ספרות שאינן ASCII אינן ספרות הקס: הטווחים בתבנית מפורשים, לא ``\d``.
+    "arabic_indic_digits": (_BS + "u" + "٠" * 4, 0),
+}
+
+
+@pytest.mark.parametrize("tool", GATE_TOOLS)
+@pytest.mark.parametrize("case", sorted(_COUNTED))
+def test_what_the_tool_counts_as_a_unicode_escape(mcp, store, tool, case):
+    """הספירה, דרך הכלי: המספר הנכון עובר, ומספר אחר נענה עם ``received`` — הספירה של השרת.
+
+    לוכסן, ``u`` וארבע ספרות הקס, בכל מקום שבו הם עומדים. לוכסן ואחריו ``n``, ``U``
+    גדולה, שלוש ספרות או רצף בלי לוכסן אינם נספרים.
+    """
+    new_string, count = _COUNTED[case]
+    _seed(mcp, "alpha\nbeta\n")
+    before = _snapshot(store)
+
+    off_by_one = _call(mcp, tool, file_name=NAME,
+                       **_gate_arguments(tool, new_string, expected_unicode_escapes=count + 1))
+    assert (off_by_one["ok"], off_by_one["error"]) == (False, "unicode_escapes_mismatch"), off_by_one
+    assert (off_by_one["expected"], off_by_one["received"]) == (count + 1, count)
+    assert _snapshot(store) == before
+
+    exact = _call(mcp, tool, file_name=NAME, **_gate_arguments(tool, new_string, expected_unicode_escapes=count))
+    assert exact["ok"] is True, exact
+    assert latest(store.code_snippets, USER, NAME)["code"] == _gate_result(tool, new_string)
+
+
+def test_the_first_pair_that_does_not_match_is_the_one_reported(mcp, store):
+    """כמה זוגות שאינם תואמים: ``index`` הוא הראשון, כמו בכל סירוב של זוג, וזוג תואם לפניו אינו נכתב."""
+    _seed(mcp, "alpha\nbeta\ngamma\n")
+    before = _snapshot(store)
+
+    res = _call(mcp, TOOL, file_name=NAME, edits=[
+        _pair("alpha", _AS_TEXT, expected_unicode_escapes=1),
+        _pair("beta", _AS_CHARACTER, expected_unicode_escapes=1),
+        _pair("gamma", _AS_CHARACTER * 2, expected_unicode_escapes=2),
+    ])
+
+    assert (res["error"], res["index"], res["expected"], res["received"]) == ("unicode_escapes_mismatch", 1, 1, 0)
+    # "as a JSON array": רשימה שנשלחה כמחרוזת מפוענחת פעמיים, וגם כך escape מגיע כתו.
+    assert "send the whole batch, as a JSON array, once more" in res["hint"]
+    assert _snapshot(store) == before
+
+
+@pytest.mark.parametrize("value", [-1, -(10 ** 30)], ids=["minus_one", "large_negative"])
+def test_a_negative_declaration_is_its_own_refusal_in_edit_file(mcp, store, value):
+    """מספר שלילי עובר את הוולידציה של ה-SDK, ונענה בגוף: ``invalid_expected_unicode_escapes``.
+
+    קוד משלו ולא ``unicode_escapes_mismatch``: ערך פגום שנענה "המספר אינו תואם" היה שולח
+    את הסוכן לשלוח שוב את אותו ערך.
+    """
+    _seed(mcp, "alpha\nbeta\n")
+    before = _snapshot(store)
+
+    res = _call(mcp, "codekeeper_edit_file", file_name=NAME,
+                **_gate_arguments("codekeeper_edit_file", _AS_TEXT, expected_unicode_escapes=value))
+
+    assert (res["ok"], res["error"]) == (False, "invalid_expected_unicode_escapes"), res
+    assert "expected" not in res and "received" not in res
+    assert _snapshot(store) == before
+
+
+#: ערכים שאינם מספר שלם של JSON. ``true`` הוא העיקר: בפייתון הוא ``int``, ו-``int`` שאינו
+#: strict היה קורא אותו "escape אחד" — בדיוק מה ש-``new_string`` של הטסט נושא.
+_NOT_A_WHOLE_NUMBER = {"true": True, "text": "1", "float": 1.0}
+
+
+@pytest.mark.parametrize("case", sorted(_NOT_A_WHOLE_NUMBER))
+def test_a_declaration_that_is_not_a_whole_number_never_reaches_edit_file(mcp, store, case):
+    """``true``, ``"1"`` ו-``1.0`` נדחים בוולידציה של ה-SDK, לפני הגוף — ושום דבר לא נכתב.
+
+    ``new_string`` נושא escape אחד בדיוק, ולכן המרה שקטה של כל אחד מהשלושה ל-``1`` הייתה
+    עוברת את השער וכותבת.
+
+    **המוטציה שחייבת להפיל אותו — ``int`` במקום ``StrictInt`` בחתימת הכלי:** אז שלושתם
+    מומרים ל-``1`` (נמדד, ``pydantic 2.12.3`` דרך ``mcp 1.28.1``), והקריאה מצליחה.
+    """
+    _seed(mcp, "alpha\nbeta\n")
+    before = _snapshot(store)
+    arguments = {"file_name": NAME, **_gate_arguments(
+        "codekeeper_edit_file", _AS_TEXT, expected_unicode_escapes=_NOT_A_WHOLE_NUMBER[case])}
+
+    with pytest.raises(ToolError, match=r"(?s)edit_fileArguments.*expected_unicode_escapes.*valid integer"):
+        asyncio.run(mcp.call_tool("codekeeper_edit_file", arguments))
+    assert _snapshot(store) == before
+
+
+@pytest.mark.parametrize("case", ["negative", *sorted(_NOT_A_WHOLE_NUMBER)])
+def test_a_pair_declaration_that_is_not_a_whole_number_is_invalid_edit(mcp, store, case):
+    """בזוג אותו כלל יושב במודל: ``invalid_edit`` עם הזוג והשדה, בלי הערך — ושום דבר לא נכתב.
+
+    ה-``msg`` נבדק, ולא רק ה-``loc``: לפני שהשדה נוסף למודל אותו זוג נענה ``invalid_edit``
+    באותו ``loc``, כמפתח זר — סירוב נכון מסיבה אחרת, שטסט על ה-``loc`` לבדו היה מאשר.
+    """
+    value = -1 if case == "negative" else _NOT_A_WHOLE_NUMBER[case]
+    _seed(mcp, "alpha\nbeta\n")
+    before = _snapshot(store)
+
+    res = _call(mcp, TOOL, file_name=NAME, **_gate_arguments(TOOL, _AS_TEXT, expected_unicode_escapes=value))
+
+    assert (res["ok"], res["error"], res["index"]) == (False, "invalid_edit", 1), res
+    assert [problem["loc"] for problem in res["problems"]] == [[1, "expected_unicode_escapes"]]
+    reason = "greater than or equal to 0" if case == "negative" else "valid integer"
+    assert reason in res["problems"][0]["msg"], res["problems"]
+    assert _snapshot(store) == before
+
+
+@pytest.mark.parametrize(
+    ("arguments", "error"),
+    [
+        ({"new_string": _AS_CHARACTER, "expected_unicode_escapes": 1}, "unicode_escapes_mismatch"),
+        ({"new_string": _AS_TEXT, "expected_unicode_escapes": -1}, "invalid_expected_unicode_escapes"),
+    ],
+    ids=["escape_arrived_as_character", "negative"],
+)
+def test_a_declaration_that_refuses_costs_no_read_and_no_save_in_edit_file(monkeypatch, arguments, error):
+    """השער נבדק על הארגומנטים בלבד: אפס קריאות מהמסד, אפס שמירות.
+
+    תיאור הפרמטר אומר "before the file is read", וזה מה שנמדד כאן. המקבילה של
+    ``codekeeper_multi_edit_file`` — ב-``test_what_is_wrong_with_the_request_itself_costs_no_read``.
+
+    **המוטציה שחייבת להפיל אותו — הסירוב אחרי השמירה:** אז ``saves`` הוא 1.
+    """
+    counting = _CountingBackend()
+    mcp = _build(monkeypatch, counting)
+
+    res = _call(mcp, "codekeeper_edit_file", file_name=NAME, old_string="a", **arguments)
+
+    assert (res["ok"], res["error"]) == (False, error), res
+    assert counting.reads == 0 and counting.saves == 0
+
+
+@pytest.mark.parametrize("value", [True, False, "1", 1.0, -1, [1]],
+                         ids=["true", "false", "text", "float", "negative", "list"])
+def test_the_handler_itself_refuses_a_declaration_that_is_not_a_whole_number(value):
+    """הרשת שמאחורי הסכימה: קורא שמגיע ל-handler בלי ה-SDK מקבל אותו סירוב, בלי קריאה.
+
+    דרך MCP רק המספר השלילי מגיע לכאן; השאר נדחים לפני הגוף. הבדיקה היא לדלת אחרת
+    אל אותה פונקציה, ש-``StrictInt`` של הכלי אינו מגן עליה.
+    """
+    from mcp_server import handlers
+
+    counting = _CountingBackend()
+
+    res = handlers.edit_file(counting, USER, file_name=NAME, old_string="a", new_string=_AS_TEXT,
+                             expected_unicode_escapes=value)
+
+    assert (res["ok"], res["error"]) == (False, "invalid_expected_unicode_escapes"), res
+    assert counting.reads == 0 and counting.saves == 0
+
+
+def test_the_declaration_is_described_once_and_the_schema_says_what_the_tool_enforces(mcp):
+    """מה שהלקוח רואה ב-``tools/list`` על השער, מול מה שהגוף אוכף.
+
+    משפט הכלל הוא אחד — ``EXPECTED_UNICODE_ESCAPES_RULE`` — בפרמטר של ``codekeeper_edit_file``
+    ובשדה של הזוג, ונכנס ב-120 התווים שלקוח שמקצר תיאור פרמטר מציג. התיאור נוקב בשני
+    הקודים מהקבועים שהגוף מחזיר, ובסכימה הפרמטר רשות ושלם.
+    """
+    from mcp_server import handlers
+
+    tools = mcp._tool_manager
+    declared = tools.get_tool("codekeeper_edit_file").parameters["properties"]["expected_unicode_escapes"]
+    in_pair = tools.get_tool(TOOL).parameters["properties"]["edits"]["items"]["properties"]["expected_unicode_escapes"]
+
+    rule = declared["description"].split(". ", 1)[0]
+    assert rule == handlers.EXPECTED_UNICODE_ESCAPES_RULE and len(rule) <= 120, rule
+    assert in_pair["description"] == rule + "."
+    for code in (handlers.UNICODE_ESCAPES_MISMATCH, handlers.EXPECTED_UNICODE_ESCAPES_INVALID):
+        assert code in declared["description"], code
+    assert "send the same call once more" in declared["description"]
+    assert "tell the user that this text cannot be written from this client" in declared["description"]
+    assert declared["description"].endswith("old_string is not counted. Omitted: no check.")
+
+    assert declared["anyOf"] == [{"type": "integer"}, {"type": "null"}] and declared["default"] is None
+    assert in_pair["anyOf"] == [{"minimum": 0, "type": "integer"}, {"type": "null"}] and in_pair["default"] is None
+    assert "expected_unicode_escapes" not in tools.get_tool("codekeeper_edit_file").parameters["required"]
+    assert tools.get_tool(TOOL).parameters["properties"]["edits"]["items"]["required"] == ["old_string", "new_string"]
+    assert handlers.EDIT_PAIR_SHAPE == "{old_string, new_string, replace_all?, expected_unicode_escapes?}"
 
 
 # ---------------------------------------------------------------------------

@@ -1569,6 +1569,74 @@ def test_the_server_is_deterministic_for_each_form_edits_can_arrive_in(store, ba
     assert res["content_changed"] is False
 
 
+#: אותן שלוש צורות של ``edits`` על החוט, כשהזוג מצהיר ``expected_unicode_escapes: 1`` —
+#: escape אחד של יוניקוד, כטקסט. ההצהרה היא מספר בתוך אותו JSON, ולכן עוברת באותן שכבות.
+_DECLARED_TEXT = '[{"old_string": "X", "new_string": "' + _BS * 2 + 'u200F", "expected_unicode_escapes": 1}]'
+_DECLARED_CHAR = '[{"old_string": "X", "new_string": "' + _BS + 'u200F", "expected_unicode_escapes": 1}]'
+_DECLARED_ON_THE_WIRE = {
+    "array": '{"file_name": "log.md", "edits": ' + _DECLARED_TEXT + "}",
+    "json_text_escaped_for_both_levels": '{"file_name": "log.md", "edits": ' + _as_json_string(_DECLARED_TEXT) + "}",
+    "json_text_escaped_for_one_level": '{"file_name": "log.md", "edits": ' + _as_json_string(_DECLARED_CHAR) + "}",
+}
+
+
+@pytest.mark.parametrize("form", sorted(_DECLARED_ON_THE_WIRE))
+def test_a_declared_count_refuses_the_form_that_would_have_written_the_character(store, backend, form):
+    """שלוש הצורות שוב, דרך ``POST /mcp``, והפעם הזוג מצהיר על escape אחד.
+
+    בשתי הצורות שבהן ששת התווים מגיעים לכלי — הכתיבה עוברת. בשלישית, שבה שני הפענוחים
+    אוכלים את ה-escape והכלי מקבל את התו, התשובה היא ``unicode_escapes_mismatch`` ושום דבר
+    לא נכתב. בלי ההצהרה אותה צורה נכתבת, עם ``content_changed: false`` — זה מה ש-
+    ``test_the_server_is_deterministic_for_each_form_edits_can_arrive_in`` מקבע שמעל.
+
+    השרת עדיין אינו יודע איזו צורה הלקוח שלח ולמה המודל התכוון; ההצהרה היא מה שאומר לו
+    למה המודל התכוון, והספירה — מה הגיע.
+    """
+    with TestClient(app_in_mode("pat", backend, tokens=TOKENS)) as client:
+        seeded = _tool_call_with_raw_arguments(
+            client, WRITE_A, "codekeeper_save_file", '{"file_name": "log.md", "code": "a X b"}')
+        assert seeded["ok"] is True, seeded
+        versions = len(store.code_snippets.docs)
+        res = _tool_call_with_raw_arguments(client, WRITE_A, MULTI_EDIT, _DECLARED_ON_THE_WIRE[form])
+
+    if _REACHES_THE_TOOL[form] == _ESCAPE_AS_TEXT:
+        assert res["ok"] is True, res
+        assert _stored_code(store, res["file"]["id"]) == "a " + _ESCAPE_AS_TEXT + " b"
+        return
+    assert (res["ok"], res["error"], res["index"]) == (False, "unicode_escapes_mismatch", 0), res
+    assert (res["expected"], res["received"]) == (1, 0)
+    assert _RLM not in json.dumps(res, ensure_ascii=False)
+    assert len(store.code_snippets.docs) == versions
+
+
+@pytest.mark.parametrize(("backslashes", "arrives_as_text"), [(2, True), (1, False)],
+                         ids=["two_backslashes_on_the_wire", "one_backslash_on_the_wire"])
+def test_edit_file_over_the_wire_counts_what_the_transport_delivered(store, backend, backslashes, arrives_as_text):
+    """``codekeeper_edit_file`` דרך ``POST /mcp``: ההצהרה מושווית למה שהתעבורה מסרה לכלי.
+
+    שני לוכסנים על החוט הם ה-escape של JSON ללוכסן אחד, ולכן הכלי מקבל את ששת התווים —
+    זו הקריאה של לקוח שלא המיר. לוכסן אחד על החוט הוא ה-escape של התו עצמו, והכלי מקבל
+    את התו — זה מה שמגיע מלקוח שהמיר את ה-escape לפני שהקריאה יצאה. הראשונה נכתבת,
+    והשנייה נענית ``unicode_escapes_mismatch`` בלי שנכתב דבר.
+    """
+    arguments = ('{"file_name": "log.md", "old_string": "X", "new_string": "' + _BS * backslashes
+                 + 'u200F", "expected_unicode_escapes": 1}')
+    with TestClient(app_in_mode("pat", backend, tokens=TOKENS)) as client:
+        seeded = _tool_call_with_raw_arguments(
+            client, WRITE_A, "codekeeper_save_file", '{"file_name": "log.md", "code": "a X b"}')
+        assert seeded["ok"] is True, seeded
+        versions = len(store.code_snippets.docs)
+        res = _tool_call_with_raw_arguments(client, WRITE_A, "codekeeper_edit_file", arguments)
+
+    if arrives_as_text:
+        assert res["ok"] is True, res
+        assert _stored_code(store, res["file"]["id"]) == "a " + _ESCAPE_AS_TEXT + " b"
+        return
+    assert (res["ok"], res["error"], res["expected"], res["received"]) == (False, "unicode_escapes_mismatch", 1, 0), res
+    assert "index" not in res and _RLM not in json.dumps(res, ensure_ascii=False)
+    assert len(store.code_snippets.docs) == versions
+
+
 def test_pairs_uploaded_as_a_file_are_decoded_exactly_once(store, backend, call, reached_apply_edit, tmp_path):
     """מקצה לקצה: קובץ ← ``PUT /api/agent/upload`` ← ``edits_upload_id`` — פענוח JSON אחד, של השרת.
 
@@ -1855,7 +1923,7 @@ def test_two_consumers_of_one_edits_upload_apply_it_exactly_once(store, backend,
 
 
 def test_the_descriptions_split_preference_from_correctness_and_divide_by_the_text():
-    """מה שהלקוח מקבל ב-``tools/list`` על לוכסן שנועד להיות טקסט — שלושה תיאורים, מאותם חלקים.
+    """מה שהלקוח מקבל ב-``tools/list`` על לוכסן שנועד להיות טקסט — ארבעה תיאורים, מאותם חלקים.
 
     **העדפה לחוד, נכונות לחוד.** "כמה עריכות בגרסה אחת — הכלי הזה" הוא העדפה: שני
     המסלולים נכונים. לוכסן שנועד להיות טקסט אינו העדפה — מסלול אחד כותב תוכן שגוי —
@@ -1863,8 +1931,17 @@ def test_the_descriptions_split_preference_from_correctness_and_divide_by_the_te
 
     **החלוקה לפי הטקסט, לא לפי הלקוח:** סוכן רואה את הטקסט שלו, ואינו יודע דרך איזה לקוח
     הוא עובד. לוכסן שאינו escape של יוניקוד ← ``codekeeper_edit_file``, בלי תנאי. escape
-    של יוניקוד שנועד להיות טקסט ← רק קובץ בטוח, ובלי ``CODEKEEPER_PAT`` — בדיקה בקריאה
-    אחת ובלי כתיבה, ואחריה או כתיבה או הודעה למשתמש.
+    של יוניקוד שנועד להיות טקסט ← מי שיכול להעלות קובץ (bash, רשת ו-``CODEKEEPER_PAT``)
+    שולח את העריכה ב-``edits_upload_id``; מי שלא ← ``codekeeper_edit_file`` עם
+    ``expected_unicode_escapes``, השער שמסרב לפני הכתיבה.
+
+    **התנאי להעלאה כתוב במלואו בכל מקום שמפנה אליה** — שלוש הדרישות, ולא רק הטוקן: סוכן
+    בלי bash אינו יכול לכתוב את קובץ הזוגות גם כשיש לו טוקן. ותיאור ``codekeeper_multi_edit_file``
+    אינו נוקב במסלול אחד ל-escape של יוניקוד, אלא מפנה אל הפרמטר שנושא את התנאי.
+
+    **והבדיקה המקדימה יצאה מכל התיאורים:** עד השער, מי שאינו יכול להעלות נשלח לבדוק
+    ``query`` של ``codekeeper_get_file`` בקריאה אחת, בלי כתיבה. היא מדדה את הקריאה ההיא,
+    ולא את קריאת הכתיבה שאחריה.
 
     הפקודה, התוקף ומי שאינו יכול להעלות הם אותם חלקים של ``upload_id``; ומשפטי הלוכסן
     משותפים ל-``new_string`` של ``codekeeper_edit_file`` ולנסיגה של ``edits_upload_id``.
@@ -1876,46 +1953,45 @@ def test_the_descriptions_split_preference_from_correctness_and_divide_by_the_te
     props = multi_edit.parameters["properties"]
     doc = props["edits_upload_id"]["description"]
     new_string = edit.parameters["properties"]["new_string"]["description"]
+    declared = edit.parameters["properties"]["expected_unicode_escapes"]["description"]
 
     other = "ackslashes that are not a Unicode escape (a backslash and n as two characters, a regex, a path)"
     escape = "Unicode escape meant as text (a backslash, u and four hex digits)"
     hazard = "can be turned into the character before any tool sees it, in any argument"
-    check = (
-        "check first, without writing — call codekeeper_get_file on the file with query set to a backslash "
-        "followed by u0041; the reply echoes query as it arrived. Six characters back: write with "
-        "codekeeper_edit_file. The letter A back: do not write, and tell the user that this text cannot be "
-        "written from this client."
-    )
+    gate = "the tool then refuses, writing nothing, when the escapes did not arrive as text"
 
-    # תיאור ``codekeeper_multi_edit_file``: משפט העדפה, ואחריו עובדה ותוצאה.
+    # תיאור ``codekeeper_multi_edit_file``: משפט העדפה, ואחריו עובדה ותוצאה — בלי מסלול
+    # אחד ל-escape של יוניקוד, כי המסלול תלוי במי שיכול להעלות.
     assert (
         "Prefer this tool for several edits in one version. Backslashes meant as text are not a preference: a "
-        "string in edits can be decoded twice, so they go by codekeeper_edit_file, and a Unicode escape meant "
-        "as text by edits_upload_id — see that parameter."
+        "string in edits can be decoded twice, so they go by codekeeper_edit_file; a Unicode escape meant as "
+        "text has its own rule — see edits_upload_id."
     ) in multi_edit.description
+    assert "by edits_upload_id" not in multi_edit.description
 
-    # תיאור ``codekeeper_edit_file``: שני סוגי הטקסט, ולכל אחד דין אחר.
+    # תיאור ``codekeeper_edit_file``: שני סוגי הטקסט, ולכל אחד דין אחר — והשער נקוב בשמו.
     assert (
         f"old_string and new_string reach this tool as they were sent, so b{other} are safe here. A {escape} "
-        f"is not: it {hazard} — see new_string."
+        f"is not: it {hazard} — pass expected_unicode_escapes to refuse such a write; see new_string."
     ) in edit.description
 
-    # ``new_string``: הכלל במשפט הראשון, בתוך 120 תווים, ואחריו שלושת הענפים.
+    # ``new_string``: הכלל במשפט הראשון, בתוך 120 תווים, ואחריו הענפים — עם התנאי המלא.
     rule = new_string.split(". ", 1)[0]
     assert len(rule) <= 120, rule
     assert rule == "The replacement, saved as it reached the tool; a Unicode escape meant as text may not reach it as text"
     assert f"B{other} arrive as sent. But a {escape} {hazard}" in new_string
     assert (
-        "With CODEKEEPER_PAT, send the edit by edits_upload_id of codekeeper_multi_edit_file instead: only a "
-        "file is safe in every client."
+        "With bash, network access and CODEKEEPER_PAT, send the edit by edits_upload_id of "
+        "codekeeper_multi_edit_file instead: only a file is safe in every client."
     ) in new_string
-    assert new_string.endswith(f"Without it, {check}"), new_string
+    assert new_string.endswith(f"Without them, pass expected_unicode_escapes: {gate}."), new_string
 
     # ``edits_upload_id``: הכלל במשפט הראשון, מה ש-JSON צריך — במילים — ואותם חלקים של ``upload_id``.
     rule = doc.split(". ", 1)[0]
     assert len(rule) <= 120, rule
     assert rule == "Instead of edits, for edits whose strings hold backslashes meant as text: single-use"
     assert "decoded exactly once" in doc
+    assert f"one array of the same {handlers.EDIT_PAIR_SHAPE} objects" in doc
     assert (
         "written as two backslashes: two backslashes and u200F there are the six characters of text, and one "
         "backslash and u200F is the character itself."
@@ -1929,39 +2005,64 @@ def test_the_descriptions_split_preference_from_correctness_and_divide_by_the_te
     # והנסיגה: לפי הטקסט, ולא "use the edits parameter as usual" ולא כלי אחד לכל טקסט.
     assert doc.endswith(
         f"Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), b{other} go by "
-        f"codekeeper_edit_file. A {escape} {hazard}: {check}"
+        f"codekeeper_edit_file. A {escape} {hazard}, so write it with codekeeper_edit_file and pass "
+        f"expected_unicode_escapes: {gate}."
     ), doc
     assert "as usual" not in doc
     for word in ("Refusals", "upload_not_found", "upload_corrupted", "invalid_edits_upload", "edits_and_edits_upload_id"):
         assert word not in doc, word
 
+    # הבדיקה המקדימה אינה בשום תיאור: לא ההוראה, ולא ה-``query`` שהיא שלחה.
+    for where, text in {"multi_edit": multi_edit.description, "edit": edit.description, "new_string": new_string,
+                        "edits_upload_id": doc, "expected_unicode_escapes": declared}.items():
+        assert "check first" not in text and "u0041" not in text and "codekeeper_get_file" not in text, where
+    # ומי שמפנה להעלאה נוקב בשלוש הדרישות שלה, לא רק בטוקן.
+    for where, text in {"new_string": new_string, "edits_upload_id": doc}.items():
+        assert "bash, network access" in text and "CODEKEEPER_PAT" in text, where
+
     # ``edits`` נהיה רשות — עם רשימה ריקה ולא עם ``null`` — והמשפט הראשון שלו נשאר.
     assert multi_edit.parameters["required"] == ["file_name"]
     assert props["edits"]["type"] == "array" and "anyOf" not in props["edits"]
-    first, second = props["edits"]["description"].split(". ")[:2]
+    first, second, third = props["edits"]["description"].split(". ")[:3]
     assert first == "Edits applied in order, each to the result of the one before, all or nothing, saved as one version"
     assert second == ("Send edits as a JSON array, not as a string that holds JSON: strings inside a list that "
                       "arrived as a string are decoded twice")
+    assert third == f"Each is {handlers.EDIT_PAIR_SHAPE}, exactly as in codekeeper_edit_file"
 
 
-def test_the_probe_in_the_descriptions_is_what_get_file_answers(store, call):
-    """הבדיקה שהתיאורים שולחים אליה: ``codekeeper_get_file`` מהדהד את ``query`` כפי שהגיע.
+@pytest.mark.parametrize(("backslashes", "arrives_as_text"), [(2, True), (1, False)],
+                         ids=["two_backslashes", "one_backslash"])
+def test_a_declared_count_checks_the_pairs_file_as_it_decodes(store, backend, call, backslashes, arrives_as_text):
+    """``expected_unicode_escapes`` בזוג שבא מקובץ: נספר במה שהקובץ מפוענח אליו — וההעלאה נשארת.
 
-    לוכסן ואחריו ``u0041`` שהגיע כששת התווים חוזר כששת התווים, והאות ``A`` — מה שמגיע כשה-escape
-    הומר לתו בדרך — חוזרת כאות אחת, ואינה נדחית כ-``query_too_short``. בלי זה ההוראה
-    שבתיאור ("Six characters back", "The letter A back") הייתה מתארת תשובה שהכלי אינו נותן.
+    בקובץ הזוגות לוכסן שנועד להיות טקסט נכתב כשני לוכסנים. מי שכתב לוכסן אחד קיבל עד
+    היום את התו, בלי שום סימן; עם ההצהרה הזוג נענה ``unicode_escapes_mismatch`` עם ``index``,
+    לפני השער, ושום דבר לא נכתב. כאן הפענוח הוא של השרת ואינו משתנה מקריאה לקריאה, ולכן
+    ה-``hint`` אינו אומר "שלח שוב" אלא לתקן את הקובץ ולהעלות אותו מחדש.
 
-    מקבע התנהגות קיימת של ``codekeeper_get_file``, ולכן עובר גם על הקוד שלפני השינוי —
-    בכוונה: מה שנבדק הוא שהתיאור החדש נשען על משהו שהכלי באמת עושה.
+    **המוטציה שחייבת להפיל אותו — דילוג על השער כשהזוגות באו מהעלאה:** אז הקובץ עם
+    הלוכסן האחד נכתב, וההעלאה נצרכת.
     """
-    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+    pairs = ('[{"old_string": "X", "new_string": "' + _BS * backslashes
+             + 'u200F", "expected_unicode_escapes": 1}]')
+    assert call("codekeeper_save_file", file_name="log.md", code="a X b")["ok"] is True
+    versions, pushes = len(store.code_snippets.docs), len(store.raw["push_events"].docs)
 
-    as_text = call("codekeeper_get_file", file_name="log.md", query=_BS + "u0041")
-    as_the_letter = call("codekeeper_get_file", file_name="log.md", query="A")
+    res = call(MULTI_EDIT, file_name="log.md", edits_upload_id=_create(backend, pairs))
 
-    assert as_text["query"] == _BS + "u0041" and len(as_text["query"]) == 6
-    assert as_the_letter["query"] == "A"
-    assert as_text["status"] == as_the_letter["status"] == "query"
+    if arrives_as_text:
+        assert res["ok"] is True, res
+        assert _stored_code(store, res["file"]["id"]) == "a " + _ESCAPE_AS_TEXT + " b"
+        assert store.uploads.docs == []
+        return
+    assert (res["ok"], res["error"], res["index"]) == (False, "unicode_escapes_mismatch", 0), res
+    assert (res["expected"], res["received"]) == (1, 0)
+    assert "two backslashes" in res["hint"] and "upload it again" in res["hint"] and "edits_upload_id" in res["hint"]
+    assert "once more" not in res["hint"]
+    assert _RLM not in json.dumps(res, ensure_ascii=False)
+    assert len(store.uploads.docs) == 1 and "upload_consumed" not in res
+    assert len(store.code_snippets.docs) == versions
+    assert len(store.raw["push_events"].docs) == pushes
 
 
 # ---------------------------------------------------------------------------
