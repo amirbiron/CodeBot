@@ -1605,34 +1605,47 @@ def test_a_declared_count_refuses_the_form_that_would_have_written_the_character
         return
     assert (res["ok"], res["error"], res["index"]) == (False, "unicode_escapes_mismatch", 0), res
     assert (res["expected"], res["received"]) == (1, 0)
+    assert (res["received_in_old_string"], res["received_in_new_string"]) == (0, 0)
     assert _RLM not in json.dumps(res, ensure_ascii=False)
     assert len(store.code_snippets.docs) == versions
 
 
+@pytest.mark.parametrize("field", ["new_string", "old_string"])
 @pytest.mark.parametrize(("backslashes", "arrives_as_text"), [(2, True), (1, False)],
                          ids=["two_backslashes_on_the_wire", "one_backslash_on_the_wire"])
-def test_edit_file_over_the_wire_counts_what_the_transport_delivered(store, backend, backslashes, arrives_as_text):
+def test_edit_file_over_the_wire_counts_what_the_transport_delivered(
+        store, backend, field, backslashes, arrives_as_text):
     """``codekeeper_edit_file`` דרך ``POST /mcp``: ההצהרה מושווית למה שהתעבורה מסרה לכלי.
 
     שני לוכסנים על החוט הם ה-escape של JSON ללוכסן אחד, ולכן הכלי מקבל את ששת התווים —
     זו הקריאה של לקוח שלא המיר. לוכסן אחד על החוט הוא ה-escape של התו עצמו, והכלי מקבל
     את התו — זה מה שמגיע מלקוח שהמיר את ה-escape לפני שהקריאה יצאה. הראשונה נכתבת,
     והשנייה נענית ``unicode_escapes_mismatch`` בלי שנכתב דבר.
+
+    **בשתי המחרוזות:** ה-escape יושב פעם ב-``new_string``, שנכתב, ופעם ב-``old_string``,
+    שמותאם מול הקובץ — ההצהרה מכסה את שתיהן, ו-``received_in_old_string`` /
+    ``received_in_new_string`` אומרים באיזו מהן ה-escape לא הגיע.
     """
-    arguments = ('{"file_name": "log.md", "old_string": "X", "new_string": "' + _BS * backslashes
-                 + 'u200F", "expected_unicode_escapes": 1}')
+    escape = _BS * backslashes + "u200F"
+    if field == "new_string":
+        seed, old_string, new_string, saved = "a X b", "X", escape, "a " + _ESCAPE_AS_TEXT + " b"
+    else:
+        seed, old_string, new_string, saved = "a " + _BS * 2 + "u200F b", escape, "Y", "a Y b"
+    arguments = ('{"file_name": "log.md", "old_string": "' + old_string + '", "new_string": "' + new_string
+                 + '", "expected_unicode_escapes": 1}')
     with TestClient(app_in_mode("pat", backend, tokens=TOKENS)) as client:
         seeded = _tool_call_with_raw_arguments(
-            client, WRITE_A, "codekeeper_save_file", '{"file_name": "log.md", "code": "a X b"}')
+            client, WRITE_A, "codekeeper_save_file", '{"file_name": "log.md", "code": "' + seed + '"}')
         assert seeded["ok"] is True, seeded
         versions = len(store.code_snippets.docs)
         res = _tool_call_with_raw_arguments(client, WRITE_A, "codekeeper_edit_file", arguments)
 
     if arrives_as_text:
         assert res["ok"] is True, res
-        assert _stored_code(store, res["file"]["id"]) == "a " + _ESCAPE_AS_TEXT + " b"
+        assert _stored_code(store, res["file"]["id"]) == saved
         return
     assert (res["ok"], res["error"], res["expected"], res["received"]) == (False, "unicode_escapes_mismatch", 1, 0), res
+    assert (res["received_in_old_string"], res["received_in_new_string"]) == (0, 0)
     assert "index" not in res and _RLM not in json.dumps(res, ensure_ascii=False)
     assert len(store.code_snippets.docs) == versions
 
@@ -2030,9 +2043,11 @@ def test_the_descriptions_split_preference_from_correctness_and_divide_by_the_te
     assert third == f"Each is {handlers.EDIT_PAIR_SHAPE}, exactly as in codekeeper_edit_file"
 
 
+@pytest.mark.parametrize("field", ["new_string", "old_string"])
 @pytest.mark.parametrize(("backslashes", "arrives_as_text"), [(2, True), (1, False)],
                          ids=["two_backslashes", "one_backslash"])
-def test_a_declared_count_checks_the_pairs_file_as_it_decodes(store, backend, call, backslashes, arrives_as_text):
+def test_a_declared_count_checks_the_pairs_file_as_it_decodes(
+        store, backend, call, field, backslashes, arrives_as_text):
     """``expected_unicode_escapes`` בזוג שבא מקובץ: נספר במה שהקובץ מפוענח אליו — וההעלאה נשארת.
 
     בקובץ הזוגות לוכסן שנועד להיות טקסט נכתב כשני לוכסנים. מי שכתב לוכסן אחד קיבל עד
@@ -2040,23 +2055,31 @@ def test_a_declared_count_checks_the_pairs_file_as_it_decodes(store, backend, ca
     לפני השער, ושום דבר לא נכתב. כאן הפענוח הוא של השרת ואינו משתנה מקריאה לקריאה, ולכן
     ה-``hint`` אינו אומר "שלח שוב" אלא לתקן את הקובץ ולהעלות אותו מחדש.
 
+    **בשתי המחרוזות של הזוג:** ה-escape יושב פעם ב-``new_string`` ופעם ב-``old_string``.
+
     **המוטציה שחייבת להפיל אותו — דילוג על השער כשהזוגות באו מהעלאה:** אז הקובץ עם
     הלוכסן האחד נכתב, וההעלאה נצרכת.
     """
-    pairs = ('[{"old_string": "X", "new_string": "' + _BS * backslashes
-             + 'u200F", "expected_unicode_escapes": 1}]')
-    assert call("codekeeper_save_file", file_name="log.md", code="a X b")["ok"] is True
+    escape = _BS * backslashes + "u200F"
+    if field == "new_string":
+        seed, old_string, new_string, saved = "a X b", "X", escape, "a " + _ESCAPE_AS_TEXT + " b"
+    else:
+        seed, old_string, new_string, saved = "a " + _ESCAPE_AS_TEXT + " b", escape, "Y", "a Y b"
+    pairs = ('[{"old_string": "' + old_string + '", "new_string": "' + new_string
+             + '", "expected_unicode_escapes": 1}]')
+    assert call("codekeeper_save_file", file_name="log.md", code=seed)["ok"] is True
     versions, pushes = len(store.code_snippets.docs), len(store.raw["push_events"].docs)
 
     res = call(MULTI_EDIT, file_name="log.md", edits_upload_id=_create(backend, pairs))
 
     if arrives_as_text:
         assert res["ok"] is True, res
-        assert _stored_code(store, res["file"]["id"]) == "a " + _ESCAPE_AS_TEXT + " b"
+        assert _stored_code(store, res["file"]["id"]) == saved
         assert store.uploads.docs == []
         return
     assert (res["ok"], res["error"], res["index"]) == (False, "unicode_escapes_mismatch", 0), res
     assert (res["expected"], res["received"]) == (1, 0)
+    assert (res["received_in_old_string"], res["received_in_new_string"]) == (0, 0)
     assert "two backslashes" in res["hint"] and "upload it again" in res["hint"] and "edits_upload_id" in res["hint"]
     assert "once more" not in res["hint"]
     assert _RLM not in json.dumps(res, ensure_ascii=False)

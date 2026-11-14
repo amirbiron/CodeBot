@@ -1468,21 +1468,35 @@ def _changed_since_read(doc: dict[str, Any], expected: str | None) -> dict[str, 
 # ---------------------------------------------------------------------------
 # השער של escape של יוניקוד — ``expected_unicode_escapes``.
 #
-# **מה הוא סוגר.** סוכן שרוצה לכתוב escape של יוניקוד **כטקסט** — לוכסן הפוך, ``u``
-# וארבע ספרות הקס, למשל בדוגמת קוד — שולח אותו ב-``new_string``. יש לקוחות שהופכים
-# אותו לתו לפני שהקריאה יוצאת: נמדד באפליקציית Claude (13–14.11.2026) על כל escape של
-# תו שאינו תו בקרה, ובסשן Claude Code (14.11.2026) לפעמים כן ולפעמים לא, מקריאה לקריאה.
-# הכלי מקבל את התו, שומר את התו, ו-``content_changed`` הוא ``false`` — הוא משווה את מה
-# שהכלי **קיבל** למה שנשמר. המקום היחיד שיודע מה הגיע הוא השרת, ברגע הקריאה ולפני
-# השמירה: הסוכן מצהיר כמה escapes כאלה יש ב-``new_string`` שהוא התכוון לשלוח, השרת
-# סופר את אותה תבנית במה שהגיע, ומספר אחר הוא סירוב — בלי קריאה מהמסד ובלי כתיבה.
+# **מה הוא סוגר.** סוכן שעובד עם escape של יוניקוד **כטקסט** — לוכסן הפוך, ``u`` וארבע
+# ספרות הקס, למשל בדוגמת קוד — שולח אותו ב-``new_string``, כדי לכתוב אותו, או ב-
+# ``old_string``, כדי למצוא אותו בקובץ. יש לקוחות שהופכים אותו לתו לפני שהקריאה יוצאת:
+# נמדד באפליקציית Claude (13–14.11.2026) על כל escape של תו שאינו תו בקרה, ובסשן Claude
+# Code (14.11.2026) לפעמים כן ולפעמים לא, מקריאה לקריאה. ב-``new_string`` הכלי מקבל את
+# התו, שומר את התו, ו-``content_changed`` הוא ``false`` — הוא משווה את מה שהכלי **קיבל**
+# למה שנשמר. ב-``old_string`` הכלי מחפש את התו במקום את הטקסט: בדרך כלל ``no_match``,
+# אבל כשהתו קיים בקובץ, ההחלפה נעשית במקום הלא נכון, בלי שום סימן. המקום היחיד שיודע
+# מה הגיע הוא השרת, ברגע הקריאה ולפני השמירה: הסוכן מצהיר כמה escapes כאלה יש בשתי
+# המחרוזות שהוא התכוון לשלוח, השרת סופר את אותה תבנית במה שהגיע, ומספר אחר הוא סירוב —
+# בלי קריאה מהמסד ובלי כתיבה.
+#
+# **הצהרה אחת לשתי המחרוזות, ולא אחת לכל מחרוזת.** שער שאפשר להפעיל על מחרוזת אחת
+# ולשכוח את השנייה משאיר את החשיפה במקומה. ההצהרה מכסה כל מחרוזת שהקריאה מתאימה או
+# כותבת, והסירוב נושא גם כמה הגיע בכל אחת, כדי שהסוכן יידע איזו הומרה.
+#
+# **החוזה: escape שנכתב בקריאה נספר כטקסט.** מי שרוצה להתאים או לכתוב את התו עצמו שולח
+# את התו, לא את ה-escape שלו. הסיבה: סכום אינו רואה מחרוזת אחת שאיבדה escape ושנייה
+# ש"הרוויחה" אחד — וזה קורה רק כשכותבים escape כדי לקבל תו. אז ה-escape שלא הומר נשאר
+# בקריאה כטקסט שלא הוצהר, ומכסה על זה שהומר.
 #
 # **למה סירוב לפני הכתיבה ולא אימות אחריה.** אימות אחרי מגלה כשהתוכן השגוי כבר נשמר:
 # גרסה והתראה, ועוד גרסה והתראה לביטול — והביטול עצמו עובר באותו ערוץ שהמיר.
 #
-# **מה הוא אינו סוגר, במפורש.** רק ``new_string`` נספר: ``old_string`` שה-escape שלו
-# הומר מחפש טקסט אחר ממה שהסוכן התכוון אליו. לוכסן שאינו escape של יוניקוד (לוכסן
-# ואחריו ``n``) אינו נספר כלל. ובלי הפרמטר אין שום בדיקה.
+# **מה הוא אינו סוגר, במפורש.** (א) קריאה שמפרה את החוזה שמעל. (ב) escape של הלוכסן
+# ההפוך עצמו (``u005C``) שאחריו ``u`` וארבע ספרות: כשהוא מומר נוצר במקומו רצף חדש,
+# והספירה נשארת כמו שהייתה. (ג) לוכסן שאינו escape של יוניקוד (לוכסן ואחריו ``n``) אינו
+# נספר כלל. (ד) בלי הפרמטר אין שום בדיקה. ``tests/test_mcp_multi_edit.py`` מקבע את (א)
+# ואת (ב), כדי שהם יישארו מגבלות ידועות ולא הפתעות.
 # ---------------------------------------------------------------------------
 
 #: מה נספר: לוכסן הפוך, ``u`` וארבע ספרות הקס — הצורה שפענוח של escape הופך לתו. טווחים
@@ -1503,14 +1517,15 @@ UNICODE_ESCAPE_IN_WORDS = "a backslash, u and four hex digits"
 #: המשפט הראשון של תיאור הפרמטר — הכלל כולו, כי לקוח שמקצר תיאור פרמטר רואה רק אותו.
 #: **נוסח אחד** לפרמטר של ``codekeeper_edit_file`` ולשדה של הזוג ב-``EditPair``.
 EXPECTED_UNICODE_ESCAPES_RULE = (
-    "How many Unicode escapes meant as text new_string holds; the tool refuses, writing "
-    "nothing, if another number reached it"
+    "How many Unicode escapes meant as text old_string and new_string hold together; with "
+    "another total, nothing is written"
 )
 
-#: מה שכל ``hint`` של השער אומר על שני המספרים, ומה עושים אחרי הסירוב.
+#: מה שכל ``hint`` של השער אומר על המספרים, ומה עושים אחרי הסירוב.
 _ESCAPES_COUNTED = (
-    "expected is the number declared, and received counts, in new_string as it reached the "
-    f"tool, every place that holds {UNICODE_ESCAPE_IN_WORDS}"
+    "expected is the number declared, and received counts, in old_string and new_string as "
+    f"they reached the tool, every place that holds {UNICODE_ESCAPE_IN_WORDS}; "
+    "received_in_old_string and received_in_new_string say how many arrived in each"
 )
 _ESCAPES_SEND_ONCE_MORE = (
     "A client can turn such an escape into its character before the tool sees it, and that "
@@ -1533,7 +1548,7 @@ def _invalid_expected_unicode_escapes(expected: Any) -> dict[str, Any] | None:
     שלילי **כן** מגיע לכאן דרך MCP. בזוג של ``codekeeper_multi_edit_file`` אותו כלל
     יושב במודל (``EditPair``), ונענה ``invalid_edit``.
 
-    אין תקרה עליונה: מספר גדול ממה ש-``new_string`` יכול להכיל פשוט אינו תואם.
+    אין תקרה עליונה: מספר גדול ממה ששתי המחרוזות יכולות להכיל פשוט אינו תואם.
     """
     if expected is None:
         return None
@@ -1542,31 +1557,43 @@ def _invalid_expected_unicode_escapes(expected: Any) -> dict[str, Any] | None:
     return {
         "ok": False,
         "error": EXPECTED_UNICODE_ESCAPES_INVALID,
-        "hint": "pass a whole number, 0 or more: how many times new_string holds, as text, "
-        f"{UNICODE_ESCAPE_IN_WORDS}. Nothing was written",
+        "hint": "pass a whole number, 0 or more: how many times old_string and new_string "
+        f"together hold, as text, {UNICODE_ESCAPE_IN_WORDS}. Nothing was written",
     }
 
 
-def _unicode_escapes_mismatch(new_string: str, expected: int | None) -> dict[str, Any] | None:
-    """``unicode_escapes_mismatch`` כש-``new_string`` שהגיע אינו נושא את מספר ה-escapes שהוצהר.
+def _count_unicode_escapes(text: str) -> int:
+    """כמה פעמים ``UNICODE_ESCAPE_RE`` נמצאת ב-``text`` — בלי לבנות רשימה של ההתאמות."""
+    return sum(1 for _ in UNICODE_ESCAPE_RE.finditer(text))
 
-    ``None`` כשאין הצהרה — אז אין בדיקה — או כשהמספרים שווים. **``0`` הוא הצהרה, לא
-    היעדר הצהרה:** "אין כאן אף escape" נבדק כמו כל מספר, ולכן ההשוואה היא ל-``None``
-    ולא לערך שקרי.
 
-    בתשובה שני מספרים, ולעולם לא טקסט מ-``new_string``. ה-``hint`` נוסף אצל הקורא,
-    כי מה שעושים אחרי הסירוב תלוי בדרך שבה המחרוזת הגיעה.
+def _mismatched_unicode_escapes(
+    old_string: str, new_string: str, expected: int | None
+) -> dict[str, int] | None:
+    """המספרים של ``unicode_escapes_mismatch`` — או ``None`` כשאין מה לסרב עליו.
+
+    ``None`` כשאין הצהרה — אז אין בדיקה — או כשהסכום שהגיע הוא זה שהוצהר. **``0`` הוא
+    הצהרה, לא היעדר הצהרה:** "אין כאן אף escape" נבדק כמו כל מספר, ולכן ההשוואה היא
+    ל-``None`` ולא לערך שקרי.
+
+    **נספרות שתי המחרוזות, והסכום הוא שמושווה** — ההערה שמעל ``UNICODE_ESCAPE_RE``. לצד
+    הסכום חוזר מה שהגיע בכל מחרוזת: בלי זה סירוב אומר שמשהו הומר, ולא איפה.
+
+    חוזרים מספרים בלבד, לעולם לא טקסט מהמחרוזות. **המפתחות חוזרים כמילון אחד, שהקורא
+    פורש לתוך הסירוב שלו:** שני הקוראים בונים סירוב בצורה אחרת (לזוג יש ``index``), ושדה
+    שיתווסף כאן מגיע לשניהם בלי שמישהו יזכור להוסיף אותו. ה-``hint`` נוסף אצל הקורא, כי
+    מה שעושים אחרי הסירוב תלוי בדרך שבה המחרוזות הגיעו.
     """
     if expected is None:
         return None
-    received = sum(1 for _ in UNICODE_ESCAPE_RE.finditer(new_string))
-    if received == expected:
+    in_old, in_new = _count_unicode_escapes(old_string), _count_unicode_escapes(new_string)
+    if in_old + in_new == expected:
         return None
     return {
-        "ok": False,
-        "error": UNICODE_ESCAPES_MISMATCH,
         "expected": expected,
-        "received": received,
+        "received": in_old + in_new,
+        "received_in_old_string": in_old,
+        "received_in_new_string": in_new,
     }
 
 
@@ -1605,10 +1632,12 @@ def edit_file(
     bad_count = _invalid_expected_unicode_escapes(expected_unicode_escapes)
     if bad_count is not None:
         return bad_count
-    mismatch = _unicode_escapes_mismatch(new_string, expected_unicode_escapes)
-    if mismatch is not None:
+    counts = _mismatched_unicode_escapes(old_string, new_string, expected_unicode_escapes)
+    if counts is not None:
         return {
-            **mismatch,
+            "ok": False,
+            "error": UNICODE_ESCAPES_MISMATCH,
+            **counts,
             "hint": f"nothing was written: {_ESCAPES_COUNTED}. "
             + _ESCAPES_SEND_ONCE_MORE.format(what="the same call"),
         }
@@ -2070,8 +2099,10 @@ def multi_edit_file(
     # עברה בלקוח, ושליחה נוספת יכולה להגיע אחרת; קובץ שהועלה מפוענח כאן פעם אחת, ולכן
     # אותו קובץ ייענה תמיד אותו דבר — מתקנים אותו ומעלים שוב.
     for index, pair in enumerate(pairs):
-        mismatch = _unicode_escapes_mismatch(pair.new_string, pair.expected_unicode_escapes)
-        if mismatch is None:
+        counts = _mismatched_unicode_escapes(
+            pair.old_string, pair.new_string, pair.expected_unicode_escapes
+        )
+        if counts is None:
             continue
         if upload is None:
             # "as a JSON array": רשימה שנשלחה כמחרוזת מפוענחת פעמיים, וזו סיבה שנייה —
@@ -2084,10 +2115,9 @@ def multi_edit_file(
             )
         return {
             "ok": False,
-            "error": mismatch["error"],
+            "error": UNICODE_ESCAPES_MISMATCH,
             "index": index,
-            "expected": mismatch["expected"],
-            "received": mismatch["received"],
+            **counts,
             "hint": f"{_NOTHING_WRITTEN}In this pair {_ESCAPES_COUNTED}. {after}",
         }
     bad_expected = _invalid_expected_sha256(expected_content_sha256)

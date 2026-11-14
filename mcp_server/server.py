@@ -814,10 +814,11 @@ def _edits_upload_id_param_doc(upload_url: str) -> str:
 #
 # **הענפים ל-escape של יוניקוד**, בסדר: מי שיכול להעלות קובץ (bash, רשת ו-
 # ``CODEKEEPER_PAT``) ← ``edits_upload_id``, בלי לבדוק דבר. מי שלא ← ``codekeeper_edit_file``
-# עם ``expected_unicode_escapes``: הסוכן מצהיר כמה escapes כאלה יש ב-``new_string``, והשרת
-# סופר במה שהגיע ומסרב, בלי לכתוב, כשהמספר אחר (``_unicode_escapes_mismatch`` ב-
-# ``mcp_server/handlers.py``). סורב ← ניסיון אחד נוסף, כי ההמרה משתנה מקריאה לקריאה;
-# סורב שוב ← לומר למשתמש.
+# עם ``expected_unicode_escapes``: הסוכן מצהיר כמה escapes כאלה יש ב-``old_string`` וב-
+# ``new_string`` יחד, והשרת סופר במה שהגיע ומסרב, בלי לכתוב, כשהסכום אחר
+# (``_mismatched_unicode_escapes`` ב-``mcp_server/handlers.py``, ושם גם החוזה: escape שנכתב
+# בקריאה נספר כטקסט). סורב ← ניסיון אחד נוסף, כי ההמרה משתנה מקריאה לקריאה; סורב שוב ←
+# לומר למשתמש.
 #
 # **ולמה לא בדיקה מקדימה** — עד #3691 הענף השני היה קריאה אחת בלי כתיבה, ``query`` של
 # ``codekeeper_get_file`` שמוחזר כפי שהגיע. היא מודדת את הקריאה **ההיא**, ובמקום שבו
@@ -864,19 +865,35 @@ _NEW_STRING_PARAM_DOC = (
 #: תיאור ``expected_unicode_escapes`` של ``codekeeper_edit_file``. המשפט הראשון הוא
 #: ``handlers.EXPECTED_UNICODE_ESCAPES_RULE`` — אותו משפט שהשדה של הזוג נושא בסכימה של
 #: ``edits``. הקודים נשתלים מהקבועים שהגוף מחזיר, ולא מוקלדים.
+#:
+#: **החוזה כתוב כאן, כי הוא מה שהופך סכום אחד לשער:** escape שנכתב בקריאה נספר כטקסט, ומי
+#: שרוצה את התו עצמו שולח את התו. בלי החוזה סכום אינו רואה מחרוזת אחת שאיבדה escape
+#: ושנייה ש"הרוויחה" אחד — ההערה מעל ``UNICODE_ESCAPE_RE`` ב-``handlers.py``. שמות שני
+#: השדות שבסירוב מוקלדים כאן, ו-``tests/test_mcp_multi_edit.py`` משווה אותם למה שהסירוב נושא.
+#:
+#: **משפט החוזה הוא קבוע משלו**, כי הוא כתוב גם בתיאור ``edits``: זוג של
+#: ``codekeeper_multi_edit_file`` נושא את אותה הצהרה, ומי שקורא רק את הכלי ההוא צריך לפגוש
+#: את החוזה שם, ולא רק בהפניה "exactly as in codekeeper_edit_file".
+_ESCAPE_COUNTS_AS_TEXT_DOC = (
+    "An escape written in the call counts as text: to match or to write the character "
+    "itself, send the character, not its escape"
+)
 _EXPECTED_UNICODE_ESCAPES_PARAM_DOC = (
     f"{handlers.EXPECTED_UNICODE_ESCAPES_RULE}. A Unicode escape meant as text is "
-    f"{handlers.UNICODE_ESCAPE_IN_WORDS}: count every such sequence in the text you mean "
-    "to save, and the tool counts them in new_string as it arrived. A client can turn such "
-    "an escape into its character before the tool sees it, and content_changed does not "
-    "show that: it compares what the tool received. A different count is refused as "
-    f"{handlers.UNICODE_ESCAPES_MISMATCH}, with expected and received (numbers only), "
-    "before the file is read. If the number is right, send the same call once more: the "
-    "conversion can differ from call to call. Refused again: tell the user that this text "
-    "cannot be written from this client. 0 is a count like any other: it refuses when an "
-    "escape arrived. A value that is not a whole number of 0 or more is refused as "
-    f"{handlers.EXPECTED_UNICODE_ESCAPES_INVALID}. old_string is not counted. Omitted: no "
-    "check."
+    f"{handlers.UNICODE_ESCAPE_IN_WORDS}: count every such sequence in old_string and in "
+    "new_string, and the tool counts them in both as they arrived. "
+    f"{_ESCAPE_COUNTS_AS_TEXT_DOC}. The reason: a total cannot see one string that lost an "
+    "escape and "
+    "another that gained one, and that happens only when an escape is written to get a "
+    "character. A client can turn such an escape into its character before the tool sees "
+    "it, and content_changed does not show that: it compares what the tool received. A "
+    f"different total is refused as {handlers.UNICODE_ESCAPES_MISMATCH}, before the file is "
+    "read, with expected, received, and received_in_old_string and received_in_new_string "
+    "to show which string changed (numbers only). If the number is right, send the same "
+    "call once more: the conversion can differ from call to call. Refused again: tell the "
+    "user that this text cannot be written from this client. 0 is a count like any other: "
+    "it refuses when an escape arrived. A value that is not a whole number of 0 or more is "
+    f"refused as {handlers.EXPECTED_UNICODE_ESCAPES_INVALID}. Omitted: no check."
 )
 
 
@@ -1113,9 +1130,10 @@ def _build_multi_edit_docs() -> tuple[str, str]:
         "no_match and ambiguous_match also carry occurrences (in the text after the "
         "earlier edits) and occurrences_in_stored_version (in the file as stored): when "
         "they differ, an earlier edit changed what this one looks for. A pair whose "
-        "new_string did not arrive with the number of Unicode escapes its "
+        "old_string and new_string did not arrive with the number of Unicode escapes its "
         f"expected_unicode_escapes declares is {handlers.UNICODE_ESCAPES_MISMATCH}, with "
-        "index, expected and received. A malformed edit (an "
+        f"index, expected, received and the count in each string. {_ESCAPE_COUNTS_AS_TEXT_DOC}. "
+        "A malformed edit (an "
         "unknown key, a missing new_string, a value of the wrong type, a replace_all that "
         "is not a JSON true or false, an expected_unicode_escapes that is not a whole "
         "number of 0 or more) is invalid_edit with index and problems, each with "
