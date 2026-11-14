@@ -703,6 +703,17 @@
    */
   function codePointLength(text){ return [...String(text == null ? '' : text)].length; }
 
+  /**
+   * טקסט כמו שתיבת טקסט מחזירה אותו מ-``value``: ``\r\n`` ו-``\r`` בודד הופכים ל-``\n``. זה ה-"API value"
+   * של ``textarea`` ב-HTML Standard (normalize newlines), ונמדד בכרומיום: ``'a\r\nb\rc'`` חוזר כ-``'a\nb\nc'``.
+   * **ההשוואה בין מה שבתיבה למה שבשרת עוברת כאן**, כי השרת שומר את הגוף כמו שנשלח — וסוכן ב-MCP יכול לכתוב
+   * ``\r\n``. בלי זה פתק כזה נראה "משונה מהבסיס" מהרגע שנטען: עדכון ממקום אחר היה מעלה עליו התראה במקום
+   * להתחלף, וסגירה או העברה לארכיון היו נעצרות על שינוי שהמשתמש לא עשה.
+   */
+  function asTextareaValue(text){
+    return String(text == null ? '' : text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  }
+
   /** מספר לתצוגה עם מפריד אלפים ("4,000"), כמו בעיצוב. */
   function formatCount(n){ return Number(n).toLocaleString('he-IL'); }
 
@@ -855,6 +866,61 @@
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
+  // ── עדכון בזמן אמת ─────────────────────────────────────────────────
+  //
+  // הדגימה רצה ב-``VisiblePoll`` (``static/js/utils/visible-poll.js``), אותה שרשרת של בועת התזכורות,
+  // והמספרים כאן הם מה שייחודי לפתקים. **כל 15 שניות כשהלשונית גלויה** — המקרה הנפוץ הוא סוכן שכותב
+  // דרך ה-MCP בזמן שהלשונית פתוחה לצד הצ'אט, ושם המשתמש מחכה לראות. בלשונית מוסתרת אין דגימה בכלל,
+  // והחזרה אליה (או לחלון) שואלת מיד — לכל היותר פעם ב-``LIVE_POLL_RETURN_FLOOR_MS``, כי במכשיר נייד
+  // כל מעבר בין אפליקציות הוא חזרה. כשל מכפיל את ההמתנה מ-``LIVE_POLL_MS`` עד ``LIVE_POLL_MAX_MS``.
+  // הבקשה עצמה קלה: מזהה, אסימון וצבע לכל פתק, בלי תוכן (``?versions=1`` בשרת).
+  const LIVE_POLL_MS = 15 * 1000;
+  const LIVE_POLL_MAX_MS = 5 * 60 * 1000;
+  const LIVE_POLL_RETURN_FLOOR_MS = 5 * 1000;
+  // אותה תקרה של בועת התזכורות, וגם של ``API_FETCH_TIMEOUT_MS`` שמתחת: ה-worker של gevent אינו
+  // מגביל בקשה, ולכן הלקוח מגביל.
+  const LIVE_POLL_TIMEOUT_MS = 15 * 1000;
+  // 429: לפחות דקה, או מה שהשרת ביקש ב-``Retry-After`` אם הוא ארוך יותר.
+  const LIVE_POLL_RATE_LIMIT_MS = 60 * 1000;
+  // כמה פתקים נמשכים במלואם בסבב אחד. בדרך כלל אחד או שניים (סוכן כתב פתק); השאר — בסבב הבא.
+  const LIVE_POLL_MAX_FETCHES = 20;
+  // כמה שמירות "שעוד לא אושרו" נזכרות לכל פתק — ראו ``_rememberUnconfirmed``.
+  const UNCONFIRMED_SENDS_MAX = 8;
+  // אחרי שהאצבע עוזבת פתק: כמה זמן עדכון מהשרת עוד מחכה, כדי שהלחיצה (שבמגע יכולה להגיע במשימה
+  // נפרדת אחרי ``pointerup``) תגיע לתצוגה שעליה היא חושבה. ראו ``_deferWhilePressed``.
+  const PRESS_SETTLE_MS = 350;
+  // **טיוטה שמחכה להחלטה**, כשהמנהל מתפרק בלי שהמשתמש בחר "עדכן" או "התעלם" (החלפת קובץ בדפדפן הריפו
+  // — אי אפשר לעצור אותה, כי הקובץ החדש כבר נטען). הטקסט שהוקלד נשמר בדפדפן, ומוצג שוב עם ההתראה
+  // כשהפתק מוצג שוב — ראו ``_persistHeldDrafts`` ו-``_restoreHeldDraft``. המפתח הוא של הפתק ולא של
+  // המשטח: אותו פתק יכול להיות מוצג במשטח אחר. שבוע — מעבר לזה הבסיס שהטקסט נשען עליו ישן מכדי שהשוואה
+  // אליו תגיד משהו, והטיוטה נזרקת עם אזהרה בקונסול.
+  const HELD_DRAFT_KEY_PREFIX = 'sticky-notes:held-draft:';
+  const HELD_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+  // כמה פעמים ``_flushFor`` ממתין לשמירה שבאוויר לפני שהוא שולח את מה שבתור. בכל פעם הוא ממתין לבקשה
+  // אמיתית עם תקרת זמן (``saveRequestSignal``), ולכן ההמתנה חסומה; התקרה כאן היא רק נגד שרשרת של
+  // שמירות שנפתחות בזו אחר זו בזמן ההמתנה — מה שבתור יוצא אז בסבב הבא.
+  const FLUSH_WAIT_ROUNDS = 4;
+
+  /**
+   * סיגנל עם תקרת זמן לבקשת שמירה — ``AbortSignal.timeout`` או, בדפדפן שאינו מכיר אותו, ``AbortController``
+   * עם טיימר (נפילה-לאחור על היעדר יכולת, לא על כשל). **בלי תקרה, שמירה תקועה הייתה חוסמת את הפתק לנצח:**
+   * שמירה אחת בכל רגע לכל פתק (``_flushFor``, ``_performSaveBatch``), ובקשה שאינה חוזרת — חיבור half-open,
+   * שאין לו תקרה בשרת — הייתה משאירה את הפתק "באוויר" וכל שמירה שלו הייתה מחכה לה
+   * (``wait-without-own-deadline``). חריגת זמן נדחית כשגיאת רשת, ונופלת לאותו מסלול: "לא ידוע" — השרת
+   * אולי כתב, המטען חוזר לתור, ו-``_rememberUnconfirmed`` מזהה אחר כך את הכתיבה כשלנו.
+   */
+  function saveRequestSignal(){
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      return AbortSignal.timeout(API_FETCH_TIMEOUT_MS);
+    }
+    if (typeof AbortController === 'function') {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), API_FETCH_TIMEOUT_MS);
+      return ctrl.signal;
+    }
+    return undefined;
+  }
+
   class StickyNotesManager {
     // מקבל או מזהה קובץ (הצורה ההיסטורית, שנשארת עובדת ביט-זהה), או אובייקט
     // תצורה עבור לוח:
@@ -955,6 +1021,8 @@
       this._saveDebounced = debounce(this._performSaveBatch.bind(this), AUTO_SAVE_DEBOUNCE_MS);
       this._pending = new Map();
       this._inFlight = new Map();
+      // מונה הקריאות מהשרת — כל קריאה של פתק (או של רשימה) מקבלת מספר כשהיא **יוצאת**. ראו ``_nextReadSeq``.
+      this._readSeq = 0;
       this._autoFlushTimer = null;
       this._autoFlushBusy = false;
       this._lineIndex = new Map(); // lineNumber -> pageY
@@ -1084,6 +1152,9 @@
         // המנהל המת היה מוסיף FAB ומאזינים לקונטיינר של הקובץ החדש.
         if (this._destroyed) return;
         if (!this.overlayMode) this._createFab();
+        // **עדכון בזמן אמת — אחרי הטעינה הראשונה**, כי מה שבמסך הוא הבסיס של ההשוואה. דגימה שהייתה
+        // רצה לפני שהרשימה הגיעה הייתה רואה כל פתק כ"חדש" (``BY-STACK/cron-jobs.md``, דפוס 10).
+        this._startLivePoll();
         // **נגיעה ברקע של פתק פתוח** — בשלב הלכידה על המכל, כלומר לפני המאזין של העמוד על הרקע עצמו.
         if (this.overlayMode) {
           this._on(this.container, 'pointerdown', (ev) => this._onOverlayBackdropPress(ev), true);
@@ -1166,6 +1237,9 @@
 
     async loadNotes(){
       try {
+        // מספר הקריאה — כמו כל קריאה של פתק (``_nextReadSeq``): פתק שנגעו בו ושכבר נשען על קריאה מאוחרת יותר
+        // (רענון בכניסה לעריכה שחזר לפני הרשימה) אינו מקבל ממנה גרסה ישנה.
+        const seq = this._nextReadSeq();
         const url = `${this._scopeUrl}?_=${Date.now()}`;
         const resp = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
         const data = await resp.json();
@@ -1177,15 +1251,42 @@
         // כתיבת תשובה ישנה לקאש היא אותה טעות, רק שהיא שורדת ריענון.
         if (this._destroyed) return;
         if (!data || data.ok === false) return;
-        // החלף תוכן מהרשימה העדכנית מהשרת
+        // החלף תוכן מהרשימה העדכנית מהשרת — **חוץ מפתק שהמשתמש כבר נגע בו.** הפתקים מוצגים קודם
+        // מהקאש (``_loadCacheAndRender``, עד יממה אחורה), ומי שנכנס לעריכה לפני שהרשימה הגיעה היה מאבד
+        // את הפוקוס, והעריכה שלו הייתה נשמרת מעל גרסה שלא ראה. פתק כזה עובר את הפיוס
+        // (``_reconcileServerNote``) כמו בדגימה; כל השאר נבנה מחדש מהשרת, כמו קודם.
         const fresh = Array.isArray(data.notes) ? data.notes : [];
-        this._clearAllNotes();
-        fresh.forEach(n => this._renderNote(n));
+        const freshIds = new Set(fresh.filter((n) => n && n.id != null).map((n) => String(n.id)));
+        for (const [id, entry] of Array.from(this.notes.entries())) {
+          if (freshIds.has(String(id)) || this._isTouched(entry)) continue;
+          this._removeNoteLocally(entry.el);
+        }
+        fresh.forEach((n) => {
+          const entry = n && n.id != null ? this.notes.get(String(n.id)) : null;
+          if (entry && this._isTouched(entry)) {
+            this._reconcileServerNote(n, 'poll', seq);
+            return;
+          }
+          if (entry) this._removeNoteLocally(entry.el);
+          this._renderNote(n);
+        });
         // השרת לא הצליח לקרוא את תקצירי השרשורים: הפתקים כאן, אבל "אין בועות" אינו
         // "אין שרשורים". 💬 אומר את זה, ולחיצה עליו מנסה שוב.
         if (data.threads_unavailable === true) this._markThreadsUnavailable();
         this._saveCache(fresh);
       } catch(e){ console.error('loadNotes error', e); }
+    }
+
+    /**
+     * האם המשתמש באמצע עבודה על הפתק — עריכה (של התוכן או של השם), שינוי שלא נשמר, או שמירה בדרך.
+     * פתק כזה אינו נבנה מחדש מהשרת ואינו יורד מהמסך; הוא עובר את הפיוס.
+     */
+    _isTouched(entry){
+      if (!entry || !entry.el) return false;
+      const id = String(entry.el.dataset.noteId);
+      if (this._isNoteEditing(entry) || this._hasUnsentEdits(id) || this._isSaveHeld(id)) return true;
+      const dirty = this._dirtyFields(entry);
+      return dirty.content || dirty.title;
     }
 
     _createFab(){
@@ -1225,7 +1326,19 @@
       const onVisibility = () => {
         try { if (document.visibilityState === 'hidden') flush(); } catch(_) { flush(); }
       };
-      this._on(window, 'beforeunload', flush, { capture: true });
+      // **סגירה כשיש שינוי מוחזק מול עדכון שמחכה להחלטה** — הדפדפן מבקש אישור. השינוי לא נשלח בסגירה
+      // (``_flushPendingKeepalive`` מדלג עליו), ובלי האזהרה הוא היה נעלם בשקט. ``preventDefault`` הוא
+      // הדרך שהמפרט מגדיר, ו-``returnValue`` — לדפדפנים שמכירים רק אותו (MDN, ``beforeunload``). הדפדפן
+      // מציג את השאלה רק אחרי אינטראקציה של המשתמש עם העמוד (sticky activation, שם) — ושינוי מוחזק
+      // תמיד נולד מהקלדה, ולכן התנאי מתקיים.
+      const onBeforeUnload = (ev) => {
+        flush();
+        if (this._hasHeldLocalEdits()) {
+          ev.preventDefault();
+          ev.returnValue = '';
+        }
+      };
+      this._on(window, 'beforeunload', onBeforeUnload, { capture: true });
       this._on(window, 'pagehide', onPagehide, { capture: true });
       this._on(document, 'visibilitychange', onVisibility);
     }
@@ -1316,7 +1429,12 @@
           : (this.repoTarget
             ? { repo_name: this.repoTarget.repo, repo_path: this.repoTarget.path }
             : { file_id: this.fileId });
-        const note = Object.assign({ id: data.id }, target, payload, { is_minimized: false, created_at: null, updated_at: null });
+        // האסימון מתשובת היצירה (``_stored_now`` בשרת) — הבסיס של הפתק החדש. בלעדיו הדגימה הראשונה
+        // הייתה רואה אסימון שאינו שלנו, ומציגה "יש עדכון חדש" על פתק שהמשתמש רק התחיל לכתוב.
+        const note = Object.assign({ id: data.id }, target, payload, {
+          is_minimized: false, created_at: null,
+          updated_at: (typeof data.updated_at === 'string' && data.updated_at) || null,
+        });
         // **הפתק החדש עולה מעל כל השאר.** הוא נכנס אחרון ל-DOM, אבל זה מספיק רק מול
         // פתקים שלא הועלו: פתק שנפתח בו שרשור, או שנגעו בו, כבר יושב מעל הבסיס —
         // והחדש היה נפתח מתחתיו. ראו ``_raiseToFront``.
@@ -1498,6 +1616,7 @@
         // והשארתו הייתה מציגה שגיאה על טקסט שטרם נבדק.
         this._markTitleConflict(el.dataset.noteId, false);
         this._queueSave(el, { title: titleInput.value });
+        this._syncRemoteNotice(el);
       });
       // 409 מהשרת פירושו שהשם תפוס בלוח הזה. חיווי גלוי — לא כתיבה
       // שנראית שנשמרה ולא נשמרה.
@@ -1506,6 +1625,7 @@
         // ורשת יכולה להיתקע. אם השחרור היה אחריו, הפתק היה נשאר במצב
         // עריכה — כלומר בלתי ניתן לגרירה — עד שהבקשה תחזור.
         this._setTitleEditing(el, false);
+        this._afterEditExit(el);
         try { await this._flushFor(el); } catch(_) {}
         this._syncTitleConflict(el);
       });
@@ -1551,11 +1671,15 @@
         const entry = this._getEntry(el);
         if (entry) entry.editing = true;
         this._syncTaskView(el, { editing: true });
+        // **כל כניסה לעריכת התוכן עוברת כאן** — לחיצה על התצוגה, Enter, לחיצה ממושכת, כלי MD, ונגיעה
+        // ישירה בתיבה של פתק טקסט רגיל. הכניסה מיידית, והרענון יוצא ברקע (``_refreshBeforeEdit``).
+        this._refreshBeforeEdit(el);
       });
       textarea.addEventListener('blur', () => {
         const entry = this._getEntry(el);
         if (entry) entry.editing = false;
         this._syncTaskView(el);
+        this._afterEditExit(el);
       });
 
       const resizer = createEl('div', 'sticky-note-resize');
@@ -1613,7 +1737,10 @@
       // **והמאזין שקט: בלי ``preventDefault`` ובלי ``stopPropagation``.** הוא רק משנה
       // ``z-index``, ולכן הלחיצה ממשיכה לעריכה, לבחירת טקסט, לגרירה וללחיצה הממושכת
       // בדיוק כמו בלעדיו.
-      el.addEventListener('pointerdown', () => this._raiseToFront(el), { capture: true });
+      el.addEventListener('pointerdown', () => {
+        this._raiseToFront(el);
+        this._trackPress(el);
+      }, { capture: true });
       textarea.addEventListener('focus', () => {
         try {
           if (!this._isPinned(el)) {
@@ -1626,6 +1753,8 @@
         this._recordUndoBurst(el, textarea);
         this._checkContentLength(el, textarea.value);
         this._queueSave(el, { content: textarea.value });
+        // ההתראה על עדכון מהשרת אומרת אם "עדכן" יחליף שינויים — ומהרגע הזה יש כאלה.
+        this._syncRemoteNotice(el);
       });
       textarea.addEventListener('keydown', (ev) => {
         try {
@@ -1687,7 +1816,17 @@
 
       if (focus) try { textarea.focus(); } catch(_) {}
       if (note.updated_at) { try { el.dataset.updatedAt = String(note.updated_at); } catch(_) {} }
-      this.notes.set(note.id, { el, data: note });
+      // ``base`` — הגרסה בשרת שהעותק הזה נשען עליה (``_noteBase``). ``unconfirmed`` — שמירות שנשלחו
+      // ועוד לא אושרו (``_rememberUnconfirmed``).
+      this.notes.set(note.id, {
+        el, data: note,
+        base: {
+          content: typeof note.content === 'string' ? note.content : '',
+          title: canonicalTitleText(String(note.title || '')),
+          updated_at: (typeof note.updated_at === 'string' && note.updated_at) || null,
+        },
+        unconfirmed: [],
+      });
       this._initNoteThreads(el, note);
       // הפתק נכנס באנימציית קנה מידה (``noteAppear``), ובזמנה המלבנים שלו קטנים
       // מהאמיתיים. חלונית שנפתחה בזמן הזה — קישור ישיר לשרשור — נמדדה מולם, ולכן
@@ -1742,7 +1881,131 @@
         }
       } catch(_) {}
 
+      // טיוטה שחיכתה להחלטה כשהמנהל הקודם התפרק — הטקסט שהוקלד חוזר למסך, עם ההתראה.
+      this._restoreHeldDraft(this.notes.get(note.id), note);
+
       return el;
+    }
+
+    // ── טיוטה שמחכה להחלטה, מעבר לחיי המנהל ───────────────────────────
+    //
+    // **הכרעת המשתמש:** התחיל לשנות פתק בדפדפן הריפו, הגיע עדכון ממקום אחר והופיעה ההתראה, ובלי לבחור עבר
+    // לקובץ אחר — "לשמור ולהציג שוב". את המעבר אי אפשר לעצור (הקובץ החדש כבר נטען כשהמנהל מתפרק), ובלי
+    // זה מה שהוקלד היה נעלם: ``_flushAll`` מדלג על פתק מוחזק, כי שליחה שלו הייתה דורסת את העדכון.
+    // **ולא רק כשההתראה כבר פתוחה:** הפירוק מסמן את המנהל כמת לפני ``_flushAll``, ולכן שמירה שקיבלה בו 409
+    // אינה מגיעה לפיוס (``_resolveSaveConflict`` עוצר על מנהל מת) — ההתראה לא נפתחת, והמטען נשאר רק במסך.
+    // ושמירה שנכשלה או נדחתה בפירוק משאירה את הטקסט רק במסך באותה מידה. לכן הכלל הוא "כל טקסט שהשרת לא
+    // אישר" (``_hasUnsavedLocalEdits``), וכשהפתק יוצג שוב הפיוס יכריע אם יש על מה להחליט.
+    // הטיוטה היא שלושה דברים: מה שהוקלד, הבסיס שהוא נשען עליו (גוף, שם ואסימון), ומתי.
+
+    /** כותב לדפדפן כל פתק שבמסך שלו טקסט שהשרת לא אישר — לפני ``_clearAllNotes`` של ``destroy``. */
+    _persistHeldDrafts(){
+      for (const [id, entry] of this.notes.entries()) {
+        if (!entry || !entry.el || entry.serverGone || !isSavedNoteId(id)) continue;
+        const dirty = this._dirtyFields(entry);
+        if (!dirty.content && !dirty.title) continue;
+        const base = this._noteBase(entry);
+        const local = this._localFields(entry);
+        const titleInput = entry.el.querySelector('.sticky-note-title');
+        const draft = {
+          v: 1,
+          ts: Date.now(),
+          base: { content: base.content, title: base.title, updated_at: base.updated_at || null },
+          local: { content: local.content, title: titleInput ? String(titleInput.value == null ? '' : titleInput.value) : local.title },
+        };
+        try {
+          localStorage.setItem(HELD_DRAFT_KEY_PREFIX + id, JSON.stringify(draft));
+        } catch(err) {
+          // אחסון חסום או מלא — הטיוטה לא נשמרה, ומה שהוקלד אובד. נרשם, כי זה בדיוק מה שהמנגנון נועד למנוע.
+          console.error('sticky note: could not keep the draft that was waiting for a decision', id, err);
+        }
+      }
+    }
+
+    /**
+     * הטיוטה של הפתק, אם יש — נקראת **ונמחקת** (פעם אחת: מנהל שני לא יציג אותה שוב). ``null`` כשאין,
+     * כשהיא ישנה מ-``HELD_DRAFT_MAX_AGE_MS``, או כשהמבנה שלה אינו מה שנכתב (אחסון של הדפדפן הוא קלט
+     * חיצוני — U3).
+     */
+    _takeHeldDraft(id){
+      // בלי ``localStorage`` בכלל (סביבה שאין בה אחסון) — אין טיוטות. היעדר יכולת, לא כשל.
+      if (typeof localStorage === 'undefined' || !localStorage) return null;
+      const key = HELD_DRAFT_KEY_PREFIX + id;
+      let raw = null;
+      try { raw = localStorage.getItem(key); } catch(err) {
+        console.warn('sticky note: reading a kept draft failed', id, err);
+        return null;
+      }
+      if (raw === null || raw === undefined) return null;
+      try { localStorage.removeItem(key); } catch(err) {
+        console.warn('sticky note: removing a kept draft failed — it may be shown again', id, err);
+      }
+      let draft = null;
+      try { draft = JSON.parse(raw); } catch(_) { draft = null; }
+      const isText = (v) => typeof v === 'string';
+      const ok = !!draft && typeof draft === 'object' && !Array.isArray(draft) && draft.v === 1
+        && Number.isFinite(draft.ts)
+        && !!draft.base && typeof draft.base === 'object' && isText(draft.base.content) && isText(draft.base.title)
+        && (draft.base.updated_at === null || isText(draft.base.updated_at))
+        && !!draft.local && typeof draft.local === 'object' && isText(draft.local.content) && isText(draft.local.title);
+      if (!ok) {
+        console.warn('sticky note: a kept draft has an unexpected shape and was dropped', id);
+        return null;
+      }
+      if (Date.now() - draft.ts > HELD_DRAFT_MAX_AGE_MS) {
+        console.warn('sticky note: a kept draft is too old to compare and was dropped', id);
+        return null;
+      }
+      return draft;
+    }
+
+    /**
+     * מחזיר למסך טיוטה שחיכתה להחלטה: הטקסט שהוקלד בתיבה ובשם, והבסיס שהוא נשען עליו. ואז הפתק כמו
+     * שהשרת מחזיק אותו עכשיו עובר את הפיוס מול הבסיס הזה — כמו בכל מקור אחר (``_reconcileServerNote``):
+     * השתנה מאז — ההתראה חוזרת; לא השתנה — אין על מה להחליט, והטיוטה נשמרת כרגיל, עם האסימון של הבסיס.
+     * ``note`` יכול להגיע מהקאש; הרשימה מהשרת שאחריו פוגשת פתק שנגעו בו, ועוברת את אותו פיוס.
+     */
+    _restoreHeldDraft(entry, note){
+      if (!entry || !entry.el || !note || !isSavedNoteId(String(note.id))) return;
+      const draft = this._takeHeldDraft(String(note.id));
+      if (!draft) return;
+      // **עותק של מה שהשרת החזיר, לפני שהרשומה משתנה.** ``_renderNote`` שומר את ``note`` עצמו כ-``entry.data``,
+      // ולכן כתיבה של הטיוטה לרשומה הייתה כותבת גם לתוך התשובה של השרת — והפיוס היה רואה "שרת" שמחזיק את
+      // הטקסט המקומי ואת האסימון הישן. ההתראה הייתה נשמרת על הגרסה המזויפת, ו"התעלם" היה מיישר את הבסיס
+      // לאסימון הישן: השמירה נדחתה ב-409, והפיוס שאחריה החליף את הטקסט של המשתמש בגרסה מהשרת (נמדד).
+      const server = Object.assign({}, note);
+      const el = entry.el;
+      const textarea = el.querySelector('.sticky-note-content');
+      const titleInput = el.querySelector('.sticky-note-title');
+      entry.base = {
+        content: draft.base.content,
+        title: canonicalTitleText(draft.base.title),
+        updated_at: draft.base.updated_at,
+      };
+      if (draft.base.updated_at) el.dataset.updatedAt = draft.base.updated_at;
+      if (textarea) textarea.value = draft.local.content;
+      if (titleInput) titleInput.value = draft.local.title;
+      // רשומה חדשה ולא כתיבה לתוך הקיימת — ראו ``server`` למעלה. גם הרשימה שנשמרת בקאש (``loadNotes``) מחזיקה
+      // את אותם אובייקטים, וטקסט מקומי שלא נשמר אינו נכנס לקאש.
+      entry.data = Object.assign({}, entry.data || {}, {
+        content: draft.local.content,
+        title: draft.local.title,
+        updated_at: draft.base.updated_at || (entry.data && entry.data.updated_at) || null,
+      });
+      this._resetUndoToServer(el, draft.local.content);
+      this._checkContentLength(el, draft.local.content);
+      this._syncTaskView(el);
+      // **הטקסט של הטיוטה אולי כבר בשרת** — שמירה שיצאה בפירוק, שהתשובה עליה לא הגיעה למנהל שמת. אז השרת מחזיק
+      // בדיוק את מה שבמסך, ואין על מה להחליט: הטיוטה נרשמת כשמירה שלנו שעוד לא אושרה (``_rememberUnconfirmed``),
+      // והפיוס מיישר אליה את הבסיס במקום להציג "יש עדכון חדש" על הטקסט של המשתמש עצמו.
+      entry.unconfirmed = [{ content: draft.local.content, title: canonicalTitleText(draft.local.title) }];
+      const outcome = this._reconcileServerNote(server, 'poll');
+      if (outcome === 'notified' || outcome === 'deferred') return;
+      const dirty = this._dirtyFields(entry);
+      const fragment = {};
+      if (dirty.content) fragment.content = draft.local.content;
+      if (dirty.title) fragment.title = draft.local.title;
+      if (Object.keys(fragment).length) this._queueSave(el, fragment);
     }
 
     /**
@@ -2203,6 +2466,10 @@
       const entry = this._getEntry(el);
       const textarea = el ? el.querySelector('.sticky-note-content') : null;
       if (!entry || !textarea || entry.mdTools) return;
+      // הכלים מזריקים לתוך התוכן — זו כניסה לעריכה, ולכן אותו רענון (``_refreshBeforeEdit``). אם התוכן
+      // מתחלף לפני הבחירה, הסימון שבתיבה ממופה לטקסט החדש (``_applyRemoteFields``), וההזרקה קוראת אותו
+      // רק ברגע הלחיצה (``_applyMdTool``).
+      this._refreshBeforeEdit(el);
       this._closeMdToolsElsewhere(el);
       const value = String(textarea.value == null ? '' : textarea.value);
       const range = this._mdToolRange(value, textarea.selectionStart, textarea.selectionEnd);
@@ -2654,7 +2921,13 @@
       if (!entry || entry.archiving) return;   // לחיצה כפולה בזמן שהבקשה באוויר
       entry.archiving = true;
       try {
-        try { await this._flushFor(el); } catch(_) { /* כשל נשמר בתור ומנסה שוב; ההעברה ממשיכה */ }
+        // פתק עם החלטה פתוחה או עם שמירה שלא נקלטה אינו עובר לארכיון — ההעברה מורידה אותו מהמשטח, ומה
+        // שבתור היה נשאר בלי בסיס (``_settleBeforeLeaving``). עד נובמבר 2026 ההעברה המשיכה גם אחרי כשל.
+        const why = await this._settleBeforeLeaving(el);
+        if (why !== 'ok') {
+          this._explainCannotLeave(why, 'להעביר אותו לארכיון');
+          return;
+        }
         let title = null;
         if (!canonicalTitleText(entry.data && entry.data.title)) {
           title = await this._openArchiveNameDialog(el, this._suggestNoteTitle(entry.data && entry.data.content));
@@ -2778,7 +3051,12 @@
           init = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
         } else {
           if (this.filesPageMode) {
-            try { await this._flushFor(el); } catch(_) { /* כשל נשמר בתור ומנסה שוב; ההסרה ממשיכה */ }
+            // בעמוד הקבצים ההסרה מורידה את הפתק מהמסך — אותו כלל של ההעברה לארכיון (``_settleBeforeLeaving``).
+            const why = await this._settleBeforeLeaving(el);
+            if (why !== 'ok') {
+              this._explainCannotLeave(why, 'להסיר אותו מעמוד הקבצים');
+              return;
+            }
           }
           init = { method: 'DELETE' };
         }
@@ -2856,7 +3134,12 @@
      */
     openOverlayNote(note, opts){
       if (!this.overlayMode || !note || !note.id) return null;
-      if (this._openOverlay) this._dropOpenOverlay();
+      // הפתק הפתוח לא ירד (שינוי שלא נשמר, או החלטה פתוחה) — הוא נשאר הפתק הפתוח, והעמוד מקבל אותו כדי
+      // שהרקע יישאר מוצג (העמוד מסתיר את הרקע כשהפתיחה מחזירה ``null``).
+      if (this._openOverlay && !this._dropOpenOverlay()) {
+        const kept = this.notes.get(this._openOverlay.id);
+        return kept ? kept.el : null;
+      }
       const box = this._viewportBox();
       const intent = {
         width: finiteOrNull(note.size && note.size.width) || NOTE_FALLBACK_W,
@@ -2905,7 +3188,14 @@
         if (this._onOverlayNoteClosed) this._onOverlayNoteClosed({ id: cur.id });
         return;
       }
-      try { await this._flushFor(entry.el); } catch(_) { /* נשאר בתור ומנסה שוב ברקע */ }
+      // **הפתק נשאר פתוח** כשעדכון מהשרת מחכה בו להחלטה, או כשהשמירה שלו לא נקלטה — הכרעת המשתמש: פתק
+      // לא יורד מהמסך עם שינוי שהשרת לא קיבל. העמוד אינו מקבל ``onOverlayNoteClosed``, ולכן הרקע נשאר.
+      const why = await this._settleBeforeLeaving(entry.el);
+      if (why !== 'ok') {
+        if (this._openOverlay === null && this.notes.get(cur.id) === entry) this._openOverlay = cur;
+        this._explainCannotLeave(why, 'לסגור אותו');
+        return;
+      }
       // ``color`` כ-``hex``: הרשומה מחזיקה מזהה מהפלטה אחרי בחירה בבורר, או ``hex`` כמו שהשרת
       // שלח, ו-``noteColorHex`` היא התשובה היחידה לשתי הצורות — אותה שהפתק עצמו נצבע בה.
       const summary = {
@@ -2942,14 +3232,24 @@
       try { await anim.finished; } catch(_) { /* האנימציה בוטלה — ממשיכים להסרה */ }
     }
 
-    /** מוריד מיד את הפתק הפתוח, בלי אנימציה ובלי הודעה לעמוד — לפני פתיחת פתק אחר. */
+    /**
+     * מוריד מיד את הפתק הפתוח, בלי אנימציה ובלי הודעה לעמוד — לפני פתיחת פתק אחר. מחזיר אם ירד.
+     *
+     * **לא כשיש לו שינוי שעוד לא נשמר או החלטה פתוחה** — אותו כלל של ``closeOverlayNote``. כאן אין זמן
+     * להמתין לשמירה (הפתיחה סינכרונית), ולכן כל שמירה בתור או באוויר עוצרת. בפועל העמוד אינרטי בזמן שפתק
+     * פתוח, וזו רשת ביטחון ולא מסלול רגיל.
+     */
     _dropOpenOverlay(){
       const cur = this._openOverlay;
-      this._openOverlay = null;
       const entry = cur ? this.notes.get(cur.id) : null;
-      if (!entry || !entry.el) return;
-      try { this._flushFor(entry.el); } catch(_) { /* נשאר בתור ומנסה שוב ברקע */ }
+      if (!entry || !entry.el) { this._openOverlay = null; return true; }
+      if (this._isSaveHeld(cur.id) || this._hasUnsavedLocalEdits(cur.id)) {
+        this._explainCannotLeave(this._isSaveHeld(cur.id) ? 'held' : 'unsaved', 'לפתוח פתק אחר');
+        return false;
+      }
+      this._openOverlay = null;
       this._removeNoteLocally(entry.el);
+      return true;
     }
 
     /**
@@ -6004,7 +6304,7 @@
        * בקשה לראוטי הפתקים — **עם תקרת זמן משלה, ובלי לזרוק לעולם.** השרשורים, ההעברה לארכיון
        * והנעיצה לעמוד הקבצים עוברים כאן (האחרונים דרך ``_noteActionRequest``).
        *
-       * מחזיר ``{ result, abort }``: ``result`` נפתר תמיד ל-``{ ok, status, data }``
+       * מחזיר ``{ result, abort }``: ``result`` נפתר תמיד ל-``{ ok, status, data, headers }``
        * (‏``status: 0`` בכשל רשת, בביטול ובחריגת זמן), ו-``abort`` מבטל — לסגירת חלונית.
        * ``ok`` הוא ``true`` רק כשהתשובה היא 2xx **וגם** ``{ok: true}``: ``fetch`` אינו
        * נכשל על 4xx/5xx, ותשובה שאינה JSON (דף שגיאה של שרת ביניים) אינה הצלחה (K11).
@@ -6021,7 +6321,7 @@
         const deadline = new Promise((resolve) => {
           timer = setTimeout(() => {
             if (ctrl) ctrl.abort();
-            resolve({ ok: false, status: 0, data: null });
+            resolve({ ok: false, status: 0, data: null, headers: null });
           }, API_FETCH_TIMEOUT_MS);
         });
         const request = (async () => {
@@ -6034,8 +6334,9 @@
             // ``null``, והקורא רואה כשל עם ה-``status`` האמיתי.
           }
           const obj = (data && typeof data === 'object' && !Array.isArray(data)) ? data : null;
-          return { ok: resp.ok && !!obj && obj.ok === true, status: resp.status, data: obj };
-        })().catch(() => ({ ok: false, status: 0, data: null }));
+          // ``headers`` — למי שצריך כותרת מהתשובה, כמו ``Retry-After`` של 429 בדגימה (``_livePollOverlay``).
+          return { ok: resp.ok && !!obj && obj.ok === true, status: resp.status, data: obj, headers: resp.headers };
+        })().catch(() => ({ ok: false, status: 0, data: null, headers: null }));
         const result = Promise.race([request, deadline]).then((res) => { clearTimeout(timer); return res; });
         return { result, abort: () => { if (ctrl) ctrl.abort(); } };
       }
@@ -6678,6 +6979,8 @@
             input.removeAttribute('readonly');
             input.setAttribute('tabindex', '0');
             try { input.focus(); input.select(); } catch(_) {}
+            // כניסה לעריכת השם — אותו רענון של כניסה לעריכת התוכן.
+            this._refreshBeforeEdit(el);
           } else {
             input.setAttribute('readonly', 'readonly');
             input.setAttribute('tabindex', '-1');
@@ -7024,11 +7327,29 @@
         if (!entry) return;
         const index = parseInt(box.dataset.taskIndex, 10);
         const desired = !!box.checked;
+        // **עדכון מהשרת מחכה להחלטה** — הסימון היה נשלח על גוף שהמשתמש עוד לא ראה, ותשובת השרת (התוכן
+        // החדש) הייתה מחליפה את השינויים המוחזקים. התיבה חוזרת, וההתראה שבפתק היא הצעד הבא.
+        if (this._isSaveHeld(noteId)) {
+          box.checked = !desired;
+          return;
+        }
 
         // לפני הכול: לרוקן שמירה תלויה. בלי זה, ``_queueSave`` שממתין
         // ב-debounce של חצי שנייה היה נוחת **אחרי** ה-toggle וכותב תוכן
         // ישן — כלומר מבטל אותו. באג סדר אמיתי, ושורה אחת מונעת אותו.
-        try { await this._flushFor(el); } catch(_) {}
+        let settled = false;
+        try { settled = await this._flushFor(el); } catch(err) {
+          console.warn('sticky note: flushing before a task toggle failed', noteId, err);
+        }
+        // **והתשובה של הריקון נבדקת** (K11). השמירה יכלה לקבל 409 ולהעלות התראה — אז הפתק מוחזק, והסימון היה
+        // נשלח על גוף שהמשתמש עוד לא ראה; או להיכשל — אז מה שבתור עדיין לא בשרת, ותשובת השרת (התוכן אחרי
+        // הסימון) הייתה מחליפה אותו במסך. בשני המקרים התיבה חוזרת: בראשון ההתראה היא הצעד הבא, ובשני — הודעת
+        // הכשל של הסימון.
+        if (!settled) {
+          box.checked = !desired;
+          if (!this._isSaveHeld(noteId)) this._showTaskError(el);
+          return;
+        }
 
         box.disabled = true;
         el.classList.add('is-task-pending');
@@ -7050,7 +7371,10 @@
           // כשל. אמת השרת עדיפה על היפוך נאיבי: אם חזר תוכן — מרנדרים
           // ממנו. אחרת מחזירים את התיבה למצב הקודם.
           if (data && typeof data.content === 'string') {
-            this._applyServerContent(el, entry, data.content, data.updated_at);
+            // **בלי האסימון:** תשובת כשל מביאה את הגוף בלבד, והשם שבשרת אולי השתנה גם הוא (409 אומר שמישהו
+            // ערך מאז). אסימון שזז על חצי גרסה היה משאיר את השם הישן לתמיד — הדגימה לא הייתה רואה הבדל.
+            // האסימון נשאר, והדגימה או השמירה הבאה מביאות את הפתק כולו דרך הפיוס.
+            this._applyServerContent(el, entry, data.content, null);
           } else {
             box.checked = !desired;
           }
@@ -7080,7 +7404,11 @@
         const burstFrom = this._hasPendingUndoBurst(st) ? st.burstFrom : null;
         if (textarea) textarea.value = content;
         if (entry && entry.data) entry.data.content = content;
-        if (updatedAt) el.dataset.updatedAt = updatedAt;
+        // **האסימון דרך המקום היחיד שמזיז אותו** (``_setNoteUpdatedAt``: ה-DOM, הרשומה והבסיס יחד). השמה
+        // ל-``dataset`` לבדו השאירה את הבסיס על האסימון שלפני הסימון, והשמירה הבאה יצאה איתו — ונדחתה
+        // ב-409 על כתיבה שלנו.
+        if (updatedAt) this._setNoteUpdatedAt(String(el.dataset.noteId), updatedAt);
+        this._markServerObserved(entry);
         // נקודת ההשוואה עוברת לתוכן הסמכותי, אחרת העריכה הבאה הייתה דוחפת
         // את התוכן הישן למחסנית וביטול היה מוחק כתיבה שהשרת אישר.
         this._resetUndoBaseline(el, content);
@@ -7089,7 +7417,798 @@
         // והשני למה שהיה לפני ההקלדה.
         if (burstFrom !== null && burstFrom !== before) this._pushUndo(el, burstFrom);
         if (before !== null && before !== content) this._pushUndo(el, before);
+        // התוכן הזה הוא מה שהשרת מחזיק עכשיו — הבסיס של העריכה הבאה (``_noteBase``).
+        if (entry) this._noteBase(entry).content = content;
         this._syncTaskView(el);
+      }
+
+      // ── הבסיס מהשרת, ופיוס עם מה שהשרת מחזיק ───────────────────────
+      //
+      // **למה זה קיים.** הפתק במסך הוא עותק של מה שנקרא מהשרת, והשמירה האוטומטית כותבת את **כל** הגוף.
+      // עותק ישן שנשמר דורס כל מה שנכתב אחריו — עד נובמבר 2026 זה קרה בפועל: סוכן עדכן פתק דרך ה-MCP,
+      // המשתמש נכנס לעריכה בלי לרענן, והעדכון נעלם. המנגנון שהיה אמור לעצור את זה כבר היה קיים —
+      // ``prev_updated_at`` ו-409 בשרת — אבל הלקוח ענה ל-409 בשליחה חוזרת של אותו טקסט עם האסימון
+      // החדש מהתשובה, כלומר הפך את העצירה לדריסה (``write-from-cached-read``).
+      //
+      // **הבסיס** (``entry.base``) הוא הגרסה בשרת שהעותק המקומי נשען עליה: הגוף, השם והאסימון
+      // (``updated_at``). האסימון נשלח בכל שמירה (``prev_updated_at``), ו**זז רק כשהעותק המקומי באמת
+      // מתיישר עם גרסה חדשה** — שמירה שאושרה, עדכון מהשרת שהוחל, או בחירה מפורשת של המשתמש ("התעלם").
+      // אסימון שזז בלי זה הוא בדיוק מה שאפשר דריסה.
+      //
+      // **כל מה שמגיע מהשרת עובר בפונקציה אחת** — ``_reconcileServerNote`` — מכל מקור: הטעינה, הדגימה,
+      // הרענון בכניסה לעריכה, ו-409 של שמירה. ארבעה מסלולים עם כללים משלהם היו נסחפים זה מזה (R6).
+
+      /** הבסיס של פתק — נוצר מהרשומה אם עוד אין (פתק שנרשם בלי ``_renderNote``, כמו בבדיקות). */
+      _noteBase(entry){
+        if (!entry.base) {
+          const data = entry.data || {};
+          entry.base = {
+            content: typeof data.content === 'string' ? data.content : '',
+            title: canonicalTitleText(String(data.title || '')),
+            updated_at: (entry.el && entry.el.dataset && entry.el.dataset.updatedAt) || data.updated_at || null,
+          };
+        }
+        return entry.base;
+      }
+
+      /** מה שבמסך עכשיו — הטקסט בתיבה והשם בשדה. */
+      _localFields(entry){
+        const el = entry && entry.el;
+        const textarea = el ? el.querySelector('.sticky-note-content') : null;
+        const titleInput = el ? el.querySelector('.sticky-note-title') : null;
+        return {
+          content: textarea ? String(textarea.value == null ? '' : textarea.value) : String((entry.data && entry.data.content) || ''),
+          title: canonicalTitleText(titleInput ? String(titleInput.value == null ? '' : titleInput.value) : String((entry.data && entry.data.title) || '')),
+        };
+      }
+
+      /**
+       * אילו שדות עריכה שונים מהבסיס — כלומר שינויים מקומיים שהשרת עוד לא מחזיק. כולל מה שבתור
+       * ובאוויר: טקסט שכבר נשלח ולא אושר עדיין אינו בבסיס.
+       */
+      _dirtyFields(entry){
+        const base = this._noteBase(entry);
+        const local = this._localFields(entry);
+        // שורות חדשות כמו בתיבה — ראו ``asTextareaValue``.
+        return { content: asTextareaValue(local.content) !== asTextareaValue(base.content), title: local.title !== base.title };
+      }
+
+      /**
+       * **האם יש בפתק שינוי שהשרת לא מחזיק** — שמירה בתור או באוויר, או טקסט במסך ששונה ממה שהשרת אישר.
+       * החלק השני הוא שמירה שנדחתה: דחייה סופית (400, שם תפוס) מוציאה את המטען מהתור, והטקסט נשאר רק במסך —
+       * בלי שמירה בתור, אבל גם לא בשרת. פתק שהשרת אמר שאינו קיים (``entry.serverGone``) — לשמירה אין לאן
+       * להגיע, וזה לא נחשב.
+       */
+      _hasUnsavedLocalEdits(id){
+        if (this._hasUnsentEdits(id)) return true;
+        const entry = this.notes.get(String(id));
+        if (!entry || !entry.el || entry.serverGone) return false;
+        const dirty = this._dirtyFields(entry);
+        return dirty.content || dirty.title;
+      }
+
+      /** השרת ענה שהפתק אינו קיים (404 על שמירה או על הקריאה שאחרי 409) — ראו ``_hasUnsavedLocalEdits``. */
+      _markServerGone(id){
+        const entry = this.notes.get(String(id));
+        if (entry) entry.serverGone = true;
+      }
+
+      /**
+       * **שמירה ששלחנו ועוד לא קיבלנו עליה תשובה** — נזכרת, כדי לזהות אחר כך שהגוף שבשרת הוא שלנו.
+       *
+       * תשובה יכולה ללכת לאיבוד אחרי שהשרת כבר כתב (רשת שנפלה, timeout), ושתי שמירות יכולות להיות
+       * באוויר יחד. בשני המקרים האסימון בשרת זז בגלל הכתיבה **שלנו**, וה-409 שאחריה אינו עדכון ממקום
+       * אחר. בלי הזיכרון הזה היינו מציגים למשתמש "יש עדכון חדש" על הטקסט שהוא עצמו כתב.
+       */
+      _rememberUnconfirmed(id, payload){
+        const entry = this.notes.get(String(id));
+        if (!entry || !payload) return null;
+        const hasContent = Object.prototype.hasOwnProperty.call(payload, 'content');
+        const hasTitle = Object.prototype.hasOwnProperty.call(payload, 'title');
+        if (!hasContent && !hasTitle) return null;
+        const snap = {};
+        if (hasContent) snap.content = String(payload.content == null ? '' : payload.content);
+        if (hasTitle) snap.title = canonicalTitleText(String(payload.title == null ? '' : payload.title));
+        if (!entry.unconfirmed) entry.unconfirmed = [];
+        entry.unconfirmed.push(snap);
+        if (entry.unconfirmed.length > UNCONFIRMED_SENDS_MAX) entry.unconfirmed.shift();
+        return snap;
+      }
+
+      /**
+       * שמירה שנגמרה — יוצאת מהזיכרון. ``superseded`` (שמירה שאושרה): גם כל מה שנשלח **לפניה** יוצא, כי
+       * ברגע האישור השרת כבר החזיק גוף חדש יותר משלנו, וכתיבה ישנה שלנו כבר אינה מה שבשרת.
+       */
+      _forgetUnconfirmed(id, snap, superseded){
+        const entry = this.notes.get(String(id));
+        if (!entry || !snap || !entry.unconfirmed) return;
+        const i = entry.unconfirmed.indexOf(snap);
+        if (i === -1) return;
+        entry.unconfirmed.splice(superseded ? 0 : i, superseded ? i + 1 : 1);
+      }
+
+      /**
+       * שמירה שהשרת אישר: הבסיס מתיישר עם מה שנשלח, והאסימון — עם מה שהשרת החזיר.
+       *
+       * **בטוח לאמץ את האסימון מהתשובה**, כי כל שמירה נושאת ``prev_updated_at``: הצלחה פירושה שאיש לא
+       * ערך את הפתק מאז האסימון שלנו, אחרת השרת היה עונה 409. והאסימון שבתשובה הוא מה שנשמר במסד, באותה
+       * מחרוזת שהדגימה תחזיר (``_stored_now`` בשרת) — אחרת כל שמירה שלנו הייתה נראית בדגימה הבאה כמו
+       * עדכון ממקום אחר.
+       */
+      _onSaveConfirmed(id, payload, token, snap){
+        this._forgetUnconfirmed(id, snap, true);
+        const entry = this.notes.get(String(id));
+        if (!entry) return;
+        // השרת נצפה עכשיו — קריאה שיצאה לפני השמירה מתארת אותו לפניה (``_nextReadSeq``).
+        this._markServerObserved(entry);
+        const base = this._noteBase(entry);
+        if (payload && Object.prototype.hasOwnProperty.call(payload, 'content')) {
+          base.content = String(payload.content == null ? '' : payload.content);
+        }
+        if (payload && Object.prototype.hasOwnProperty.call(payload, 'title')) {
+          base.title = canonicalTitleText(String(payload.title == null ? '' : payload.title));
+        }
+        if (token) this._setNoteUpdatedAt(String(id), String(token));
+      }
+
+      /** האם השמירות של הפתק מוחזקות — עדכון מהשרת מחכה להחלטה, או שבודקים עכשיו 409. */
+      _isSaveHeld(id){
+        const entry = this.notes.get(String(id));
+        return !!(entry && (entry.remote || entry.resolving));
+      }
+
+      /** האם יש לפתק שמירה בתור או באוויר — כלומר המקומי חדש יותר ממה שהשרת יודע. */
+      _hasUnsentEdits(id){
+        const key = String(id);
+        return !!((this._pending && this._pending.has(key)) || (this._inFlight && this._inFlight.has(key)));
+      }
+
+      /** כתובת הפתק הבודד בשרת. ראו ``get_note`` ב-``webapp/sticky_notes_api.py``. */
+      _noteUrl(id){
+        return `/api/sticky-notes/note/${encodeURIComponent(String(id))}`;
+      }
+
+      /**
+       * הפתק כמו שהשרת מחזיק אותו עכשיו. נפתר תמיד ל-``{ok, status, note}`` — ``note`` רק כשהתשובה היא
+       * פתק אמיתי (U3: גוף שאינו אובייקט, או פתק בלי מזהה, הוא כשל ולא "אין").
+       */
+      async _fetchServerNote(id){
+        // המספר נלקח **כשהקריאה יוצאת** — ראו ``_nextReadSeq``.
+        const seq = this._nextReadSeq();
+        const { result } = this._apiFetch(this._noteUrl(id));
+        const res = await result;
+        const headers = (res && res.headers) || null;
+        const note = res && res.data && res.data.note;
+        if (res && res.ok && note && typeof note === 'object' && !Array.isArray(note) && typeof note.id === 'string') {
+          return { ok: true, status: res.status, note, seq, headers };
+        }
+        return { ok: false, status: (res && res.status) || 0, note: null, seq, headers };
+      }
+
+      /**
+       * **המספר של קריאה מהשרת — לפי סדר היציאה.** קריאות של אותו פתק יוצאות מכמה מקורות (הדגימה, הרענון
+       * בכניסה לעריכה, 409 של שמירה, הרשימה המלאה) וחוזרות בכל סדר. תשובה של קריאה שיצאה **לפני** הקריאה
+       * שהמצב במסך כבר נשען עליה מתארת את השרת ברגע מוקדם יותר, ופיוס שלה היה מחזיר גרסה ישנה — למשל עדכון
+       * שחיכה ללחיצה, שהיה מוחל אחרי שהרענון של הכניסה כבר הביא גרסה חדשה ממנו. ``_reconcileServerNote`` זורק
+       * תשובה כזו (``'stale'``). ושמירה שאושרה, או סימון משימה, הם מבט טרי על השרת מהצד שלנו: כל קריאה שיצאה
+       * לפניהם ישנה מהם (``_markServerObserved``). המחיר: תשובה שיצאה קודם ונענתה אחרי — חדשה בפועל — נזרקת,
+       * והדגימה הבאה מביאה אותה. השיטה לעולם אינה מחזירה גרסה ישנה; לכל היותר מאחרת חדשה.
+       */
+      _nextReadSeq(){
+        this._readSeq = (this._readSeq || 0) + 1;
+        return this._readSeq;
+      }
+
+      /** השרת נצפה עכשיו מהצד שלנו (שמירה שאושרה, סימון משימה) — קריאה שיצאה לפני כן ישנה ממה שבמסך. */
+      _markServerObserved(entry){
+        if (entry) entry.readSeq = this._nextReadSeq();
+      }
+
+      /**
+       * **האם הפתק עדיין שייך למשטח הזה** — לפי השדות שלו, כמו שהשרת החזיר אותם.
+       *
+       * העברה לארכיון מוחקת את שדות היעד (``archive_note_update`` ב-``sticky_notes_target.py``), ולכן
+       * ``archived_at`` מכריע בכל משטח שאינו הארכיון. בלוח — גם ``board_id`` (פתק שהועבר ללוח אחר);
+       * בעמוד הקבצים — הנעיצה. פתק על קובץ או בריפו אינו עובר בין קבצים בממשק, ולכן שם מספיק שאינו
+       * בארכיון. המסננים בשרת (``board_notes_filter``, ``archived_notes_filter``,
+       * ``files_page_pinned_filter``) הם ההגדרה; זו הקריאה שלהם על פתק אחד שכבר בידינו.
+       */
+      _noteBelongsHere(note){
+        if (!note || typeof note !== 'object') return false;
+        const archived = !!note.archived_at;
+        if (this.archiveMode) return archived;
+        if (archived) return false;
+        if (this.filesPageMode) return !!note[FILES_PAGE_PIN_FIELD];
+        if (this.boardId) return String(note.board_id || '') === String(this.boardId);
+        return true;
+      }
+
+      /**
+       * **מיקום סמן אחרי שהתוכן התחלף מתחתיו** — הקידומת והסיומת המשותפות נשארות במקומן, ומה שביניהן
+       * הוא האזור שהשתנה.
+       *
+       * סמן בקידומת נשאר באותו היסט; סמן בסיומת נשאר באותו מרחק מהסוף; סמן בתוך האזור שהשתנה עובר לסוף
+       * האזור בטקסט החדש — שם נגמר מה שהגיע מהשרת. הכול ביחידות UTF-16, כמו ``selectionStart``
+       * (HTML Standard), ולכן אותה יחידה בכל הצדדים (H6). **ולעולם לא באמצע זוג surrogate**: קידומת
+       * משותפת שנגמרת באמצע אימוג'י מתקצרת לפניו, וסמן שנחת בין שני החצאים זז לפני האימוג'י.
+       */
+      _mapOffsetAcrossReplace(oldText, newText, offset){
+        const a = String(oldText == null ? '' : oldText);
+        const b = String(newText == null ? '' : newText);
+        const pos = clamp(Math.round(Number(offset) || 0), 0, a.length);
+        const isHigh = (c) => c >= 0xD800 && c <= 0xDBFF;
+        const isLow = (c) => c >= 0xDC00 && c <= 0xDFFF;
+        const max = Math.min(a.length, b.length);
+        let p = 0;
+        while (p < max && a.charCodeAt(p) === b.charCodeAt(p)) p++;
+        if (p > 0 && p < max && isHigh(a.charCodeAt(p - 1))) p--;
+        let s = 0;
+        while (s < max - p && a.charCodeAt(a.length - 1 - s) === b.charCodeAt(b.length - 1 - s)) s++;
+        if (s > 0 && s < max - p && isLow(a.charCodeAt(a.length - s))) s--;
+        let out;
+        if (pos <= p) out = pos;
+        else if (pos >= a.length - s) out = b.length - (a.length - pos);
+        else out = b.length - s;
+        out = clamp(out, 0, b.length);
+        if (out > 0 && out < b.length && isLow(b.charCodeAt(out)) && isHigh(b.charCodeAt(out - 1))) out--;
+        return out;
+      }
+
+      /**
+       * **בסיס הביטול עובר לתוכן מהשרת, והמחסנית מתרוקנת.** ``_resetUndoBaseline`` לבדו מזיז את נקודת
+       * ההשוואה, אבל המחסנית עדיין מחזיקה גרסאות שלפני העדכון — וביטול אחד היה מחזיר גרסה ישנה ושומר
+       * אותה מעל העדכון, כלומר בדיוק את הדריסה. ההיסטוריה שלפני העדכון שייכת לגרסה שכבר אינה קיימת.
+       */
+      _resetUndoToServer(el, content){
+        const st = this._undoState(el);
+        if (st) st.stack = [];
+        this._resetUndoBaseline(el, content);
+      }
+
+      /**
+       * מחיל על המסך את מה שהשתנה בשרת, בשדות שמותר: ``fields.content``/``fields.title``.
+       *
+       * ``keepCaret`` — הרענון בכניסה לעריכה הגיע אחרי שהעריכה כבר התחילה, ולא הוקלד כלום: הסמן
+       * והבחירה ממופים לטקסט החדש (``_mapOffsetAcrossReplace``), והתצוגה נשארת במצב עריכה.
+       * ``undoStep`` — טקסט מקומי שהמשתמש בחר להחליף ("עדכן" על שינויים שלו): נשמר כצעד אחד בביטול.
+       */
+      _applyRemoteFields(entry, server, fields, opts){
+        const el = entry.el;
+        const base = this._noteBase(entry);
+        const textarea = el.querySelector('.sticky-note-content');
+        const titleInput = el.querySelector('.sticky-note-title');
+        const pending = this._pending.get(String(el.dataset.noteId));
+        if (fields.content && textarea) {
+          const next = String(server.content == null ? '' : server.content);
+          const before = String(textarea.value == null ? '' : textarea.value);
+          // השמה ל-``value`` מזיזה את הבחירה לסוף הטקסט (HTML Standard, ה-setter של ``value``) — ולכן
+          // ממפים אותה כשהיא חשובה: כניסה לעריכה (הסמן בתיבה), וחלונית כלי MD פתוחה (הסימון שהכלי ימלא).
+          let selStart = null, selEnd = null;
+          if ((opts && opts.keepCaret) || entry.mdTools) {
+            selStart = this._mapOffsetAcrossReplace(before, next, textarea.selectionStart);
+            selEnd = this._mapOffsetAcrossReplace(before, next, textarea.selectionEnd);
+          }
+          textarea.value = next;
+          if (entry.data) entry.data.content = next;
+          base.content = next;
+          // תוכן שבתור מוחלף — הוא מבוסס על גרסה שכבר אינה, ושליחה שלו הייתה דורסת את העדכון.
+          if (pending && Object.prototype.hasOwnProperty.call(pending, 'content')) delete pending.content;
+          this._resetUndoToServer(el, next);
+          if (opts && typeof opts.undoStep === 'string' && opts.undoStep !== next) this._pushUndo(el, opts.undoStep);
+          if (selStart !== null) {
+            textarea.selectionStart = selStart;
+            textarea.selectionEnd = Math.max(selStart, selEnd);
+          }
+          this._checkContentLength(el, next);
+          this._syncTaskView(el, { editing: !!entry.editing });
+        }
+        if (fields.title && titleInput) {
+          const nextTitle = String(server.title == null ? '' : server.title);
+          titleInput.value = nextTitle;
+          if (entry.data) entry.data.title = nextTitle;
+          base.title = canonicalTitleText(nextTitle);
+          if (pending && Object.prototype.hasOwnProperty.call(pending, 'title')) delete pending.title;
+          this._markTitleConflict(String(el.dataset.noteId), false);
+        }
+        if (pending && !Object.keys(pending).length) this._pending.delete(String(el.dataset.noteId));
+      }
+
+      /** צבע שהשתנה בשרת — שדה שאינו עריכה, ולכן מוחל תמיד, אלא אם בחירת צבע מקומית עוד בתור. */
+      _applyRemoteColor(entry, color){
+        if (typeof color !== 'string' || !color) return false;
+        const pending = this._pending.get(String(entry.el.dataset.noteId));
+        if (pending && Object.prototype.hasOwnProperty.call(pending, 'color')) return false;
+        if (noteColorHex(entry.data && entry.data.color) === noteColorHex(color)) return false;
+        if (entry.data) entry.data.color = color;
+        entry.el.style.backgroundColor = noteColorHex(color);
+        return true;
+      }
+
+      /**
+       * **הפיוס: מה עושים עם הפתק כמו שהשרת מחזיק אותו עכשיו.** ``source``:
+       *
+       * - ``'poll'`` — הדגימה, או הטעינה של פתק שהמשתמש כבר נגע בו.
+       * - ``'enter-edit'`` — הרענון שיוצא בכניסה לעריכה. רק כאן מותר להחליף תיבה שבפוקוס, ורק כשלא
+       *   הוקלד בה כלום מאז — העריכה רק התחילה, ושום דבר לא הולך לאיבוד.
+       * - ``'conflict'`` — 409 על שמירה.
+       * - ``'exit-edit'`` — יציאה מעריכה כשעדכון חיכה.
+       *
+       * לכל שדה עריכה (גוף, שם): **שינוי זר** הוא ערך בשרת ששונה מהבסיס ואינו שמירה שלנו שעוד לא
+       * אושרה. שינוי זר בשדה שהמשתמש לא נגע בו ואינו עורך — מוחל. בשדה שהוא עורך או ששינה — **אינו
+       * נוגע בו**: העדכון נשמר ב-``entry.remote``, השמירות של הפתק מוחזקות, ובפתק מופיעה התראה
+       * ("עדכן" / "התעלם"). האסימון זז רק כשאין שדה כזה. מחזיר את מה שקרה, לבדיקות ולדיבאג.
+       *
+       * ``seq`` — מספר הקריאה שהביאה את ``server`` (``_nextReadSeq``). תשובה של קריאה שיצאה לפני הקריאה
+       * שהפתק כבר נשען עליה נזרקת (``'stale'``): היא מתארת את השרת ברגע מוקדם יותר. בלי ``seq`` (התראה
+       * שנשמרה, טיוטה, בדיקות) אין השוואה.
+       */
+      _reconcileServerNote(server, source, seq){
+        if (!server || typeof server !== 'object' || typeof server.id !== 'string') return 'invalid';
+        const id = server.id;
+        const entry = this.notes.get(id);
+        if (!entry || !entry.el) return 'absent';
+        const hasSeq = typeof seq === 'number' && Number.isFinite(seq);
+        if (hasSeq && (entry.readSeq || 0) > seq) return 'stale';
+        // לחיצה באמצע — התצוגה שתחת האצבע היא זו שההיסט של הלחיצה מחושב מולה.
+        if (this._deferWhilePressed(entry, server, source, seq)) return 'deferred';
+        if (hasSeq) entry.readSeq = seq;
+        const base = this._noteBase(entry);
+        this._applyRemoteColor(entry, server.color);
+        const token = typeof server.updated_at === 'string' && server.updated_at ? server.updated_at : null;
+        const remoteContent = String(server.content == null ? '' : server.content);
+        const remoteTitle = canonicalTitleText(String(server.title == null ? '' : server.title));
+        const own = entry.unconfirmed || [];
+        const isOurs = (field, value) => own.some((s) => Object.prototype.hasOwnProperty.call(s, field) && s[field] === value);
+        // שמירה שלנו שנחתה (התשובה עליה הלכה לאיבוד, או שתיים היו באוויר): הבסיס מתיישר איתה.
+        if (remoteContent !== base.content && isOurs('content', remoteContent)) base.content = remoteContent;
+        if (remoteTitle !== base.title && isOurs('title', remoteTitle)) base.title = remoteTitle;
+        const foreign = { content: remoteContent !== base.content, title: remoteTitle !== base.title };
+        if (!foreign.content && !foreign.title) {
+          // שום שדה עריכה לא השתנה ממקום אחר — רק האסימון (שמירה שלנו), או כלום.
+          const moved = !!token && token !== base.updated_at;
+          if (moved) this._setNoteUpdatedAt(id, token);
+          if (entry.remote) this._clearRemoteNotice(entry);
+          return moved ? 'adopted' : 'same';
+        }
+        const dirty = this._dirtyFields(entry);
+        const editing = { content: entry.editing === true, title: entry.titleEditing === true };
+        const blocked = (f) => foreign[f] && (dirty[f] || (editing[f] && source !== 'enter-edit'));
+        const apply = { content: foreign.content && !blocked('content'), title: foreign.title && !blocked('title') };
+        if (apply.content || apply.title) {
+          this._applyRemoteFields(entry, server, apply, { keepCaret: source === 'enter-edit' });
+        }
+        if (blocked('content') || blocked('title')) {
+          this._showRemoteNotice(entry, server);
+          return 'notified';
+        }
+        if (token) this._setNoteUpdatedAt(id, token);
+        this._clearRemoteNotice(entry);
+        this._afterRemoteApplied();
+        return 'applied';
+      }
+
+      /**
+       * עדכון מהשרת שמגיע **בזמן שהאצבע על הפתק** ממתין עד שהיא עוזבת, ועוד ``PRESS_SETTLE_MS``.
+       *
+       * ``_enterEditFromView`` לוקח את ההיסט מ-``data-charOffset`` של השורה שנלחצה, והוא נכון רק מול
+       * התצוגה שעליה נלחץ. עדכון שבונה את התצוגה מחדש בין ``pointerdown`` ל-``click`` משאיר את הלחיצה
+       * על צומת שכבר אינו בתצוגה — וההיסט שלו שייך לטקסט אחר. אחרי ההמתנה העדכון עובר את הפיוס כרגיל,
+       * ואם הלחיצה נכנסה לעריכה — הוא פוגש פתק בעריכה.
+       */
+      _deferWhilePressed(entry, server, source, seq){
+        if (!entry.pressed) return false;
+        entry.deferredRemote = { server, source, seq };
+        return true;
+      }
+
+      /**
+       * לחיצה על הפתק התחילה — עדכון מהשרת יחכה עד שהיא נגמרת (``_deferWhilePressed``).
+       *
+       * **השחרור נשמע על החלון, ורק לאורך הלחיצה:** האצבע יכולה לעזוב מחוץ לפתק, ולכן ``pointerup`` /
+       * ``pointercancel`` על ``window``; המאזין נרשם כאן ומסיר את עצמו בשחרור. מאזין קבוע שנרשם
+       * באתחול היה נרשם רק אחרי שהרשימה מהשרת מגיעה (``_init`` ממתין לה), ופתק מהקאש שנלחץ קודם היה
+       * נשאר "לחוץ" — כל עדכון אליו היה מחכה ללחיצה הבאה (נמדד, ``test_a_note_opened_for_editing_from_the_cache_*``);
+       * ורישום לפני הטעינה היה רושם מאזינים גם במנהל שבוטל באמצעה.
+       */
+      _trackPress(el){
+        const entry = this._getEntry(el);
+        if (!entry || entry.pressed) return;
+        entry.pressed = true;
+        const release = () => {
+          window.removeEventListener('pointerup', release, true);
+          window.removeEventListener('pointercancel', release, true);
+          this._releasePress(entry);
+        };
+        window.addEventListener('pointerup', release, true);
+        window.addEventListener('pointercancel', release, true);
+      }
+
+      /** נקרא כשהאצבע עוזבת את הפתק. */
+      _releasePress(entry){
+        if (!entry || !entry.pressed) return;
+        entry.pressed = false;
+        if (!entry.deferredRemote) return;
+        clearTimeout(entry.pressTimer);
+        entry.pressTimer = setTimeout(() => {
+          entry.pressTimer = null;
+          const deferred = entry.deferredRemote;
+          entry.deferredRemote = null;
+          if (!deferred || entry.pressed || this._destroyed || this.notes.get(String(entry.el.dataset.noteId)) !== entry) return;
+          // הלחיצה נכנסה לעריכה, והרענון של הכניסה כבר בדרך — הוא מביא מצב טרי יותר, ויחליף בלי התראה
+          // כשלא הוקלד כלום. הפיוס של העדכון הישן לפניו היה מציג התראה לרגע, רק כדי שהרענון ימחק אותה.
+          if (entry.refreshing) return;
+          // ואם הרענון כבר **הסתיים** — הקריאה שלו יצאה אחרי הדגימה שחיכתה, ולכן הפיוס זורק את מה שחיכה
+          // (``'stale'``, לפי ``seq``). בלי זה העדכון הישן היה מוחל מעל הגרסה שהרענון הביא.
+          this._reconcileServerNote(deferred.server, deferred.source, deferred.seq);
+        }, PRESS_SETTLE_MS);
+      }
+
+      // ── ההתראה "יש עדכון חדש לפתק" ──────────────────────────────────
+      //
+      // עדכון מהשרת לפתק שהמשתמש עורך, או ששינה ועוד לא נשמר, **אינו מחליף את מה שבמסך**. ההתראה יושבת
+      // בתוך הפתק, מתחת לכותרת, עם שתי בחירות (הכרעת המשתמש):
+      //
+      // - **"עדכן"** — הגרסה מהשרת נכנסת. מה שהוקלד מאז הבסיס נשמר כצעד אחד בכפתור הביטול ↶.
+      // - **"התעלם"** — הגרסה שבמסך מנצחת: השינויים שהמשתמש עשה (ויעשה) נשמרים מעל העדכון. בחירה
+      //   מפורשת, ורק על הגרסה שבהתראה — עדכון חדש יותר מעלה התראה חדשה.
+      //
+      // בזמן שההתראה פתוחה השמירות של הפתק מוחזקות (``_isSaveHeld``), כדי ששום דבר לא ייכתב מעל העדכון
+      // לפני שהמשתמש בחר. יציאה מעריכה בלי שינוי טוענת את העדכון לבד (``_afterEditExit``) — אין מה
+      // לאבד. וסגירת הלשונית כשיש שינוי מוחזק מבקשת אישור (``_setupLifecycleGuards``).
+
+      _showRemoteNotice(entry, server){
+        entry.remote = server;
+        const el = entry.el;
+        let bar = el.querySelector('.sticky-note-remote');
+        if (!bar) {
+          bar = createEl('div', 'sticky-note-remote', { role: 'group', 'aria-label': 'עדכון לפתק' });
+          const text = createEl('span', 'sticky-note-remote-text', { role: 'status', 'aria-live': 'polite' });
+          const update = createEl('button', 'sticky-note-remote-btn sticky-note-remote-update', { type: 'button' });
+          update.textContent = 'עדכן';
+          const ignore = createEl('button', 'sticky-note-remote-btn sticky-note-remote-ignore', { type: 'button' });
+          // **הפוקוס נשאר בתיבה.** לחיצה על כפתור מעבירה פוקוס (ברירת המחדל של ``mousedown``), וה-``blur``
+          // של העריכה היה טוען את העדכון לבד (``_afterEditExit``) — לפני שהמשתמש בחר "התעלם". אותו
+          // מנגנון של העיפרון בשורת השם.
+          [update, ignore].forEach((btn) => {
+            btn.addEventListener('mousedown', (ev) => { ev.preventDefault(); ev.stopPropagation(); });
+            btn.addEventListener('touchstart', (ev) => { ev.stopPropagation(); }, { passive: true });
+          });
+          update.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); this._acceptRemote(el); });
+          ignore.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); this._ignoreRemote(el); });
+          bar.appendChild(text);
+          bar.appendChild(update);
+          bar.appendChild(ignore);
+          const header = el.querySelector('.sticky-note-header');
+          if (header && header.nextSibling) el.insertBefore(bar, header.nextSibling);
+          else el.appendChild(bar);
+          el.classList.add('has-remote-update');
+        }
+        this._syncRemoteNotice(el);
+      }
+
+      /** הטקסט של ההתראה — לפי האם יש שינויים מקומיים שהעדכון יחליף. */
+      _syncRemoteNotice(el){
+        const entry = this._getEntry(el);
+        const bar = el.querySelector('.sticky-note-remote');
+        if (!entry || !entry.remote || !bar) return;
+        const dirty = this._dirtyFields(entry);
+        const changed = dirty.content || dirty.title;
+        const text = bar.querySelector('.sticky-note-remote-text');
+        const ignore = bar.querySelector('.sticky-note-remote-ignore');
+        if (text) {
+          // **``↶`` מחזיר רק טקסט** — מחסנית הביטול היא של התוכן (``_acceptRemote`` שומר בה את מה שהוקלד), ושם
+          // שהשתנה מוחלף בלי דרך חזרה. ההתראה מבטיחה רק את מה שקורה.
+          let message = 'יש עדכון חדש לפתק.';
+          if (dirty.content && dirty.title) {
+            message = 'יש עדכון חדש לפתק. עדכון יחליף את מה ששינית עכשיו — את הטקסט אפשר להחזיר עם ↶, את השם לא.';
+          } else if (dirty.content) {
+            message = 'יש עדכון חדש לפתק. עדכון יחליף את מה ששינית עכשיו (אפשר להחזיר עם ↶).';
+          } else if (dirty.title) {
+            message = 'יש עדכון חדש לפתק. עדכון יחליף את השם ששינית עכשיו.';
+          }
+          text.textContent = message;
+        }
+        if (ignore) {
+          ignore.textContent = 'התעלם';
+          ignore.title = changed ? 'השינויים שלי יישמרו מעל העדכון' : 'להמשיך עם הגרסה שבמסך';
+        }
+      }
+
+      _clearRemoteNotice(entry){
+        entry.remote = null;
+        const el = entry.el;
+        const bar = el.querySelector('.sticky-note-remote');
+        if (bar && bar.remove) bar.remove();
+        el.classList.remove('has-remote-update');
+        // השמירות שהוחזקו ממשיכות — עכשיו עם האסימון שהתיישר.
+        const id = String(el.dataset.noteId);
+        if (this._pending.has(id)) {
+          this._saveDebounced();
+          this._ensureBackgroundAutoFlush();
+        }
+      }
+
+      /** "עדכן": הגרסה מהשרת נכנסת, ומה שהוקלד נשמר כצעד אחד בביטול. */
+      _acceptRemote(el){
+        const entry = this._getEntry(el);
+        const server = entry && entry.remote;
+        if (!server) return;
+        const dirty = this._dirtyFields(entry);
+        const local = this._localFields(entry);
+        this._applyRemoteFields(entry, server, { content: true, title: true }, {
+          keepCaret: true,
+          undoStep: dirty.content ? local.content : undefined,
+        });
+        if (typeof server.updated_at === 'string' && server.updated_at) this._setNoteUpdatedAt(String(server.id), server.updated_at);
+        this._clearRemoteNotice(entry);
+        this._afterRemoteApplied();
+      }
+
+      /**
+       * "התעלם": הגרסה שבמסך מנצחת. הבסיס עובר לגרסה שבהתראה — אסימון כולל — כדי שהשמירה הבאה לא
+       * תידחה עליה שוב, ומה שהמשתמש שינה נשלח. בלי שינוי מקומי לא נשלח כלום עכשיו: אין "שלי" לשמור,
+       * וההקלדה הבאה היא שתישמר מעל העדכון.
+       */
+      _ignoreRemote(el){
+        const entry = this._getEntry(el);
+        const server = entry && entry.remote;
+        if (!server) return;
+        const dirty = this._dirtyFields(entry);
+        const local = this._localFields(entry);
+        const base = this._noteBase(entry);
+        base.content = String(server.content == null ? '' : server.content);
+        base.title = canonicalTitleText(String(server.title == null ? '' : server.title));
+        if (typeof server.updated_at === 'string' && server.updated_at) this._setNoteUpdatedAt(String(server.id), server.updated_at);
+        const id = String(el.dataset.noteId);
+        const pending = this._pending.get(id) || {};
+        const fragment = {};
+        if (dirty.content && !Object.prototype.hasOwnProperty.call(pending, 'content')) fragment.content = local.content;
+        if (dirty.title && !Object.prototype.hasOwnProperty.call(pending, 'title')) {
+          const titleInput = el.querySelector('.sticky-note-title');
+          fragment.title = titleInput ? titleInput.value : local.title;
+        }
+        this._clearRemoteNotice(entry);
+        if (Object.keys(fragment).length) this._queueSave(el, fragment);
+      }
+
+      /** יציאה מעריכה: עדכון שחיכה נטען לבד כשאין שינוי מקומי שהוא יחליף. */
+      _afterEditExit(el){
+        const entry = this._getEntry(el);
+        if (!entry || !entry.remote) return;
+        this._reconcileServerNote(entry.remote, 'exit-edit');
+      }
+
+      /**
+       * **האם סגירה עכשיו הייתה מאבדת שינוי** — השמירה בסגירה (``_flushPendingKeepalive``) אינה שולחת אותו:
+       *
+       * - פתק מוחזק (``_isSaveHeld``: עדכון שמחכה להחלטה, **או 409 שנבדק עכשיו**) עם שינוי מקומי — שדה עריכה
+       *   ששונה מהבסיס, או כל מטען בתור (גם הזזה או צבע, שאינם שדות עריכה);
+       * - פתק שיש לו מטען בתור **מאחורי שמירה שבאוויר** — שמירה אחת בכל רגע לכל פתק, ולכן המטען מחכה לתשובה
+       *   שהעמוד הנסגר לא יקבל. השאלה של הדפדפן משאירה את העמוד חי, והתשובה מגיעה בזמן שהיא פתוחה.
+       *
+       * פתק שהשמירה שלו יצאה בסגירה עצמה אינו כאן: היא ``keepalive``, וממשיכה גם אחרי שהעמוד נסגר.
+       */
+      _hasHeldLocalEdits(){
+        for (const [id, entry] of this.notes.entries()) {
+          if (!entry) continue;
+          const key = String(id);
+          if (this._isSaveHeld(key)) {
+            if (this._pending.has(key)) return true;
+            const dirty = this._dirtyFields(entry);
+            if (dirty.content || dirty.title) return true;
+          } else if (this._pending.has(key) && this._inFlight.has(key)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      /**
+       * **רענון בכניסה לעריכה.** הכניסה עצמה מיידית — במגע על תיבה של פתק רגיל אין ממה לעכב אותה,
+       * והפוקוס כבר בתיבה — והפתק נמשך ברקע. כשהתשובה מגיעה והמשתמש עוד לא שינה כלום, התוכן מתחלף
+       * והסמן נשאר על אותו טקסט (``'enter-edit'`` ב-``_reconcileServerNote``); כשכבר שינה — התראה.
+       *
+       * **לא כשיש שמירה בתור או באוויר:** אז המקומי חדש יותר ממה שהשרת יודע, ואין מה להחליף. אם בכל
+       * זאת השתנה משהו בשרת, השמירה תקבל 409 וההכרעה תגיע משם (``_resolveSaveConflict``). ורענון
+       * שנכשל או מתעכב אינו חוסם כלום: נשאר מה שבמסך, הכשל נרשם בקונסול, וה-409 עדיין מגן על השמירה.
+       */
+      _refreshBeforeEdit(el){
+        const id = el && el.dataset ? String(el.dataset.noteId || '') : '';
+        const entry = this._getEntry(el);
+        if (!entry || !isSavedNoteId(id) || entry.refreshing) return;
+        if (this._hasUnsentEdits(id) || this._isSaveHeld(id)) return;
+        entry.refreshing = (async () => {
+          try {
+            const res = await this._fetchServerNote(id);
+            if (this._destroyed || this.notes.get(id) !== entry) return;
+            if (res.ok) {
+              this._reconcileServerNote(res.note, 'enter-edit', res.seq);
+            } else if (res.status === 404 || res.status === 401) {
+              // נמחק או שהסשן נגמר — הדגימה מטפלת בשניהם (הורדה מהמסך / עצירה); כאן אין מה להחליף.
+              console.warn('sticky note: refresh before edit found no note', id, res.status);
+            } else {
+              console.warn('sticky note: refresh before edit failed — editing what is on screen', id, res.status);
+            }
+          } finally {
+            entry.refreshing = null;
+          }
+        })();
+      }
+
+      // ── הדגימה: עדכון בזמן אמת ──────────────────────────────────────
+
+      /** מפעיל את הדגימה של המשטח. פעם אחת, אחרי שהטעינה הראשונה קבעה מה במסך (הבסיס של ההשוואה). */
+      _startLivePoll(){
+        if (this._livePoll || this._destroyed) return;
+        const VP = (typeof window !== 'undefined') ? window.VisiblePoll : null;
+        if (!VP || typeof VP.create !== 'function') {
+          // היעדר יכולת קבוע לכל חיי העמוד (תבנית שלא טענה את ``utils/visible-poll.js``) — לא כשל.
+          console.warn('sticky notes: utils/visible-poll.js is not loaded — no live updates on this page');
+          return;
+        }
+        this._livePoll = VP.create({
+          name: 'sticky-notes',
+          minMs: LIVE_POLL_MS,
+          maxMs: LIVE_POLL_MAX_MS,
+          fetchTimeoutMs: LIVE_POLL_TIMEOUT_MS,
+          visibilityFloorMs: LIVE_POLL_RETURN_FLOOR_MS,
+          windowFocus: true,
+          run: (ctx) => this._livePollRun(ctx),
+        });
+        this._livePoll.start();
+      }
+
+      /** סבב אחד: דגימה, ואז החלה של מה שהשתנה. ראו ``VisiblePoll`` לחוזה של ``ctx``. */
+      async _livePollRun(ctx){
+        if (this.overlayMode) return this._livePollOverlay(ctx);
+        const res = await fetch(`${this._scopeUrl}?versions=1`, ctx.fetchOptions());
+        if (!ctx.isCurrent()) return ctx.stale();
+        if (res.status === 429) return ctx.rateLimited(res, LIVE_POLL_RATE_LIMIT_MS);
+        if (res.status === 401) return ctx.sessionEnded();
+        if (!res.ok) return ctx.fail(res.status);
+        const body = await res.json();
+        if (!ctx.isCurrent()) return ctx.stale();
+        // גוף שאינו דגימה — "לא ידוע", לא "אין פתקים". רשימה ריקה **כן** אומרת אין (U3).
+        if (!body || typeof body !== 'object' || body.ok !== true || !Array.isArray(body.notes)) return ctx.fail('bad body');
+        ctx.succeeded();
+        // **ההחלה אינה הבקשה.** באג כאן אינו "השרת לא ענה", ולכן נתפס כאן, נרשם כשגיאה בשם שלו, והדגימה
+        // ממשיכה בקצב הרגיל — ולא נכנסת ל-backoff בשם של תקלת רשת (R10).
+        try {
+          await this._applyVersions(body.notes, ctx);
+        } catch (e) {
+          console.error('[sticky-notes] applying server changes failed', e);
+        }
+        return LIVE_POLL_MS;
+      }
+
+      /**
+       * מה שהדגימה מצאה, מול מה שבמסך. **שלושה סוגי הבדל:** פתק שהאסימון או הצבע שלו שונים — נמשך
+       * ועובר את הפיוס; פתק שאין במסך — נמשך, ונכנס רק אם הוא באמת שייך למשטח; ופתק שבמסך ואינו
+       * בדגימה — **נבדק ישירות לפני שהוא יורד**.
+       *
+       * הירידה היא מחיקה בעותק, ולכן היא נשענת על שלוש הגנות (``one-way-sync-orphans``): דגימה שלא
+       * הכירה אף פתק מהמסך אינה מורידה כלום ומשאירה אזהרה (קריאה ריקה או של מקום אחר); כל פתק נבדק
+       * לבד, והוא יורד רק על ראיה — 404, או שדות שאומרים שעזב (``_noteBelongsHere``) — ולא כי לא הופיע
+       * ברשימה; ופתק שהמשתמש באמצע עבודה עליו (עריכה, שינוי שלא נשמר, שמירה בדרך) אינו יורד.
+       */
+      async _applyVersions(rows, ctx){
+        const remote = new Map();
+        for (const row of rows) {
+          if (!row || typeof row !== 'object' || typeof row.id !== 'string' || !isSavedNoteId(row.id)) continue;
+          remote.set(row.id, {
+            updated_at: typeof row.updated_at === 'string' ? row.updated_at : null,
+            color: typeof row.color === 'string' ? row.color : null,
+          });
+        }
+        const toFetch = [];
+        const missing = [];
+        let overlap = 0;
+        let localSaved = 0;
+        for (const [id, entry] of this.notes.entries()) {
+          if (!isSavedNoteId(id) || !entry || !entry.el) continue;
+          localSaved += 1;
+          const row = remote.get(id);
+          if (!row) { missing.push(id); continue; }
+          overlap += 1;
+          // שמירה בתור או באוויר, או הכרעה שבדרך: המקומי חדש יותר, וה-409 יכריע אם צריך.
+          if (this._hasUnsentEdits(id) || this._isSaveHeld(id)) continue;
+          const base = this._noteBase(entry);
+          if (row.updated_at !== base.updated_at) { toFetch.push(id); continue; }
+          if (row.color && noteColorHex(row.color) !== noteColorHex(entry.data && entry.data.color)) {
+            if (this._applyRemoteColor(entry, row.color)) this._afterRemoteApplied();
+          }
+        }
+        for (const id of remote.keys()) {
+          if (!this.notes.has(id)) toFetch.push(id);
+        }
+        // דגימה שלא מכירה אף פתק ממה שבמסך — ריקה, חלקית או של מקום אחר — אינה ראיה שהם עזבו.
+        const trustMissing = !(localSaved > 0 && overlap === 0);
+        if (!trustMissing && missing.length) {
+          console.warn(`[sticky-notes] the poll knows none of the ${missing.length} notes on screen — not removing any`);
+        }
+        const queue = toFetch.concat(trustMissing ? missing : []).slice(0, LIVE_POLL_MAX_FETCHES);
+        for (const id of queue) {
+          if (!ctx.isCurrent()) return;
+          const res = await this._fetchServerNote(id);
+          if (!ctx.isCurrent()) return;
+          this._applyFetchedNote(id, res);
+        }
+      }
+
+      /** פתק אחד שנמשך מהשרת — פיוס, כניסה למסך, או ירידה ממנו. */
+      _applyFetchedNote(id, res){
+        const entry = this.notes.get(id);
+        // קריאה שיצאה לפני מה שהפתק כבר נשען עליו אינה ראיה לכלום — גם לא לכך שעזב (``_nextReadSeq``).
+        if (entry && typeof res.seq === 'number' && (entry.readSeq || 0) > res.seq) return;
+        const gone = (res.status === 404) || (res.ok && !this._noteBelongsHere(res.note));
+        if (gone) {
+          if (entry) this._removeIfGone(entry);
+          return;
+        }
+        if (!res.ok) {
+          // קריאה שנכשלה אינה ראיה לכלום — הפתק נשאר כמו שהוא, והסבב הבא ינסה שוב.
+          console.warn('sticky notes: reading a changed note failed', id, res.status);
+          return;
+        }
+        if (entry) {
+          this._reconcileServerNote(res.note, 'poll', res.seq);
+          return;
+        }
+        // פתק חדש במשטח (נוצר ממקום אחר — סוכן, לשונית, מכשיר). רק במשטח שמציג רשימה; בפתק שנפתח מעל
+        // עמוד, הכרטיסים הם של העמוד.
+        if (this.overlayMode || this.notes.has(id)) return;
+        this._renderNote(res.note, false);
+        this._afterRemoteApplied();
+      }
+
+      /** פתק שעזב את המשטח — יורד מהמסך, אלא אם המשתמש באמצע עבודה עליו. */
+      _removeIfGone(entry){
+        const id = String(entry.el.dataset.noteId);
+        const dirty = this._dirtyFields(entry);
+        if (this._isNoteEditing(entry) || dirty.content || dirty.title || this._hasUnsentEdits(id) || this._isSaveHeld(id)) {
+          return;
+        }
+        if (this.overlayMode) {
+          // הפתק הפתוח מעל העמוד נמחק או עזב ממקום אחר — הוא נסגר, והעמוד מוריד את הכרטיס.
+          this._removeNoteLocally(entry.el);
+          this._overlayNoteGone(id);
+          return;
+        }
+        this._removeNoteLocally(entry.el);
+        this._afterRemoteApplied();
+      }
+
+      /** בפתק שנפתח מעל עמוד: רק הפתק הפתוח נדגם, ובלי פתק פתוח אין בקשה בכלל. */
+      async _livePollOverlay(ctx){
+        const cur = this._openOverlay;
+        const entry = cur ? this.notes.get(cur.id) : null;
+        if (!entry || this._hasUnsentEdits(cur.id) || this._isSaveHeld(cur.id)) return LIVE_POLL_MS;
+        const res = await this._fetchServerNote(cur.id);
+        if (!ctx.isCurrent()) return ctx.stale();
+        if (res.status === 401) return ctx.sessionEnded();
+        // ``res.headers`` מ-``_apiFetch``: ההמתנה שהשרת ביקש (``Retry-After``) גוברת על הדקה כשהיא ארוכה ממנה.
+        if (res.status === 429) return ctx.rateLimited(res, LIVE_POLL_RATE_LIMIT_MS);
+        if (!res.ok && res.status !== 404) return ctx.fail(res.status || 'network');
+        ctx.succeeded();
+        try {
+          this._applyFetchedNote(cur.id, res);
+        } catch (e) {
+          console.error('[sticky-notes] applying server changes failed', e);
+        }
+        return LIVE_POLL_MS;
+      }
+
+      /** אחרי שעדכון מהשרת הוחל: הקאש מתעדכן, כדי שטעינה הבאה לא תציג קודם את הגרסה הישנה. */
+      _afterRemoteApplied(){
+        if (!this._cacheKey) return;
+        const notes = [];
+        for (const entry of this.notes.values()) {
+          if (!entry || !entry.data) continue;
+          const base = this._noteBase(entry);
+          // הקאש הוא מה שהשרת מחזיק — לא טקסט מקומי שעוד לא נשמר.
+          notes.push(Object.assign({}, entry.data, { content: base.content, title: base.title, updated_at: base.updated_at }));
+        }
+        this._saveCache(notes);
       }
 
       // כשל שמירה חייב להיראות. עד היום הוא נכתב ל-``console`` בלבד, והפתק
@@ -7099,7 +8218,8 @@
       // עד היום כל ``!resp.ok`` הוחזר ל-``pending``, וה-auto-flush ניסה
       // שוב לנצח. תוכן שנדחה ב-400 (ארוך מדי, b64 פגום) לא הופך לתקין
       // בניסיון הבא — זו לולאה חמה שגם מסתירה את הכשל מהמשתמש. 409 הוא
-      // היוצא מן הכלל: הוא נפתר עם חותמת זמן טרייה, ולכן כן חוזר לתור.
+      // היוצא מן הכלל: הוא אומר שהפתק השתנה בשרת, והמטען חוזר לתור עד שהפיוס
+      // מכריע (``_resolveSaveConflict``).
       _isPermanentFailure(status){
         const code = Number(status);
         return Number.isFinite(code) && code >= 400 && code < 500 && code !== 409 && code !== 408 && code !== 429;
@@ -7662,14 +8782,11 @@
         delete fragment.position;
         if (!Object.keys(fragment).length) return;
       }
+      // **בלי ``prev_updated_at`` בתור.** האסימון מצורף ברגע השליחה, מהבסיס של אותו רגע
+      // (``_withToken``): הוא זז כשהבסיס מתיישר (שמירה שאושרה, עדכון שהוחל, "התעלם"), ואסימון
+      // שנלכד בתור לפני כן היה ישן כבר כשהבקשה יוצאת.
       const pending = Object.assign({}, this._pending.get(id) || {}, fragment || {});
-      // צירוף חותמת זמן קודמת למניעת דריסת שינויים בין מכשירים
-      try {
-        if (!('prev_updated_at' in pending)) {
-          const prev = el.dataset.updatedAt;
-          if (prev) pending.prev_updated_at = prev;
-        }
-      } catch(_) {}
+      delete pending.prev_updated_at;
       this._pending.set(id, pending);
       this._syncEntryFromFragment(id, pending);
       // advance per-note pending version to avoid dropping newer edits after batch
@@ -7681,48 +8798,34 @@
       this._ensureBackgroundAutoFlush();
     }
 
+    /**
+     * **השמירה כשהלשונית מוסתרת או נסגרת** — כל פתק שיש לו שמירה בתור יוצא **פעם אחת**, דרך המסלול הרגיל
+     * (``_sendUpdate``): נרשם כשמירה באוויר, נזכר כשלא אושר, וה-``fetch`` שלו הוא ``keepalive`` — הוא
+     * ממשיך גם אחרי שהעמוד נסגר.
+     *
+     * **עד נובמבר 2026 אותו מטען יצא כאן פעמיים:** ``PUT`` עם ``keepalive`` מכאן, ו-``_performSaveBatch``
+     * מיד אחריו (``_flushDebounceTimer``), שניהם עם אותו אסימון. אחד מהם קיבל 409, והפיוס ראה בשרת את
+     * הטקסט שהשני כתב — טקסט שאינו "שמירה שלנו שעוד לא אושרה", כי השליחה מכאן לא נזכרה — והציג למשתמש
+     * שחזר ללשונית "יש עדכון חדש" על הטקסט שלו עצמו. ושמירה שכבר באוויר נשלחה כאן שוב.
+     *
+     * לא יוצאים כאן: פתק מוחזק (``_isSaveHeld``) — האזהרה בסגירה מגינה עליו, ושליחה הייתה נדחית ממילא
+     * ב-409; ופתק שיש לו שמירה באוויר — היא כבר ``keepalive``, ומה שהוקלד אחריה יוצא כשהיא נגמרת.
+     * המחיר: אם העמוד נסגר בתוך זמן הסבב של השמירה ההיא, מה שהוקלד אחריה אינו נשלח.
+     */
     _flushPendingKeepalive(){
-      try {
-        const combined = new Map();
+      if (!this._pending || !this._pending.size) return;
+      for (const [id, data] of Array.from(this._pending.entries())) {
+        if (!data || this._isSaveHeld(id) || this._inFlight.has(String(id))) continue;
+        if (!this.notes.has(String(id))) { this._dropOrphanSave(id); continue; }
+        const seqAtSend = this._pendingSeq.get(id) || 0;
+        this._pending.delete(id);
         try {
-          if (this._pending && this._pending.size) {
-            for (const [id, data] of this._pending.entries()) {
-              if (data) combined.set(id, data);
-            }
-          }
-        } catch(_) {}
-        try {
-          if (this._inFlight && this._inFlight.size) {
-            for (const [id, info] of this._inFlight.entries()) {
-              if (info && info.data && !combined.has(id)) {
-                combined.set(id, info.data);
-              }
-            }
-          }
-        } catch(_) {}
-        if (!combined.size) return;
-        for (const [id, data] of combined.entries()){
-          try {
-            if (!data) continue;
-            const body = JSON.stringify(withContentB64(data));
-            if (typeof fetch === 'function') {
-              try {
-                fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body,
-                  keepalive: true,
-                }).catch(()=>{});
-              } catch(e) {
-                console.warn('sticky note: keepalive request failed', id, e);
-              }
-            }
-          } catch(err) {
-            console.warn('sticky note: keepalive serialization failed', id, err);
-          }
+          this._sendUpdate(id, data, seqAtSend);
+        } catch(err) {
+          // ``_sendUpdate`` אינו זורק (הבקשה נתפסת בתוכו) — זו רשת ביטחון לחריגה סינכרונית, שמחזירה את המטען.
+          console.warn('sticky note: lifecycle save failed', id, err);
+          this._restorePending(id, data);
         }
-      } catch(_) {
-        return;
       }
     }
 
@@ -7761,37 +8864,122 @@
             this._inFlight.delete(id);
             if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
               this._stopBackgroundAutoFlush();
+            } else if (this._pending.has(id) && !this._destroyed) {
+              // עריכה שהוקלדה בזמן שהשמירה הייתה באוויר חיכתה לה (שמירה אחת בכל רגע לכל פתק) — עכשיו
+              // היא יוצאת, עם האסימון שהשמירה הזו החזירה.
+              this._saveDebounced();
+              this._ensureBackgroundAutoFlush();
             }
           }
-        });
+        }).catch(() => { /* הכשל עצמו מטופל אצל מי שממתין להבטחה; כאן רק הניקוי */ });
       }
     }
 
+    /**
+     * האסימון של הפתק — ``el.dataset.updatedAt``, הרשומה והבסיס, יחד. **נקרא רק כשהעותק המקומי מתיישר
+     * עם הגרסה שהאסימון מתאר** (``_onSaveConfirmed``, ``_reconcileServerNote``, "עדכן"/"התעלם",
+     * ``_applyServerContent``): אסימון שזז בלי זה הוא מה שמאפשר לשמירה הבאה לדרוס.
+     */
     _setNoteUpdatedAt(id, iso){
       if (!iso) return;
       const entry = this.notes.get(id);
       if (!entry) return;
-      if (entry.el) {
-        try { entry.el.dataset.updatedAt = String(iso); } catch(_) {}
-      }
-      if (entry.data && typeof entry.data === 'object') {
-        try { entry.data.updated_at = iso; } catch(_) {}
-      }
+      if (entry.el) entry.el.dataset.updatedAt = String(iso);
+      if (entry.data && typeof entry.data === 'object') entry.data.updated_at = iso;
+      this._noteBase(entry).updated_at = String(iso);
     }
 
-    // מיזוג שבו ה**חדש** מנצח: מידע טרי מהשרת (``prev_updated_at``) שחייב
-    // לדרוס את מה שבתור.
+    /**
+     * המטען לשליחה, עם האסימון של הבסיס **ברגע השליחה** — ראו ``_queueSave``.
+     *
+     * **בלי רשומה — ``null``, והמטען אינו נשלח.** האסימון חי בבסיס של הפתק, ומטען בלי אסימון עובר בשרת
+     * בלי בדיקת התנגשות — כלומר דורס כל מה שהשתנה. פתק יורד מהמנהל רק כשאין לו שמירה בתור או החלטה
+     * פתוחה, ו-``_removeNoteLocally`` מוציא את מה שנשאר מהתור, ולכן מטען בלי רשומה הוא באג — והתשובה
+     * עליו היא לא לשלוח, לא לשלוח בלי הגנה (``silent-fallback-to-worse-path``).
+     */
+    _withToken(id, data){
+      const entry = this.notes.get(String(id));
+      if (!entry) return null;
+      const out = Object.assign({}, data || {});
+      delete out.prev_updated_at;
+      const token = this._noteBase(entry).updated_at;
+      if (token) out.prev_updated_at = token;
+      return out;
+    }
+
+    /** מטען שנשאר בתור לפתק שאינו במנהל — יוצא מהתור, בלי שליחה. ראו ``_withToken``. */
+    _dropOrphanSave(id){
+      const key = String(id);
+      if (this._pending.has(key)) {
+        console.error('sticky note: a queued save for a note that is no longer here was dropped, not sent without its token', key);
+      }
+      this._pending.delete(key);
+      this._pendingSeq.delete(key);
+    }
+
+    /**
+     * **409 על שמירה — ההכרעה במקום אחד, לשני מסלולי השמירה** (``_sendUpdate``, ``_performSaveBatch``).
+     *
+     * 409 אומר שהפתק השתנה בשרת מאז האסימון שלנו. עד נובמבר 2026 הלקוח שלח שוב את אותו מטען עם
+     * האסימון שבתשובה — כלומר דרס את מה שהשתנה (ובמסלול המרוכז: השאיר את המטען בתור עם האסימון החדש,
+     * לדריסה בשמירה הבאה). עכשיו המטען חוזר לתור ומוחזק, הפתק נמשך מהשרת, ו**הפיוס מכריע**: שינוי שלנו
+     * שנחת (תשובה שאבדה, שתי שמירות באוויר) מיישר את הבסיס, והמטען נשלח שוב עם האסימון הטרי; שינוי
+     * זר בשדה שהמשתמש לא נגע בו — מוחל, ואז אותו דבר; ושינוי זר בשדה שהמשתמש שינה — התראה, ושום
+     * דבר לא נכתב עד שהוא בוחר. גם מטען בלי שדות עריכה (הזזה, גודל, צבע) עובר כאן: שליחה שלו עם
+     * האסימון שבתשובה הייתה מצליחה, והאסימון שחוזר ממנה היה מתיישב על טקסט מקומי שנשען על גרסה ישנה.
+     */
+    async _resolveSaveConflict(id, payload){
+      const key = String(id);
+      const entry = this.notes.get(key);
+      this._restorePending(key, payload);
+      if (!entry) return false;
+      if (entry.resolving) return false;   // הכרעה אחת בכל רגע; המטען כבר בתור
+      entry.resolving = true;
+      let res = null;
+      try {
+        res = await this._fetchServerNote(key);
+      } finally {
+        entry.resolving = false;
+      }
+      if (this._destroyed || this.notes.get(key) !== entry) return false;
+      if (res.ok) {
+        const outcome = this._reconcileServerNote(res.note, 'conflict', res.seq);
+        if (outcome !== 'notified' && this._pending.has(key)) {
+          this._saveDebounced();
+          this._ensureBackgroundAutoFlush();
+        }
+        return outcome !== 'notified';
+      }
+      if (res.status === 404) {
+        // הפתק נמחק בשרת. מה שבתור לא יישמר לעולם — הסימון הגלוי של כשל השמירה אומר את זה.
+        this._markSaveFailed(key);
+        this._markServerGone(key);
+        this._pending.delete(key);
+        return false;
+      }
+      // הקריאה נכשלה — "לא ידוע". המטען בתור, וה-auto-flush ינסה שוב (ושוב יגיע לכאן אם עדיין 409).
+      console.warn('sticky note: reading the note after a save conflict failed', key, res.status);
+      this._ensureBackgroundAutoFlush();
+      return false;
+    }
+
     // החזרת מטען **ישן** לתור אחרי כשל — וכאן ה**קיים** מנצח.
     //
     // זה השורש של אובדן תוכן שנמדד: ``_flushFor`` מוציא את המטען מהתור
     // לפני שהוא ממתין לרשת, ואם המשתמש הקליד בזמן ההמתנה נוצרה רשומה
-    // חדשה. ``_mergePending`` היה עושה ``Object.assign(חדש, ישן)`` —
+    // חדשה. המיזוג הקודם (``_mergePending``) עשה ``Object.assign(חדש, ישן)`` —
     // כלומר הישן דרס את מה שהמשתמש בדיוק כתב.
     //
-    // אותה פונקציה שירתה שתי כוונות הפוכות: "החזר מטען שנכשל" ו"עדכן
-    // מידע טרי מהשרת". הפרדה ביניהן היא התיקון, לא סדר הפרמטרים.
+    // ``_mergePending`` שירת גם את הכוונה ההפוכה — אסימון טרי מתשובת 409 שחייב לדרוס את מה שבתור —
+    // ומאז נובמבר 2026 אין בה צורך: האסימון אינו נשמר בתור, ומצורף ברגע השליחה (``_withToken``).
     _restorePending(id, payload){
       if (!id || !payload) return;
+      // פתק שירד מהמנהל בזמן שהשמירה הייתה באוויר (נמחק, או שהשרת אישר שעזב) — המטען אינו חוזר לתור:
+      // בלי רשומה אין לו אסימון, ושליחה בלעדיו הייתה דורסת (``_withToken``).
+      if (!this.notes.has(String(id))) {
+        console.warn('sticky note: a failed save of a note that is no longer here is not retried', String(id));
+        return;
+      }
       const restored = this._clonePayload(payload) || {};
       const existing = this._pending.get(id);
       // שדות מהעריכה החדשה גוברים; הישן רק ממלא מה שחסר
@@ -7804,26 +8992,9 @@
       this._ensureBackgroundAutoFlush();
     }
 
-    _mergePending(id, fragment){
-      if (!id || !fragment) return;
-      const existing = this._pending.get(id);
-      let next;
-      if (existing) {
-        next = this._clonePayload(existing) || {};
-        const fragmentClone = this._clonePayload(fragment) || {};
-        Object.assign(next, fragmentClone);
-      } else {
-        next = this._clonePayload(fragment);
-      }
-      this._pending.set(id, next);
-      this._syncEntryFromFragment(id, next);
-      try { this._saveDebounced(); } catch(_) {}
-      this._ensureBackgroundAutoFlush();
-    }
-
     _sendUpdate(id, data, seqAtSend){
       const original = this._clonePayload(data) || {};
-      const payload = withContentB64(original);
+      delete original.prev_updated_at;
       const url = `/api/sticky-notes/note/${encodeURIComponent(id)}`;
       const send = async (payloadObj) => {
         const resp = await fetch(url, {
@@ -7831,6 +9002,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payloadObj),
           keepalive: true,
+          signal: saveRequestSignal(),
         });
         let json = null;
         try { json = await resp.json(); } catch(_) {}
@@ -7838,14 +9010,19 @@
       };
 
       const attempt = async () => {
+        const withToken = this._withToken(id, original);
+        if (!withToken) {
+          this._dropOrphanSave(id);
+          return false;
+        }
+        // נזכר לפני השליחה: אם התשובה תלך לאיבוד, הגוף שבשרת יזוהה כשלנו (``_rememberUnconfirmed``).
+        const snap = this._rememberUnconfirmed(id, original);
         try {
-          const { resp, json } = await send(payload);
-          // 409 נושא שני מובנים שונים לגמרי, ורק ``error`` מבדיל ביניהם.
-          // התנגשות גרסה נפתרת בניסיון חוזר עם חותמת טרייה; שם תפוס לא
-          // ייפתר לעולם בניסיון חוזר — הוא דורש שהמשתמש יבחר שם אחר.
-          // בלי ההבחנה הזו כל הקלדה של שם קיים נכנסה ללולאת ניסיונות
-          // אינסופית, ובלי שום חיווי: מסלול ה-409 אינו מסמן כשל.
+          const { resp, json } = await send(withContentB64(withToken));
+          // 409 נושא שני מובנים שונים לגמרי, ורק ``error`` מבדיל ביניהם. שם תפוס לא ייפתר לעולם
+          // בניסיון חוזר — הוא דורש שהמשתמש יבחר שם אחר. התנגשות גרסה — ``_resolveSaveConflict``.
           if (resp.status === 409 && json && json.error === 'duplicate_title') {
+            this._forgetUnconfirmed(id, snap);
             this._markTitleConflict(id, true);
             if ((this._pendingSeq.get(String(id)) || 0) === (seqAtSend || 0)) {
               this._pending.delete(String(id));
@@ -7853,71 +9030,35 @@
             return false;
           }
           if (resp.status === 409) {
-            console.warn('sticky note update conflict, retrying once with fresh timestamp', id);
-            let serverUpdatedAt = null;
-            if (json && json.updated_at) {
-              serverUpdatedAt = String(json.updated_at);
-              this._setNoteUpdatedAt(id, serverUpdatedAt);
-            }
-            if (serverUpdatedAt) {
-              const retryOriginal = Object.assign({}, original, { prev_updated_at: serverUpdatedAt });
-              const retryPayload = withContentB64(retryOriginal);
-              try {
-                const { resp: retryResp, json: retryJson } = await send(retryPayload);
-                if (retryResp.status === 409 && retryJson && retryJson.error === 'duplicate_title') {
-                  this._markTitleConflict(id, true);
-                  if ((this._pendingSeq.get(String(id)) || 0) === (seqAtSend || 0)) {
-                    this._pending.delete(String(id));
-                  }
-                  return false;
-                }
-                if (retryResp.status === 409) {
-                  console.warn('sticky note update conflict persisted after retry', id);
-                  if (retryJson && retryJson.updated_at) {
-                    this._setNoteUpdatedAt(id, String(retryJson.updated_at));
-                    this._restorePending(id, retryOriginal);
-                    this._mergePending(id, { prev_updated_at: String(retryJson.updated_at) });
-                  } else if (serverUpdatedAt) {
-                    this._restorePending(id, retryOriginal);
-                  }
-                  return false;
-                }
-                if (retryJson && retryJson.updated_at) {
-                  this._setNoteUpdatedAt(id, String(retryJson.updated_at));
-                }
-                return true;
-              } catch(retryErr) {
-                console.warn('sticky note retry failed', id, retryErr);
-                this._restorePending(id, retryOriginal);
-                return false;
-              }
-            }
-            this._restorePending(id, original);
-            if (serverUpdatedAt) this._mergePending(id, { prev_updated_at: serverUpdatedAt });
-            return false;
-          }
-          if (json && json.updated_at) {
-            this._setNoteUpdatedAt(id, String(json.updated_at));
+            // השרת לא כתב כלום, ולכן המטען אינו "שמירה שאולי נחתה".
+            this._forgetUnconfirmed(id, snap);
+            return await this._resolveSaveConflict(id, original);
           }
           if (!resp.ok) {
             this._markSaveFailed(id);
             if (!this._isPermanentFailure(resp.status)) {
-              // כשל זמני — מחזירים לתור, אבל בלי לדרוס עריכה חדשה יותר
+              // כשל זמני — מחזירים לתור, אבל בלי לדרוס עריכה חדשה יותר. ``snap`` נשאר: 5xx יכול
+              // להגיע אחרי שהשרת כבר כתב.
               this._restorePending(id, original);
-            } else if ((this._pendingSeq.get(String(id)) || 0) === (seqAtSend || 0)) {
-              // כשל סופי לא ינוסה שוב — אבל רק אם לא הוקלד משהו חדש
-              // בינתיים. מחיקה עיוורת כאן מוחקת בדיוק את מה שהמשתמש כתב.
-              this._pending.delete(String(id));
+            } else {
+              this._forgetUnconfirmed(id, snap);
+              if (Number(resp.status) === 404) this._markServerGone(id);
+              if ((this._pendingSeq.get(String(id)) || 0) === (seqAtSend || 0)) {
+                // כשל סופי לא ינוסה שוב — אבל רק אם לא הוקלד משהו חדש בינתיים. מחיקה עיוורת כאן
+                // מוחקת בדיוק את מה שהמשתמש כתב.
+                this._pending.delete(String(id));
+              }
             }
-          } else {
-            this._clearSaveFailed(id);
-            // רק אם השם עצמו הוא מה שנשמר. שמירה מוצלחת של גרירה או שינוי
-            // גודל אינה אומרת דבר על השם — הוא נשאר תפוס בשרת — וניקוי
-            // הסימון כאן היה מציג "נשמר" על שדה שהשרת לא קיבל.
-            if ('title' in original) this._markTitleConflict(id, false);
+            return false;
           }
-          return resp.ok;
+          this._onSaveConfirmed(id, original, json && json.updated_at, snap);
+          this._clearSaveFailed(id);
+          // רק אם השם עצמו הוא מה שנשמר. שמירה מוצלחת של גרירה או שינוי גודל אינה אומרת דבר על
+          // השם — הוא נשאר תפוס בשרת — וניקוי הסימון כאן היה מציג "נשמר" על שדה שהשרת לא קיבל.
+          if ('title' in original) this._markTitleConflict(id, false);
+          return true;
         } catch(err) {
+          // כשל רשת — "לא ידוע": השרת אולי כתב. ``snap`` נשאר, והמטען חוזר לתור.
           console.warn('save note failed', id, err);
           this._markSaveFailed(id);
           this._restorePending(id, original);
@@ -7939,112 +9080,193 @@
           return;
         }
       } catch(_) {}
-      const entries = Array.from(this._pending.entries());
+      // **בפירוק אין שליחה מכאן** — ``destroy`` מרוקן את התור בעצמו (``_flushAll``), ואחריו המנהל מת: טיימר
+      // שנדרך מכשל של שמירה אחרונה לא יחיה אותו.
+      if (this._destroyed) return;
+      // מה נשאר בתור: פתק שעדכון מהשרת מחכה בו להחלטה, או שבודקים בו עכשיו 409 (``_isSaveHeld``); ופתק
+      // **שיש לו שמירה באוויר** — שמירה אחת בכל רגע לכל פתק. שתי שמירות של אותו פתק עם אותו אסימון יכלו
+      // להגיע לשרת בסדר הפוך: החדשה נשמרת, הישנה מקבלת 409 — והפיוס, שרואה את החדשה כבסיס, היה שולח את
+      // הישנה שוב מעליה. מה שבתור יוצא כשהשמירה שבאוויר נגמרת (``_registerInFlight``). ומטען של פתק
+      // שאינו במנהל יוצא מהתור בלי שליחה (``_withToken``).
+      const entries = [];
+      for (const [id, fragment] of Array.from(this._pending.entries())) {
+        if (!this.notes.has(String(id))) { this._dropOrphanSave(id); continue; }
+        if (this._isSaveHeld(id) || this._inFlight.has(String(id))) continue;
+        entries.push([id, fragment]);
+      }
+      if (!entries.length) return;
       // capture snapshot with versions to avoid dropping newer edits queued during flight
-      const snapshots = entries.map(([id, fragment]) => ({
-        id: String(id),
-        seq: (this._pendingSeq.get(String(id)) || 0),
-        payload: this._clonePayload(fragment) || {}
-      }));
-      const batchPayload = snapshots.map(s => Object.assign({ id: s.id }, withContentB64(s.payload)));
+      const snapshots = entries.map(([id, fragment]) => {
+        const payload = this._clonePayload(fragment) || {};
+        delete payload.prev_updated_at;
+        return {
+          id: String(id),
+          seq: (this._pendingSeq.get(String(id)) || 0),
+          payload,
+          // נזכר לפני השליחה — ראו ``_rememberUnconfirmed``.
+          sent: this._rememberUnconfirmed(id, payload),
+        };
+      });
+      const batchPayload = snapshots.map(s => Object.assign({ id: s.id }, withContentB64(this._withToken(s.id, s.payload))));
       const url = `/api/sticky-notes/batch`;
-      let usedBatch = false;
-      try {
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ updates: batchPayload }),
-          keepalive: true,
-        });
-        if (resp.ok) {
-          const json = await resp.json().catch(() => null);
-          if (json && json.ok && Array.isArray(json.results)) {
-            usedBatch = true;
-            for (const result of json.results) {
-              const id = String(result.id || '');
-              if (!id) continue;
-              const snap = snapshots.find(s => s.id === id) || null;
-              const currentSeq = (this._pendingSeq.get(id) || 0);
-              if (result.ok) {
-                if (result.updated_at) { this._setNoteUpdatedAt(id, String(result.updated_at)); }
-                this._clearSaveFailed(id);
-                // כמו במסלול הבודד: רק שמירה שכללה שם מנקה את הסימון
-                if (snap && snap.payload && 'title' in snap.payload) this._markTitleConflict(id, false);
-                // clear pending only if no newer edits arrived during request
-                if (snap && currentSeq === snap.seq) {
-                  this._pending.delete(id);
-                }
-              } else if (Number(result.status) === 409 && result.error === 'duplicate_title') {
-                // שם תפוס — לא התנגשות גרסה, ולכן לא חוזר לתור
-                this._markTitleConflict(id, true);
-                if (snap && currentSeq === snap.seq) this._pending.delete(id);
-              } else if (Number(result.status) === 409) {
-                // conflict – set prev_updated_at for next retry without overriding newer local edits
-                const patch = {};
-                if (result.updated_at) patch.prev_updated_at = String(result.updated_at);
-                this._mergePending(id, patch);
-              } else {
-                this._markSaveFailed(id);
-                if (this._isPermanentFailure(result.status)) {
-                  // 400 לא יתוקן בניסיון חוזר. מפסיקים לנסות ומשאירים את
-                  // הסימון הגלוי — אבל רק אם לא הוקלד משהו חדש בינתיים,
-                  // בדיוק כמו במסלול ההצלחה.
+      // הבקשה המרוכזת **נרשמת כשמירה באוויר לכל פתק שבה**, בדיוק כמו ``_sendUpdate`` — אחרת ``_flushFor``
+      // (יציאה מעריכה, סימון משימה, העברה לארכיון) היה שולח את אותו פתק שוב במקביל לה.
+      const run = async () => {
+        let usedBatch = false;
+        try {
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ updates: batchPayload }),
+            keepalive: true,
+            signal: saveRequestSignal(),
+          });
+          if (resp.ok) {
+            const json = await resp.json().catch(() => null);
+            if (json && json.ok && Array.isArray(json.results)) {
+              usedBatch = true;
+              for (const result of json.results) {
+                const id = String(result.id || '');
+                if (!id) continue;
+                const snap = snapshots.find(s => s.id === id) || null;
+                const currentSeq = (this._pendingSeq.get(id) || 0);
+                if (result.ok) {
+                  this._onSaveConfirmed(id, snap ? snap.payload : null, result.updated_at, snap && snap.sent);
+                  this._clearSaveFailed(id);
+                  // כמו במסלול הבודד: רק שמירה שכללה שם מנקה את הסימון
+                  if (snap && snap.payload && 'title' in snap.payload) this._markTitleConflict(id, false);
+                  // clear pending only if no newer edits arrived during request
                   if (snap && currentSeq === snap.seq) {
                     this._pending.delete(id);
                   }
-                } else if (snap) {
-                  // כשל זמני – מחזירים את התמונה, בלי לדרוס עריכה חדשה
-                  this._restorePending(id, snap.payload);
+                } else if (Number(result.status) === 409 && result.error === 'duplicate_title') {
+                  // שם תפוס — לא התנגשות גרסה, ולכן לא חוזר לתור
+                  if (snap) this._forgetUnconfirmed(id, snap.sent);
+                  this._markTitleConflict(id, true);
+                  if (snap && currentSeq === snap.seq) this._pending.delete(id);
+                } else if (Number(result.status) === 409) {
+                  // התנגשות גרסה — אותה הכרעה של המסלול הבודד (``_resolveSaveConflict``). השרת לא כתב.
+                  if (snap) {
+                    this._forgetUnconfirmed(id, snap.sent);
+                    await this._resolveSaveConflict(id, snap.payload);
+                  }
+                } else {
+                  this._markSaveFailed(id);
+                  if (this._isPermanentFailure(result.status)) {
+                    // 400 לא יתוקן בניסיון חוזר. מפסיקים לנסות ומשאירים את
+                    // הסימון הגלוי — אבל רק אם לא הוקלד משהו חדש בינתיים,
+                    // בדיוק כמו במסלול ההצלחה.
+                    if (snap) this._forgetUnconfirmed(id, snap.sent);
+                    if (Number(result.status) === 404) this._markServerGone(id);
+                    if (snap && currentSeq === snap.seq) {
+                      this._pending.delete(id);
+                    }
+                  } else if (snap) {
+                    // כשל זמני – מחזירים את התמונה, בלי לדרוס עריכה חדשה
+                    this._restorePending(id, snap.payload);
+                  }
                 }
               }
             }
           }
+        } catch(err) {
+          // הבקשה המרוכזת נכשלה כולה (רשת, גוף פגום) — המסלול הבודד שמתחת שולח כל פתק לחוד, ולכן אין כאן
+          // מה לדווח. מה שנזכר כ"שלא אושר" נשאר: ייתכן שהשרת כתב לפני שהחיבור נפל.
         }
-      } catch(err) {
-        // ignore, will fallback to single updates below
-      }
-      if (!usedBatch) {
-        // Fallback to per-note PUT
-        for (const [id] of entries){
-          const current = this._pending.get(id);
-          if (!current) continue;
-          // גרסת התור נלקחת **לפני** המחיקה, ומועברת הלאה — בדיוק כמו
-          // ב-``_flushFor``. בלעדיה ``seqAtSend`` היה ``undefined``, כל
-          // ההשוואות בענפי הכשל נפלו על 0, והשומר "אל תמחק עריכה חדשה
-          // יותר" לא היה יכול להתאים לעולם.
-          const seqAtSend = this._pendingSeq.get(id) || 0;
-          this._pending.delete(id);
-          await this._sendUpdate(id, current, seqAtSend);
+        if (!usedBatch) {
+          // Fallback to per-note PUT
+          for (const [id] of entries){
+            const current = this._pending.get(id);
+            if (!current || this._isSaveHeld(id)) continue;
+            // גרסת התור נלקחת **לפני** המחיקה, ומועברת הלאה — בדיוק כמו
+            // ב-``_flushFor``. בלעדיה ``seqAtSend`` היה ``undefined``, כל
+            // ההשוואות בענפי הכשל נפלו על 0, והשומר "אל תמחק עריכה חדשה
+            // יותר" לא היה יכול להתאים לעולם.
+            const seqAtSend = this._pendingSeq.get(id) || 0;
+            this._pending.delete(id);
+            await this._sendUpdate(id, current, seqAtSend);
+          }
         }
-      }
+      };
+      const promise = run();
+      for (const s of snapshots) this._registerInFlight(s.id, s.payload, promise);
+      await promise;
       if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
         this._stopBackgroundAutoFlush();
       }
     }
 
+    /**
+     * שולח עכשיו את מה שבתור לפתק, וממתין לו. **מחזיר אם הפתק "סגור"** — אין לו שמירה בתור או באוויר,
+     * ואין בו החלטה פתוחה. מי שעומד להוריד את הפתק מהמסך בודק את התשובה (``_settleBeforeLeaving``):
+     * שמירה שנכשלה או עדכון שמחכה להחלטה הם סיבה לא לצאת, ולא פרט שאפשר לבלוע (K11).
+     *
+     * **שמירה אחת בכל רגע לכל פתק.** שמירה שכבר באוויר — בודדת או מרוכזת — קודמת: ממתינים לה, ורק אחר
+     * כך שולחים את מה שהצטבר בתור, עם האסימון שהיא החזירה. ההמתנה חסומה, כי לכל שמירה יש תקרת זמן
+     * (``saveRequestSignal``).
+     */
     async _flushFor(el){
       const id = el.dataset.noteId;
-      const data = this._pending.get(id);
-      if (!data) {
-        const existingFlight = this._inFlight.get(id);
-        if (existingFlight && existingFlight.promise && typeof existingFlight.promise.then === 'function') {
-          try { await existingFlight.promise; } catch(_) {}
-        }
-        return;
+      for (let round = 0; round < FLUSH_WAIT_ROUNDS; round++) {
+        const flight = this._inFlight.get(id);
+        if (!flight || !flight.promise || typeof flight.promise.then !== 'function') break;
+        try { await flight.promise; } catch(_) { /* הכשל של השמירה ההיא טופל אצלה — כאן רק מחכים לה */ }
       }
-      // גרסת התור ברגע השליחה. כל עריכה נוספת מקדמת אותה, וכך אפשר
-      // לדעת בכשל אם מה שבתור הוא עדיין מה ששלחנו או משהו חדש יותר.
-      const seqAtSend = this._pendingSeq.get(id) || 0;
-      this._pending.delete(id);
-      await this._sendUpdate(id, data, seqAtSend);
+      // עדכון מהשרת מחכה בפתק להחלטה — השמירה מוחזקת (``_isSaveHeld``), ונשלחת אחרי הבחירה. ושמירה שעדיין
+      // באוויר אחרי ההמתנה — מה שבתור יוצא כשהיא נגמרת (``_registerInFlight``).
+      const data = this._pending.get(id);
+      if (data && !this._isSaveHeld(id) && !this._inFlight.has(String(id))) {
+        // גרסת התור ברגע השליחה. כל עריכה נוספת מקדמת אותה, וכך אפשר
+        // לדעת בכשל אם מה שבתור הוא עדיין מה ששלחנו או משהו חדש יותר.
+        const seqAtSend = this._pendingSeq.get(id) || 0;
+        this._pending.delete(id);
+        await this._sendUpdate(id, data, seqAtSend);
+      }
       if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
         this._stopBackgroundAutoFlush();
       }
+      // "סגור" = השרת מחזיק את מה שבמסך. לא רק "אין מה לשלוח": שמירה שנדחתה כבר אינה בתור, והטקסט שלה עדיין
+      // לא בשרת (``_hasUnsavedLocalEdits``).
+      return !this._hasUnsavedLocalEdits(id) && !this._isSaveHeld(id);
+    }
+
+    /**
+     * **לפני שפתק יורד מהמסך** — סגירה של פתק מעל עמוד, העברה לארכיון, הסרה מעמוד הקבצים. מה שבתור נשלח
+     * (שני סבבים, כמו ``_flushAll``: 409 שהוכרע מחזיר את המטען לתור לשליחה נוספת), והתשובה אומרת אם
+     * מותר לצאת: ``'ok'``; ``'held'`` — עדכון מהשרת מחכה להחלטה בפתק; ``'unsaved'`` — שמירה נכשלה.
+     *
+     * **פתק לא יורד עם שינוי שהשרת לא קיבל, או עם החלטה פתוחה** (הכרעת המשתמש). האסימון של המטען חי
+     * בבסיס של הפתק, ופתק שירד מהמנהל היה משאיר בתור מטען בלי אסימון — כלומר מטען שדורס בשרת את מה
+     * שהשתנה. ומי שעוצר אומר למשתמש למה (``_explainCannotLeave``).
+     */
+    async _settleBeforeLeaving(el){
+      const id = el && el.dataset ? String(el.dataset.noteId || '') : '';
+      if (!id) return 'ok';
+      let settled = false;
+      for (let round = 0; round < 2 && !settled; round++) {
+        if (this._isSaveHeld(id)) break;
+        try { settled = await this._flushFor(el); } catch(err) {
+          console.warn('sticky note: flushing before leaving failed', id, err);
+          settled = false;
+        }
+      }
+      if (this._isSaveHeld(id)) return 'held';
+      return this._hasUnsavedLocalEdits(id) ? 'unsaved' : 'ok';
+    }
+
+    /** למה הפתק נשאר במסך — הודעה למשתמש, בעברית. ``action``: מה הוא ניסה לעשות. */
+    _explainCannotLeave(why, action){
+      const messages = {
+        held: `יש עדכון חדש לפתק שמחכה להחלטה שלך — בחרו "עדכן" או "התעלם", ואז אפשר ${action}.`,
+        unsaved: `השינויים בפתק עוד לא נשמרו, ולכן עוד אי אפשר ${action}. נסו שוב בעוד רגע.`,
+      };
+      this._notify(messages[why] || messages.unsaved, why === 'held' ? 'info' : 'error');
     }
 
     _ensureBackgroundAutoFlush(){
       try {
-        if (this._autoFlushTimer) return;
+        // מנהל שהתפרק אינו דורך טיימר חדש — שמירה אחרונה שנכשלה בזמן הפירוק הייתה מחיה אותו.
+        if (this._autoFlushTimer || this._destroyed) return;
         this._autoFlushTimer = setInterval(() => {
           this._runAutoFlushTick();
         }, AUTO_SAVE_FORCE_INTERVAL_MS);
@@ -8157,6 +9379,9 @@
      */
     _removeNoteLocally(el){
       const id = el.dataset.noteId;
+      // עדכון שחיכה ללחיצה על הפתק הזה — אין לו עוד על מה לרוץ.
+      const removed = this.notes.get(id);
+      if (removed && removed.pressTimer) { clearTimeout(removed.pressTimer); removed.pressTimer = null; }
       // טיימר ההתפרצות מחזיק הפניה ל-``el`` ול-``entry``. בלי הניקוי הזה
       // הוא ימשיך לרוץ אחרי שהפתק ירד מה-DOM.
       this._clearUndoTimer(el);
@@ -8166,6 +9391,11 @@
       this._teardownThreadsOf(this._getEntry(el));
       try { el.remove(); } catch(_) {}
       this.notes.delete(id);
+      // **מה שנשאר בתור לפתק יוצא איתו.** המסלולים שמורידים פתק שהמשתמש עדיין עובד עליו עוצרים קודם
+      // (``_settleBeforeLeaving``), ולכן מה שנשאר כאן שייך לפתק שהשרת כבר אישר שאינו כאן — נמחק, עבר
+      // לארכיון, או הוסר מעמוד הקבצים. מטען שהיה נשאר בתור היה נשלח בלי אסימון (``_withToken``).
+      this._pending.delete(String(id));
+      this._pendingSeq.delete(String(id));
       // אורך המשטח נגזר מהפתקים שעליו. בלי הקריאה הזו מחיקת הפתק התחתון
       // משאירה ``min-height`` שמתאר מצב שכבר לא קיים.
       this._updateSurfaceExtent();
@@ -8713,7 +9943,12 @@
       this._destroyed = true;
       // 1) לרוקן את התור — **לפני** ביטול הטיימרים והניקוי.
       try { await this._flushAll(); } catch(_) {}
-      // 2) לעצור טיימרים ופריימים תלויים.
+      // 1א) פתק שעדכון מהשרת מחכה בו להחלטה לא נשלח (``_flushAll`` מדלג עליו), ומה שהוקלד בו נשמר בדפדפן
+      //     כדי שיחזור עם ההתראה כשהפתק יוצג שוב (``_persistHeldDrafts``).
+      this._persistHeldDrafts();
+      // 2) לעצור טיימרים ופריימים תלויים — וגם את הדגימה, שאחרת הייתה ממשיכה לשאול על משטח שכבר אינו.
+      if (this._livePoll) { this._livePoll.destroy(); this._livePoll = null; }
+      for (const entry of this.notes.values()) { if (entry && entry.pressTimer) clearTimeout(entry.pressTimer); }
       try { if (this._autoFlushTimer) clearInterval(this._autoFlushTimer); } catch(_) {}
       try {
         if (this._extentFrame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this._extentFrame);
@@ -8788,7 +10023,11 @@
         });
         const payload = { ts: Date.now(), notes };
         localStorage.setItem(this._cacheKey, JSON.stringify(payload));
-      } catch(_) {}
+      } catch(err) {
+        // אחסון מלא או חסום (מצב פרטי). הקאש הוא רק מה שמוצג לפני שהרשימה מהשרת מגיעה, והטעינה
+        // מיישרת אותו (``loadNotes``) — אבל קאש ישן הוא בדיוק מה שמציג גרסה ישנה, ולכן הכשל נרשם.
+        console.warn('sticky notes: writing the local cache failed', err);
+      }
     }
   }
 
