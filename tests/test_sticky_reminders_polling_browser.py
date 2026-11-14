@@ -36,6 +36,8 @@ from _mutation import mutate as _mutate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASE_TEMPLATE = REPO_ROOT / "webapp" / "templates" / "base.html"
+#: שרשרת הדגימה המשותפת — ``base.html`` טוען אותה ב-head, לפני הבלוק. חלק מהמוטציות תופסות שורות בה.
+VISIBLE_POLL = REPO_ROOT / "webapp" / "static" / "js" / "utils" / "visible-poll.js"
 
 #: הגבול שמעליו ``setTimeout`` גולש. ראו את הדוקסטרינג למעלה.
 INT32_MAX_MS = 2147483647
@@ -64,14 +66,18 @@ window.fetch = async function(){
 
 
 def _polling_script() -> str:
-    """הסקריפט האמיתי מתוך ``base.html``, לא העתק שלו."""
+    """הסקריפט האמיתי מתוך ``base.html``, לא העתק שלו — ולפניו שרשרת הדגימה המשותפת, כמו בעמוד.
+
+    ``base.html`` טוען את ``utils/visible-poll.js`` ב-head ואת הבלוק בסוף העמוד; כאן שניהם נכנסים
+    ל-``page.evaluate`` אחד, באותו סדר. מוטציה תופסת עוגן שמופיע פעם אחת בדיוק בצירוף.
+    """
     src = BASE_TEMPLATE.read_text(encoding="utf-8")
     marker = "(function initStickyRemindersIndicator(){"
     start = src.index(marker)
     end = src.index("})();", start) + len("})();")
     script = src[start:end]
     assert "{%" not in script and "{{" not in script, "תחביר Jinja דלף לתוך בלוק ה-JS"
-    return script
+    return VISIBLE_POLL.read_text(encoding="utf-8") + "\n" + script
 
 
 def _with_fetch_timeout(script: str, ms: int) -> str:
@@ -149,7 +155,7 @@ def test_removing_the_clamp_breaks_the_long_delay(chromium_executable):
     לחרוג, הבדיקה כבר אינה מודדת את מה שהיא מתיימרת למדוד.
     """
     script = _polling_script()
-    clamped = "const delay = Math.min(MAX_POLL_MS, Math.max(MIN_POLL_MS, safe));"
+    clamped = "const delay = Math.min(maxMs, Math.max(minMs, safe));"
     assert script.count(clamped) == 1, "ה-clamp לא נמצא בסקריפט — הבדיקה אינה תקפה יותר"
     mutated = script.replace(clamped, "const delay = safe;")
 
@@ -233,47 +239,43 @@ assert PAGE_WITH_BUBBLE != PAGE, "העוגן לזריעת הבועה לא נמצ
 #: השורות שהמוטציות תופסות. כולן חייבות להופיע פעם אחת בדיוק בסקריפט.
 MIN_LINE = "const MIN_POLL_MS = 60 * 1000;"
 MAX_LINE = "const MAX_POLL_MS = 30 * 60 * 1000;"
-ESCALATION = "MIN_POLL_MS * 2 ** (consecutiveFailures - 1)"
-RESET_ON_SUCCESS = "consecutiveFailures = 0;\n      if (!j.has_due) {"
-STOP_ON_401 = (
-    "if (r.status === 401) { console.warn('[sticky-reminders] session ended (401); "
-    "polling stops until the next tab focus'); removeDot(); return POLL_STOP; }"
-)
-SIGNAL_LINE = "o.signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);"
+ESCALATION = "minMs * 2 ** (consecutiveFailures - 1)"
+RESET_ON_SUCCESS = "ctx.succeeded();\n    if (!j.has_due) {"
+STOP_ON_401 = "if (r.status === 401) { removeDot(); return ctx.sessionEnded(); }"
+SIGNAL_LINE = "o.signal = AbortSignal.timeout(fetchTimeoutMs);"
 INFLIGHT_GUARD = "if (inFlight) { return; }"
-STAMP_THEN_FETCH = (
-    "lastPollAt = Date.now();\n"
-    "      const r = await fetch('/api/sticky-notes/reminders/summary', fetchOpts());"
-)
-CATCH_BACKS_OFF = "} catch (e) { if (gen !== chainGen) { return staleAfterStop(); } return failAndBackOff(e); }"
-STOP_BUMPS_GEN = "    stopped = true;\n    chainGen += 1;"
-KEEP_BADGE_ON_429 = (
-    "        window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;\n"
-    "        return backoffMs;"
-)
+STAMP_THEN_FETCH = "lastPollAt = Date.now();\n        return await run(makeCtx(gen));"
+CATCH_BACKS_OFF = "} catch (e) { if (gen !== chainGen || destroyed) { return staleAfterStop(); } return failAndBackOff(e); }"
+STOP_BUMPS_GEN = "      stopped = true;\n      chainGen += 1;"
+KEEP_BADGE_ON_429 = "if (r.status === 429) { return ctx.rateLimited(r, 15 * 60 * 1000); }"
 DUE_USES_SERVER_DELAY = (
-    "      // ייראו תוך כדי, ולא אחרי חצי שעה. שרת ישן שלא שולח ערך ← התקרה.\n"
-    "      return requestedDelay(j);"
+    "    // ייראו תוך כדי, ולא אחרי חצי שעה. שרת ישן שלא שולח ערך ← התקרה.\n"
+    "    return requestedDelay(j);"
 )
 POPOVER_UNKNOWN = "openPopover(target, (lj && lj.ok) ? lj : { error: true });"
-FLOOR_SKIPS_WHEN_STOPPED = "if (!stopped && Date.now() - lastPollAt < MIN_POLL_MS) { return; }"
+FLOOR_SKIPS_WHEN_STOPPED = "if (!stopped && Date.now() - lastPollAt < floorMs) { return; }"
 LOG_ON_FAILURE = (
-    "    console.warn(`[sticky-reminders] poll failed (#${consecutiveFailures}) — "
+    "      console.warn(`[${name}] poll failed (#${consecutiveFailures}) — "
     "retry in ${backoffMs} ms:`, reason);"
 )
-BACKOFF_RETURNS = LOG_ON_FAILURE + "\n    return backoffMs;"
+#: הכשל שהבלוק מדווח על תשובת שגיאה — כאן מוטציה מוסיפה לו ``removeDot()``, כי הפונקציה שמגיבה לכשל
+#: עברה לשרשרת המשותפת, ושם אין בועה להסיר.
+FAIL_ON_ERROR_STATUS = "if (!r.ok) { return ctx.fail(r.status); }"
 FETCH_TIMEOUT_LINE = "const FETCH_TIMEOUT_MS = 15 * 1000;"
 ABORT_FALLBACK = "} else if (typeof AbortController === 'function') {"
-BAD_BODY_CHECK = "if (!j || !j.ok) { return failAndBackOff('bad body'); }"
+BAD_BODY_CHECK = "if (!j || !j.ok) { return ctx.fail('bad body'); }"
 LATEST_CLICK = "const gen = ++listGen;"
 LIST_CATCH_REPORTS = (
-    "          console.warn('[sticky-reminders] list fetch failed:', e);\n"
-    "          openPopover(target, { error: true });"
+    "        console.warn('[sticky-reminders] list fetch failed:', e);\n"
+    "        openPopover(target, { error: true });"
 )
 NO_ABORT_TIMEOUT = "AbortSignal.timeout = undefined;"
-STOP_CLEARS_TIMER = "    try { if (pollTimer) { clearTimeout(pollTimer); } } catch(_) {}\n    pollTimer = null;"
+STOP_CLEARS_TIMER = (
+    "      try { if (pollTimer) { clearTimeout(pollTimer); } } catch (_) { /* ידית שכבר פקעה — אין מה לבטל */ }\n"
+    "      pollTimer = null;\n    }"
+)
 LIST_401_STOPS = (
-    "if (lr.status === 401) { removeDot(); stopChain(); "
+    "if (lr.status === 401) { removeDot(); chain.stop(); "
     "openPopover(target, { unauthorized: true }); return; }"
 )
 
@@ -360,7 +362,7 @@ def test_a_success_resets_the_escalation(chromium_executable):
 
 def test_flattening_the_escalation_breaks_the_test(chromium_executable):
     """ריצת בקרה: בלי הכפלה — הרצף שטוח, והטסט למעלה חייב ליפול."""
-    script = _mutate(_shrunk(_polling_script(), 1, 40), ESCALATION, "MIN_POLL_MS * 1")
+    script = _mutate(_shrunk(_polling_script(), 1, 40), ESCALATION, "minMs * 1")
     with _chain(chromium_executable, script, __status=500, __fireFirst=7) as page:
         page.wait_for_function("window.__delays.length >= 8", timeout=8000)
         assert _delays(page) == [1] * 8, _delays(page)
@@ -541,7 +543,7 @@ def test_stamping_after_the_await_breaks_the_test(chromium_executable):
     """
     script = _mutate(
         _polling_script(), STAMP_THEN_FETCH,
-        "const r = await fetch('/api/sticky-notes/reminders/summary', fetchOpts());\n      lastPollAt = Date.now();",
+        "const out = await run(makeCtx(gen));\n        lastPollAt = Date.now();\n        return out;",
     )
     with _chain(chromium_executable, script, __mode="reject") as page:
         page.wait_for_function("window.__delays.length >= 1", timeout=8000)
@@ -564,7 +566,7 @@ def test_a_network_or_parse_error_retries_soon_not_in_half_an_hour(chromium_exec
 
 def test_a_catch_that_returns_the_ceiling_breaks_the_test(chromium_executable):
     """ריצת בקרה: ה-catch הישן — התקרה, לא הרצפה."""
-    script = _mutate(_polling_script(), CATCH_BACKS_OFF, "} catch(_) { removeDot(); return MAX_POLL_MS; }")
+    script = _mutate(_polling_script(), CATCH_BACKS_OFF, "} catch(_) { return maxMs; }")
     with _chain(chromium_executable, script, __mode="reject") as page:
         page.wait_for_function("window.__delays.length >= 1", timeout=8000)
         assert _delays(page) == [MAX_POLL_MS], _delays(page)
@@ -721,9 +723,9 @@ def test_a_failed_poll_keeps_the_badge_it_cannot_refute(chromium_executable):
 
 
 def test_removing_the_badge_on_failure_breaks_the_test(chromium_executable):
-    """ריצת בקרה: removeDot() בחזרה לתוך failAndBackOff — הבועה נמחקת על 500."""
+    """ריצת בקרה: removeDot() בחזרה לענף הכשל — הבועה נמחקת על 500."""
     script = _mutate(
-        _shrunk(_polling_script(), 1, 40), BACKOFF_RETURNS, LOG_ON_FAILURE + "\n    removeDot();\n    return backoffMs;"
+        _shrunk(_polling_script(), 1, 40), FAIL_ON_ERROR_STATUS, "if (!r.ok) { removeDot(); return ctx.fail(r.status); }"
     )
     with _chain(chromium_executable, script, __statuses=[200, 500], __reply=_summary(**_DUE), __fireFirst=1) as page:
         page.wait_for_function("window.__calls.length >= 2", timeout=8000)
@@ -750,7 +752,7 @@ def test_a_401_on_a_focus_poll_cancels_the_pending_timer(chromium_executable):
 
 def test_dropping_the_clear_on_stop_breaks_the_test(chromium_executable):
     """ריצת בקרה: בלי clearTimeout בעצירה — הטיימר התלוי יורה ושולח בקשה שלישית."""
-    script = _mutate(_shrunk(_polling_script(), 0, 400), STOP_CLEARS_TIMER, "    pollTimer = null;")
+    script = _mutate(_shrunk(_polling_script(), 0, 400), STOP_CLEARS_TIMER, "      pollTimer = null;\n    }")
     with _chain(chromium_executable, script, __statuses=[200, 401], __reply=_summary(), __fireFirst=1) as page:
         page.wait_for_function("window.__calls.length >= 1", timeout=8000)
         page.wait_for_timeout(50)
@@ -877,13 +879,13 @@ def test_a_body_that_is_not_a_summary_is_a_failure(chromium_executable):
     with _chain(chromium_executable, _polling_script(), __status=200, __reply={}) as page:
         page.wait_for_function("window.__delays.length >= 1", timeout=8000)
         assert _delays(page) == [MIN_POLL_MS], _delays(page)
-        assert page.evaluate("typeof window.__stickyRemindersBackoffUntil") == "number"
+        assert page.evaluate("window.__stickyRemindersPoll.backoffUntil > Date.now()") is True
 
 
 def test_accepting_any_truthy_body_breaks_the_test(chromium_executable):
     """ריצת בקרה: ``j.ok === false`` בלבד — {} נרדם חצי שעה בלי backoff."""
     script = _mutate(
-        _polling_script(), BAD_BODY_CHECK, "if (!j || j.ok === false) { return failAndBackOff('bad body'); }"
+        _polling_script(), BAD_BODY_CHECK, "if (!j || j.ok === false) { return ctx.fail('bad body'); }"
     )
     with _chain(chromium_executable, script, __status=200, __reply={}) as page:
         page.wait_for_function("window.__delays.length >= 1", timeout=8000)
@@ -957,9 +959,9 @@ def test_a_429_keeps_the_badge_and_is_not_counted_as_a_failure(chromium_executab
         page.wait_for_function("window.__calls.length >= 2", timeout=8000)
         page.wait_for_timeout(100)
         assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is True
-        assert page.evaluate("window.__stickyRemindersBackoffUntil > Date.now()") is True
+        assert page.evaluate("window.__stickyRemindersPoll.backoffUntil > Date.now()") is True
         # חלון ה-429 חוסם את הבקשה הבאה בתוך poll(); מנקים אותו כדי שה-500 יצא בפוקוס.
-        page.evaluate("window.__stickyRemindersBackoffUntil = 0")
+        page.evaluate("window.__stickyRemindersPoll.backoffUntil = 0")
         _focus(page)
         page.wait_for_function("window.__calls.length >= 3", timeout=8000)
         page.wait_for_timeout(100)
@@ -971,7 +973,7 @@ def test_removing_the_badge_on_429_breaks_the_test(chromium_executable):
     """ריצת בקרה: removeDot() בחזרה לענף ה-429 — הבועה נמחקת."""
     script = _mutate(
         _shrunk(_polling_script(), 1, 40), KEEP_BADGE_ON_429,
-        KEEP_BADGE_ON_429.replace("        return backoffMs;", "        removeDot();\n        return backoffMs;"),
+        "if (r.status === 429) { removeDot(); return ctx.rateLimited(r, 15 * 60 * 1000); }",
     )
     with _chain(chromium_executable, script, __statuses=[200, 429], __reply=_summary(**_DUE), __fireFirst=1) as page:
         page.wait_for_function("window.__calls.length >= 2", timeout=8000)
@@ -1019,7 +1021,7 @@ def test_a_stale_summary_after_a_stop_does_not_revive_the_chain(chromium_executa
 
 def test_dropping_the_generation_bump_breaks_the_test(chromium_executable):
     """ריצת בקרה: העצירה לא מעלה את הדור — התשובה הישנה מחזירה בועה ודורכת טיימר."""
-    script = _mutate(_shrunk(_polling_script(), 1, 40), STOP_BUMPS_GEN, "    stopped = true;")
+    script = _mutate(_shrunk(_polling_script(), 1, 40), STOP_BUMPS_GEN, "      stopped = true;")
     with _chain(chromium_executable, script, __status=200, __reply=_summary(**_DUE), __listStatus=401) as page:
         armed = _stop_by_list_401_during_a_pending_poll(page, "hold")
         page.evaluate("window.__release()")
@@ -1050,7 +1052,7 @@ def test_a_stale_timeout_after_a_stop_is_not_a_failure(chromium_executable):
 def test_dropping_the_generation_bump_breaks_the_timeout_test(chromium_executable):
     """ריצת בקרה: בלי העלאת הדור, ה-timeout המאוחר נספר ככשל ודורך טיימר."""
     sink = []
-    script = _mutate(_with_fetch_timeout(_shrunk(_polling_script(), 1, 40), 300), STOP_BUMPS_GEN, "    stopped = true;")
+    script = _mutate(_with_fetch_timeout(_shrunk(_polling_script(), 1, 40), 300), STOP_BUMPS_GEN, "      stopped = true;")
     with _chain(
         chromium_executable, script, console_sink=sink, __status=200, __reply=_summary(**_DUE), __listStatus=401
     ) as page:
@@ -1079,7 +1081,7 @@ def test_a_due_reminder_uses_the_servers_refresh_interval(chromium_executable):
 
 def test_ignoring_the_interval_while_a_badge_is_up_breaks_the_test(chromium_executable):
     """ריצת בקרה: הענף חוזר להחזיר את התקרה — הטיימר הוא חצי שעה."""
-    script = _mutate(_polling_script(), DUE_USES_SERVER_DELAY, "      return MAX_POLL_MS;")
+    script = _mutate(_polling_script(), DUE_USES_SERVER_DELAY, "    return MAX_POLL_MS;")
     reply = _summary(**_DUE, next_in_seconds=300)
     with _chain(chromium_executable, script, __status=200, __reply=reply) as page:
         page.wait_for_function("window.__delays.length >= 1", timeout=8000)

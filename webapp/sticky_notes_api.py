@@ -1011,6 +1011,31 @@ def _coerce_content_from_doc(value: Any) -> str:
     return str(value)
 
 
+def _stored_now() -> datetime:
+    """עכשיו ב-UTC, **ברזולוציה שהמסד שומר** — אלפית שנייה, ולא מיליונית.
+
+    תאריך ב-BSON נשמר במילישניות: ``bson`` מוריד את המיקרו-שניות שמעבר לאלפית (``_datetime_to_millis``
+    ב-``bson/datetime_ms.py``, ``microsecond // 1000``, ב-pymongo 4.15.3 של ``requirements/base.txt``; נמדד —
+    ``10:00:00.123456`` חוזר כ-``10:00:00.123000``, ``test_the_stored_resolution_survives_a_real_bson_round_trip``). ``updated_at`` הוא
+    האסימון שהלקוח מחזיק (``prev_updated_at``), והוא מגיע אליו משתי דלתות: מהמסד (הרשימה, הפתק
+    הבודד, ``?versions=1``) ומתשובת הכתיבה עצמה (``_update_answer``, תשובת היצירה). כשהכתיבה
+    החזירה את הזמן שבזיכרון, שתי הדלתות נתנו לאותה כתיבה שתי מחרוזות שונות, והלקוח לא יכול היה
+    לזהות שהפתק שבמסד הוא בדיוק מה שהוא עצמו שמר — כל שמירה שלו נראתה בדגימה הבאה כמו עדכון
+    ממקום אחר. חיתוך לפני הכתיבה הופך את מה שנכתב למה שנשמר, ולכן גם למה שחוזר.
+    """
+    now = datetime.now(timezone.utc)
+    return now.replace(microsecond=now.microsecond - now.microsecond % 1000)
+
+
+def _note_token(doc: Dict[str, Any]) -> Optional[str]:
+    """``updated_at`` של פתק כפי שהלקוח מחזיק אותו — **אותה מחרוזת בכל תשובה שמחזירה פתק**.
+
+    הפתק המלא (``_as_note_response``) והגרסאות (``?versions=1``) נקראים שניהם מכאן: הלקוח
+    משווה ביניהם במחרוזת, ושני ביטויים נפרדים היו יכולים להיסחף לשני פורמטים.
+    """
+    return doc.get('updated_at').isoformat() if doc.get('updated_at') else None
+
+
 def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
     return {
         'id': str(doc.get('_id')),
@@ -1049,9 +1074,39 @@ def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
         # נעוץ לראש עמוד הקבצים: מתי. ``None`` בפתק שאינו נעוץ — ולפי זה פריט 📎 בתפריט ⋮
         # יודע אם להציע נעיצה או הסרה. אותו שדה ב-``_NOTE_FIELDS`` של ה-MCP.
         FILES_PAGE_PIN_FIELD: _iso_utc(doc.get(FILES_PAGE_PIN_FIELD)),
-        'updated_at': (doc.get('updated_at').isoformat() if doc.get('updated_at') else None),
+        'updated_at': _note_token(doc),
         'created_at': (doc.get('created_at').isoformat() if doc.get('created_at') else None),
     }
+
+
+#: מה ש-``?versions=1`` שולף לכל פתק — המזהה, האסימון והצבע, **בלי הגוף** (Smart Projection).
+_NOTE_VERSION_PROJECTION = {'_id': 1, 'updated_at': 1, 'color': 1}
+
+
+def _versions_requested() -> bool:
+    """האם הבקשה היא דגימה (``?versions=1``) ולא טעינה של הרשימה המלאה."""
+    return request.args.get('versions') == '1'
+
+
+def _note_versions_answer(db: Any, query: Dict[str, Any]) -> Any:
+    """**הדגימה של עדכון בזמן אמת: מזהה, אסימון וצבע לכל פתק במשטח — בלי תוכן.**
+
+    הלקוח (``sticky-notes.js``) דוגם כל כמה שניות כשהלשונית גלויה, ולכן התשובה פרופורציונלית
+    לשאלה "מה השתנה" ולא לגודל הפתקים: הגוף, השרשורים וכל שדה אחר נשלפים רק לפתק שהשתנה, בבקשה
+    נפרדת לפתק הבודד (``get_note``). ``query`` הוא **אותו מסנן** של הרשימה המלאה באותו ראוט, כדי
+    שפתק חדש שמופיע כאן הוא פתק שהרשימה הייתה מציגה. בלי כתיבות ובלי תקצירי שרשורים: דגימה היא
+    קריאה טהורה. ``color`` הוא ה-``hex`` של ``_as_note_response`` — שינוי צבע אינו מזיז את
+    ``updated_at`` (``sticky_notes_target.NOTE_EDIT_FIELDS``), ובלעדיו לא היה נראה.
+    """
+    cursor = db.sticky_notes.find(query, _NOTE_VERSION_PROJECTION)
+    if cursor is None:
+        # אותה הבחנה של רשימת הריפו: ``None`` הוא כשל שאילתה, ולא "אין פתקים".
+        raise RuntimeError('note versions query returned no cursor')
+    versions = [
+        {'id': str(doc.get('_id')), 'updated_at': _note_token(doc), 'color': note_color_hex(doc.get('color'))}
+        for doc in cursor if isinstance(doc, dict)
+    ]
+    return _no_store(jsonify({'ok': True, 'notes': versions, 'count': len(versions)}))
 
 
 # --- Routes ---
@@ -1077,6 +1132,9 @@ def list_notes(file_id: str):
             query['$or'] = criteria
         else:
             query['file_id'] = str(file_id)
+        # הדגימה — לפני ההשלמה של ``scope_id`` שמתחת: היא כתיבה, ודגימה כל כמה שניות אינה המקום לה.
+        if _versions_requested():
+            return _note_versions_answer(db, query)
         cursor = db.sticky_notes.find(query).sort('created_at', 1)
         raw_docs = list(cursor) if cursor is not None else []
         notes = [
@@ -1701,6 +1759,8 @@ def create_note(file_id: str):
         except NoteQuotaExceeded:
             return jsonify({'ok': False, 'error': 'note_quota_exceeded'}), 409
 
+        # זמן אחד ליצירה ולעדכון, ברזולוציה של המסד — הלקוח מקבל אותו כאסימון (``_stored_now``).
+        created_at = _stored_now()
         doc = {
             'user_id': user_id,
             'file_id': str(file_id),
@@ -1717,8 +1777,8 @@ def create_note(file_id: str):
             'line_end': int(line_end) if isinstance(line_end, int) else None,
             'anchor_id': anchor_id or None,
             'anchor_text': anchor_text or None,
-            'created_at': datetime.now(timezone.utc),
-            'updated_at': datetime.now(timezone.utc),
+            'created_at': created_at,
+            'updated_at': created_at,
         }
         if scope_id:
             doc['scope_id'] = scope_id
@@ -1734,7 +1794,7 @@ def create_note(file_id: str):
             emit_event("sticky_note_created", severity="info", user_id=int(user_id), file_id=str(file_id))
         except Exception:
             pass
-        resp = jsonify({'ok': True, 'id': nid})
+        resp = jsonify({'ok': True, 'id': nid, 'updated_at': _updated_at_iso(created_at)})
         try:
             resp.headers['Cache-Control'] = 'no-store'
         except Exception:
@@ -1763,6 +1823,27 @@ def _updated_at_iso(stamp: Any) -> Optional[str]:
 def _update_answer(stamp: Any) -> Any:
     """תשובת ``ok`` של ``update_note``, עם :func:`_updated_at_iso`."""
     return _no_store(jsonify({'ok': True, 'updated_at': _updated_at_iso(stamp)}))
+
+
+def _owned_notes_filter(user_id: int) -> Dict[str, Any]:
+    """כל פתק של המשתמש, בכל משטח — המסנן של ``get_note``."""
+    return {'user_id': user_id}
+
+
+@sticky_notes_bp.route('/note/<note_id>', methods=['GET'])
+@require_auth
+@notes_rate_limit('note_get', 180)
+@traced("sticky_notes.note_get")
+def get_note(note_id: str):
+    """פתק אחד, מלא, עם תקצירי השרשורים שלו — **מה שהלקוח מושך כשצריך את המצב הטרי של פתק**.
+
+    שלושה צרכנים ב-``sticky-notes.js``: הרענון בכניסה לעריכה, משיכת פתק שהדגימה (``?versions=1``)
+    מצאה שהשתנה או שנוסף, ובדיקה ישירה של פתק שנעלם מהדגימה — לפני שהוא יורד מהמסך. **בלי מסנן
+    משטח**: הלקוח מחליט אם הפתק עדיין שלו לפי השדות שבו (``archived_at``, ``board_id``, הנעיצה),
+    ולכן כל פתק של המשתמש מוחזר, ופתק שנמחק או של משתמש אחר עונה ``404 note_not_found``. הזרימה —
+    ``_one_note_in_scope``, כמו הפתק הבודד בארכיון ובעמוד הקבצים.
+    """
+    return _one_note_in_scope(note_id, _owned_notes_filter, 'get_note', 'Failed to load note')
 
 
 @sticky_notes_bp.route('/note/<note_id>', methods=['PUT'])
@@ -1878,7 +1959,7 @@ def update_note(note_id: str):
         edit = drop_unchanged_edits(note, updates, unset_fields)
         updates, unset_fields = edit.set_fields, edit.unset_fields
         if edit.edited:
-            updates['updated_at'] = datetime.now(timezone.utc)
+            updates['updated_at'] = _stored_now()
         if not updates and not unset_fields:
             # שום דבר לא משתנה — למשל אותו תוכן שנשלח שוב. אין כתיבה, וזמן העדכון הוא זה ששמור.
             return _update_answer(note.get('updated_at'))
@@ -2137,7 +2218,7 @@ def batch_update_notes():
                 edit = drop_unchanged_edits(note, updates, unset_fields)
                 updates, unset_fields = edit.set_fields, edit.unset_fields
                 if edit.edited:
-                    updates['updated_at'] = datetime.now(timezone.utc)
+                    updates['updated_at'] = _stored_now()
                 if not updates and not unset_fields:
                     results.append({'id': note_id, 'ok': True, 'status': 200,
                                     'updated_at': _updated_at_iso(note.get('updated_at'))})
@@ -2709,6 +2790,8 @@ def list_board_notes(board_id: str):
         if not _resolve_owned_board(db, user_id, board_id):
             return jsonify({'ok': False, 'error': 'board_not_found'}), 404
 
+        if _versions_requested():
+            return _note_versions_answer(db, board_notes_filter(user_id, board_id))
         cursor = db.sticky_notes.find(board_notes_filter(user_id, board_id)).sort('created_at', 1)
         raw_docs = list(cursor) if cursor is not None else []
         notes = [_as_note_response(doc) for doc in raw_docs if isinstance(doc, dict)]
@@ -2796,6 +2879,8 @@ def create_board_note(board_id: str):
         size = data.get('size') or {}
         color = resolve_note_color(data.get('color'))
 
+        # זמן אחד ליצירה ולעדכון, ברזולוציה של המסד — הלקוח מקבל אותו כאסימון (``_stored_now``).
+        created_at = _stored_now()
         doc: Dict[str, Any] = {
             'user_id': user_id,
             'content': content,
@@ -2808,8 +2893,8 @@ def create_board_note(board_id: str):
             'color': color,
             'is_minimized': bool(data.get('is_minimized', False)),
             'mode': mode,
-            'created_at': datetime.now(timezone.utc),
-            'updated_at': datetime.now(timezone.utc),
+            'created_at': created_at,
+            'updated_at': created_at,
         }
         # שדות היעד עוברים דרך הבנאי, ולא נכתבים כאן ביד. זה מה שמונע
         # ממסמך לצאת עם שני משטחים או בלי אף אחד.
@@ -2828,7 +2913,7 @@ def create_board_note(board_id: str):
             emit_event("sticky_note_created", severity="info", user_id=int(user_id), board_id=str(board_id))
         except Exception:
             pass
-        resp = jsonify({'ok': True, 'id': nid})
+        resp = jsonify({'ok': True, 'id': nid, 'updated_at': _updated_at_iso(created_at)})
         try:
             resp.headers['Cache-Control'] = 'no-store'
         except Exception:
@@ -2873,6 +2958,9 @@ def list_repo_notes(repo_name: str, repo_path: str):
         if not clean_path:
             return jsonify({'ok': False, 'error': 'invalid_repo_path'}), 400
 
+        # הדגימה — בלי בדיקת קיום הקובץ במניפסט: היא שייכת לטעינה המלאה, שמציגה את סימון היתום.
+        if _versions_requested():
+            return _note_versions_answer(db, repo_notes_filter(user_id, repo_name, clean_path))
         cursor = db.sticky_notes.find(
             repo_notes_filter(user_id, repo_name, clean_path)
         ).sort('created_at', 1)
@@ -3024,6 +3112,8 @@ def create_repo_note(repo_name: str, repo_path: str):
         size = size or {}
         color = resolve_note_color(data.get('color'))
 
+        # זמן אחד ליצירה ולעדכון, ברזולוציה של המסד — הלקוח מקבל אותו כאסימון (``_stored_now``).
+        created_at = _stored_now()
         doc: Dict[str, Any] = {
             'user_id': user_id,
             'content': content,
@@ -3035,8 +3125,8 @@ def create_repo_note(repo_name: str, repo_path: str):
             'color': color,
             'is_minimized': bool(data.get('is_minimized', False)),
             'mode': mode,
-            'created_at': datetime.now(timezone.utc),
-            'updated_at': datetime.now(timezone.utc),
+            'created_at': created_at,
+            'updated_at': created_at,
         }
         # שדות היעד דרך הבנאי, שמריץ את הנרמול ואת האילוץ "בדיוק יעד אחד".
         try:
@@ -3055,7 +3145,7 @@ def create_repo_note(repo_name: str, repo_path: str):
             emit_event("sticky_note_created", severity="info", user_id=int(user_id), repo_name=str(repo_name))
         except Exception:
             pass
-        resp = jsonify({'ok': True, 'id': nid})
+        resp = jsonify({'ok': True, 'id': nid, 'updated_at': _updated_at_iso(created_at)})
         try:
             resp.headers['Cache-Control'] = 'no-store'
         except Exception:

@@ -569,16 +569,27 @@ check('שמירה: עריכה חדשה תוך כדי טיסה שורדת כשל'
   eq(after.position.x, 1, 'והישן ממלא מה שחסר');
 });
 
-check('שמירה: מידע טרי מהשרת כן דורס את התור', () => {
-  // הכיוון ההפוך, ובכוונה: ``prev_updated_at`` שחוזר מ-409 חייב לנצח,
-  // אחרת הניסיון הבא נדחה שוב על אותה חותמת. שתי כוונות, שתי פונקציות.
-  const id = 'race2';
-  fileMgr._pending.set(id, { content: 'טקסט', prev_updated_at: 'ישן' });
-  fileMgr._mergePending(id, { prev_updated_at: 'חדש-מהשרת' });
-
-  const after = fileMgr._pending.get(id);
-  eq(after.prev_updated_at, 'חדש-מהשרת', 'המידע הטרי ניצח');
-  eq(after.content, 'טקסט', 'והתוכן לא נפגע');
+check('שמירה: האסימון מצורף ברגע השליחה, מהבסיס של אותו רגע — ולא נשמר בתור', () => {
+  // עד נובמבר 2026 ``_queueSave`` לכד את האסימון בתור, ו-409 החזיר לתור את האסימון שבתשובה
+  // (``_mergePending``) — כלומר השמירה הבאה דרסה בדיוק את מה שהשתנה בשרת. עכשיו התור אינו מחזיק
+  // אסימון, ו-``_withToken`` מצרף את זה של הבסיס כשהבקשה יוצאת.
+  const n = registerNote(fileMgr, 'tok1', 'טקסט');
+  n.el.dataset.updatedAt = 'T0';
+  fileMgr._pending.set('tok1', { content: 'טקסט חדש', prev_updated_at: 'ישן-בתור' });
+  fileMgr._queueSave(n.el, { content: 'טקסט חדש יותר' });
+  try {
+    eq('prev_updated_at' in fileMgr._pending.get('tok1'), false, 'התור אינו מחזיק אסימון');
+    eq(fileMgr._withToken('tok1', fileMgr._pending.get('tok1')).prev_updated_at, 'T0', 'האסימון של הבסיס');
+    fileMgr._setNoteUpdatedAt('tok1', 'T1');
+    eq(fileMgr._withToken('tok1', fileMgr._pending.get('tok1')).prev_updated_at, 'T1', 'ואחרי שהבסיס זז — החדש');
+    eq(n.el.dataset.updatedAt, 'T1', 'האסימון שעל האלמנט זז יחד עם הבסיס');
+  } finally {
+    // התור והטיימרים — אחרת השמירה הייתה רצה ברקע של שאר הבדיקות.
+    fileMgr._pending.delete('tok1');
+    fileMgr.notes.delete('tok1');
+    if (fileMgr._saveDebounced && fileMgr._saveDebounced.cancel) fileMgr._saveDebounced.cancel();
+    if (fileMgr._autoFlushTimer) { clearInterval(fileMgr._autoFlushTimer); fileMgr._autoFlushTimer = null; }
+  }
 });
 
 check('שמירה: 400 אינו חוזר לתור, 500 כן', () => {
@@ -586,7 +597,7 @@ check('שמירה: 400 אינו חוזר לתור, 500 כן', () => {
   // שנדחה ב-400 לא הופך לתקין — זו לולאה חמה שגם מסתירה את הכשל.
   eq(fileMgr._isPermanentFailure(400), true, '400 סופי');
   eq(fileMgr._isPermanentFailure(404), true, '404 סופי');
-  eq(fileMgr._isPermanentFailure(409), false, '409 נפתר עם חותמת טרייה');
+  eq(fileMgr._isPermanentFailure(409), false, '409 חוזר לתור עד שהפיוס מכריע');
   eq(fileMgr._isPermanentFailure(429), false, '429 — לנסות שוב מאוחר יותר');
   eq(fileMgr._isPermanentFailure(500), false, '500 זמני');
   eq(fileMgr._isPermanentFailure(undefined), false, 'סטטוס לא ידוע — לא לזרוק מידע');
@@ -6077,6 +6088,168 @@ check('כרטיס של פתק: קוד בשם מוצג כ-<code> בלי הגרש�
   eq(fileCode.children.map((c) => (c.nodeType === 3 ? `text:${c.textContent}` : `${c.tagName.toLowerCase()}:${c.textContent}`)).join('|'),
     'text:מדריך-תצוגת-Markdown-RTL.|bdi:md', 'השם, הנקודה, והסיומת ב-bdi');
   eq(fileCode.textContent, 'מדריך-תצוגת-Markdown-RTL.md', 'והטקסט זהה למקור');
+});
+
+// ---------- עדכון בזמן אמת: מיפוי הסמן, שייכות למשטח, והפיוס ----------
+//
+// הזרימה המלאה — דגימה, 409, ההתראה, כל המשטחים — נבדקת בכרומיום מול הראוטים האמיתיים
+// (``tests/test_sticky_notes_live_sync_browser.py``). כאן החלקים שמכריעים: איפה הסמן נוחת אחרי
+// שהתוכן התחלף, מתי פתק עזב את המשטח, ומה הפיוס עושה בכל אחד מהמצבים.
+
+check('סמן: קידומת נשארת, סיומת זזה עם הסוף, ובאזור שהשתנה — לסוף האזור החדש', () => {
+  const map = (a, b, i) => fileMgr._mapOffsetAcrossReplace(a, b, i);
+  const OLD = 'כותרת\nשורה ראשונה\nשורה שנייה';
+  const NEW = 'כותרת\nשורה חדשה\nשורה ראשונה\nשורה שנייה';
+  const second = OLD.indexOf('שורה שנייה');
+  eq(map(OLD, NEW, 2), 2, 'בקידומת — אותו היסט');
+  eq(NEW.slice(map(OLD, NEW, second)).startsWith('שורה שנייה'), true, 'בסיומת — אותו טקסט');
+  eq(map(OLD, NEW, OLD.length), NEW.length, 'סוף נשאר סוף');
+  eq(map('abcXYZdef', 'abcQdef', 4), 'abcQ'.length, 'בתוך האזור שהשתנה — סוף האזור החדש');
+  eq(map('', 'חדש', 0), 0, 'טקסט ריק');
+  eq(map('ישן', '', 2), 0, 'הכול נמחק');
+  eq(map('abc', 'abc', 99), 3, 'היסט מעבר לסוף נחתך');
+});
+
+check('סמן: לעולם לא באמצע זוג surrogate (H6)', () => {
+  // אותו חצי ראשון של שני אימוג'ים שונים — הקידומת המשותפת הייתה נגמרת באמצע האימוג'י.
+  const OLD = 'א😀ב';   // 😀 = d83d de00
+  const NEW = 'א😃ב';   // 😃 = d83d de03
+  const isLow = (c) => c >= 0xDC00 && c <= 0xDFFF;
+  // וסמן ישן שכבר עמד באמצע אימוג'י (``selectionStart`` שנקבע בקוד), בסיומת שזזה כולה.
+  const cases = [[OLD, NEW], ['x😀y', 'zx😀y'], ['😀😀', '😀😀😀']];
+  for (const [a, b] of cases) {
+    for (let i = 0; i <= a.length; i++) {
+      const out = fileMgr._mapOffsetAcrossReplace(a, b, i);
+      if (out > 0 && out < b.length && isLow(b.charCodeAt(out))) {
+        throw new Error(`היסט ${i} נחת באמצע זוג surrogate (${out}) ב-${JSON.stringify([a, b])}`);
+      }
+    }
+  }
+});
+
+check('שייכות למשטח: לפי השדות של הפתק כמו שהשרת החזיר אותו', () => {
+  const archive = new StickyNotesManager({ archive: true, container: sandbox.document.body, anchorHost: null });
+  const files = new StickyNotesManager({ filesPage: true, container: sandbox.document.body, anchorHost: null });
+  const board = new StickyNotesManager({ board: 'b1', anchorHost: null });
+  eq(board._noteBelongsHere({ board_id: 'b1', archived_at: null }), true, 'לוח — אותו לוח');
+  eq(board._noteBelongsHere({ board_id: 'b2', archived_at: null }), false, 'לוח — הועבר ללוח אחר');
+  eq(board._noteBelongsHere({ archived_at: '2026-11-14T10:00:00+00:00' }), false, 'לוח — עבר לארכיון');
+  eq(fileMgr._noteBelongsHere({ archived_at: null }), true, 'קובץ — פעיל');
+  eq(fileMgr._noteBelongsHere({ archived_at: '2026-11-14T10:00:00+00:00' }), false, 'קובץ — עבר לארכיון');
+  eq(archive._noteBelongsHere({ archived_at: '2026-11-14T10:00:00+00:00' }), true, 'ארכיון — בארכיון');
+  eq(archive._noteBelongsHere({ archived_at: null }), false, 'ארכיון — שוחזר');
+  eq(files._noteBelongsHere({ files_page_pinned_at: '2026-11-14T10:00:00+00:00' }), true, 'עמוד הקבצים — נעוץ');
+  eq(files._noteBelongsHere({ files_page_pinned_at: null }), false, 'עמוד הקבצים — הוסר מהנעיצה');
+  eq(board._noteBelongsHere(null), false, 'לא פתק');
+});
+
+/** פתק רשום עם בסיס מהשרת, כמו ש-``_renderNote`` רושם. */
+function liveNote(id, content, token) {
+  const n = registerNote(fileMgr, id, content);
+  n.el.dataset.updatedAt = token;
+  n.entry.base = { content, title: '', updated_at: token };
+  n.entry.unconfirmed = [];
+  return n;
+}
+function cleanupLive(id) {
+  fileMgr._pending.delete(id);
+  fileMgr.notes.delete(id);
+  if (fileMgr._saveDebounced && fileMgr._saveDebounced.cancel) fileMgr._saveDebounced.cancel();
+  if (fileMgr._autoFlushTimer) { clearInterval(fileMgr._autoFlushTimer); fileMgr._autoFlushTimer = null; }
+}
+const SRV = (id, content, token, extra) => Object.assign({ id, content, title: '', updated_at: token, color: '#ffffcc' }, extra || {});
+
+check('פיוס: פתק שאיש לא עורך מתעדכן, והבסיס והאסימון זזים יחד', () => {
+  const n = liveNote('lv1', 'ישן', 'T0');
+  try {
+    eq(fileMgr._reconcileServerNote(SRV('lv1', 'חדש', 'T1'), 'poll'), 'applied');
+    eq(n.ta.value, 'חדש', 'התיבה');
+    eq(n.entry.base.content, 'חדש', 'הבסיס');
+    eq(n.el.dataset.updatedAt, 'T1', 'האסימון');
+    eq(fileMgr._undoState(n.el).stack.length, 0, 'מחסנית הביטול ריקה — אין חזרה לגרסה שכבר אינה');
+  } finally { cleanupLive('lv1'); }
+});
+
+check('פיוס: פתק בעריכה אינו מוחלף בדגימה — התראה, והאסימון נשאר', () => {
+  const n = liveNote('lv2', 'ישן', 'T0');
+  n.entry.editing = true;
+  try {
+    eq(fileMgr._reconcileServerNote(SRV('lv2', 'חדש', 'T1'), 'poll'), 'notified');
+    eq(n.ta.value, 'ישן', 'התיבה לא נגעה');
+    eq(n.el.dataset.updatedAt, 'T0', 'האסימון לא זז — אחרת השמירה הבאה הייתה דורסת');
+    eq(fileMgr._isSaveHeld('lv2'), true, 'השמירות מוחזקות');
+    eq(!!n.el.querySelector('.sticky-note-remote'), true, 'ההתראה בפתק');
+  } finally { cleanupLive('lv2'); }
+});
+
+check('פיוס: ברענון של הכניסה לעריכה, בלי הקלדה — מוחלף', () => {
+  const n = liveNote('lv3', 'ישן', 'T0');
+  n.entry.editing = true;
+  try {
+    eq(fileMgr._reconcileServerNote(SRV('lv3', 'חדש', 'T1'), 'enter-edit'), 'applied');
+    eq(n.ta.value, 'חדש');
+  } finally { cleanupLive('lv3'); }
+});
+
+check('פיוס: שינוי מקומי שלא נשמר אינו מוחלף גם ברענון של הכניסה לעריכה', () => {
+  const n = liveNote('lv4', 'ישן', 'T0');
+  n.entry.editing = true;
+  n.ta.value = 'ישן + שלי';
+  try {
+    eq(fileMgr._reconcileServerNote(SRV('lv4', 'חדש', 'T1'), 'enter-edit'), 'notified');
+    eq(n.ta.value, 'ישן + שלי');
+  } finally { cleanupLive('lv4'); }
+});
+
+check('פיוס: שמירה שלנו שהתשובה עליה אבדה — הבסיס מתיישר, בלי התראה', () => {
+  const n = liveNote('lv5', 'ישן', 'T0');
+  n.ta.value = 'ישן + שלי';
+  fileMgr._rememberUnconfirmed('lv5', { content: 'ישן + שלי' });
+  try {
+    eq(fileMgr._reconcileServerNote(SRV('lv5', 'ישן + שלי', 'T1'), 'conflict'), 'adopted');
+    eq(n.entry.base.content, 'ישן + שלי', 'הבסיס');
+    eq(n.el.dataset.updatedAt, 'T1', 'האסימון — השמירה הבאה לא תידחה שוב');
+    eq(!!n.el.querySelector('.sticky-note-remote'), false, 'אין התראה על הטקסט של המשתמש עצמו');
+  } finally { cleanupLive('lv5'); }
+});
+
+check('"עדכן": הגרסה מהשרת נכנסת, ומה שהוקלד הוא צעד ביטול אחד', () => {
+  const n = liveNote('lv6', 'ישן', 'T0');
+  n.entry.editing = true;
+  n.ta.value = 'ישן + שלי';
+  try {
+    fileMgr._reconcileServerNote(SRV('lv6', 'חדש', 'T1'), 'poll');
+    fileMgr._acceptRemote(n.el);
+    eq(n.ta.value, 'חדש', 'התיבה');
+    eq(n.el.dataset.updatedAt, 'T1', 'האסימון');
+    const st = fileMgr._undoState(n.el);
+    eq(st.stack.length, 1, 'צעד אחד');
+    eq(st.stack[0], 'ישן + שלי', 'מה שהוקלד');
+    eq(fileMgr._isSaveHeld('lv6'), false, 'השמירות משוחררות');
+  } finally { cleanupLive('lv6'); }
+});
+
+check('"התעלם": הבסיס עובר לגרסה שבהתראה, והשינוי המקומי נשלח מעליה', () => {
+  const n = liveNote('lv7', 'ישן', 'T0');
+  n.entry.editing = true;
+  n.ta.value = 'ישן + שלי';
+  try {
+    fileMgr._reconcileServerNote(SRV('lv7', 'חדש', 'T1'), 'poll');
+    fileMgr._ignoreRemote(n.el);
+    eq(n.ta.value, 'ישן + שלי', 'התיבה נשארת');
+    eq(fileMgr._withToken('lv7', fileMgr._pending.get('lv7')).prev_updated_at, 'T1', 'נשלח עם האסימון של הגרסה שבהתראה');
+    eq(fileMgr._pending.get('lv7').content, 'ישן + שלי', 'והטקסט של המשתמש בתור');
+  } finally { cleanupLive('lv7'); }
+});
+
+check('פיוס: שינוי צבע בלבד מוחל, בלי לגעת בתוכן', () => {
+  const n = liveNote('lv8', 'גוף', 'T0');
+  n.entry.data.color = '#ffffcc';
+  try {
+    eq(fileMgr._reconcileServerNote(SRV('lv8', 'גוף', 'T0', { color: '#cce5ff' }), 'poll'), 'same');
+    eq(n.el.style.backgroundColor, '#cce5ff', 'הצבע');
+    eq(n.ta.value, 'גוף');
+  } finally { cleanupLive('lv8'); }
 });
 
 (async () => {
