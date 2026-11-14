@@ -1920,6 +1920,7 @@
     if (isWorkspace) {
       const boardHtml = buildWorkspaceBoardHtml(displayItems);
       container.innerHTML = `${headerHtml}${tagsToolbarHtml}${boardHtml}`;
+      fillCardNames(container);
     } else {
       // קיבוץ פריטים לפי תיקיה
       const folders = Array.isArray(col.folders) ? col.folders : [];
@@ -1928,6 +1929,7 @@
         ? '<div class="collection-load-more"><button type="button" class="btn btn-secondary load-more">טען עוד</button></div>'
         : '';
       container.innerHTML = `${headerHtml}${tagsToolbarHtml}<div id="collectionItems">${folderItemsHtml || '<div class="empty">אין פריטים</div>'}</div>${loadMoreHtml}`;
+      fillCardNames(container);
     }
 
     setBulkMode(container, isBulkMode);
@@ -2500,7 +2502,7 @@
           <button class="workspace-card__drag" type="button" aria-label="גרור להזזת הפריט">⋮⋮</button>
           <div class="workspace-card__body">
             <div class="workspace-card__name">
-              <a class="workspace-card__link" href="#" data-open="${escapeHtml(item.file_name || '')}">${escapeHtml(item.file_name || '')}</a>
+              <a class="workspace-card__link" href="#" data-open="${escapeHtml(item.file_name || '')}"></a>
             </div>
             <div class="workspace-card__meta">
               <span class="workspace-card__tag">
@@ -2906,7 +2908,7 @@
           <div class="collection-card__body">
             <div class="collection-card__title-row">
               <div class="collection-card__name">
-                <a class="collection-card__link" href="#" draggable="false" data-open="${escapeHtml(fileName)}">${escapeHtml(fileName)}</a>
+                <a class="collection-card__link" href="#" draggable="false" data-open="${escapeHtml(fileName)}"></a>
               </div>
               ${item.description ? `<button type="button" class="desc-info" data-description="${escapeHtml(item.description)}" title="הצג תיאור" aria-label="הצג תיאור">ℹ️</button>` : ''}
             </div>
@@ -3533,7 +3535,24 @@
     }, { offset: Number.NEGATIVE_INFINITY }).element;
   }
 
-  function escapeHtml(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+  // מקודד גם מרכאות: הפונקציה בונה גם ערכי מאפיינים (``data-open``, ``data-name``, ``data-description``), ושם עם ``"``
+  // היה נחתך שם. ``fillCardNames`` קורא את השם מ-``data-open``, ולכן הוא חייב להיות השם המלא. בטקסט — אותה תצוגה.
+  function escapeHtml(s){
+    return String(s||'').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /**
+   * השם של כל כרטיס — באוסף רגיל ובשולחן העבודה — נכנס אחרי ה-``innerHTML``, דרך ``FileName.fill``
+   * (``utils/file-name.js``), ולא כמחרוזת: כך שם עברי שנגמר בחלק לטיני מוצג עם הסיומת בקצה השמאלי. השם נקרא מ-
+   * ``data-open`` של הקישור — אותו ערך שהפתיחה קוראת — כי הכרטיסים מקובצים לפי תיקיות, וסדרם בעמוד אינו סדר הפריטים.
+   * חייב לרוץ לפני ``autoFitText``, שמודד את רוחב השם.
+   */
+  function fillCardNames(root){
+    root.querySelectorAll('.collection-card__link, .workspace-card__link').forEach(function(link){
+      window.FileName.fill(link, link.getAttribute('data-open') || '');
+    });
+  }
 
   // --- התאמת טקסט דינמית לאורכים משתנים ---
   function autoFitText(selector, opts){

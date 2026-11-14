@@ -281,7 +281,6 @@ def dashboard():
             db,
             user_id,
             max_items=10,
-            stale_days=60,
             dismissed_ids=dismissed_ids,
         )
 
@@ -340,13 +339,10 @@ def dashboard():
         fallback_notes = {"notes": [], "has_notes": False}
         fallback_attention = {
             "missing_metadata": [],
-            "stale_files": [],
             "total_missing": 0,
-            "total_stale": 0,
             "shown_missing": 0,
-            "shown_stale": 0,
             "has_items": False,
-            "settings": {"stale_days": 60, "max_items": 10},
+            "settings": {"max_items": 10},
         }
 
         return render_template(

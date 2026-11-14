@@ -294,3 +294,24 @@ def test_the_card_links_each_title_to_the_note_in_a_new_tab_and_shows_where_it_i
     assert 'ממתינים' not in card, "לא 'ועוד N פתקים ממתינים', וגם לא 'ממתינים לתזכורת' בכותרת המשנה"
     assert 'פתח קובץ' not in card
     assert 'ללא קובץ' not in card
+
+
+def test_a_file_location_is_shown_as_a_file_name_and_any_other_location_as_text():
+    """פתק על קובץ: השם עובר בפילטר ``file_name`` (``webapp/file_name_display.py``) — ``<bdi>``, ושם עברי שנגמר בחלק
+    לטיני עם הסיומת בקצה השמאלי. כל מיקום אחר — לוח, ריפו — נשאר טקסט. ``location_kind`` הוא מה שמבדיל ביניהם."""
+    board = ObjectId()
+    db = _DB(
+        [
+            _note(1, file_id=str(ObjectId()), file_name='מדריך-תצוגת-Markdown-RTL.md'),
+            _note(2, board_id=str(board)),
+            _note(3, repo_name='CodeBot', repo_path='docs/Guide-RTL.md'),
+        ],
+        boards=[{'_id': board, 'user_id': USER, 'name': 'רעיונות'}],
+    )
+    snapshot = _snapshot(db)
+    assert [n['location_kind'] for n in snapshot['notes']] == ['file', 'board', 'repo']
+
+    card = _notes_card(_render(snapshot))
+    assert '<bdi dir="rtl">מדריך-תצוגת-Markdown-RTL.<bdi>md</bdi></bdi>' in card
+    assert card.count('<bdi') == 2, "רק שם הקובץ — ה-<bdi> החיצוני והסיומת"
+    assert 'לוח רעיונות' in card and 'ריפו: CodeBot/docs/Guide-RTL.md' in card

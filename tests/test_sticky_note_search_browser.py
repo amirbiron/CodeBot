@@ -94,7 +94,8 @@ def build_page(notes, *, theme=None, with_module=True, file_mode=False, md_html=
                surface_style="position:relative;", tail_px=0):
     theme_attr = f' data-theme="{theme}"' if theme else ""
     links = "\n".join(f'<link rel="stylesheet" href="/{s}">' for s in STYLESHEETS)
-    scripts = ["js/admonition-icons.js", "js/utils/rtl-code.js"]
+    # ``utils/file-name.js`` לפני ``rtl-code.js``, כמו ב-``<head>`` של ``base.html``: משם הוא קורא את הפירוק של שם קובץ.
+    scripts = ["js/admonition-icons.js", "js/utils/file-name.js", "js/utils/rtl-code.js"]
     if with_module:
         scripts.append(MODULE)
     scripts.append("js/sticky-notes.js")

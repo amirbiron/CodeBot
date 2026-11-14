@@ -35,6 +35,8 @@ const ADMONITION_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'ad
 // יכולת", וכל בדיקת RTL הייתה מאשרת "לא התהפך" בלי שום קשר לקוד —
 // כלומר עוברת מהסיבה הלא נכונה, ולא מסוגלת ליפול.
 const RTL_CODE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'utils', 'rtl-code.js');
+// ``rtl-code.js`` קורא ממנו את הפירוק של שם קובץ עברי (``FileName.parts``), ולכן הוא נטען לפניו — כמו ב-``<head>`` של ``base.html``.
+const FILE_NAME_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'utils', 'file-name.js');
 // **וגם מודול ההדגשה, מאותה סיבה.** כפתור החיפוש שבכותרת נקבע לפי
 // ``window.TextHighlight``: בלי הטעינה כאן כל פתק היה נבנה עם כפתור מושבת
 // ("המודול לא נטען"), וכל בדיקה על מצב הכפתור הייתה בודקת את מסלול
@@ -106,6 +108,7 @@ function makeSandbox() {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(ADMONITION_PATH, 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(FILE_NAME_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(RTL_CODE_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(TEXT_HIGHLIGHT_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
@@ -1088,11 +1091,11 @@ function docViewMarkdownIt(){
   // כאן היה הופך ``app.py`` לקישור, בזמן שתצוגת המסמך מציגה אותו כטקסט (ההסבר ב-``md-linkify-plugin.js``). ובנוסף
   // התוסף שכותב ``target`` ו-``rel`` על קישור (``md-link-target-plugin.js``): גם הפתק פותח קישור בלשונית חדשה, וההשוואה
   // כאן מוודאת ששניהם כותבים אותו קישור. ואותו דבר לתוסף שכותב ``dir`` על קוד בשורה (``md-auto-dir-plugin.js``), יחד עם
-  // ``utils/rtl-code.js`` שהוא קורא ממנו את הפירוק של שם קובץ עברי: גם הפתק כותב את שניהם, וההשוואה מוודאת שהפתק והמסמך
+  // ``utils/file-name.js`` שהוא קורא ממנו את הפירוק של שם קובץ עברי: גם הפתק כותב את שניהם, וההשוואה מוודאת שהפתק והמסמך
   // מסכימים גם על הכיוון של הקוד ועל הפירוק שלו, ולא רק על מה קוד.
   const pluginSandbox = { window: {} };
   vm.createContext(pluginSandbox);
-  for (const name of ['utils/rtl-code.js', 'md-mark-plugin.js', 'md-linkify-plugin.js', 'md-link-target-plugin.js',
+  for (const name of ['utils/file-name.js', 'md-mark-plugin.js', 'md-linkify-plugin.js', 'md-link-target-plugin.js',
     'md-auto-dir-plugin.js']){
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', name), 'utf8'), pluginSandbox);
   }
@@ -4274,6 +4277,7 @@ function makeDomSandbox() {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(ADMONITION_PATH, 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(FILE_NAME_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(RTL_CODE_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(TEXT_HIGHLIGHT_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);

@@ -32,9 +32,10 @@
  *
  * **שם קובץ עברי: ``dir="rtl"`` והסיומת ב-``<bdi>``.** ב-``מדריך-תצוגת-Markdown-RTL.md`` הנקודה יושבת בין שתי אותיות
  * לטיניות ונדבקת אליהן, ולכן גם עם ``dir="auto"`` הסיומת מוצגת באמצע השם, צמודה לעברית. קוד בשורה ש-
- * ``RtlCode.fileNameParts`` (``utils/rtl-code.js``) מפרק מקבל ``dir="rtl"``, והכלל של ``code_inline`` שהתוסף מתקין כותב
- * את הסיומת ב-``<bdi>`` — והיא עוברת לקצה השמאלי. ההחלטה מתי מפרקים, והמדידה, כתובות שם פעם אחת: הפתקים והכרטיסים של
- * פתקים בונים את אותו מבנה כצמתים (``RtlCode.fillInlineCode``), ו-``tests/sticky-notes-target.test.js`` משווה ביניהם.
+ * ``FileName.parts`` (``utils/file-name.js``) מפרק מקבל ``dir="rtl"``, והכלל של ``code_inline`` שהתוסף מתקין כותב
+ * את הסיומת ב-``<bdi>`` — והיא עוברת לקצה השמאלי. ההחלטה מתי מפרקים, וההסבר, כתובים שם פעם אחת — היא משותפת גם
+ * לשמות הקבצים בממשק, ויש לה תאום בשרת. הפתקים והכרטיסים של פתקים בונים את אותו מבנה כצמתים
+ * (``RtlCode.fillInlineCode`` ב-``utils/rtl-code.js``), ו-``tests/sticky-notes-target.test.js`` משווה ביניהם.
  *
  * **למה קובץ משותף.** כל מקום שיוצר את markdown-it בוובאפ מתקין אותו — ``md_preview.html``, ``live-preview.js``
  * (``ensureRenderer``, שמשמש את התצוגה החיה, את הייצוא המעוצב, את דפדפן הריפו ואת כרטיסי החיפוש בתיעוד) ומסלול הגיבוי
@@ -53,20 +54,20 @@
   'use strict';
 
   var CELL_OPEN_TYPES = ['th_open', 'td_open'];
-  var warnedNoRtlCode = false;
+  var warnedNoFileName = false;
 
   /**
-   * הפירוק של שם קובץ עברי שהדפדפן היה מציג עם הסיומת באמצע — ``RtlCode.fileNameParts`` ב-``utils/rtl-code.js``
-   * (ההחלטה וההסבר שם, משותפים לפתקים ולכרטיסי הפתקים), או ``null``. **היעדר ``window.RtlCode`` הוא היעדר יכולת
-   * סטטי** — כל תבנית שטוענת את התוסף טוענת גם אותו, ו-``tests/md-auto-dir-plugin.test.js`` בודק את זה — ולכן הקוד
+   * הפירוק של שם קובץ עברי שהדפדפן היה מציג עם הסיומת באמצע — ``FileName.parts`` ב-``utils/file-name.js`` (ההחלטה
+   * וההסבר שם), או ``null``. **היעדר ``window.FileName`` הוא היעדר יכולת סטטי** — ``base.html`` טוען אותו ב-``<head>``
+   * של כל עמוד, ועמוד הייצוא המעוצב טוען אותו בעצמו; ``tests/md-auto-dir-plugin.test.js`` בודק את זה — ולכן הקוד
    * מוצג אז כמו לפני הפירוק, עם ``dir="auto"``, ואזהרה אחת בקונסול אומרת למה.
    */
   function fileNameParts(text) {
-    var rtl = root && root.RtlCode;
-    if (rtl && typeof rtl.fileNameParts === 'function') return rtl.fileNameParts(text);
-    if (!warnedNoRtlCode && typeof console !== 'undefined') {
-      warnedNoRtlCode = true;
-      console.warn('md-auto-dir-plugin: utils/rtl-code.js לא נטען — שם קובץ עברי בקוד בשורה יוצג עם הסיומת באמצע');
+    var api = root && root.FileName;
+    if (api && typeof api.parts === 'function') return api.parts(text);
+    if (!warnedNoFileName && typeof console !== 'undefined') {
+      warnedNoFileName = true;
+      console.warn('md-auto-dir-plugin: utils/file-name.js לא נטען — שם קובץ עברי בקוד בשורה יוצג עם הסיומת באמצע');
     }
     return null;
   }

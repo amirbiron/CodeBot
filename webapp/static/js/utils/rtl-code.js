@@ -703,52 +703,20 @@
   }
 
   /**
-   * **שם קובץ עברי שהדפדפן מציג עם הסיומת באמצע** — מפורק לשם ולסיומת, או ``null``.
-   *
-   * **מה שבור.** ב-``מדריך-תצוגת-Markdown-RTL.md`` הנקודה יושבת בין שתי אותיות לטיניות, ואלגוריתם הכיווניות מדביק
-   * אותה אליהן: ``Markdown-RTL.md`` הופך לגוש אחד משמאל לימין, והסיומת נמצאת בקצה הימני שלו — צמודה לעברית, באמצע
-   * השם. ב-``ערכות.md`` הנקודה יושבת בין עברית לאנגלית ולא נדבקת, ולכן הסיומת כבר בקצה השמאלי. נמדד בכרומיום.
-   *
-   * **מה עושים עם התשובה.** מציגים את ``stem + '.'`` כטקסט, ואת ``extension`` מבודדת ב-``<bdi>``, בתוך אלמנט עם
-   * ``dir="rtl"``. נמדד בכרומיום מול שתי חלופות — בידוד השם, ובידוד של שניהם — ושלושתן נתנו בדיוק אותו סדר: השם
-   * מימין לשמאל, הנקודה, והסיומת בקצה השמאלי. בידוד הסיומת לבדה הוא הקטן מביניהם. ``dir="rtl"`` נדרש גם בשם שמתחיל
-   * באות לטינית, כמו ``Report-דוח-Q3.md``: ``dir="auto"`` היה בוחר שם משמאל לימין. הטקסט עצמו אינו משתנה — אין
-   * תווים נסתרים, ו-``textContent`` נשאר זהה למקור — ולכן גם העתקה מחזירה את השם בדיוק.
-   *
-   * **מתי מפרקים** — רק כשכל אלה מתקיימים, כלומר רק כשהדפדפן באמת היה מדביק את הסיומת לשם:
-   *
-   * - בסוף יש נקודה ואחריה סיומת: אחת עד עשר אותיות או ספרות לטיניות (``FILE_EXTENSION_RE``).
-   * - לפני הנקודה יש אות עברית.
-   * - בקטע שבין האות העברית האחרונה לנקודה יש אות לטינית — ``Q3`` ב-``Report-דוח-Q3.md``.
-   *
-   * **ומה נשאר כמו היום** (החלטה של המשתמש, נובמבר 2026): שם בלי עברית (``morass-Tech-theme.json``) — פירוק היה
-   * מעביר את הסיומת לפניו; שם שנגמר בעברית (``ערכות.md``) — כבר מוצג נכון; שם שיש בו נקודה נוספת אחרי העברית
-   * (``דוח.tar.gz``, ``גרסה-1.2.md``); ונתיב, כלומר טקסט עם לוכסן. ובקוד בשורה, משפט עברי שנגמר בשם עם נקודה
-   * (``התקינו את Node.js``) **כן** מפורק ומוצג עם ``js`` בקצה השמאלי — זיהוי שגוי ידוע, שהוחלט לקבל: החלופה,
-   * לדרוש שם בלי רווחים, הייתה משאירה שבור שם קובץ אמיתי כמו ``המיפוי השלם בייבוא ערכת VS Code.md``.
-   *
-   * **הכתב, ולא טווח של קודים.** "עברית" ו"לטינית" הן ``\p{Script=…}`` של אות (``\p{L}``), ולכן גם ``é`` היא אות
-   * לטינית, כמו שהיא לאלגוריתם הכיווניות. ``letterCounts`` למעלה סופר רק ``A-Z`` — שם השאלה היא יחס, וכאן היא
-   * איזה תו הדפדפן מדביק לנקודה.
+   * **שם קובץ עברי שהדפדפן היה מציג עם הסיומת באמצע** — ``{stem, extension}`` או ``null``. ההחלטה וההסבר גרים ב-
+   * ``utils/file-name.js`` (``FileName.parts``), כי היא משותפת לקוד בשורה ולשמות הקבצים בממשק, ויש לה תאום בשרת.
+   * **היעדר ``window.FileName`` הוא היעדר יכולת סטטי:** ``base.html`` טוען אותו ב-``<head>`` של כל עמוד, ועמוד הייצוא
+   * המעוצב טוען אותו בעצמו. בלעדיו הקוד מוצג בלי פירוק, ונרשמת אזהרה אחת בקונסול — כדי שתבנית שנשכחה תיראה.
    */
-  var FILE_EXTENSION_RE = /\.([A-Za-z0-9]{1,10})$/;
-  var HEBREW_LETTER_RE = /(?=\p{L})\p{Script=Hebrew}/u;
-  var LATIN_LETTER_RE = /(?=\p{L})\p{Script=Latin}/u;
-
+  var warnedNoFileName = false;
   function fileNameParts(text) {
-    var s = text == null ? '' : String(text);
-    if (/[/\\]/.test(s)) return null;
-    var m = FILE_EXTENSION_RE.exec(s);
-    if (!m) return null;
-    var stem = s.slice(0, m.index);
-    var lastHebrew = -1;
-    for (var i = stem.length - 1; i >= 0; i--) {
-      if (HEBREW_LETTER_RE.test(stem.charAt(i))) { lastHebrew = i; break; }
+    var api = typeof window !== 'undefined' ? window.FileName : null;
+    if (api && typeof api.parts === 'function') return api.parts(text);
+    if (!warnedNoFileName && typeof console !== 'undefined') {
+      warnedNoFileName = true;
+      console.warn('rtl-code: window.FileName חסר (utils/file-name.js לא נטען) — שמות קבצים בקוד בשורה מוצגים בלי פירוק');
     }
-    if (lastHebrew < 0) return null;
-    var tail = stem.slice(lastHebrew + 1);
-    if (tail.indexOf('.') >= 0 || !LATIN_LETTER_RE.test(tail)) return null;
-    return { stem: stem, extension: m[1] };
+    return null;
   }
 
   /**
@@ -788,7 +756,6 @@
       wrapInnerFences: wrapInnerFences,
       hebrewTokenRanges: hebrewTokenRanges,
       isolateHebrewTokens: isolateHebrewTokens,
-      fileNameParts: fileNameParts,
       fillInlineCode: fillInlineCode,
       // **עותק קפוא ולא הרשימה עצמה.** הרג'קסים כבר נבנו ממנה, ולכן שינוי
       // של המערך מבחוץ לא היה משנה אף החלטה — רק גורם לה להיראות אחרת

@@ -134,11 +134,11 @@ ONE_LINE_JS = """(el) => {
 }"""
 
 
-#: ``(el) => {...}``: **הצורה של שם קובץ עברי שמפורק** (``RtlCode.fileNameParts`` ב-``utils/rtl-code.js``: עברית, ואחריה
+#: ``(el) => {...}``: **הצורה של שם קובץ עברי שמפורק** (``FileName.parts`` ב-``utils/file-name.js``: עברית, ואחריה
 #: חלק לטיני לפני הסיומת). השם מתחיל בצד ימין, החלק הלטיני האחרון משמאל לעברית, הנקודה משמאל לחלק הלטיני, והסיומת
 #: משמאל לנקודה — כלומר הסיומת בקצה השמאלי. בלי הפירוק הנקודה והסיומת נדבקות לחלק הלטיני ויושבות בקצה הימני שלו,
-#: באמצע השם. ``one_line`` — תנאי מקדים לשאר (``ONE_LINE_JS``). משותף ל-``tests/test_sticky_inline_code_dir_browser.py``
-#: ול-``tests/test_md_auto_dir_browser.py``.
+#: באמצע השם. ``one_line`` — תנאי מקדים לשאר (``ONE_LINE_JS``). משותף ל-``tests/test_sticky_inline_code_dir_browser.py``,
+#: ל-``tests/test_md_auto_dir_browser.py`` ול-``tests/test_file_name_display_browser.py``.
 FILE_NAME_SHAPE_JS = """(el) => {
   const x = (""" + CHAR_X_JS + """);
   const t = el.textContent, dot = t.lastIndexOf('.');

@@ -166,3 +166,17 @@ def test_a_file_with_many_versions_is_one_event(monkeypatch):
     # והמונה סופר קבצים, אחרת "טען עוד" מבטיח יותר ממה שיוצג
     counts = {f['id']: f['count'] for f in timeline['filters']}
     assert counts.get('files') == 1, counts
+
+
+def test_a_file_event_carries_the_action_and_the_file_name_apart_from_the_title():
+    """הדשבורד בונה את השם כ-``<bdi>`` משלו (הפילטר ``file_name`` ב-``timeline_title``, ``FileName.element`` ב"טען
+    עוד"), ולכן אירוע קובץ מחזיק את הפעולה ואת השם בנפרד. ``title`` נשאר המחרוזת המלאה, מאותם שני ערכים."""
+    created = webapp_app._build_file_timeline_event({
+        "_id": "a1", "file_name": "מדריך-תצוגת-Markdown-RTL.md", "version": 1,
+        "updated_at": datetime(2026, 11, 14, tzinfo=timezone.utc),
+    })
+    edited = webapp_app._build_file_timeline_event({"_id": "b2", "file_name": "ערכות.md", "version": 3})
+    for event, action, name in ((created, "נוצר", "מדריך-תצוגת-Markdown-RTL.md"), (edited, "עודכן", "ערכות.md")):
+        assert event["meta"]["action"] == action
+        assert event["meta"]["file_name"] == name
+        assert event["title"] == f"{action} {name}"

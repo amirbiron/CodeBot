@@ -12,6 +12,8 @@
 
 הדפדפן (``performGlobalSearch`` ב-``webapp/static/js/global_search.js``) שולח את החיפוש ל-``POST /api/search/global`` (``api_search_global``). שני סוגים נשלחים ל-endpoint נפרד: **חיפוש חכם** (:ref:`global-search-smart`) ו\ **תיעוד** (:ref:`global-search-docs`).
 
+**שם הקובץ בכרטיס של תוצאה, ובהצעות ההשלמה, נבנה כ-**\ ``<bdi>`` (``FileName.fill``, :ref:`markdown-auto-dir`). הכרטיס הוא ``direction: ltr`` (``.search-result-card`` ב-``webapp/static/css/global_search.css``), ובלי הבידוד גם שם שנגמר בעברית, כמו ``ערכות.md``, היה מוצג שם עם הסיומת מימין לשם. השלד של הכרטיס נבנה כמחרוזת, והשם נכנס אחריו — לא כמחרוזת ב-``innerHTML``.
+
 .. _global-search-types:
 
 סוגי החיפוש

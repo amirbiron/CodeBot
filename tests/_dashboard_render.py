@@ -16,6 +16,8 @@ from types import SimpleNamespace
 
 import jinja2
 
+from webapp.file_name_display import TEMPLATE_FILTERS
+
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "webapp" / "templates"
 
 
@@ -28,7 +30,8 @@ class _StubLoader(jinja2.FileSystemLoader):
         return super().get_source(environment, template)
 
 
-def render_dashboard(**overrides) -> str:
+def render_dashboard(*, filters: dict | None = None, **overrides) -> str:
+    """``filters`` מחליף את הפילטרים של האפליקציה — לריצת בקרה של טסט דפדפן, שבודקת מה התבנית מציגה בלעדיהם."""
     env = jinja2.Environment(loader=_StubLoader(str(TEMPLATES_DIR)), autoescape=True)
     env.globals["url_for"] = lambda *a, **k: "#"
     env.globals["static_version"] = "1"
@@ -36,6 +39,8 @@ def render_dashboard(**overrides) -> str:
     env.globals["lang_icon"] = lambda *a, **k: ""
     env.globals["LANG_ICON_SIZES"] = SimpleNamespace(file_row=16)
     env.filters["urlencode"] = lambda s: str(s)
+    # הפילטרים של האפליקציה שהתבנית משתמשת בהם (``file_name``), מאותו מקום שהאפליקציה רושמת אותם.
+    env.filters.update(TEMPLATE_FILTERS if filters is None else filters)
 
     ctx = dict(
         user={"first_name": "test"},

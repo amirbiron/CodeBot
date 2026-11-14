@@ -712,12 +712,19 @@ window.CompareView = (function() {
      * עדכון תוויות קבצים (מצב files)
      */
     function updateFileLabels() {
-        if (elements.leftFileLabel) {
-            elements.leftFileLabel.textContent = state.leftFileName || 'קובץ שמאלי';
-        }
-        if (elements.rightFileLabel) {
-            elements.rightFileLabel.textContent = state.rightFileName || 'קובץ ימני';
-        }
+        setFileLabel(elements.leftFileLabel, state.leftFileName, 'קובץ שמאלי');
+        setFileLabel(elements.rightFileLabel, state.rightFileName, 'קובץ ימני');
+    }
+
+    /**
+     * שם הקובץ בכותרת של צד, כ-``<bdi>`` (``FileName.fill`` ב-``utils/file-name.js``). הכותרות יושבות בהקשר שמאל-לימין
+     * (``.compare-sides`` ב-``compare.css``), ובלי הבידוד גם שם שנגמר בעברית, כמו ``ערכות.md``, היה יוצא עם הסיומת
+     * מימין. בלי שם — התווית הכללית, כטקסט.
+     */
+    function setFileLabel(el, name, fallback) {
+        if (!el) return;
+        if (name) window.FileName.fill(el, name);
+        else el.textContent = fallback;
     }
 
     /**

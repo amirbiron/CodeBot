@@ -15,7 +15,7 @@
         {% if back_url %}
         <a class="reader-back-btn" href="{{ back_url }}" title="חזרה למערכת">↩️ חזרה למערכת</a>
         {% endif %}
-        <h1 class="reader-title">{{ title }}</h1>
+        <h1 class="reader-title">{{ title|file_name }}</h1>
         {% if subtitle %}
         <p class="reader-subtitle">{{ subtitle }}</p>
         {% endif %}

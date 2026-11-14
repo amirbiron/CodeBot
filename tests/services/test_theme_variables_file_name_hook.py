@@ -74,7 +74,7 @@ def _typography(*elements):
 class _ClassedElements(HTMLParser):
     """אוסף, לכל אלמנט בתבנית שנושא אחד מה-classes של הווים, את התג, המאפיינים והטקסט הישיר שלו.
 
-    התבנית נקראת כמו שהיא, עם ה-Jinja: ``{{ file.file_name }}`` הוא הטקסט של האלמנט שמציג את השם. מאפיין כמו
+    התבנית נקראת כמו שהיא, עם ה-Jinja: ``{{ file.file_name|file_name }}`` הוא הטקסט של האלמנט שמציג את השם. מאפיין כמו
     ``{% if not file.description %} hidden{% endif %}`` נקרא כמה מאפיינים חסרי משמעות, וזה לא מפריע.
     """
 
@@ -176,10 +176,11 @@ def test_card_meta_falls_back_to_the_color_it_inherits():
 @pytest.mark.parametrize("template_name", sorted(NAME_PAGES))
 def test_the_name_hook_sits_on_the_element_that_shows_the_file_name(template_name):
     """ה-class נמצא על אלמנט אחד בעמוד, והטקסט שלו הוא שם הקובץ בלבד. בתצוגת ה-HTML השם הוא חלק מכותרת עם
-    תחילית ("תצוגת דפדפן:"), ולכן ה-class על ``span`` שעוטף את השם — התחילית נשארת בצבע של הכותרת."""
+    תחילית ("תצוגת דפדפן:"), ולכן ה-class על ``span`` שעוטף את השם — התחילית נשארת בצבע של הכותרת. השם עובר בפילטר
+    ``file_name`` (``webapp/file_name_display.py``), שבונה ממנו ``<bdi>`` בתוך האלמנט — הצבע עובר אליו בירושה."""
     names = _with_class(_hooked(template_name), NAME_CLASS)
     assert len(names) == 1, names
-    assert names[0]["text"].strip() == "{{ file.file_name }}", names[0]
+    assert names[0]["text"].strip() == "{{ file.file_name|file_name }}", names[0]
 
 
 @pytest.mark.parametrize("template_name", sorted(NAME_PAGES))

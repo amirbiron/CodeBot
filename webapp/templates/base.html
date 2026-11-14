@@ -112,6 +112,9 @@
         // רשימת ערכות מובנות שמוסתרות מהממשק (משותפת לכל המסכים)
         window.__ckHiddenBuiltinThemes = ['dark', 'dim', 'ocean', 'rose-pine-dawn'];
     </script>
+    {# שם קובץ בשורה עברית (``window.FileName``). ב-head ובלי defer, כי הצרכנים יושבים גם בבלוק התוכן:
+       מודאל "קבצים אחרונים" שבכל עמוד, ו-``utils/rtl-code.js`` שנטען שם ב-``md_preview.html``. ההסבר בראש הקובץ. #}
+    <script src="{{ url_for('static', filename='js/utils/file-name.js') }}?v={{ static_version }}"></script>
 
     <!-- Icons -->
     <link rel="stylesheet"
@@ -2354,11 +2357,12 @@
                 listContainer.innerHTML = '<div class="no-files">אין פריטים להצגה</div>';
                 return;
             }
-            const html = files.slice(0, 10).map(file => (
+            const shown = files.slice(0, 10);
+            const html = shown.map(file => (
                 '<a href="/file/' + String(file.id || '').replace(/"/g, '') + '" class="recent-file-item">' +
                 '  <div class="file-icon">' + getFileIcon(String(file.language || 'text').toLowerCase()) + '</div>' +
                 '  <div class="file-info">' +
-                '    <div class="file-name">' + escapeHtml(file.filename || '') + '</div>' +
+                '    <div class="file-name"></div>' +
                 '    <div class="file-meta">' +
                 '      <span>' + formatDate(file.accessed_at) + '</span>' +
                 '    </div>' +
@@ -2366,6 +2370,12 @@
                 '</a>'
             )).join('');
             listContainer.innerHTML = html;
+            // השם נכנס אחרי השלד, דרך ``FileName.fill`` (``utils/file-name.js``, נטען ב-head של העמוד הזה) — לא
+            // כמחרוזת ב-``innerHTML`` — כדי ששם עברי שנגמר בחלק לטיני יוצג עם הסיומת בקצה השמאלי. שורה לכל קובץ.
+            const nameCells = listContainer.querySelectorAll('.recent-file-item .file-name');
+            shown.forEach((file, i) => {
+                if (nameCells[i]) window.FileName.fill(nameCells[i], file.filename || '');
+            });
         }
 
         function closeRecentFiles() {
