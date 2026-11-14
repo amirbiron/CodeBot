@@ -93,6 +93,8 @@ class LivePage:
         self.fail_saves = 0
         #: כמה שמירות נענות 400 בלי שהשרת כותב — דחייה סופית, שהלקוח אינו מנסה שוב.
         self.reject_saves = 0
+        #: כמה בקשות של הרשימה המלאה של הלוח (לא דגימה) נענות 500.
+        self.fail_list = 0
         #: כמה קריאות של פתק בודד נענות 429 עם ``Retry-After`` (בשניות) — ``(count, seconds)``.
         self.rate_limit_note_get = (0, 0)
         links = "\n".join(f'<link rel="stylesheet" href="/static/{s}">' for s in STYLESHEETS)
@@ -103,15 +105,35 @@ class LivePage:
 {links}</head><body>{host_html}{tags}<script>{manager_js}</script></body></html>"""
         self.ctx = browser.new_context(viewport={"width": viewport[0], "height": viewport[1]}, **(context_opts or {}))
         client.pages.append(self)
-        self.page = self.ctx.new_page()
         self.errors: list[str] = []
         self.console: list[tuple[str, str]] = []
+        self._open_page(before_goto)
+
+    def _open_page(self, before_goto=None):
+        self.page = self.ctx.new_page()
         self.page.on("pageerror", lambda e: self.errors.append(str(e)))
         self.page.on("console", lambda m: self.console.append((m.type, m.text)))
         self.page.route("**/*", self._serve)
         if before_goto:
             before_goto(self.page)
         self.page.goto("http://notes.test/page.html")
+
+    def new_tab(self):
+        """לשונית נוספת על אותו עמוד, **באותו context** — אותו ``localStorage`` — כמו לשונית שנייה באותו דפדפן.
+        הבקשות שלה עוברות באותו ``_serve``, והלשונית הראשית (``self.page``) אינה מתחלפת."""
+        page = self.ctx.new_page()
+        page.on("pageerror", lambda e: self.errors.append(str(e)))
+        page.on("console", lambda m: self.console.append((m.type, m.text)))
+        page.route("**/*", self._serve)
+        page.goto("http://notes.test/page.html")
+        return page
+
+    def reopen(self):
+        """סגירת הלשונית ופתיחה מחדש של אותו עמוד — **באותו context**, ולכן עם אותו ``localStorage``, כמו לשונית
+        חדשה באותו דפדפן. ``page.close()`` בלי ``run_before_unload``: לשונית שנסגרת בטאבלט אינה מציגה את
+        שאלת ``beforeunload``."""
+        self.page.close()
+        self._open_page()
 
     def _serve(self, route):
         req = route.request
@@ -154,6 +176,11 @@ class LivePage:
                 self.reject_saves -= 1
                 self.answers.append((req.method, path, 400))
                 route.fulfill(status=400, content_type="application/json", body='{"ok": false, "error": "invalid"}')
+                return
+            if (self.fail_list and req.method == "GET" and "versions=1" not in parts.query
+                    and path.startswith("/api/sticky-notes/board/")):
+                self.fail_list -= 1
+                route.fulfill(status=500, content_type="application/json", body='{"ok": false}')
                 return
             if (self.hold_list and req.method == "GET" and "versions=1" not in parts.query
                     and path.startswith("/api/sticky-notes/board/")):
@@ -227,14 +254,15 @@ class LivePage:
             """(nid) => { const n = document.querySelector(`.sticky-note[data-note-id="${nid}"]`);
                 return !!n && n.getAnimations().every(a => a.playState === 'finished'); }""", arg=nid)
 
-    def poll_now(self):
-        """סבב דגימה אחד, וממתינים **שיסתיים** — בלי לחכות 15 שניות.
+    def poll_now(self, page=None):
+        """סבב דגימה אחד, וממתינים **שיסתיים** — בלי לחכות 15 שניות. ``page`` — לשונית אחרת (``new_tab``).
 
         הסיום נצפה: ``_livePollRun`` של המנהל נעטף (פעם אחת) במונה שעולה כשהסבב נגמר — אחרי הבקשה וכל
         הקריאות של הפתקים שהשתנו — ו-``wait_for_function`` ממתין שהמונה יעלה. ``pollNow`` כשסבב כבר באוויר
         אינו פותח סבב שני, ואז המונה עולה כשהסבב ההוא נגמר.
         """
-        before = self.page.evaluate("""() => {
+        page = page or self.page
+        before = page.evaluate("""() => {
             const mgr = window.__mgr;
             if (!mgr.__runCounted) {
               const run = mgr._livePollRun.bind(mgr);
@@ -247,7 +275,7 @@ class LivePage:
             mgr._livePoll.pollNow();
             return before;
         }""")
-        self.page.wait_for_function("(before) => (window.__pollRuns || 0) > before", arg=before, timeout=10_000)
+        page.wait_for_function("(before) => (window.__pollRuns || 0) > before", arg=before, timeout=10_000)
 
     def textarea(self, nid):
         return self.page.eval_on_selector(self.sel(nid, ".sticky-note-content"), "e => e.value")
@@ -1219,7 +1247,7 @@ def test_a_draft_whose_text_already_landed_shows_no_notice(board):
     board.drop_save_responses = 1
     board.page.keyboard.type(" — שלי")
     board.page.evaluate("async () => { await window.__mgr.destroy(); localStorage.removeItem('sticky-notes:board:%s'); }" % BOARD)
-    assert board.page.evaluate("(id) => !!localStorage.getItem('sticky-notes:held-draft:' + id)", N1), \
+    assert board.page.evaluate(DRAFT_JS, N1) is not None, \
         "לא נשמרה טיוטה — הבדיקה אינה בודקת את מה שהיא מתיימרת"
     board.page.evaluate("() => { %s }" % BOARD_MANAGER)
     board.wait_note(N1)
@@ -1227,3 +1255,397 @@ def test_a_draft_whose_text_already_landed_shows_no_notice(board):
     assert board.doc(N1)["content"] == "גרסה ישנה — שלי"
     assert board.textarea(N1) == "גרסה ישנה — שלי"
     assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None, "התראה על הטקסט של המשתמש עצמו"
+
+
+# ---------------------------------------------------------------------------
+# טיוטה שמחכה להחלטה — שורדת סגירה ופתיחה מחדש של העמוד
+# ---------------------------------------------------------------------------
+
+#: הטיוטה האחרונה של הפתק במאגר (JSON), או ``null``. מפתח לכל טיוטה — ``sticky-notes:held-draft:<פתק>:<טיוטה>`` —
+#: ולכן מחפשים לפי הקידומת, כמו ``_findHeldDraft``.
+DRAFT_JS = """(id) => { const exact = 'sticky-notes:held-draft:' + id; let best = null;
+  for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i);
+    if (k === exact || k.startsWith(exact + ':')) { const v = localStorage.getItem(k);
+      if (!best || JSON.parse(v).ts > JSON.parse(best).ts) best = v; } }
+  return best; }"""
+DRAFT_KEYS_JS = """(id) => { const exact = 'sticky-notes:held-draft:' + id; const out = [];
+  for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i);
+    if (k === exact || k.startsWith(exact + ':')) out.push(k); } return out; }"""
+
+
+def test_a_waiting_decision_survives_closing_and_reopening_the_page(board):
+    """דווח בשימוש: עדכון מהשרת בזמן עריכה, הקלדה, סגירת הלשונית ופתיחה מחדש — מה שהוקלד נעלם, והגרסה מהשרת
+    נטענה בלי בחירה. הטיוטה חיה רק בזיכרון של הלשונית, כי השמירה לשרת מוחזקת כשבחירה ממתינה."""
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    local = board.textarea(N1)
+    # הטיוטה נכתבת כבר בהקלדה — לא רק באירוע סגירה, שאולי לא יגיע (לשונית שנהרגת ברקע בטאבלט).
+    stored = json.loads(board.page.evaluate(DRAFT_JS, N1) or "null")
+    assert stored and stored["local"]["content"] == local, stored
+    board.reopen()
+    board.wait_note(N1)
+    board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    assert board.textarea(N1) == local, "מה שהוקלד לא חזר אחרי פתיחה מחדש"
+    assert board.doc(N1)["content"] == "עדכון", "הטיוטה נשמרה מעל העדכון בלי בחירה"
+    # הבחירה מוחקת את הטיוטה — ובפתיחה הבאה אין מה להחליט.
+    board.page.click(board.sel(N1, ".sticky-note-remote-update"))
+    assert board.page.evaluate(DRAFT_JS, N1) is None, "טיוטה שהבחירה עליה נעשתה נשארה באחסון"
+    board.page.wait_for_timeout(800)
+    board.reopen()
+    board.wait_note(N1)
+    board.page.wait_for_timeout(1200)
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None
+    assert board.textarea(N1) == "עדכון"
+
+
+def test_ignore_after_reopening_saves_the_draft_and_clears_it(board):
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    local = board.textarea(N1)
+    board.reopen()
+    board.wait_note(N1)
+    board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    board.page.click(board.sel(N1, ".sticky-note-remote-ignore"))
+    board.wait_saved(N1, local)
+    assert board.page.evaluate(DRAFT_JS, N1) is None
+    board.reopen()
+    board.wait_note(N1)
+    board.page.wait_for_timeout(1200)
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None
+    assert board.textarea(N1) == local
+
+
+def test_a_draft_without_local_changes_is_not_kept(board):
+    """התראה בלי שינוי מקומי — אין מה לאבד: אין טיוטה, וגם הקלדה שחזרה לבסיס מוחקת אותה."""
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_timeout(400)
+    board.agent_writes(N1, "גרסה חדשה מהסוכן")
+    board.poll_now()
+    board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    assert board.page.evaluate(DRAFT_JS, N1) is None
+    board.page.keyboard.press("End")
+    board.page.keyboard.type("!")
+    assert board.page.evaluate(DRAFT_JS, N1) is not None
+    board.page.keyboard.press("Backspace")
+    assert board.page.evaluate(DRAFT_JS, N1) is None, "הטקסט חזר לבסיס — אין מה לשמור"
+
+
+def test_a_draft_is_compared_with_the_server_not_with_the_cache(board):
+    """הקאש ישן מהשרת: העדכון שהעלה את ההתראה לא נכנס אליו. שחזור מולו היה מחליט "אין על מה להחליט" ושולח את
+    הטיוטה — רק כדי שתידחה ב-409. הטיוטה נשארת במאגר עד שהרשימה מהשרת מגיעה, ונבדקת מולה."""
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    local = board.textarea(N1)
+    board.hold_list = True
+    since = len(board.requests)
+    board.reopen()
+    board.wait_note(N1)  # מהקאש
+    board.page.wait_for_timeout(1500)  # מעבר ל-debounce של השמירה
+    assert board.held, "הרשימה לא נעצרה — הבדיקה אינה בודקת את מה שהיא מתיימרת"
+    assert not _saves(board, since), "הטיוטה נשלחה על סמך הקאש"
+    # וגם לא בחירה על הקאש: "עדכן" היה מחיל גרסה ישנה מזו שבשרת.
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None, "התראה על גרסה מהקאש"
+    assert board.page.evaluate(DRAFT_JS, N1) is not None, "הטיוטה נצרכה מול הקאש"
+    board.release_list()
+    board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    assert board.textarea(N1) == local
+    assert not [a for a in board.answers if a[2] == 409], board.answers
+
+
+def test_hiding_the_tab_keeps_the_draft_even_when_the_edit_skipped_the_save_queue(board):
+    """שכבת הביטחון: עריכה שלא עברה ב-``_queueSave`` (כאן — השמה ישירה לתיבה, בלי ``input``) נכתבת לטיוטה
+    כשהלשונית מוסתרת, ולכן שורדת סגירה."""
+    _show_notice(board)
+    board.page.eval_on_selector(board.sel(N1, ".sticky-note-content"), "t => { t.value = t.value + ' — בלי input'; }")
+    assert board.page.evaluate(DRAFT_JS, N1) is None, "בלי עריכה דרך התור לא אמורה להיות טיוטה — הבדיקה אינה בודקת"
+    board.page.evaluate("""() => {
+        Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange')); }""")
+    stored = json.loads(board.page.evaluate(DRAFT_JS, N1) or "null")
+    assert stored and stored["local"]["content"].endswith(" — בלי input"), stored
+
+
+def test_a_decision_raised_by_a_refused_save_keeps_the_draft_at_once(board):
+    """ההתראה יכולה להופיע כשהטקסט כבר שונה — 409 על שמירה של מסך ישן. הטיוטה נכתבת ברגע שההתראה מופיעה, ולא
+    רק בעריכה הבאה."""
+    board.agent_writes(N1, "גרסה חדשה מהסוכן")
+    board.fail_note_get = 1  # הרענון בכניסה לעריכה נכשל, וההקלדה על הגרסה הישנה
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.keyboard.press("End")
+    board.page.keyboard.type(" + שלי")
+    board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    stored = json.loads(board.page.evaluate(DRAFT_JS, N1) or "null")
+    assert stored and stored["local"]["content"] == "גרסה ישנה + שלי", stored
+
+
+# ---------------------------------------------------------------------------
+# סבב ריוויו: מפתח לכל טיוטה, שחזור בשני שלבים מהקאש, ואחסון חסום
+# ---------------------------------------------------------------------------
+
+def test_a_clean_tab_does_not_delete_the_draft_of_the_tab_where_you_typed(board):
+    """שתי לשוניות על אותו פתק. בלשונית א' הוקלד בזמן שבחירה ממתינה; בלשונית ב' הפתק נקי, וההתראה מופיעה גם שם.
+    עד היום שתיהן כתבו ומחקו מפתח אחד לפתק — והלשונית הנקייה מחקה את הטיוטה של א'. לשונית א' שנהרגת ברקע אחרי
+    זה (בלי אירוע) איבדה את מה שהוקלד."""
+    tab_b = board.new_tab()
+    tab_b.wait_for_selector(board.sel(N1))
+    # לשונית ב': בעריכה לפני שהעדכון מגיע, בלי הקלדה — כשהוא מגיע ההתראה מופיעה, והפתק נקי.
+    tab_b.click(board.sel(N1, ".sticky-note-content"))
+    tab_b.wait_for_timeout(400)
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    local = board.textarea(N1)
+    assert tab_b.evaluate("(id) => window.__mgr.notes.get(id).editing === true", N1), \
+        "לשונית ב' יצאה מעריכה — הבדיקה אינה בודקת את מה שהיא מתיימרת"
+    board.poll_now(tab_b)
+    tab_b.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    stored = json.loads(board.page.evaluate(DRAFT_JS, N1) or "null")
+    assert stored and stored["local"]["content"] == local, "הלשונית הנקייה מחקה את הטיוטה של הלשונית שבה הוקלד"
+    # והבחירה בלשונית א' מוחקת רק את הטיוטה שלה.
+    board.page.click(board.sel(N1, ".sticky-note-remote-update"))
+    assert board.page.evaluate(DRAFT_KEYS_JS, N1) == []
+    tab_b.close()
+
+
+def test_a_draft_shown_from_the_cache_keeps_both_the_draft_and_what_you_type_before_the_server_answers(board):
+    """בטעינה מהקאש הטיוטה מוצגת מיד — לא הגרסה מהקאש — וההחלטה ממתינה לשרת. מה שמוקלד לפני שהרשימה מגיעה נבנה
+    על הטיוטה, ושניהם נשמרים. עד היום הטיוטה לא שוחזרה בטעינה מהקאש, הפתק נערך על הגרסה מהקאש, והכתיבה הבאה
+    של הטיוטה דרסה את הטקסט שחיכה."""
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    local = board.textarea(N1)
+    board.hold_list = True
+    since = len(board.requests)
+    board.reopen()
+    board.wait_note(N1)
+    assert board.held, "הרשימה לא נעצרה — הבדיקה אינה בודקת את מה שהיא מתיימרת"
+    assert board.textarea(N1) == local, "בטעינה מהקאש הוצגה הגרסה מהקאש ולא הטיוטה"
+    # הרענון בכניסה לעריכה הוא קריאה טרייה שהייתה מסיימת את השחזור — כאן הוא נכשל, כדי לבדוק את ההמתנה עצמה.
+    board.fail_note_get = 1
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.keyboard.press("Control+End")
+    board.page.keyboard.type("?")
+    board.page.wait_for_timeout(1200)
+    assert not _saves(board, since), "הטיוטה נשלחה לפני שנבדקה מול השרת"
+    stored = json.loads(board.page.evaluate(DRAFT_JS, N1) or "null")
+    assert stored and stored["local"]["content"] == local + "?", stored
+    board.release_list()
+    board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    assert board.textarea(N1) == local + "?"
+    assert board.doc(N1)["content"] == "עדכון"
+    assert len(board.page.evaluate(DRAFT_KEYS_JS, N1)) == 1, board.page.evaluate(DRAFT_KEYS_JS, N1)
+
+
+def test_blocked_browser_storage_does_not_stop_the_save_when_the_tab_is_hidden(browser, client):
+    """כשהאחסון חסום, ה-getter של ``localStorage`` זורק (HTML Standard). הבדיקה שלו ישבה מחוץ ל-``try``, והזריקה
+    עצרה את השמירה בהסתרת הלשונית — גם של פתק אחר, שאין לו שום קשר לטיוטה."""
+    client.db.sticky_notes.docs.append(_doc(N1, "גוף"))
+    client.db.sticky_notes.docs.append(_doc(N2, "שני", position_x=420))
+    lp = LivePage(browser, client, BOARD_MANAGER)
+    lp.wait_note(N1)
+    lp.wait_note(N2)
+    _show_notice(lp)
+    lp.page.keyboard.type("!")
+    # פתק שני עם שינוי בתור — הוא שייצא בהסתרה, או לא.
+    lp.page.click(lp.sel(N2, ".sticky-note-content"))
+    lp.page.wait_for_timeout(300)
+    lp.page.keyboard.press("End")
+    lp.page.keyboard.type(" — שלי")
+    lp.page.evaluate("""() => {
+        Object.defineProperty(window, 'localStorage', { configurable: true,
+          get() { throw new DOMException('The operation is insecure.', 'SecurityError'); } });
+        Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+        // לשונית שנסגרת אינה מגיעה ל-debounce: רק מה שיצא בהסתרה עצמה נשמר. מבטלים אותו, כדי שהבדיקה תמדוד רק
+        // את השמירה של ההסתרה.
+        window.__mgr._saveDebounced.cancel();
+        if (window.__mgr._autoFlushTimer) { clearInterval(window.__mgr._autoFlushTimer); window.__mgr._autoFlushTimer = null; } }""")
+    lp.wait_saved(N2, "שני — שלי")
+    assert not lp.errors, lp.errors
+    assert any("storage is not available" in text for kind, text in lp.console if kind == "warning")
+    lp.close()
+
+
+def test_a_draft_kept_in_the_previous_key_format_is_restored_and_cleared(board):
+    """מפתח בלי מזהה טיוטה — הצורה שהגרסה הקודמת כתבה. טיוטה כזו אולי מחכה בדפדפן, והיא מוצגת ונמחקת כמו כל טיוטה."""
+    board.agent_writes(N1, "גרסה חדשה מהסוכן")
+    draft = {"v": 1, "ts": 0, "base": {"content": "גרסה ישנה", "title": "", "updated_at": T0.isoformat()},
+             "local": {"content": "גרסה ישנה + מהגרסה הקודמת", "title": ""}}
+    board.page.evaluate("""([id, raw]) => { const d = JSON.parse(raw); d.ts = Date.now();
+        localStorage.setItem('sticky-notes:held-draft:' + id, JSON.stringify(d)); }""",
+                        [N1, json.dumps(draft, ensure_ascii=False)])
+    board.reopen()
+    board.wait_note(N1)
+    board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    assert board.textarea(N1) == "גרסה ישנה + מהגרסה הקודמת"
+    board.page.click(board.sel(N1, ".sticky-note-remote-ignore"))
+    board.wait_saved(N1, "גרסה ישנה + מהגרסה הקודמת")
+    assert board.page.evaluate(DRAFT_KEYS_JS, N1) == []
+
+
+
+def test_two_tabs_that_both_typed_keep_two_drafts(board):
+    """שתי לשוניות, ובשתיהן הוקלד טקסט שונה בזמן שבחירה ממתינה. מפתח אחד לפתק היה משאיר רק את מי שכתב אחרון."""
+    tab_b = board.new_tab()
+    tab_b.wait_for_selector(board.sel(N1))
+    tab_b.click(board.sel(N1, ".sticky-note-content"))
+    tab_b.wait_for_timeout(400)
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    board.poll_now(tab_b)
+    tab_b.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    tab_b.keyboard.press("End")
+    tab_b.keyboard.type("?")
+    texts = sorted(json.loads(v)["local"]["content"] for v in board.page.evaluate(
+        "(id) => { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i);"
+        " if (k.startsWith('sticky-notes:held-draft:' + id)) out.push(localStorage.getItem(k)); } return out; }", N1))
+    assert texts == sorted([board.textarea(N1), tab_b.eval_on_selector(board.sel(N1, ".sticky-note-content"), "e => e.value")]), texts
+    tab_b.close()
+
+
+def test_a_restored_draft_with_nothing_to_decide_is_saved(board):
+    """טיוטה שנשמרה בפירוק אחרי שמירה שנכשלה, והשרת לא השתנה מאז: אין על מה להחליט — הטקסט נשמר כרגיל."""
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_timeout(400)
+    board.page.keyboard.press("End")
+    board.fail_saves = 50
+    board.page.keyboard.type(" — שלי")
+    board.page.evaluate("async () => { await window.__mgr.destroy(); localStorage.removeItem('sticky-notes:board:%s'); }" % BOARD)
+    assert board.page.evaluate(DRAFT_JS, N1) is not None, "לא נשמרה טיוטה — הבדיקה אינה בודקת את מה שהיא מתיימרת"
+    board.fail_saves = 0
+    board.page.evaluate("() => { %s }" % BOARD_MANAGER)
+    board.wait_note(N1)
+    board.wait_saved(N1, "גרסה ישנה — שלי")
+    board.page.wait_for_timeout(500)
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None
+    assert board.page.evaluate(DRAFT_KEYS_JS, N1) == []
+
+
+def test_the_poll_finishes_a_restore_when_the_list_failed(board):
+    """הרשימה מהשרת נכשלה בטעינה: הפתק מוצג מהקאש עם הטיוטה, והדגימה — שמושכת פתק שהטיוטה שלו מחכה לשרת, גם
+    כשהשמירות שלו מוחזקות — מסיימת את השחזור."""
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    local = board.textarea(N1)
+    board.fail_list = 1
+    board.reopen()
+    board.wait_note(N1)
+    # הדגימה הראשונה רצה מיד אחרי הטעינה (שנכשלה), ומושכת את הפתק.
+    board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    assert board.fail_list == 0, "הרשימה לא נכשלה — הבדיקה אינה בודקת את מה שהיא מתיימרת"
+    assert board.textarea(N1) == local
+
+
+def test_entering_edit_on_a_draft_from_the_cache_decides_against_the_server_right_away(board):
+    """הרענון בכניסה לעריכה הוא קריאה טרייה מהשרת, ולכן גם הוא מסיים את השחזור — בלי לחכות לרשימה."""
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    local = board.textarea(N1)
+    board.hold_list = True
+    board.reopen()
+    board.wait_note(N1)
+    assert board.held and board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    assert board.held, "ההתראה הגיעה מהרשימה ולא מהרענון — הבדיקה אינה בודקת את מה שהיא מתיימרת"
+    assert board.textarea(N1) == local
+    board.release_list()
+
+
+# ---------------------------------------------------------------------------
+# פתק חדש מהשרת עולה למעלה; טיוטה שמחכה לשרת אינה נתקעת; שחזור מעביר למפתח חדש; סדר בין טיוטות
+# ---------------------------------------------------------------------------
+
+TOP_AT_JS = """([x, y]) => { const el = document.elementFromPoint(x, y);
+  const note = el && el.closest('.sticky-note'); return note ? note.dataset.noteId : null; }"""
+
+
+def test_a_new_note_from_the_server_lands_above_the_notes_you_touched(board):
+    """דווח בשימוש: פתק שסוכן יצר הופיע מתחת לפתק שנגעו בו באותו מקום, ורק אחרי רענון עלה. פתק חדש תמיד למעלה —
+    כך מזהים שנוצר פתק שעוד לא טיפלו בו. ופתק קיים שהתעדכן ממקום אחר אינו קופץ מעל."""
+    board.page.click(board.sel(N1, ".sticky-note-content"))  # נגיעה — הפתק עולה (``_raiseToFront``)
+    board.page.mouse.click(1000, 700)
+    assert board.page.evaluate("(id) => window.__mgr.notes.get(id).stackRank", N1) > 0, "הנגיעה לא העלתה — הבדיקה אינה בודקת"
+    board.db.sticky_notes.docs.append(_doc(N2, "פתק חדש מהסוכן", position_x=60, position_y=60, updated_at=_stored_now()))
+    board.poll_now()
+    board.wait_note(N2)
+    box = board.page.eval_on_selector(board.sel(N2), "e => { const r = e.getBoundingClientRect(); return [r.left + 40, r.top + 40]; }")
+    assert board.page.evaluate(TOP_AT_JS, box) == N2, "הפתק החדש נכנס מתחת לפתק שנגעו בו"
+    board.agent_writes(N1, "הפתק הקיים התעדכן")
+    board.poll_now()
+    board.page.wait_for_function("(sel) => document.querySelector(sel).value === 'הפתק הקיים התעדכן'",
+                                 arg=board.sel(N1, ".sticky-note-content"))
+    assert board.page.evaluate(TOP_AT_JS, box) == N2, "פתק קיים שהתעדכן קפץ מעל הפתק החדש"
+
+
+def test_a_draft_waiting_for_the_server_is_released_when_its_only_note_was_deleted(board):
+    """טיוטה ששוחזרה מהקאש ומחכה לשרת, והפתק — היחיד בלוח — נמחק. הדגימה אינה מכירה אף פתק מהמסך, ולכן לא בדקה
+    חסרים — והפתק נשאר מוחזק לתמיד. עכשיו פתק כזה נבדק ישירות, ו-404 מסיים את השחזור."""
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    board.db.sticky_notes.docs[:] = []  # נמחק לפני הפתיחה מחדש — הדגימה הראשונה כבר לא מכירה אותו
+    board.fail_list = 1
+    board.reopen()
+    board.wait_note(N1)  # מהקאש, עם הטיוטה
+    board.page.wait_for_function("() => !!window.__mgr._livePoll", timeout=8000)
+    board.poll_now()
+    board.page.wait_for_function("(id) => window.__mgr.notes.get(id).draftAwaitingServer === false", arg=N1, timeout=8000)
+    assert board.page.evaluate("(id) => window.__mgr._isSaveHeld(id)", N1) is False
+    assert board.page.evaluate(DRAFT_KEYS_JS, N1) == [], "טיוטה של פתק שנמחק נשארה במאגר"
+
+
+def test_a_404_on_entering_edit_releases_a_draft_waiting_for_the_server(board):
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    board.hold_list = True
+    board.reopen()
+    board.wait_note(N1)
+    board.db.sticky_notes.docs[:] = []
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_function("(id) => window.__mgr.notes.get(id).draftAwaitingServer === false", arg=N1, timeout=8000)
+    assert board.page.evaluate(DRAFT_KEYS_JS, N1) == []
+    board.release_list()
+
+
+def test_a_tab_that_restores_a_draft_takes_it_to_its_own_key(board):
+    """לשונית ב' שנפתחת בזמן שלשונית א' עדיין פתוחה עם טיוטה לאותו פתק — מעבירה את הטיוטה למפתח משלה. לקיחה של
+    המפתח עצמו שיתפה אותו בין השתיים: הקלדה באחת דרסה את הטקסט של השנייה, ובחירה באחת מחקה את הטיוטה של השנייה."""
+    _show_notice(board)
+    board.page.keyboard.type("!")
+    tab_b = board.new_tab()
+    tab_b.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+    board.page.keyboard.type("1")
+    tab_b.click(board.sel(N1, ".sticky-note-content"))
+    tab_b.keyboard.press("Control+End")
+    tab_b.keyboard.type("2")
+    a_text = board.textarea(N1)
+    tab_b.click(board.sel(N1, ".sticky-note-remote-update"))
+    stored = [json.loads(v)["local"]["content"] for v in board.page.evaluate(
+        "(id) => { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i);"
+        " if (k.startsWith('sticky-notes:held-draft:' + id)) out.push(localStorage.getItem(k)); } return out; }", N1)]
+    assert stored == [a_text], f"הבחירה בלשונית ב' נגעה בטיוטה של לשונית א': {stored!r}"
+    tab_b.close()
+
+
+def test_drafts_written_in_the_same_millisecond_are_ordered_reliably(board):
+    """שתי טיוטות לאותו פתק עם אותו ``ts`` (אלפיות): הסדר לפי ``at``, ברזולוציה של תת-אלפית — ולא לפי הסדר שבו
+    הדפדפן מונה את המפתחות. בודקים בשני הכיוונים, כדי שסדר המנייה לא יעבור במקרה."""
+    board.agent_writes(N1, "גרסה חדשה מהסוכן")
+    seed = """([id, newerKey, olderKey]) => {
+        for (let i = localStorage.length - 1; i >= 0; i--) { const k = localStorage.key(i);
+          if (k.startsWith('sticky-notes:held-draft:')) localStorage.removeItem(k); }
+        const base = { content: 'גרסה ישנה', title: '', updated_at: '%s' };
+        const ts = Date.now();
+        // הישנה נכתבת ראשונה, כמו במציאות — כך גם סדר הכתיבה אינו מה שמכריע.
+        localStorage.setItem('sticky-notes:held-draft:' + id + ':' + olderKey,
+          JSON.stringify({ v: 1, ts, at: ts + 0.25, base, local: { content: 'הישנה', title: '' } }));
+        localStorage.setItem('sticky-notes:held-draft:' + id + ':' + newerKey,
+          JSON.stringify({ v: 1, ts, at: ts + 0.75, base, local: { content: 'החדשה', title: '' } })); }""" % T0.isoformat()
+    for newer, older in (("a", "z"), ("z", "a")):
+        # הלשונית שנסגרת אינה מחזיקה טיוטה משלה — אחרת הכתיבה שלה בסגירה הייתה מתערבבת בטיוטות שזורעים כאן.
+        if board.page.query_selector(board.sel(N1, ".sticky-note-remote")):
+            board.page.click(board.sel(N1, ".sticky-note-remote-update"))
+        board.page.evaluate(seed, [N1, newer, older])
+        board.reopen()
+        board.wait_note(N1)
+        board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
+        assert board.textarea(N1) == "החדשה", (newer, older, board.textarea(N1))
