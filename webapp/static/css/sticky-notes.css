@@ -539,6 +539,50 @@
   background: #dc3545; color: #fff;
 }
 
+/* ---------- "יש עדכון חדש לפתק" ----------
+
+   עדכון מהשרת (סוכן דרך ה-MCP, לשונית או מכשיר אחר) לפתק שהמשתמש עורך, או ששינה ועוד לא נשמר,
+   אינו מחליף את מה שבמסך — הרצועה הזו מופיעה מתחת לכותרת, עם "עדכן" ו"התעלם" (``_showRemoteNotice``
+   ב-``sticky-notes.js``). **פריט flex בגובה טבעי**, כמו הכותרת: הגוף (``flex: 1``) מתכווץ בגובה שלה,
+   ושום דבר לא נחתך. **הצבעים מהדיו של הפתק** (``--note-ink``) — משטח קשיח שאינו משתנה עם הערכה
+   (ראו בראש הקובץ), ולכן אין כאן טוקן של ערכה. ותכונות לוגיות בלבד (``border-block-end``), כי הפתק
+   מימין לשמאל (H7). */
+.sticky-note-remote {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--note-ink);
+  /* 6% ולא יותר: הטקסט ברצועה נשאר מעל 7:1 על כל נייר, כמו הדיו בשאר הפתק (ראו בראש הקובץ). ב-10%
+     הנייר הוורוד הבהיר ירד ל-6.85:1 (נמדד בדגימת פיקסלים, ``test_the_notice_is_readable_and_fits_on_every_paper``). */
+  background: color-mix(in srgb, var(--note-ink) 6%, transparent);
+  border-block-end: 1px solid color-mix(in srgb, var(--note-ink) 25%, transparent);
+}
+.sticky-note-remote-text { flex: 1 1 12em; min-width: 0; }
+.sticky-note-remote-btn {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--note-ink) 45%, transparent);
+  background: transparent;
+  color: var(--note-ink);
+  cursor: pointer;
+}
+/* "עדכן" הוא הצעד הבטוח — מלא, ולכן הבולט. */
+.sticky-note-remote-update { background: var(--note-ink); border-color: var(--note-ink); color: #fff; }
+/* ערכת הניגודיות הגבוהה כופה על כל ``button`` רקע שחור וגבול לבן; הרצועה מצטרפת אליה, כמו תפריט ⋮. */
+[data-theme="high-contrast"] .sticky-note .sticky-note-remote {
+  background: #000;
+  color: #fff;
+  border-block-end: 2px solid #fff;
+}
+
 /* כשל שמירה — עד היום הוא היה ב-console בלבד */
 .sticky-note.has-save-error,
 .sticky-note.has-length-error {

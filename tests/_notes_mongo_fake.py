@@ -34,6 +34,11 @@ _MISSING = object()
 
 def _matches(doc, query):
     for key, cond in query.items():
+        if key == "$or":
+            # המסנן של פתקי קובץ (``list_notes``) — ``scope_id`` או אחד ממזהי הגרסאות.
+            if not any(_matches(doc, sub) for sub in cond):
+                return False
+            continue
         value = doc.get(key, _MISSING)
         if isinstance(cond, dict) and any(k.startswith("$") for k in cond):
             for op, arg in cond.items():
