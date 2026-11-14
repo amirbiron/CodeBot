@@ -38,8 +38,12 @@
   --md-paper-text: var(--text-primary);
 }
 
+/* הבורר השלישי — כרטיס "תצוגת Markdown" כשיש לו ערכת מסמך (MD_DOC_THEME_ROOT_SELECTOR ב-
+   services/theme_parser_service.py). הנייר נגזר על השורש, ולכן הכרטיס היה יורש את הנייר של ערכת הממשק כצבע סופי;
+   כאן הוא נגזר שוב מהמשתנים של ערכת המסמך, שמוצהרים על הכרטיס. */
 :root[data-theme="custom"],
-:root[data-theme^="shared:"] {
+:root[data-theme^="shared:"],
+:root:is([data-theme="custom"], [data-theme^="shared:"]) #mdCard[data-md-doc-theme] {
   --md-paper-bg: var(--bg-primary, var(--md-surface, #1a1c23));
   --md-paper-text: var(--text-primary, var(--md-text, #e5eaf7));
 }

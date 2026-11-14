@@ -50,6 +50,40 @@
         </div>
 
         <div class="tab-content" id="import-tab">
+            {# ערכת המסמך: ערכה שחלה רק על כרטיס "תצוגת Markdown" ב-/md/<id>. הבחירה והתחולה הנוכחיות מגיעות מהשרת
+               (theme_gallery ב-webapp/routes/settings_routes.py), והשמירה ב-/api/ui_prefs (md_doc_theme). #}
+            <div class="import-section md-doc-theme-section"
+                 id="mdDocThemeSection"
+                 data-current="{{ md_doc_theme_token | default('') }}"
+                 data-scope="{{ md_doc_theme_scope | default('global') }}">
+                <h4>ערכת המסמך</h4>
+                <p class="text-muted small">
+                    ערכה שחלה רק על תצוגת ה-Markdown של הקבצים. הממשק סביב נשאר בערכה הפעילה, והמסמך מקבל את הצבעים של הערכה שבחרת לו. פועלת כשערכת הממשק מיובאת, מותאמת או ציבורית.
+                </p>
+                <div class="md-doc-theme-row">
+                    <label class="sr-only" for="mdDocThemeSelect">ערכת המסמך</label>
+                    <select id="mdDocThemeSelect" class="form-control">
+                        <option value="">ללא ערכת מסמך</option>
+                    </select>
+                    <label class="sr-only" for="mdDocThemeScope">איפה הבחירה חלה</label>
+                    <select id="mdDocThemeScope" class="form-control">
+                        <option value="global">לכל המכשירים</option>
+                        <option value="device">רק במכשיר הזה</option>
+                    </select>
+                    <button id="mdDocThemeApply" type="button" class="btn btn-primary">
+                        <i class="fas fa-check"></i> החל
+                    </button>
+                </div>
+                <p class="small md-doc-theme-status" id="mdDocThemeStatus" aria-live="polite"></p>
+            </div>
+
+            <hr class="my-4">
+
+            <label class="md-doc-theme-import-option">
+                <input type="checkbox" id="importAsDocTheme">
+                להחיל את הערכה שמייבאים רק על תצוגת המסמך (התחולה — מהבחירה שמעל)
+            </label>
+
             <div class="import-section">
                 <h4>ייבוא מ-VS Code</h4>
                 <p class="text-muted small">
@@ -435,6 +469,33 @@
 .theme-toast.visible {
     transform: translateX(-50%) translateY(0);
     opacity: 1;
+}
+
+/* ערכת המסמך — שורת הבחירה. תכונות לוגיות בלבד (הדף מימין לשמאל). */
+.md-doc-theme-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.md-doc-theme-row select {
+    flex: 1 1 10rem;
+    min-width: 0;
+}
+
+.md-doc-theme-status {
+    margin-block: 0.5rem 0;
+    color: var(--text-secondary);
+}
+
+.md-doc-theme-import-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-block-end: 1rem;
+    color: var(--text-primary);
+    cursor: pointer;
 }
 
 .theme-toast.error { background: var(--danger-bg, #cf222e); }

@@ -2172,23 +2172,121 @@ def _sanitize_syntax_rule(line: str) -> str | None:
     return _format_rule(out_selector, decls)
 
 
-def rebase_hljs_css(css: str, selector_prefix: str) -> str:
+def rebase_hljs_css(css: str, selector_prefix: str, *, include_base: bool = False) -> str:
     """🔒 כללי highlight.js מתוך ``syntax_css`` של ערכה מיובאת, תחת ``selector_prefix`` במקום הקידומת של האתר.
 
     ``parse_vscode_theme`` כותב את כללי highlight.js תחת ``HLJS_SITE_THEME_SELECTOR_PREFIX``, שמתאים רק בעמודי האתר
     (``:root[data-theme-type="custom"]``), ו-``tokenColors`` עצמם לא נשמרים עם הערכה — כך שאי אפשר לחשב אותם מחדש.
-    הפונקציה לוקחת את הכללים השמורים ומחזירה אותם תחת קידומת אחרת (בייצוא: ``EXPORT_HLJS_SELECTOR_PREFIX``).
+    הפונקציה לוקחת את הכללים השמורים ומחזירה אותם תחת קידומת אחרת (בייצוא: ``EXPORT_HLJS_SELECTOR_PREFIX``; בערכת
+    מסמך: ``MD_DOC_THEME_ROOT_SELECTOR``, ב-``build_md_doc_theme_css``).
 
     הטקסט מגיע מהמסד, ולכן הוא עובר אותו ניקוי של ``sanitize_codemirror_css``, שורה-שורה: רק בורר ``hljs-``, רק
     ``color`` תקין ו-``font-style: italic`` / ``font-weight: bold`` / ``text-decoration: underline``. כל השאר —
-    כללי CodeMirror ו-Pygments שבאותו ``syntax_css``, והכלל הבסיסי ``.hljs`` — לא עובר.
+    כללי CodeMirror ו-Pygments שבאותו ``syntax_css`` — לא עובר.
+
+    הכלל הבסיסי ``.hljs`` (צבע הטקסט ש-highlight.js לא סימן, ורקע העורך) עובר רק עם ``include_base``, באותו ניקוי של
+    ``sanitize_syntax_css`` (הכלל היחיד שמותר בו ``background``). הייצוא משמיט אותו ושומר על צבעי הקוד של התבנית;
+    ערכת המסמך צריכה אותו, כדי שהטקסט הרגיל בבלוק קוד ייצבע כמו כשהערכה היא ערכת הממשק.
     """
-    return _sanitize_custom_theme_rules(css, _HLJS_SELECTOR_RE, selector_prefix)
+    return _sanitize_custom_theme_rules(
+        css,
+        _HLJS_SELECTOR_RE,
+        selector_prefix,
+        base_selector=_HLJS_BASE_SELECTOR if include_base else None,
+    )
 
 
-def _sanitize_custom_theme_rules(css: str, selector_re: re.Pattern, output_prefix: str) -> str:
+#: השורש של ערכת מסמך: כרטיס "תצוגת Markdown" (``#mdCard`` ב-``webapp/templates/md_preview.html``) כשיש עליו
+#: ``data-md-doc-theme``, ורק כשערכת הממשק מותאמת או ציבורית. בערכה מובנית הכרטיס נשאר בערכת הממשק: הכללים שהערכות
+#: המובנות מחילות על הכרטיס שונים מאלה של ערכה מותאמת, ולא רק במשתנים, ולכן משתני ערכת המסמך לבדם לא היו צובעים אותו
+#: כמו כשהיא ערכת הממשק. ``data-theme`` ולא ``data-theme-type``: סנכרון הערכה בין טאבים (``initThemeCrossTabSync``
+#: ב-``base.html``) מחליף את ``data-theme`` לערכה מובנית ומשאיר את ``data-theme-type``. אותו בורר כתוב גם בקבצים
+#: שאינם קוד פייתון — ``base.html`` (ברירות המחדל של הצבעים), ``md-content-colors.css`` (הנייר),
+#: ``markdown-enhanced.css`` (משתני הקטעים המתקפלים והסימון) ו-``md_preview.html`` (רקע הכרטיס) — ו-
+#: ``MD_DOC_THEME_SELECTOR_FILES`` ב-``tests/test_md_doc_theme.py`` דורש שבכל אחד מהם הוא זהה לזה.
+#: docs/webapp/custom_themes_guide.rst, md-doc-theme.
+MD_DOC_THEME_ROOT_SELECTOR = ':root:is([data-theme="custom"], [data-theme^="shared:"]) #mdCard[data-md-doc-theme]'
+
+#: מה שמוסיפים לבורר של כלל highlight.js של ערכת הממשק כדי שלא יחול בתוך ערכת מסמך. ``:where()`` כדי שהספציפיות של
+#: הכלל לא תשתנה — הכללים האלה הם ``!important``, ומתחרים בכללים אחרים לפי הספציפיות.
+_OUTSIDE_MD_DOC_THEME = f":not(:where({MD_DOC_THEME_ROOT_SELECTOR} *))"
+
+
+def exclude_md_doc_theme_from_hljs_css(css: str) -> str:
+    """ה-``syntax_css`` של ערכת הממשק, כשכללי highlight.js שבו לא חלים בתוך ערכת מסמך (``MD_DOC_THEME_ROOT_SELECTOR``).
+
+    ``base.html`` מזריק את הכללים של ערכת הממשק לכל העמוד, עם ``!important``. בעמוד שיש בו ערכת מסמך הם היו דורסים את
+    צבעי התחביר שלה בבלוקי הקוד של המסמך — וגם צבע שערכת המסמך לא קובעת היה מגיע מערכת הממשק. כאן כל כלל highlight.js
+    (הכלל הבסיסי ``.hljs`` וכללי ``.hljs-*``) מקבל ``_OUTSIDE_MD_DOC_THEME``, והטקסט שלו נשאר כמו שהוא: הוא מגיע מהמסד
+    ומוזרק היום בלי ניקוי, והפונקציה הזו לא משנה את זה. כל שורה אחרת — CodeMirror, ‏Pygments, הערות, ושורה שאינה כלל
+    בשורה אחת — יוצאת כמו שנכנסה; כלל highlight.js בצורה כזו (ערכה ישנה או CSS שנערך ביד) ממשיך לחול גם בתוך הכרטיס.
+    ``base.html`` קורא לה רק בעמוד שיש בו ערכת מסמך, ולכן בכל עמוד אחר ה-CSS לא משתנה בתו.
+    """
+    if not css or not isinstance(css, str):
+        return ""
+    out: list[str] = []
+    for raw_line in css.splitlines():
+        line = raw_line.strip()
+        parts = _split_rule_line(line) if line else None
+        if parts is not None and parts[0] is not None and (
+            parts[1] == _HLJS_BASE_SELECTOR or _HLJS_SELECTOR_RE.match(parts[1])
+        ):
+            prefix, selector, body = parts
+            out.append(f"{prefix} {selector}{_OUTSIDE_MD_DOC_THEME} {{ {body} }}")
+        else:
+            out.append(raw_line)
+    return "\n".join(out)
+
+
+def build_md_doc_theme_css(variables: object, syntax_css: object) -> str:
+    """ה-CSS של ערכת מסמך — ``<style id="md-doc-theme">`` ב-``webapp/templates/md_preview.html``.
+
+    המטרה: כל מה שבתוך הכרטיס ייראה בדיוק כמו כשהערכה היא ערכת הממשק. משתנים עוברים בירושה, ולכן הכרטיס מקבל את
+    המשתנים של הערכה, אבל שלושה דברים נשארים מערכת הממשק אם לא מטפלים בהם, וכל אחד מטופל כאן או במקום שמוזכר:
+
+    - **משתנה ברשימה הלבנה שהערכה לא מצהירה עליו** — למשל ווי הדריסה של צבעי המסמך (הכותרות של morass) — היה עובר
+      לכרטיס מערכת הממשק. כאן הוא ``initial``, כלומר "לא מוגדר", כמו בערכה שאינה מצהירה עליו. הכלל ב-``:where()``,
+      בספציפיות אפס, ולכן ברירות המחדל של הצבעים ב-``base.html`` (שחלות גם על השורש הזה) גוברות עליו — משתנה כמו
+      ``--secondary`` חוזר לערך של ``:root`` ולא נשאר ריק — והמשתנים של הערכה, שבאים אחריהן, גוברים על שתיהן.
+    - **משתנים שנגזרים ממשתנים אחרים** ומוצהרים על ``:root`` (הנייר, הקטעים המתקפלים) מחושבים פעם אחת שם ועוברים
+      כצבע סופי. הבלוקים שלהם ב-``md-content-colors.css`` וב-``markdown-enhanced.css`` חלים גם על השורש הזה.
+    - **צבעי התחביר**: הכללים של הערכה (כולל הכלל הבסיסי) תחת ``:where(<השורש>)``, ו-
+      ``exclude_md_doc_theme_from_hljs_css`` מוציא משם את אלה של ערכת הממשק. ``:where()`` כדי שהיחס בינם לבין
+      הכללים של ``md-content-colors.css`` יישאר כמו בעמוד שהערכה היא ערכת הממשק בו — למשל
+      ``background: transparent !important`` על ``.hljs`` ממשיך לגבור.
+
+    הקלט מגיע מהמסד: המשתנים עוברים ``validate_and_sanitize_theme_variables`` (רשימה לבנה וצבעים בלבד), וצבעי התחביר
+    את הניקוי של ``rebase_hljs_css``. מה שיוצא בטוח להזרקה לתוך ``<style>``.
+    """
+    clean_vars = validate_and_sanitize_theme_variables(variables)
+    unset = sorted(ALLOWED_VARIABLES_WHITELIST - clean_vars.keys())
+    parts: list[str] = []
+    if unset:
+        resets = " ".join(f"{name}: initial;" for name in unset)
+        parts.append(f":where({MD_DOC_THEME_ROOT_SELECTOR}) {{ {resets} }}")
+    if clean_vars:
+        declarations = " ".join(f"{k}: {v};" for k, v in clean_vars.items())
+        parts.append(f"{MD_DOC_THEME_ROOT_SELECTOR} {{ {declarations} }}")
+    hljs = rebase_hljs_css(
+        syntax_css if isinstance(syntax_css, str) else "",
+        f":where({MD_DOC_THEME_ROOT_SELECTOR})",
+        include_base=True,
+    )
+    if hljs:
+        parts.append(hljs)
+    return "\n".join(parts)
+
+
+def _sanitize_custom_theme_rules(
+    css: str,
+    selector_re: re.Pattern,
+    output_prefix: str,
+    *,
+    base_selector: str | None = None,
+) -> str:
     """הניקוי המשותף: כללים בשורה אחת, תחת הקידומת של ערכה מותאמת (בפורמט הישן או החדש), שהבורר שלהם תואם
-    ל-``selector_re`` וההצהרות שלהן ברשימה הסגורה. כל כלל תקין יוצא תחת ``output_prefix``."""
+    ל-``selector_re`` וההצהרות שלהן ברשימה הסגורה. כל כלל תקין יוצא תחת ``output_prefix``. ``base_selector`` — בורר
+    נוסף שמתקבל כמו שהוא, עם ``background`` (הכלל הבסיסי של highlight.js, ב-``rebase_hljs_css``)."""
     if not css or not isinstance(css, str):
         return ""
 
@@ -2201,9 +2299,12 @@ def _sanitize_custom_theme_rules(css: str, selector_re: re.Pattern, output_prefi
         if parts is None:
             continue
         prefix, selector, body = parts
-        if prefix is None or not selector_re.match(selector):
+        if prefix is None:
             continue
-        decls = _clean_rule_declarations(body, allow_background=False)
+        is_base = base_selector is not None and selector == base_selector
+        if not is_base and not selector_re.match(selector):
+            continue
+        decls = _clean_rule_declarations(body, allow_background=is_base)
         if decls is None:
             continue
         # ``sanitize_codemirror_css`` מנרמל תמיד לפורמט החדש, כדי שיתפוס גם custom וגם shared (דרך data-theme-type).
