@@ -50,12 +50,9 @@
         </div>
 
         <div class="tab-content" id="import-tab">
-            {# ערכת המסמך: ערכה שחלה רק על כרטיס "תצוגת Markdown" ב-/md/<id>. הבחירה והתחולה הנוכחיות מגיעות מהשרת
-               (theme_gallery ב-webapp/routes/settings_routes.py), והשמירה ב-/api/ui_prefs (md_doc_theme). #}
-            <div class="import-section md-doc-theme-section"
-                 id="mdDocThemeSection"
-                 data-current="{{ md_doc_theme_token | default('') }}"
-                 data-scope="{{ md_doc_theme_scope | default('global') }}">
+            {# ערכת המסמך: ערכה שחלה רק על כרטיס "תצוגת Markdown" ב-/md/<id>. הבחירה הנוכחית, השמירה והטוקנים — דרך
+               CkMdDocTheme (static/js/utils/md-doc-theme.js), אותו מודול שמודאל הערכות בסרגל הניווט משתמש בו. #}
+            <div class="import-section md-doc-theme-section" id="mdDocThemeSection">
                 <h4>ערכת המסמך</h4>
                 <p class="text-muted small">
                     ערכה שחלה רק על תצוגת ה-Markdown של הקבצים. הממשק סביב נשאר בערכה הפעילה, והמסמך מקבל את הצבעים של הערכה שבחרת לו. פועלת כשערכת הממשק מיובאת, מותאמת או ציבורית.

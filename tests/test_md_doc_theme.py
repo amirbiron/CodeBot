@@ -1,15 +1,16 @@
 """ערכת המסמך — ערכה שחלה רק על כרטיס "תצוגת Markdown" ב-``/md/<id>``, בלי דפדפן.
 
 מה נבדק כאן: הבורר של השורש זהה בכל הקבצים שכותבים אותו; הפענוח של הבחירה; ה-CSS שנבנה לכרטיס ומה שיוצא
-מכללי התחביר של ערכת הממשק; השמירה ב-``/api/ui_prefs`` (מה נשמר, מה נדחה, ומכשיר מול כל המכשירים); העמוד
-``/md/<id>`` — ה-HTML, ה-ETag ו-304; ומחיקת ערכה שמנקה את הבחירה. איך הכרטיס נראה בדפדפן —
-``tests/test_md_doc_theme_browser.py``.
+מכללי התחביר של ערכת הממשק; השמירה ב-``/api/ui_prefs`` (מה נשמר, מה נדחה, ומכשיר מול כל המכשירים); הבחירה
+הנוכחית ב-``GET /api/ui_prefs/md_doc_theme``; העמוד ``/md/<id>`` — ה-HTML, ה-ETag ו-304; ומחיקת ערכה שמנקה את
+הבחירה. איך הכרטיס, המודאל והגלריה מתנהגים בדפדפן — ``tests/test_md_doc_theme_browser.py``.
 
 העמודים אמיתיים, דרך ``test_client``, והמסד הוא ``FakeDB``.
 """
 
 from __future__ import annotations
 
+import html
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -25,6 +26,7 @@ from _fake_mongo import FakeDB  # noqa: E402
 from services.theme_parser_service import (  # noqa: E402
     ALLOWED_VARIABLES_WHITELIST,
     MD_DOC_THEME_ROOT_SELECTOR,
+    MD_DOC_THEME_UI_CONDITION,
     build_md_doc_theme_css,
     exclude_md_doc_theme_from_hljs_css,
     parse_vscode_theme,
@@ -316,6 +318,86 @@ def test_device_scope_stays_on_the_device(world):
     assert _stored(world) == "<absent>"
 
 
+# ---------------------------------------------------------------------------
+# הבחירה הנוכחית — ``GET /api/ui_prefs/md_doc_theme``, שממנו מודאל הערכות והגלריה קוראים
+# ---------------------------------------------------------------------------
+
+STATE_URL = "/api/ui_prefs/md_doc_theme"
+
+
+def _state(client):
+    r = client.get(STATE_URL)
+    return r.status_code, r.get_json()
+
+
+def test_the_state_says_none_when_nothing_is_chosen(world):
+    assert _state(world.client()) == (
+        200, {"ok": True, "md_doc_theme": None, "scope": "global", "name": None, "found": False}
+    )
+
+
+def test_the_state_names_the_chosen_theme_personal_and_public(world):
+    c = world.client()
+    _post(c, {"md_doc_theme": f"custom:{DOC_THEME_ID}"})
+    assert _state(c) == (
+        200, {"ok": True, "md_doc_theme": f"custom:{DOC_THEME_ID}", "scope": "global", "name": "Paper", "found": True}
+    )
+    _post(c, {"md_doc_theme": f"shared:{SHARED_SLUG}"})
+    assert _state(c)[1]["name"] == "Paper (public)"
+
+
+def test_the_state_marks_a_pointer_to_a_theme_that_is_gone(world):
+    world.db.users.update_one({"user_id": USER_ID}, {"$set": {"ui_prefs.md_doc_theme": "custom:gone-theme-id"}})
+    assert _state(world.client()) == (
+        200, {"ok": True, "md_doc_theme": "custom:gone-theme-id", "scope": "global", "name": None, "found": False}
+    )
+
+
+def test_the_state_is_what_this_device_gets(world):
+    world.db.users.update_one({"user_id": USER_ID}, {"$set": {"ui_prefs.md_doc_theme": f"custom:{DOC_THEME_ID}"}})
+    c = world.client()
+    _post(c, {"md_doc_theme": None, "md_doc_theme_scope": "device"})
+    assert _state(c) == (
+        200, {"ok": True, "md_doc_theme": None, "scope": "device", "name": None, "found": False}
+    )
+    # ובמכשיר אחר, בלי ה-cookie — הבחירה שבמסד
+    assert _state(world.client())[1]["md_doc_theme"] == f"custom:{DOC_THEME_ID}"
+
+
+def test_an_unreachable_database_makes_the_state_503_and_not_none(world, monkeypatch):
+    # "ללא" על מסד שלא ענה היה מוצג במודאל ובגלריה כאילו אין ערכת מסמך.
+    monkeypatch.setattr(world.wa, "_request_user_doc", lambda _uid: None)
+    assert _state(world.client()) == (503, {"ok": False, "error": "database_unavailable"})
+
+
+def test_a_public_theme_that_cannot_be_read_makes_the_state_503(world, monkeypatch):
+    c = world.client()
+    _post(c, {"md_doc_theme": f"shared:{SHARED_SLUG}", "md_doc_theme_scope": "device"})
+    monkeypatch.setattr(world.wa, "get_db", lambda: None)
+    assert _state(c) == (503, {"ok": False, "error": "database_unavailable"})
+
+
+def test_a_choice_that_ends_on_the_device_needs_no_database(world, monkeypatch):
+    c = world.client()
+    _post(c, {"md_doc_theme": None, "md_doc_theme_scope": "device"})
+    monkeypatch.setattr(world.wa, "_request_user_doc", lambda _uid: None)
+    status, body = _state(c)
+    assert status == 200 and body["md_doc_theme"] is None and body["scope"] == "device"
+
+
+def test_the_state_needs_a_login(world):
+    r = world.wa.app.test_client().get(STATE_URL)
+    assert r.status_code == 401
+
+
+def test_the_modal_gets_the_ui_condition_the_card_selector_is_built_from(world):
+    page = _page(world).get_data(as_text=True)
+    m = re.search(r'class="theme-picker__modes"[^>]*data-ui-condition="([^"]*)"', page)
+    assert m, "המתג של מודאל הערכות לא רונדר"
+    assert html.unescape(m.group(1)) == MD_DOC_THEME_UI_CONDITION
+    assert MD_DOC_THEME_ROOT_SELECTOR.startswith(f"{MD_DOC_THEME_UI_CONDITION} ")
+
+
 def _page(world, client=None, **headers):
     c = client or world.client()
     return c.get(f"/md/{world.file_id}", headers=headers)
@@ -339,9 +421,8 @@ def test_the_page_carries_the_theme_only_when_one_is_chosen(world):
 
 def test_other_pages_get_the_ui_syntax_colours_untouched(world):
     world.db.users.update_one({"user_id": USER_ID}, {"$set": {"ui_prefs.md_doc_theme": f"custom:{DOC_THEME_ID}"}})
-    html = world.client().get("/settings/theme-gallery").get_data(as_text=True)
-    assert ":not(:where(" not in html
-    assert f'data-current="custom:{DOC_THEME_ID}"' in html and 'data-scope="global"' in html
+    page = world.client().get("/settings/theme-gallery").get_data(as_text=True)
+    assert ":not(:where(" not in page
 
 
 def test_a_device_off_beats_a_stored_choice(world):

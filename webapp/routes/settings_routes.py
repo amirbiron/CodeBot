@@ -35,12 +35,11 @@ def _get_app_helpers():
     Lazy import of helper functions from app.py.
     Returns a namespace with: is_admin, is_premium, is_impersonating_safe,
     _check_persistent_login_cached, login_required, get_db, PERSISTENT_LOGIN_DAYS, _STATIC_VERSION,
-    _request_user_doc, _resolve_md_doc_theme_token
+    _request_user_doc
     """
     from webapp.app import (
         _check_persistent_login_cached,
         _request_user_doc,
-        _resolve_md_doc_theme_token,
         _STATIC_VERSION,
         get_db,
         is_admin,
@@ -57,7 +56,6 @@ def _get_app_helpers():
         is_impersonating_safe=is_impersonating_safe,
         _check_persistent_login_cached=_check_persistent_login_cached,
         _request_user_doc=_request_user_doc,
-        _resolve_md_doc_theme_token=_resolve_md_doc_theme_token,
         login_required=login_required,
         get_db=get_db,
         PERSISTENT_LOGIN_DAYS=PERSISTENT_LOGIN_DAYS,
@@ -348,17 +346,11 @@ def theme_gallery():
         user_is_admin = actual_is_admin
         user_is_premium = actual_is_premium
 
-    # ערכת המסמך הנוכחית במכשיר הזה — הבחירה (``custom:<id>`` / ``shared:<slug>``, ריק כשאין) והתחולה, לתיבה
-    # "ערכת המסמך" בלשונית הייבוא. אותה הכרעה ש-``/md/<id>`` עושה, ולכן התיבה מציגה את מה שהמסמך יקבל.
-    md_doc_theme_token, md_doc_theme_scope, _ = helpers._resolve_md_doc_theme_token(user_id)
-
     return render_template(
         "settings/theme_gallery.html",
         user=session.get("user_data", {}),
         is_admin=user_is_admin,
         is_premium=user_is_premium,
-        md_doc_theme_token=md_doc_theme_token,
-        md_doc_theme_scope=md_doc_theme_scope,
     )
 
 

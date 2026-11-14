@@ -1463,8 +1463,9 @@
             font-size: 0.95rem;
         }
 
-        /* Tabs */
-        .theme-picker__tabs {
+        /* Tabs — והמתג "ערכת ממשק / ערכת מסמך" שמעליהם, באותו מראה */
+        .theme-picker__tabs,
+        .theme-picker__modes {
             display: flex;
             gap: 0.5rem;
             margin-bottom: 1.25rem;
@@ -1472,7 +1473,8 @@
             justify-content: flex-end;
         }
 
-        .theme-picker__tab {
+        .theme-picker__tab,
+        .theme-picker__mode {
             padding: 0.5rem 1rem;
             border: 1px solid rgba(255, 255, 255, 0.15);
             background: rgba(255, 255, 255, 0.05);
@@ -1486,15 +1488,41 @@
             gap: 0.4rem;
         }
 
-        .theme-picker__tab:hover {
+        .theme-picker__tab:hover,
+        .theme-picker__mode:hover {
             background: rgba(255, 255, 255, 0.1);
             border-color: rgba(255, 255, 255, 0.25);
         }
 
-        .theme-picker__tab.active {
+        .theme-picker__tab.active,
+        .theme-picker__mode.active {
             background: var(--primary, #7c3aed);
             border-color: var(--primary, #7c3aed);
             color: #fff;
+        }
+
+        /* המתג נפרד מהטאבים בקו: הוא בוחר מה משנים, והטאבים רק מסננים */
+        .theme-picker__modes {
+            padding-block-end: 1rem;
+            border-block-end: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+        }
+
+        /* במצב "ערכת מסמך" הטאב "מובנות" מוסתר. ``display: flex`` של הטאב גובר על ``hidden`` של הדפדפן — MDN, hidden:
+           "changing the value of the CSS display property on a hidden element will override the hidden state" */
+        .theme-picker__tab[hidden] {
+            display: none;
+        }
+
+        /* הערה במצב "ערכת מסמך" כשערכת הממשק מובנית, ושם ערכת המסמך רדומה */
+        .theme-picker__doc-note {
+            margin-block: 0 1rem;
+            padding: 0.6rem 0.85rem;
+            border-radius: 10px;
+            border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
+            background: var(--glass, rgba(255, 255, 255, 0.06));
+            color: var(--text-secondary, rgba(255, 255, 255, 0.75));
+            font-size: 0.85rem;
+            text-align: start;
         }
 
         /* Grid */
@@ -1571,6 +1599,20 @@
         .theme-picker__preview-color {
             flex: 1;
             min-width: 0;
+        }
+
+        /* הכרטיס "ללא ערכת מסמך" — השם יורד שורה ולא נחתך: בטלפון הכרטיס צר מכדי להכיל אותו */
+        .theme-picker__name-wrap {
+            white-space: normal;
+        }
+
+        /* והתצוגה המקדימה שלו: אין צבעים להציג */
+        .theme-picker__preview--none {
+            align-items: center;
+            justify-content: center;
+            border: 1px dashed var(--glass-border, rgba(255, 255, 255, 0.2));
+            color: var(--text-muted, rgba(255, 255, 255, 0.5));
+            font-size: 0.85rem;
         }
 
         .theme-picker__name {
@@ -1664,11 +1706,13 @@
                 gap: 0.625rem;
             }
             
-            .theme-picker__tabs {
+            .theme-picker__tabs,
+            .theme-picker__modes {
                 gap: 0.375rem;
             }
             
-            .theme-picker__tab {
+            .theme-picker__tab,
+            .theme-picker__mode {
                 padding: 0.4rem 0.75rem;
                 font-size: 0.8rem;
             }
@@ -2058,6 +2102,23 @@
       </h2>
       <p class="theme-picker__subtitle">בחר מתוך הערכות המובנות, הציבוריות או האישיות שלך</p>
     </div>
+
+    {% if _session_user_id %}
+    {# מה בוחרים: ערכת הממשק (ברירת המחדל — המודאל כמו שהיה), או ערכת המסמך, שחלה רק על כרטיס "תצוגת Markdown"
+       (docs/webapp/custom_themes_guide.rst, md-doc-theme). ``data-ui-condition`` הוא התנאי על ערכת הממשק שבו ערכת
+       מסמך חלה — ``MD_DOC_THEME_UI_CONDITION``, שממנו נבנה גם הבורר של הכרטיס. #}
+    <div class="theme-picker__modes" role="group" aria-label="מה בוחרים" data-ui-condition="{{ md_doc_theme_ui_condition }}">
+      <button type="button" class="theme-picker__mode active" data-mode="ui" aria-pressed="true">
+        <i class="fas fa-desktop"></i> ערכת ממשק
+      </button>
+      <button type="button" class="theme-picker__mode" data-mode="doc" aria-pressed="false">
+        <i class="fas fa-file-alt"></i> ערכת מסמך
+      </button>
+    </div>
+    <p class="theme-picker__doc-note" id="themePickerDocNote" data-testid="md-doc-theme-dormant" hidden>
+      ערכת המסמך חלה רק כשערכת הממשק אישית או ציבורית. עם ערכת הממשק הנוכחית הבחירה נשמרת, ותופיע במסמך כשתעבור לערכה כזו.
+    </p>
+    {% endif %}
     
     <!-- Filter Tabs -->
     <div class="theme-picker__tabs" role="tablist">
@@ -2731,6 +2792,9 @@
     {# זמן יחסי — אותו שיקול כמו ``size-format.js`` שמעליו: בלי defer, ולפני
        ``block extra_js`` שבו יושבים הצרכנים (``sticky-notes.js``, ``repo-history.js``). #}
     <script src="{{ url_for('static', filename='js/utils/relative-time.js') }}?v={{ static_version }}"></script>
+    {# ערכת המסמך — אותו שיקול: בלי defer, ולפני מודאל הערכות שלמטה ו-``block extra_js`` (``theme-importer.js``),
+       שני הצרכנים של ``window.CkMdDocTheme``. #}
+    <script src="{{ url_for('static', filename='js/utils/md-doc-theme.js') }}?v={{ static_version }}"></script>
     <script src="{{ url_for('static', filename='js/utils/animations.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/dark-mode.js') }}?v={{ static_version }}" defer></script>
@@ -3038,6 +3102,28 @@
     const closeBtnFooter = modalEl.querySelector('.theme-picker__actions [data-action="close-picker"]');
     const tabBtns = modalEl.querySelectorAll('.theme-picker__tab');
 
+    // מצב הבחירה: ``'ui'`` — ערכת הממשק, המודאל כמו שהיה; ``'doc'`` — ערכת המסמך, שחלה רק על כרטיס "תצוגת Markdown"
+    // (``window.CkMdDocTheme``, ``static/js/utils/md-doc-theme.js``). המתג מוצג רק למשתמש מחובר.
+    let pickerMode = 'ui';
+    // ערכת המסמך הנוכחית כפי שהשרת ענה (``CkMdDocTheme.getState``), או ``null`` עד שענה — "לא ידוע" אינו "ללא", ולכן
+    // עד אז אין כרטיסים ללחוץ עליהם. ``docStateGen`` — הבקשה האחרונה מנצחת: כניסה חוזרת למצב, או פתיחה מחדש של
+    // המודאל, שולחות בקשה חדשה, ותשובה של בקשה קודמת נזרקת.
+    let docState = null;
+    let docStateFailed = false;
+    let docStateGen = 0;
+    // רשימת הערכות לא נטענה. במצב "ערכת מסמך" זה חשוב: בלי הדגל הרשת הייתה מציגה רק "ללא", כאילו אין ערכות.
+    let themesLoadFailed = false;
+    const modesEl = modalEl.querySelector('.theme-picker__modes');
+    const modeBtns = modesEl ? modesEl.querySelectorAll('.theme-picker__mode') : [];
+    const docNoteEl = document.getElementById('themePickerDocNote');
+    const builtinTabBtn = modalEl.querySelector('.theme-picker__tab[data-filter="builtin"]');
+    const subtitleEl = modalEl.querySelector('.theme-picker__subtitle');
+    const currentLabelEl = modalEl.querySelector('.theme-picker__current-label');
+    const UI_SUBTITLE_TEXT = subtitleEl ? subtitleEl.textContent : '';
+    const UI_CURRENT_LABEL_TEXT = currentLabelEl ? currentLabelEl.textContent : '';
+    const DOC_SUBTITLE_TEXT = 'ערכה שחלה רק על כרטיס "תצוגת Markdown" בעמוד המסמך. הממשק סביבו נשאר בערכה הפעילה.';
+    const DOC_CURRENT_LABEL_TEXT = 'ערכת מסמך נוכחית:';
+
     // ערכות מובנות (Built-in) עם צבעים לתצוגה מקדימה
     const hiddenBuiltinThemeIds = Array.isArray(window.__ckHiddenBuiltinThemes)
         ? window.__ckHiddenBuiltinThemes
@@ -3238,6 +3324,11 @@
         const quickToggle = document.querySelector('.quick-access-toggle');
         if (quickDropdown) quickDropdown.classList.remove('active');
         if (quickToggle) quickToggle.classList.remove('active');
+
+        // כל פתיחה מתחילה ב"ערכת ממשק" — המודאל כמו שהיה. תשובה של ערכת מסמך שעוד באוויר נזרקת.
+        pickerMode = 'ui';
+        docStateGen += 1;
+        applyModeChrome();
         
         // שחזר פילטר שמור
         restoreFilter();
@@ -3268,6 +3359,7 @@
     async function loadThemes() {
         if (isLoading) return;
         isLoading = true;
+        themesLoadFailed = false;
         allThemes = [...BUILTIN_THEMES];
         
         gridEl.innerHTML = `
@@ -3329,6 +3421,7 @@
             detectCurrentTheme();
         } catch (error) {
             console.error('Error loading themes:', error);
+            themesLoadFailed = true;
             // וודא שהמודאל עדיין פתוח לפני הצגת שגיאה
             if (modalEl.classList.contains('is-open')) {
                 gridEl.innerHTML = `
@@ -3356,6 +3449,11 @@
         if (isLoading) {
             return;
         }
+
+        if (pickerMode === 'doc') {
+            renderDocThemes();
+            return;
+        }
         
         let filtered = allThemes;
         
@@ -3374,28 +3472,35 @@
         }
         
         gridEl.innerHTML = filtered.map(theme => {
-            const isActive = isThemeActive(theme);
-            const typeLabel = getTypeLabel(theme.type);
-            const typeIcon = getTypeIcon(theme.type);
-            const colors = getPreviewColors(theme);
             const themeId = normalizeThemeId(theme.id);
             const themeType = String(theme.type || '');
-            const safeThemeId = escapeAttr(themeId);
-            const safeThemeType = escapeAttr(themeType);
-            const safeName = escapeHtml(theme.name || '');
-            const safeEmoji = escapeHtml(theme.emoji || '');
-            const displayName = safeEmoji ? `${safeEmoji} ${safeName}` : safeName;
-            
-            return `
+            return cardHtml({
+                isActive: isThemeActive(theme),
+                dataAttrs: `data-theme-id="${escapeAttr(themeId)}"
+                     data-theme-type="${escapeAttr(themeType)}"`,
+                previewHtml: themePreviewHtml(theme),
+                displayName: themeDisplayName(theme),
+                typeIcon: getTypeIcon(theme.type),
+                typeLabel: getTypeLabel(theme.type)
+            });
+        }).join('');
+        
+        // הוסף event listeners לכרטיסים
+        bindCards((card) => selectTheme(card.dataset.themeId, card.dataset.themeType));
+    }
+
+    /**
+     * כרטיס ברשת — אותו כרטיס בשני המצבים. ``dataAttrs`` הן התכונות שהלחיצה נשענת עליהן (``data-theme-id`` ו-
+     * ``data-theme-type`` בערכת ממשק, ``data-doc-token`` בערכת מסמך), וכל הערכים בהן ובשאר השדות כבר מוברחים.
+     */
+    function cardHtml({ isActive, dataAttrs, previewHtml, displayName, typeIcon, typeLabel }) {
+        return `
                 <div class="theme-picker__card ${isActive ? 'is-active' : ''}" 
                      role="option" 
                      aria-selected="${isActive}"
-                     data-theme-id="${safeThemeId}"
-                     data-theme-type="${safeThemeType}"
+                     ${dataAttrs}
                      tabindex="0">
-                    <div class="theme-picker__preview">
-                        ${colors.map(c => `<div class="theme-picker__preview-color" style="background: ${c}"></div>`).join('')}
-                    </div>
+                    ${previewHtml}
                     <div class="theme-picker__name">${displayName}</div>
                     <div class="theme-picker__type">
                         <i class="${typeIcon}"></i>
@@ -3403,18 +3508,184 @@
                     </div>
                 </div>
             `;
-        }).join('');
-        
-        // הוסף event listeners לכרטיסים
+    }
+
+    function themePreviewHtml(theme) {
+        const colors = getPreviewColors(theme);
+        return `<div class="theme-picker__preview">
+                        ${colors.map(c => `<div class="theme-picker__preview-color" style="background: ${c}"></div>`).join('')}
+                    </div>`;
+    }
+
+    function themeDisplayName(theme) {
+        const safeName = escapeHtml(theme.name || '');
+        const safeEmoji = escapeHtml(theme.emoji || '');
+        return safeEmoji ? `${safeEmoji} ${safeName}` : safeName;
+    }
+
+    // לחיצה, Enter ורווח על כל כרטיס ברשת מפעילים את ``choose(card)``.
+    function bindCards(choose) {
         gridEl.querySelectorAll('.theme-picker__card').forEach(card => {
-            card.addEventListener('click', () => selectTheme(card.dataset.themeId, card.dataset.themeType));
+            card.addEventListener('click', () => choose(card));
             card.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    selectTheme(card.dataset.themeId, card.dataset.themeType);
+                    choose(card);
                 }
             });
         });
+    }
+
+    // === ערכת מסמך ===
+
+    // האם ערכת מסמך חלה עם ערכת הממשק הנוכחית: התנאי מגיע מהשרת (``data-ui-condition``), מאותו קבוע שהבורר של
+    // הכרטיס נבנה ממנו, ונבדק על ``data-theme`` כמו שהוא עכשיו — גם אחרי סנכרון ערכה מטאב אחר.
+    function docThemeApplies() {
+        return document.documentElement.matches(modesEl.dataset.uiCondition);
+    }
+
+    function applyModeChrome() {
+        const isDoc = pickerMode === 'doc';
+        modeBtns.forEach(btn => {
+            const on = btn.dataset.mode === pickerMode;
+            btn.classList.toggle('active', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        if (subtitleEl) subtitleEl.textContent = isDoc ? DOC_SUBTITLE_TEXT : UI_SUBTITLE_TEXT;
+        if (currentLabelEl) currentLabelEl.textContent = isDoc ? DOC_CURRENT_LABEL_TEXT : UI_CURRENT_LABEL_TEXT;
+        if (builtinTabBtn) builtinTabBtn.hidden = isDoc;
+        if (docNoteEl) docNoteEl.hidden = !isDoc || docThemeApplies();
+    }
+
+    function setMode(mode) {
+        const next = mode === 'doc' ? 'doc' : 'ui';
+        if (next === pickerMode) return;
+        pickerMode = next;
+        applyModeChrome();
+        if (pickerMode === 'doc') {
+            loadDocState();
+            // ערכה מובנית אינה יכולה להיות ערכת מסמך, והטאב שלה מוסתר.
+            if (currentFilter === 'builtin') activateTab('all');
+        }
+        if (allThemes.length === 0) {
+            loadThemes();
+        } else {
+            renderThemes();
+            detectCurrentTheme();
+        }
+    }
+
+    async function loadDocState() {
+        docStateGen += 1;
+        const gen = docStateGen;
+        docState = null;
+        docStateFailed = false;
+        try {
+            if (!window.CkMdDocTheme) throw new Error('CkMdDocTheme is not loaded');
+            const state = await window.CkMdDocTheme.getState();
+            if (gen !== docStateGen) return;
+            docState = state;
+        } catch (error) {
+            if (gen !== docStateGen) return;
+            console.error('Error loading the document theme:', error);
+            docStateFailed = true;
+        }
+        if (pickerMode === 'doc' && modalEl.classList.contains('is-open')) {
+            renderThemes();
+            detectCurrentTheme();
+        }
+    }
+
+    function themeNameForToken(token) {
+        const theme = allThemes.find(t => window.CkMdDocTheme.tokenFor(t) === token);
+        return theme ? String(theme.name || '') : '';
+    }
+
+    function renderDocThemes() {
+        if (themesLoadFailed || docState === null) {
+            const failed = themesLoadFailed || docStateFailed;
+            gridEl.innerHTML = failed ? `
+                <div class="theme-picker__empty" data-testid="${themesLoadFailed ? 'themes-list-failed' : 'md-doc-theme-state-failed'}">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p>${themesLoadFailed ? 'שגיאה בטעינת ערכות' : 'שגיאה בטעינת ערכת המסמך הנוכחית'}</p>
+                    <button type="button" class="btn btn-sm btn-outline-primary" data-action="retry-doc">נסה שוב</button>
+                </div>
+            ` : `
+                <div class="theme-picker__loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>טוען את ערכת המסמך...</span>
+                </div>
+            `;
+            const retry = gridEl.querySelector('[data-action="retry-doc"]');
+            if (retry) {
+                retry.addEventListener('click', () => {
+                    if (themesLoadFailed) loadThemes();
+                    if (docState === null) loadDocState();
+                });
+            }
+            return;
+        }
+        const tokenFor = window.CkMdDocTheme.tokenFor;
+        const offCard = cardHtml({
+            isActive: !docState.token,
+            dataAttrs: 'data-doc-token=""',
+            previewHtml: '<div class="theme-picker__preview theme-picker__preview--none"><i class="fas fa-ban"></i></div>',
+            displayName: '<span class="theme-picker__name-wrap">ללא ערכת מסמך</span>',
+            typeIcon: 'fas fa-desktop',
+            typeLabel: 'המסמך בערכת הממשק'
+        });
+        const themeCards = allThemes
+            .filter(theme => tokenFor(theme) && (currentFilter === 'all' || theme.type === currentFilter))
+            .map(theme => {
+                const token = tokenFor(theme);
+                return cardHtml({
+                    isActive: docState.token === token,
+                    dataAttrs: `data-doc-token="${escapeAttr(token)}"`,
+                    previewHtml: themePreviewHtml(theme),
+                    displayName: themeDisplayName(theme),
+                    typeIcon: getTypeIcon(theme.type),
+                    typeLabel: getTypeLabel(theme.type)
+                });
+            });
+        gridEl.innerHTML = [offCard, ...themeCards].join('');
+        bindCards((card) => selectDocTheme(card.dataset.docToken || ''));
+    }
+
+    /**
+     * בחירת ערכת מסמך (טוקן), או כיבוי (``''``). נשמרת בתחולה של הבחירה הנוכחית (``docState.scope`` — ``global`` כשעוד
+     * לא נבחר כלום), כך שבחירה "רק במכשיר הזה" נשארת במכשיר. בעמוד מסמך, כשערכת המסמך חלה, העמוד נטען מחדש כדי
+     * שהכרטיס יקבל אותה; בכל מקום אחר הרשת מתעדכנת.
+     */
+    async function selectDocTheme(token) {
+        if (docState === null || !window.CkMdDocTheme) return;
+        if (token === docState.token) return;
+        const card = Array.from(gridEl.querySelectorAll('.theme-picker__card'))
+            .find((el) => (el.dataset.docToken || '') === token);
+        if (card) {
+            card.style.opacity = '0.7';
+            card.style.pointerEvents = 'none';
+        }
+        try {
+            const saved = await window.CkMdDocTheme.save(token, docState.scope);
+            docState = { token: saved, scope: docState.scope, found: !!saved, name: themeNameForToken(saved) };
+            const message = saved ? 'ערכת המסמך הוחלה' : 'ערכת המסמך כובתה';
+            if (document.getElementById('mdCard') && docThemeApplies()) {
+                showToast(message, 'success');
+                reloadWithoutCache();
+                return;
+            }
+            renderThemes();
+            detectCurrentTheme();
+            showToast(message, 'success');
+        } catch (error) {
+            console.error('Error saving the document theme:', error);
+            showToast('שגיאה בשמירת ערכת המסמך', 'error');
+        } finally {
+            if (card) {
+                card.style.opacity = '';
+                card.style.pointerEvents = '';
+            }
+        }
     }
 
     /**
@@ -3489,6 +3760,20 @@
      * זיהוי הערכה הנוכחית
      */
     function detectCurrentTheme() {
+        if (pickerMode === 'doc') {
+            if (!currentNameEl) return;
+            if (docState === null) {
+                currentNameEl.textContent = docStateFailed ? 'לא ידוע' : '...';
+            } else if (!docState.token) {
+                currentNameEl.textContent = 'ללא';
+            } else {
+                // מצביע לערכה שנמחקה, או לערכה ציבורית שכובתה: המסמך מוצג בערכת הממשק.
+                currentNameEl.textContent = docState.found
+                    ? (docState.name || docState.token)
+                    : 'הערכה שנבחרה כבר לא קיימת';
+            }
+            return;
+        }
         const active = getActiveThemeInfo();
         currentActiveTheme = active.raw;
         let theme = null;
@@ -3579,15 +3864,7 @@
 
             if (shouldReload) {
                 showToast('הערכה הופעלה בהצלחה!', 'success');
-                setTimeout(() => {
-                    try {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set('no_cache', '1');
-                        window.location.replace(url.toString());
-                    } catch (e) {
-                        window.location.reload();
-                    }
-                }, 350);
+                reloadWithoutCache();
             } else {
                 currentActiveTheme = themeAttr;
                 renderThemes();
@@ -3607,6 +3884,19 @@
                 card.style.pointerEvents = '';
             }
         }
+    }
+
+    // טעינה מחדש של העמוד, עוקפת את קאש ה-HTML (``no_cache``), אחרי שה-toast הספיק להופיע.
+    function reloadWithoutCache() {
+        setTimeout(() => {
+            try {
+                const url = new URL(window.location.href);
+                url.searchParams.set('no_cache', '1');
+                window.location.replace(url.toString());
+            } catch (e) {
+                window.location.reload();
+            }
+        }, 350);
     }
 
     /**
@@ -3679,15 +3969,22 @@
     });
     
     // טאבים לסינון
-    tabBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            currentFilter = btn.dataset.filter || 'all';
-            tabBtns.forEach(b => {
-                b.classList.toggle('active', b === btn);
-                b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
-            });
-            setFilter(currentFilter);
+    function activateTab(filter) {
+        tabBtns.forEach(b => {
+            const on = (b.dataset.filter || 'all') === filter;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-selected', on ? 'true' : 'false');
         });
+        setFilter(filter);
+    }
+
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => activateTab(btn.dataset.filter || 'all'));
+    });
+
+    // מתג "ערכת ממשק / ערכת מסמך"
+    modeBtns.forEach(btn => {
+        btn.addEventListener('click', () => setMode(btn.dataset.mode));
     });
 
     // הוסף ל-event listeners
