@@ -428,9 +428,14 @@ def _locate_chromium():
     root_env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
     root = Path(root_env) if root_env else None
     if root and root.is_dir():
-        for candidate in sorted(root.glob("chromium*/chrome-linux/chrome")):
-            if candidate.exists():
-                return str(candidate)
+        # **שתי צורות של תיקיית הדפדפן.** ``chrome-linux`` היא הצורה הישנה; בנייה של Chrome for Testing
+        # יושבת ב-``chrome-linux64`` — נמדד בסביבת הענן ב-14.11.2026: ``chromium-1243/chrome-linux64/chrome``
+        # (כרומיום 153). בלי הצורה השנייה הנתיב לא נמצא, ההרמה בלי נתיב מחפשת בנייה אחרת ונכשלת, וכל בדיקות
+        # הדפדפן בסביבה כזו מדולגות.
+        for layout in ("chromium*/chrome-linux/chrome", "chromium*/chrome-linux64/chrome"):
+            for candidate in sorted(root.glob(layout)):
+                if candidate.exists():
+                    return str(candidate)
     return None
 
 

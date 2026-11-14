@@ -44,7 +44,15 @@ const FILE_NAME_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'uti
 const TEXT_HIGHLIGHT_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'utils', 'text-highlight.js');
 
 /** DOM מינימלי — רק מה ש-``_init`` נוגע בו לפני שהוא נכשל בשקט. */
-function makeSandbox() {
+//: הכתובת שממנה העמוד "טען" את המודול בסנדבוקס — כמו בייצור, עם ``?v=`` של הגרסה. ממנה המודול גוזר
+//: כתובות של קבצים סטטיים (``staticAssetUrl``), ובלעדיה כל אייקון מקובץ היה נעדר בבדיקות.
+const TEST_SCRIPT_SRC = 'http://notes.test/static/js/sticky-notes.js?v=test-version';
+
+/**
+ * ``opts.currentScript`` — התגית שהמודול רואה ב-``document.currentScript`` בזמן ההרצה; ברירת המחדל
+ * היא תגית עם ``TEST_SCRIPT_SRC``, ו-``null`` מדמה סקריפט מוטמע.
+ */
+function makeSandbox(opts = {}) {
   // רישום **זהות** המאזינים שהוסרו, ולא רק ספירה. מונה גלובלי היה משותף
   // לכל המנהלים שנוצרים בקובץ הזה (סנדבוקס אחד, ``window``/``document``
   // משותפים), ובדיקה אסינכרונית אחת הייתה יכולה להסיט את הספירה של אחרת.
@@ -82,7 +90,10 @@ function makeSandbox() {
       // שהוא קורא ל-``blur``. בלי החשיפה הזו התנאי לעולם אינו מתקיים,
       // הענף לא רץ באף בדיקה, ומחיקתו הייתה עוברת בשקט.
       get activeElement() { return sandbox.__focused || null; },
+      currentScript: ('currentScript' in opts) ? opts.currentScript : { src: TEST_SCRIPT_SRC },
     },
+    // ``URL`` אינו חלק מ-ECMAScript, ולכן אינו קיים בהקשר של ``vm`` בלי שמעבירים אותו.
+    URL,
     window: {
       ...tracking(),
       innerWidth: 1024,
@@ -4556,8 +4567,8 @@ const SAVED_ID = '6ad28b63a89ec90949f8f09e';
  * הבדיקות כאן אסינכרוניות ומחליפות מתודות על המופע, ושתיים שרצות במקביל על
  * אותו מופע היו מחליפות זו לזו את הרשמים.
  */
-function fakeDomSandbox() {
-  const sb = makeSandbox();
+function fakeDomSandbox(opts) {
+  const sb = makeSandbox(opts);
   sb.document.createElement = (tag) => new FakeEl(tag);
   sb.document.createElementNS = (_ns, tag) => new FakeEl(tag);
   sb.document.createTextNode = sandbox.document.createTextNode;
@@ -4876,6 +4887,12 @@ const keyEv = (key) => {
   return ev;
 };
 const clickEv = () => ({ stopPropagation() {}, preventDefault() {} });
+/**
+ * **הפריטים לפי המזהה שלהם (``data-menu-item``), ולא לפי הטקסט או המיקום.** לפריט שהאייקון שלו קובץ
+ * (``iconFile`` — "כלי MD") אין טקסט בכלל, ופריט חדש בראש הרשימה מזיז את כל המיקומים.
+ */
+const menuIds = (items) => items.map((i) => i.getAttribute('data-menu-item')).join(' ');
+const menuItem = (items, id) => items.find((i) => i.getAttribute('data-menu-item') === id);
 
 /** פתק לוח שרונדר ב-``_renderNote``, עם ⋮ שלו ו-``_openReminderModal`` שרושם במקום לפתוח חלון. */
 async function menuNote(...ids) {
@@ -4902,7 +4919,7 @@ check('תפריט ⋮: הכפתור האחרון בשורת הפעולות, ו-�
   eq(!!btn.getAttribute('aria-label'), true, 'יש שם נגיש');
 });
 
-check('תפריט ⋮: נפתח כילד של הפתק, עם 🔔 ו-🗃️ כפריטים, ו-🔔 פותח את חלון התזכורת', async () => {
+check('תפריט ⋮: נפתח כילד של הפתק, עם כלי MD, 🔔 ו-🗃️ כפריטים, ו-🔔 פותח את חלון התזכורת', async () => {
   const { el, opened, more, menuOf } = await menuNote();
   eq(menuOf(el), null, 'בקרה: אין תפריט לפני הלחיצה');
   more(el)._listeners.click(clickEv());
@@ -4914,13 +4931,15 @@ check('תפריט ⋮: נפתח כילד של הפתק, עם 🔔 ו-🗃️ כ�
   eq(menu.getAttribute('role'), 'menu', 'role=menu');
   eq(more(el).getAttribute('aria-expanded'), 'true', 'aria-expanded=true');
   const items = menu.querySelectorAll('.sticky-note-menu-item');
-  eq(items.map((i) => i.textContent).join(' '), '🔔 🗃️', 'הפריטים');
-  eq(items[1].getAttribute('aria-label'), 'העבר לארכיון', 'השם הנגיש של 🗃️');
-  eq(items[0].getAttribute('role'), 'menuitem', 'role=menuitem');
-  eq(items[0].getAttribute('title'), 'קבע תזכורת', 'title');
-  eq(items[0].getAttribute('aria-label'), 'קבע תזכורת', 'aria-label');
+  eq(menuIds(items), 'md-tools reminder archive', 'הפריטים — כלי MD ראשון (הכרעה של המשתמש)');
+  const reminder = menuItem(items, 'reminder');
+  eq(menuItem(items, 'archive').getAttribute('aria-label'), 'העבר לארכיון', 'השם הנגיש של 🗃️');
+  eq(reminder.textContent, '🔔', 'האייקון של התזכורת הוא תו');
+  eq(reminder.getAttribute('role'), 'menuitem', 'role=menuitem');
+  eq(reminder.getAttribute('title'), 'קבע תזכורת', 'title');
+  eq(reminder.getAttribute('aria-label'), 'קבע תזכורת', 'aria-label');
   eq(FakeEl.focused, items[0], 'הפוקוס על הפריט הראשון');
-  items[0]._listeners.click(clickEv());
+  reminder._listeners.click(clickEv());
   eq(opened.length, 1, 'חלון התזכורת נפתח פעם אחת');
   eq(opened[0], el, 'לפתק הזה');
   eq(menuOf(el), null, 'והתפריט נסגר');
@@ -4999,6 +5018,307 @@ check('תפריט ⋮: לחיצה מחוץ לתפריט סוגרת אותו, ו�
   eq(menuOf(el), null, 'לחיצה במקום אחר — בתוך הפתק עצמו — סוגרת');
 });
 
+// ---------- כלי MD ----------
+//
+// "כלי MD" בתפריט ⋮ פותח חלונית שמזריקה תבנית Markdown לתוכן הפתק, במקום הסמן. כאן ננעלים הפריט
+// בתפריט, המבנה והחיווט של החלונית, וההזרקה עצמה — טהורה, ולכן מול מטריצה של קלטים. מה שרק דפדפן
+// עונה עליו — לאן החלונית נפתחת מול המסך, הסימון אחרי ההזרקה, ההדבקה, וגודל האייקון — ב-
+// ``tests/test_sticky_md_tools_browser.py``.
+
+/** פתק לוח שרונדר ב-``_renderNote``; ``openTools`` פותח את החלונית דרך ⋮ ← "כלי MD", כמו המשתמש. */
+async function mdToolsNote(content, extra, sbOpts) {
+  const sb = fakeDomSandbox(sbOpts);
+  const m = new sb.window.StickyNotesManager({ board: 'md-tools' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  m._renderNote(Object.assign({ id: 'md1', content, position: { x: 0, y: 0 } }, extra || {}));
+  const el = m.notes.get('md1').el;
+  const ta = el.querySelector('.sticky-note-content');
+  const menuItems = () => {
+    el.querySelector('.sticky-note-more')._listeners.click(clickEv());
+    return el.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item');
+  };
+  const openTools = () => {
+    menuItem(menuItems(), 'md-tools')._listeners.click(clickEv());
+    return el.querySelector('.sticky-md-tools');
+  };
+  const tool = (id) => m._mdTools().find((t) => t.id === id);
+  const buttons = (panel) => panel.querySelectorAll('.sticky-md-tool');
+  return { sb, m, el, ta, menuItems, openTools, tool, buttons };
+}
+
+check('כלי MD: הפריט הראשון בתפריט, עם אייקון מקובץ — <img alt=""> שהכתובת שלו נושאת את הגרסה של המודול', async () => {
+  // נופל על אייקון בלי גרסה: הסטטיק נשמר בקאש לשנה, וכתובת קבועה הייתה מגישה אייקון ישן.
+  const { menuItems } = await mdToolsNote('');
+  const items = menuItems();
+  const btn = items[0];
+  eq(btn.getAttribute('data-menu-item'), 'md-tools', 'ראשון');
+  eq(btn.getAttribute('aria-label'), 'כלי MD', 'השם הנגיש');
+  eq(btn.getAttribute('title'), 'כלי MD', 'title');
+  const img = btn.querySelector('img');
+  eq(!!img, true, 'יש <img>');
+  eq(img.getAttribute('alt'), '', 'alt ריק — השם כבר על הכפתור');
+  eq(img.getAttribute('src'), 'http://notes.test/static/icons/md-tools.svg?v=test-version',
+     'ליד המודול, באותה גרסה');
+  eq(fs.existsSync(path.join(__dirname, '..', 'webapp', 'static', 'icons', 'md-tools.svg')), true,
+     'והקובץ קיים בתיקיית הסטטיק');
+});
+
+check('כלי MD: אינו מוצג בפתק ממוזער — אין שם textarea גלוי', async () => {
+  const minimized = await mdToolsNote('', { is_minimized: true });
+  eq(minimized.el.classList.contains('is-minimized'), true, 'בקרה: הפתק ממוזער');
+  eq(menuIds(minimized.menuItems()).split(' ').includes('md-tools'), false, 'אין כלי MD');
+  const open = await mdToolsNote('');
+  eq(menuIds(open.menuItems()).split(' ').includes('md-tools'), true, 'ובפתק פתוח — יש');
+});
+
+check('אייקון מקובץ בלי כתובת: אין <img>, אזהרה אחת בקונסול, והפריט עובד', async () => {
+  // סקריפט שנטען בלי ``src`` (מוטמע) — אין ממה לגזור כתובת. הפריט נשאר עם השם הנגיש, ולא נשבר.
+  const warns = [];
+  const { sb, menuItems, el } = await mdToolsNote('', null, { currentScript: null });
+  sb.console = Object.assign(Object.create(console), { warn: (...a) => warns.push(a.join(' ')) });
+  const btn = menuItem(menuItems(), 'md-tools');
+  eq(btn.querySelector('img'), null, 'אין <img>');
+  eq(btn.getAttribute('aria-label'), 'כלי MD', 'השם הנגיש נשאר');
+  // סוגרים ופותחים שוב: האזהרה נאמרת פעם אחת לכל המנהל, ולא בכל פתיחה.
+  el.querySelector('.sticky-note-more')._listeners.click(clickEv());
+  menuItems();
+  eq(warns.filter((w) => w.includes('menu icon files')).length, 1, `אזהרה אחת — ${warns.join(' | ')}`);
+});
+
+check('כלי MD: ההזרקה — קישור', async () => {
+  const { m, tool } = await mdToolsNote('');
+  const link = tool('link');
+  // סמן באמצע שורה: בתוך השורה, בלי ירידות שורה.
+  let r = m._mdToolInsertion('אבג דהו', 4, 4, link);
+  eq(r.value, 'אבג [טקסט הקישור](https://)דהו', 'באמצע שורה');
+  eq(r.value.slice(r.selStart, r.selEnd), 'https://', 'מסומן https://');
+  // טקסט מסומן — נהיה טקסט הקישור, ו-https:// עדיין מסומן.
+  r = m._mdToolInsertion('אבג דהו', 4, 7, link);
+  eq(r.value, 'אבג [דהו](https://)', 'הטקסט המסומן הוא טקסט הקישור');
+  eq(r.value.slice(r.selStart, r.selEnd), 'https://', 'ועדיין מסומן https://');
+  // טקסט מסומן שחוצה שורות — לא מוזרק כלום (הכרעה של המשתמש).
+  eq(m._mdToolInsertion('אבג\nדהו', 1, 6, link), null, 'בחירה שחוצה שורות — null');
+});
+
+check('כלי MD: ההזרקה — בלוק מתקפל ואלרט עומדים בשורות משלהם', async () => {
+  const { m, tool } = await mdToolsNote('');
+  const details = tool('details');
+  const warning = tool('alert-warning');
+  let r = m._mdToolInsertion('אבג דהו', 4, 4, details);
+  eq(r.value, 'אבג \n::: details כותרת\nתוכן\n:::\nדהו', 'באמצע שורה — ירידת שורה לפני ואחרי');
+  eq(r.value.slice(r.selStart, r.selEnd), 'כותרת', 'מסומנת הכותרת');
+  r = m._mdToolInsertion('', 0, 0, details);
+  eq(r.value, '::: details כותרת\nתוכן\n:::', 'בפתק ריק — בלי ירידות שורה מיותרות');
+  r = m._mdToolInsertion('שורה\n', 5, 5, details);
+  eq(r.value, 'שורה\n::: details כותרת\nתוכן\n:::', 'אחרי ירידת שורה — בלי ירידה נוספת לפני');
+  r = m._mdToolInsertion('א\nב', 2, 2, warning);
+  eq(r.value, 'א\n::: warning\nתוכן ההתראה\n:::\nב', 'בתחילת שורה שיש בה טקסט — ירידת שורה רק אחרי');
+  eq(r.value.slice(r.selStart, r.selEnd), 'תוכן ההתראה', 'מסומן תוכן ההתראה');
+  r = m._mdToolInsertion('שורה א\nשורה ב', 0, 13, warning);
+  eq(r.value, '::: warning\nשורה א\nשורה ב\n:::', 'טקסט מסומן (גם כמה שורות) הוא תוכן האלרט');
+  eq([r.selStart, r.selEnd].join(), [r.value.indexOf('\n:::'), r.value.indexOf('\n:::')].join(),
+     'אין מה למלא — הסמן בסוף התוכן, בתוך הבלוק (הכרעה של המשתמש)');
+  r = m._mdToolInsertion('אבג דהו', 0, 3, details);
+  eq(r.value, '::: details כותרת\nאבג\n:::\n דהו', 'בבלוק מתקפל הטקסט המסומן הוא התוכן');
+  eq(r.value.slice(r.selStart, r.selEnd), 'כותרת', 'והכותרת עדיין מסומנת');
+});
+
+check('כלי MD: ההזרקה — טווח שאינו תקין נופל לסוף התוכן', async () => {
+  const { m, tool } = await mdToolsNote('');
+  const link = tool('link');
+  const at = (r) => r.value.indexOf('[');
+  eq(at(m._mdToolInsertion('אבג', undefined, undefined, link)), 3, 'בלי טווח');
+  eq(at(m._mdToolInsertion('אבג', 2, 1, link)), 3, 'טווח הפוך');
+  eq(at(m._mdToolInsertion('אבג', 1, 9, link)), 3, 'מחוץ לטקסט');
+  eq(at(m._mdToolInsertion('אבג', 1.5, 2, link)), 3, 'לא מספר שלם');
+});
+
+check('כלי MD: כל בלוק שמוזרק מזוהה כמכולה בתצוגה של הפתק — התבנית והמנוע מסכימים', async () => {
+  // נופל אם תבנית נסחפת מהמנוע: סוג שאינו במפה, שורת פתיחה שהרג'קס דוחה, או סגירה שאינה סגירה.
+  const { m } = await mdToolsNote('');
+  const blocks = m._mdTools().filter((t) => t.block);
+  eq(blocks.length, Object.keys(sandbox.window.ADMONITION_TITLES).length + 1, 'בקרה: אלרט לכל סוג, ועוד בלוק מתקפל');
+  blocks.forEach((t) => {
+    const { value } = m._mdToolInsertion('', 0, 0, t);
+    const lines = value.split('\n');
+    const spec = m._containerSpec(lines[0]);
+    eq(!!spec, true, `${t.id}: שורת הפתיחה מזוהה — ${lines[0]}`);
+    eq(spec.type, t.alertType || 'details', `${t.id}: הסוג`);
+    eq(m._containerCloseMarkers(lines[lines.length - 1]), 3, `${t.id}: שורת הסגירה סוגרת`);
+    const { view } = renderMd(mdMgr, value);
+    const rendered = t.alertType ? view.querySelector('.admonition-' + t.alertType) : view.querySelector('.sticky-md-details');
+    eq(!!rendered, true, `${t.id}: ובתצוגה הוא בלוק`);
+  });
+  eq(m._containerSpec('::: details כותרת').title, 'כותרת', 'הכותרת של הבלוק המתקפל היא "כותרת"');
+});
+
+check('כלי MD: הרשת נבנית מ-ADMONITION_TITLES — סוג חדש שם מופיע בחלונית מעצמו', async () => {
+  const { sb, m } = await mdToolsNote('');
+  const titles = sb.window.ADMONITION_TITLES;
+  eq(m._mdTools().map((t) => t.id).join(' '),
+     ['link', 'details'].concat(Object.keys(titles).map((k) => 'alert-' + k)).join(' '),
+     'קישור, בלוק מתקפל, ואלרט לכל מפתח, בסדר הקובץ');
+  eq(m._mdTools().find((t) => t.id === 'alert-todo').label, titles.todo, 'התווית מהמפה');
+  titles.custom = 'מותאם';
+  titles.Upper = 'אותיות גדולות';
+  titles.details = 'כפול';
+  const ids = m._mdTools().map((t) => t.id);
+  eq(ids.includes('alert-custom'), true, 'סוג שנוסף למפה מופיע');
+  eq(ids.includes('alert-Upper'), false, 'סוג שהמנוע לא היה מזהה (אותיות גדולות) אינו מופיע');
+  eq(ids.filter((id) => id.endsWith('details')).length, 1, 'details אינו מוכפל');
+});
+
+check('כלי MD: החלונית — ילד של הפתק, לא מודאל, הפתק מפסיק לחתוך, והמיקוד על הכפתור הראשון', async () => {
+  const { el, sb, openTools, buttons } = await mdToolsNote('טקסט');
+  const panel = openTools();
+  eq(!!panel, true, 'נפתחה');
+  eq(el.querySelector('.sticky-note-menu'), null, 'התפריט נסגר לפני');
+  eq(panel.parentNode, el, 'ילד ישיר של הפתק');
+  eq(panel.classList.contains('sticky-note-outside'), true, 'sticky-note-outside — יושבת מחוץ לפתק');
+  eq(el.classList.contains('is-unclipped'), true, 'והפתק מפסיק לחתוך');
+  eq(panel.getAttribute('role'), 'dialog', 'role=dialog');
+  eq(panel.getAttribute('aria-modal'), null, 'בלי aria-modal — לא מודאל');
+  const btns = buttons(panel);
+  eq(btns.length, 2 + Object.keys(sb.window.ADMONITION_TITLES).length, 'כפתור לכל כלי');
+  eq(btns[0].getAttribute('data-md-tool'), 'link', 'קישור ראשון');
+  eq(btns[1].getAttribute('data-md-tool'), 'details', 'בלוק מתקפל שני');
+  eq(btns[0].classList.contains('is-structure') && btns[1].classList.contains('is-structure'), true, 'שניהם מסומנים כמבנה');
+  eq(btns[2].classList.contains('is-structure'), false, 'אלרט — לא');
+  eq(btns[0].querySelector('.sticky-md-tool-label').textContent, 'קישור', 'תווית גלויה, ולא רק title');
+  eq(!!btns[0].querySelector('svg'), true, 'לקישור אייקון קווי');
+  eq(!!btns[2].querySelector('.sticky-md-alert-icon'), true, 'לאלרט — האייקון מ-ADMONITION_ICONS');
+  eq(FakeEl.focused, btns[0], 'המיקוד על הכפתור הראשון');
+});
+
+check('כלי MD: כשהבחירה חוצה שורות, קישור מושבת והמיקוד עובר לכפתור הבא — ושום דבר לא מוזרק', async () => {
+  const { m, el, ta, openTools, buttons, tool } = await mdToolsNote('א\nב');
+  ta.selectionStart = 0; ta.selectionEnd = 3;
+  const panel = openTools();
+  const [link, details] = buttons(panel);
+  eq(link.disabled, true, 'קישור מושבת');
+  eq(!!details.disabled, false, 'בלוק מתקפל — לא');
+  eq(FakeEl.focused, details, 'המיקוד על הראשון שאינו מושבת');
+  eq(m._applyMdTool(el, tool('link')), false, 'גם ישירות — לא מוזרק');
+  eq(ta.value, 'א\nב', 'התוכן לא השתנה');
+});
+
+check('כלי MD: בחירה בכפתור — החלונית נסגרת, הטקסט מוזרק, נרשם לביטול ולשמירה, והמילוי מסומן', async () => {
+  const { m, el, ta, openTools, buttons } = await mdToolsNote('אבג דהו');
+  ta.selectionStart = 4; ta.selectionEnd = 4;
+  const panel = openTools();
+  FakeEl.focused = null;
+  buttons(panel)[0]._listeners.click(clickEv());
+  eq(el.querySelector('.sticky-md-tools'), null, 'החלונית נסגרה');
+  eq(el.classList.contains('is-unclipped'), false, 'והפתק חותך שוב');
+  eq(ta.value, 'אבג [טקסט הקישור](https://)דהו', 'הוזרק במקום הסמן');
+  eq(ta.value.slice(ta.selectionStart, ta.selectionEnd), 'https://', 'מסומן https://');
+  eq(FakeEl.focused, ta, 'המיקוד ב-textarea');
+  eq(el.querySelector('.sticky-note-undo').disabled, false, 'כפתור הביטול רואה את השינוי');
+  eq(m._pending.get('md1').content, ta.value, 'והשמירה בתור');
+  m._undoLastChange(el);
+  eq(ta.value, 'אבג דהו', 'ביטול אחד מחזיר את התוכן שלפני ההזרקה');
+});
+
+check('כלי MD: הזרקה שחורגת מהתקרה מדליקה את אזהרת האורך מיד', async () => {
+  const { sb, m, el, tool } = await mdToolsNote('אבג');
+  sb.window.STICKY_NOTE_MAX_CHARS = 10;
+  m._applyMdTool(el, tool('link'));
+  eq(el.classList.contains('has-length-error'), true, 'האזהרה דלוקה');
+});
+
+check('המשך רשימה: Enter שעובר את התקרה מדליק את אזהרת האורך מיד, ולא בהקלדה הבאה', async () => {
+  // נופל על הצורה הקודמת: המשך הרשימה רשם לביטול ושמר, אבל לא בדק אורך — ``input`` אינו נורה
+  // בכתיבה תכנותית, ובדיקת האורך יושבת במאזין שלו.
+  const { sb, el, ta } = await mdToolsNote('- אבגדהוזח');
+  sb.window.STICKY_NOTE_MAX_CHARS = 10;
+  ta.selectionStart = ta.selectionEnd = ta.value.length;
+  const ev = { key: 'Enter', keyCode: 13, shiftKey: false, ctrlKey: false, metaKey: false, preventDefault() {} };
+  ta._fire('keydown', ev);
+  eq(ta.value, '- אבגדהוזח\n- ', 'בקרה: הרשימה המשיכה');
+  eq(el.classList.contains('has-length-error'), true, 'האזהרה דלוקה');
+});
+
+check('כלי MD: Escape סוגר ומחזיר את הפוקוס ל-⋮; Tab שיוצא מהכפתורים סוגר בלי לבטל; מקשים אינם מבעבעים', async () => {
+  const { sb, el, openTools, buttons } = await mdToolsNote('');
+  // ``document.activeElement`` של הסנדבוקס הזה — מה ש-``_onMdToolsKey`` שואל.
+  const focusOn = (node) => { FakeEl.focused = node; sb.__focused = node; };
+  let panel = openTools();
+  const btns = buttons(panel);
+  const keyup = keyEv('a');
+  panel._listeners.keyup(keyup);
+  eq(keyup.stopped, true, 'keyup אינו מבעבע');
+  focusOn(btns[3]);
+  const midTab = keyEv('Tab');
+  panel._listeners.keydown(midTab);
+  eq(el.querySelector('.sticky-md-tools'), panel, 'Tab באמצע — נשארת פתוחה');
+  eq(midTab.prevented, false, 'והמעבר לא בוטל');
+  focusOn(btns[btns.length - 1]);
+  const lastTab = keyEv('Tab');
+  panel._listeners.keydown(lastTab);
+  eq(el.querySelector('.sticky-md-tools'), null, 'Tab מהאחרון — נסגרת');
+  eq(FakeEl.focused, el.querySelector('.sticky-note-more'), 'והפוקוס ב-⋮, ומשם המעבר ממשיך');
+  eq(lastTab.prevented, false, 'בלי לבטל את המעבר');
+  panel = openTools();
+  focusOn(buttons(panel)[0]);
+  const shiftTab = Object.assign(keyEv('Tab'), { shiftKey: true });
+  panel._listeners.keydown(shiftTab);
+  eq(el.querySelector('.sticky-md-tools'), null, 'Shift+Tab מהראשון — נסגרת');
+  panel = openTools();
+  const esc = keyEv('Escape');
+  panel._listeners.keydown(esc);
+  eq(esc.stopped, true, 'Escape אינו מבעבע — בדפדפן הריפו הוא סוגר חלוניות');
+  eq(el.querySelector('.sticky-md-tools'), null, 'Escape סגר');
+  eq(FakeEl.focused, el.querySelector('.sticky-note-more'), 'והפוקוס חזר ל-⋮');
+});
+
+check('כלי MD: לחיצה מחוץ לחלונית סוגרת ובתוכה לא, וחלונית אחת לכל המנהל', async () => {
+  const sb = fakeDomSandbox();
+  const m = new sb.window.StickyNotesManager({ board: 'md-tools-two' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  ['a', 'b'].forEach((id) => m._renderNote({ id, content: '', position: { x: 0, y: 0 } }));
+  const [a, b] = ['a', 'b'].map((id) => m.notes.get(id).el);
+  m._openMdTools(a);
+  const panel = a.querySelector('.sticky-md-tools');
+  const within = (root) => (node) => { for (let n = node; n; n = n.parentNode) if (n === root) return true; return false; };
+  panel.contains = within(panel);
+  m._onDocumentPointerDownForMdTools({ target: panel.querySelector('.sticky-md-tool') });
+  eq(a.querySelector('.sticky-md-tools'), panel, 'לחיצה על כפתור אינה סוגרת לפני ה-click');
+  m._openMdTools(b);
+  eq(a.querySelector('.sticky-md-tools'), null, 'פתיחה בפתק אחר סוגרת את הראשונה');
+  const other = b.querySelector('.sticky-md-tools');
+  other.contains = within(other);
+  m._onDocumentPointerDownForMdTools({ target: b.querySelector('.sticky-note-content') });
+  eq(b.querySelector('.sticky-md-tools'), null, 'לחיצה במקום אחר — גם בתוך הפתק עצמו — סוגרת');
+});
+
+check('תיעוד: התבניות שעמוד המשתמש מציג הן בדיוק מה שהכלים מזריקים', async () => {
+  // עמוד המשתמש (``sticky-note-md-tools``) מצטט את התבניות מילה במילה — עותק בפרוזה של עובדה שהקוד
+  // מגדיר. הבדיקה גוזרת אותן מ-``_mdToolInsertion`` ומחפשת כל שורה בעמוד, כך ששינוי תבנית בלי העמוד נכשל כאן.
+  const { m, tool } = await mdToolsNote('');
+  const doc = fs.readFileSync(path.join(__dirname, '..', 'docs', 'user', 'sticky_notes.rst'), 'utf8');
+  ['link', 'details', 'alert-warning'].forEach((id) => {
+    m._mdToolInsertion('', 0, 0, tool(id)).value.split('\n').forEach((line) => {
+      eq(doc.includes('``' + line + '``'), true, `${id}: ${line}`);
+    });
+  });
+});
+
+check('חיווט: sticky-notes.js נטען בכל תבנית מתגית src עם ?v=, כסקריפט קלאסי — משם נגזרת כתובת האייקון', () => {
+  // ``staticAssetUrl`` נשען על ``document.currentScript``, שקיים רק בסקריפט קלאסי (לא ``type="module"``),
+  // ולוקח ממנו את ``?v=``. תגית בלי גרסה הייתה מגישה אייקון ישן מהקאש, ומודול — אייקון חסר.
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+  const loaders = walk(TEMPLATES_DIR).filter((f) => f.endsWith('.html'))
+    .filter((f) => fs.readFileSync(f, 'utf8').includes("filename='js/sticky-notes.js'"));
+  eq(loaders.length >= 3, true, 'נמצאו התבניות (' + loaders.length + ')');
+  loaders.forEach((f) => {
+    const src = fs.readFileSync(f, 'utf8');
+    eq(cacheBusted(src, 'js/sticky-notes.js'), true, path.basename(f) + ': עם ?v=static_version');
+    const tag = scriptTagFor(src, 'js/sticky-notes.js');
+    eq(/\btype\s*=\s*["']module["']/.test(tag), false, path.basename(f) + ': סקריפט קלאסי');
+  });
+});
+
 // ---------- ארכיון ----------
 //
 // הארכיון הוא היעד הרביעי של המנהל (``{archive: true}``): פתק אחד שנפתח מעל רשת הכרטיסים,
@@ -5050,8 +5370,8 @@ async function boardNoteFor(env, note) {
   const el = m.notes.get(note.id).el;
   const clickArchive = async () => {
     el.querySelector('.sticky-note-more')._listeners.click(clickEv());
-    const item = el.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item')[1];
-    eq(item.getAttribute('aria-label'), 'העבר לארכיון', 'בקרה: הפריט השני הוא 🗃️');
+    const item = menuItem(el.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item'), 'archive');
+    eq(item.getAttribute('aria-label'), 'העבר לארכיון', 'בקרה: הפריט הוא 🗃️');
     item._listeners.click(clickEv());
     await tick(); await tick();
   };
@@ -5101,7 +5421,7 @@ check('ארכיון: הפתק נפתח במרכז המסך, כחלון, בלי �
   eq(row.includes('📌'), false, `אין 📌 — ${row.join(' ')}`);
   el.querySelector('.sticky-note-more')._listeners.click(clickEv());
   const items = el.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item');
-  eq(items.map((i) => i.textContent).join(' '), '🔔', 'בתפריט רק 🔔 — הפתק כבר בארכיון');
+  eq(menuIds(items), 'md-tools reminder', 'בתפריט כלי MD ו-🔔, בלי 🗃️ — הפתק כבר בארכיון, והתוכן נערך בו');
 });
 
 check('ארכיון: "—" סוגר ומוסר לעמוד את השם והצבע העדכניים', async () => {
@@ -5511,9 +5831,9 @@ check('עמוד הקבצים: נפתח כחלון במרכז, בלי 📌, וב�
   eq(row.includes('📌'), false, `אין 📌 — ${row.join(' ')}`);
   el.querySelector('.sticky-note-more')._listeners.click(clickEv());
   const items = el.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item');
-  eq(items.map((i) => i.textContent).join(' '), '🔔 📎 🗃️', 'הפריטים');
-  eq(items[1].getAttribute('role'), 'menuitemcheckbox', 'מתג');
-  eq(items[1].getAttribute('aria-checked'), 'true', 'נעוץ');
+  eq(menuIds(items), 'md-tools reminder files-page-pin archive', 'הפריטים');
+  eq(menuItem(items, 'files-page-pin').getAttribute('role'), 'menuitemcheckbox', 'מתג');
+  eq(menuItem(items, 'files-page-pin').getAttribute('aria-checked'), 'true', 'נעוץ');
 });
 
 check('עמוד הקבצים: המיקום אינו נשמר — המקום של הפתק בלוח אינו נדרס — והגודל כן', async () => {
@@ -5570,18 +5890,18 @@ check('עמוד הקבצים: הסרה שנכשלה משאירה את הפתק �
 check('📎: מוצע רק בפתק לוח — לא בפתק קובץ, לא בפתק ריפו ולא בארכיון', async () => {
   const env = archiveSandbox();
   const board = await pinnableNote(env, { id: 'pb1', content: '' });
-  eq(board.menuItems().map((i) => i.textContent).join(' '), '🔔 📎 🗃️', 'פתק לוח');
+  eq(menuIds(board.menuItems()), 'md-tools reminder files-page-pin archive', 'פתק לוח');
   const fileMgr = new env.sb.window.StickyNotesManager('pin-file');
   await tick();
   fileMgr._renderNote({ id: 'pf1', content: '', position: { x: 0, y: 0 }, file_id: 'pin-file' });
   const fileEl = fileMgr.notes.get('pf1').el;
   fileEl.querySelector('.sticky-note-more')._listeners.click(clickEv());
-  eq(fileEl.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item').map((i) => i.textContent).join(' '),
-     '🔔 🗃️', 'פתק קובץ');
+  eq(menuIds(fileEl.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item')),
+     'md-tools reminder archive', 'פתק קובץ');
   const { el: archived } = await openArchive(archiveSandbox(), { id: 'pa1', board_id: '' });
   archived.querySelector('.sticky-note-more')._listeners.click(clickEv());
-  eq(archived.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item').map((i) => i.textContent).join(' '),
-     '🔔', 'פתק בארכיון');
+  eq(menuIds(archived.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item')),
+     'md-tools reminder', 'פתק בארכיון');
 });
 
 check('📎 בלוח: נועץ, שולח כמה כרטיסים נכנסים במסך, ומתעדכן לפי מה שהשרת ענה', async () => {
@@ -5591,14 +5911,14 @@ check('📎 בלוח: נועץ, שולח כמה כרטיסים נכנסים במ
   const store = { 'sticky-notes:files-page-row-width': '366' };
   env.sb.window.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
   const { m, el, menuItems, clickPin } = await pinnableNote(env, { id: 'pb2', content: 'x' });
-  eq(menuItems()[1].getAttribute('aria-checked'), 'false', 'בקרה: לא נעוץ');
+  eq(menuItem(menuItems(), 'files-page-pin').getAttribute('aria-checked'), 'false', 'בקרה: לא נעוץ');
   await clickPin();
   const [req] = pinRequests(env.requests);
   eq(req.method, 'POST', 'POST');
   eq(req.url, '/api/sticky-notes/note/pb2/files-page-pin', 'הכתובת');
   eq(req.body.device_limit, 2, 'כמה כרטיסים נכנסים בשורה ששמורה');
   eq(m.notes.get('pb2').data.files_page_pinned_at, '2026-11-10T10:00:00+00:00', 'המצב מהתשובה');
-  eq(menuItems()[1].getAttribute('aria-checked'), 'true', 'ועכשיו מסומן');
+  eq(menuItem(menuItems(), 'files-page-pin').getAttribute('aria-checked'), 'true', 'ועכשיו מסומן');
   eq(env.toasts[0].opts.link.href, '/files', 'קישור לעמוד הקבצים');
   eq(m.notes.has('pb2'), true, 'בלוח הפתק נשאר במקומו');
 });
