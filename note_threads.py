@@ -107,6 +107,7 @@ __all__ = [
     "stored_comment",
     "thread_scope",
     "user_author",
+    "utf8_encodable",
     "working_on_or_error",
 ]
 
@@ -188,8 +189,13 @@ THREAD_SUMMARY_FIELDS = ("note_id", "status", "comment_count", "last_author_kind
 # -- גדלים, מזהים וקלט ------------------------------------------------------
 
 
-def _utf8_encodable(text: str) -> bool:
-    """האם המחרוזת ניתנת לקידוד UTF-8 — ``False`` על surrogate בודד, ש-BSON ו-JSON לא יישאו."""
+def utf8_encodable(text: str) -> bool:
+    """האם המחרוזת ניתנת לקידוד UTF-8 — ``False`` על surrogate בודד, ש-BSON ו-JSON לא יישאו.
+
+    **ציבורית, כי הכלל הזה נכתב פעם אחת** (R6 ב-amir-bug-patterns): גם כלי הקבצים של
+    שרת ה-MCP שואלים אותו לפני שהם כותבים (``_not_utf8_text`` ב-``mcp_server/handlers.py``),
+    ולא מחזיקים עותק משלהם.
+    """
     try:
         text.encode("utf-8")
     except UnicodeEncodeError:
@@ -260,7 +266,7 @@ def comment_body_error(body: Any) -> dict[str, Any] | None:
         return {"ok": False, "error": "empty_body"}
     if len(body) > MAX_COMMENT_CHARS:
         return {"ok": False, "error": "body_too_long", "max": MAX_COMMENT_CHARS}
-    if not _utf8_encodable(body):
+    if not utf8_encodable(body):
         return {"ok": False, "error": "invalid_body"}
     return None
 
@@ -275,7 +281,7 @@ def working_on_or_error(value: Any) -> str | dict[str, Any]:
     """
     if value is None:
         return {"ok": False, "error": "working_on_required", "max": MAX_WORKING_ON_CHARS}
-    if not isinstance(value, str) or not _utf8_encodable(value):
+    if not isinstance(value, str) or not utf8_encodable(value):
         return {"ok": False, "error": "invalid_working_on"}
     text = canonical_title_text(value)
     if not text:
@@ -291,7 +297,7 @@ def normalize_client_name(value: Any) -> str | None:
     ``None`` כשאין שם שמיש (לא מחרוזת, ריק, או לא ניתן לקידוד) — ואז התגובה מוצגת
     כ-:data:`UNKNOWN_AGENT_LABEL`. הקיצוץ הוא של תווית ולא של תוכן.
     """
-    if not isinstance(value, str) or not _utf8_encodable(value):
+    if not isinstance(value, str) or not utf8_encodable(value):
         return None
     text = canonical_title_text(value)
     return text[:MAX_CLIENT_NAME_CHARS] or None

@@ -763,23 +763,91 @@ def _edits_upload_id_param_doc(upload_url: str) -> str:
     כאן על הטעות של #3502 בפעם השלישית. התיאור אומר מה ה-hash הזה **אינו**, ו-
     ``tests/test_mcp_uploads.py`` בודק זאת מול מה שהכלי מחזיר.
 
-    **והנסיגה היא ``codekeeper_edit_file``, לא "use the edits parameter as usual":**
-    מי שצריך את הפרמטר הזה צריך אותו כי ``edits`` אינו מעביר את המחרוזות שלו בבטחה.
-    ב-``codekeeper_edit_file`` הן פרמטרים ברמה העליונה, שמגיעים כמו שנשלחו.
+    **והנסיגה אינה "use the edits parameter as usual", ואינה כלי אחד לכל טקסט:** מי
+    שצריך את הפרמטר הזה צריך אותו כי ``edits`` אינו מעביר את המחרוזות שלו בבטחה, ומה
+    שהוא עושה בלי העלאה תלוי **בטקסט**. לוכסן שאינו escape של יוניקוד הולך ל-
+    ``codekeeper_edit_file``, ששם המחרוזות הן פרמטרים ברמה העליונה ומגיעות כמו שנשלחו.
+    escape של יוניקוד שנועד להיות טקסט דורש קודם בדיקה, בלי כתיבה — ההערה מעל
+    ``_OTHER_BACKSLASHES_DOC``, שממנה נבנה גם תיאור ``new_string`` של ``codekeeper_edit_file``.
+
+    **ה-escape נכתב כאן במילים** ("one backslash and u200F"), ולא כ-escape: תיאור
+    שנושא escape עלול להגיע לסוכן כתו.
 
     **ובלי רשימת הסירובים**, מהנימוק של :func:`_upload_id_param_doc`: כל אחד מהם נושא
     ``hint`` שנוקב ב-``edits_upload_id`` בשמו (``_EDITS_UPLOAD`` ב-``handlers.py``).
     """
     return (
-        "Instead of edits, for edits with backslashes meant as text (a literal \\u200F or "
-        "\\n): single-use. The file is JSON, one array of the same {old_string, new_string, "
+        "Instead of edits, for edits whose strings hold backslashes meant as text: "
+        "single-use. The file is JSON, one array of the same {old_string, new_string, "
         "replace_all?} objects, and is decoded exactly once, so in the file a backslash "
-        "meant as text is written \\\\: there \\\\u200F is the six characters of text, and "
-        "\\u200F is the character U+200F itself. Write the file with your own file tools, "
+        "meant as text is written as two backslashes: two backslashes and u200F there are "
+        "the six characters of text, and one backslash and u200F is the character itself. "
+        "Write the file with your own file tools, "
         f"then upload it: {_upload_command(upload_url, 'edits.json')} — {_UPLOAD_REPLY_DOC}; "
         "its content_sha256 is the hash of this JSON file, not of the edited file. "
-        f"{_WITHOUT_UPLOAD_DOC}make such edits with codekeeper_edit_file, one edit per call."
+        f"{_WITHOUT_UPLOAD_DOC}{_OTHER_BACKSLASHES_DOC} go by codekeeper_edit_file. "
+        f"{_UNICODE_ESCAPE_AS_TEXT_DOC[0].upper()}{_UNICODE_ESCAPE_AS_TEXT_DOC[1:]} "
+        f"{_UNICODE_ESCAPE_HAZARD_DOC}: {_UNICODE_ESCAPE_CHECK_DOC}"
     )
+
+
+# לוכסן שנועד להיות טקסט — **החלוקה היא לפי הטקסט, לא לפי הלקוח**: סוכן רואה את הטקסט
+# שלו, ואינו יודע דרך איזה לקוח הוא עובד. שני סוגים, ולכל אחד דין אחר:
+#
+# * **לוכסן שאינו escape של יוניקוד** — לוכסן ואחריו ``n`` כשני תווים, ביטוי רגולרי,
+#   נתיב. מגיע לפרמטר מחרוזת ברמה העליונה כמו שנשלח, ולכן ``codekeeper_edit_file``,
+#   בלי תנאי.
+# * **escape של יוניקוד שנועד להיות טקסט** — לוכסן, ``u`` וארבע ספרות הקס. הוא יכול
+#   להפוך לתו **לפני שכלי כלשהו רואה אותו**, בכל ארגומנט, ו-``content_changed`` אינו
+#   רואה זאת: הוא משווה את מה שהכלי קיבל למה שנשמר. נמדד באפליקציית Claude
+#   (13–14.11.2026): כל escape של תו שאינו תו בקרה מפוענח (``u0041``, ``u00E9``,
+#   ``u05D0``, ``u200B``, ``u200F``); ``u0009``, ``u000A``, לוכסן ואחריו ``n`` ושני
+#   לוכסנים — לא. ונמדד בסשן Claude Code (14.11.2026) שזה **משתנה מקריאה לקריאה**:
+#   אותה מחרוזת הגיעה פעם כששת התווים ופעם כתו, והתו כבר יושב בקלט של הקריאה כפי
+#   שהוא נרשם בתמליל הסשן — כלומר ההמרה קורית כשהקריאה נכתבת, לא בתעבורה ולא בשרת.
+#   רק קובץ בטוח: בקובץ ה-JSON הטקסט נכתב בשני לוכסנים, והצורה הזו הגיעה כמו שהיא
+#   בכל המדידות.
+#
+# **שלושת הענפים ל-escape של יוניקוד**, בסדר: יש ``CODEKEEPER_PAT`` ← ``edits_upload_id``,
+# בלי לבדוק דבר. אין ← בדיקה בקריאה אחת ובלי כתיבה (``_UNICODE_ESCAPE_CHECK_DOC``):
+# ``codekeeper_get_file`` מהדהד את ``query`` כפי שהגיע (``_apply_query_to_file`` ב-
+# ``mcp_server/backend.py``), ולוכסן ואחריו ``u0041`` חוזר כששת התווים או כאות ``A``.
+# חזרה האות ← לא לכתוב, ולומר למשתמש.
+#
+# **בתיאורים עצמם ה-escape נכתב במילים, לא כ-escape** — תיאור שנושא escape עלול להגיע
+# לסוכן כתו, בדיוק מאותה סיבה. ``tests/test_mcp_uploads.py`` מקבע שאין escape כזה בשום
+# תיאור של כלי או של פרמטר.
+#
+# **נוסח אחד, בשני מקומות** (``prose-restates-code-fact``): תיאור ``new_string`` של
+# ``codekeeper_edit_file`` והנסיגה של ``edits_upload_id`` נבנים מאותם קבועים.
+_OTHER_BACKSLASHES_DOC = (
+    "backslashes that are not a Unicode escape (a backslash and n as two characters, a "
+    "regex, a path)"
+)
+_UNICODE_ESCAPE_AS_TEXT_DOC = (
+    "a Unicode escape meant as text (a backslash, u and four hex digits)"
+)
+_UNICODE_ESCAPE_HAZARD_DOC = (
+    "can be turned into the character before any tool sees it, in any argument"
+)
+_UNICODE_ESCAPE_CHECK_DOC = (
+    "check first, without writing — call codekeeper_get_file on the file with query set to "
+    "a backslash followed by u0041; the reply echoes query as it arrived. Six characters "
+    "back: write with codekeeper_edit_file. The letter A back: do not write, and tell the "
+    "user that this text cannot be written from this client."
+)
+
+#: תיאור ``new_string`` של ``codekeeper_edit_file``. המשפט הראשון נושא את הכלל, כי לקוח
+#: שמקצר תיאור פרמטר לכ-120 תווים רואה רק אותו; שלושת הענפים אחריו.
+_NEW_STRING_PARAM_DOC = (
+    "The replacement, saved as it reached the tool; a Unicode escape meant as text may not "
+    f"reach it as text. {_OTHER_BACKSLASHES_DOC[0].upper()}{_OTHER_BACKSLASHES_DOC[1:]} "
+    f"arrive as sent. But {_UNICODE_ESCAPE_AS_TEXT_DOC} {_UNICODE_ESCAPE_HAZARD_DOC} — "
+    "old_string too — and content_changed does not show it: it compares what the tool "
+    "received. With CODEKEEPER_PAT, send the edit by edits_upload_id of "
+    "codekeeper_multi_edit_file instead: only a file is safe in every client. Without it, "
+    f"{_UNICODE_ESCAPE_CHECK_DOC}"
+)
 
 
 # הורדה במקום קריאה להקשר (``GET /api/agent/download``, ``mcp_server/downloads.py``) — **אותו
@@ -974,11 +1042,14 @@ def _build_multi_edit_docs() -> tuple[str, str]:
     שמקצר תיאור פרמטר לכ-120 תווים רואה רק אותו. התקרה נשתלת מ-
     ``handlers.MAX_EDIT_PAIRS`` ואינה מוקלדת (``prose-restates-code-fact``).
 
-    **משפט ה-"Prefer" הוא ההכרעה בין שלוש הדרכים** — כמה עריכות בגרסה אחת: הכלי
-    הזה; מחרוזות עם לוכסן שנועד להיות טקסט: ``codekeeper_edit_file``, או
-    ``edits_upload_id``. ``edits`` הוא רשימה, ולכן מחרוזות בתוכו מפוענחות פעם אחת
-    כשהרשימה הגיעה כמערך ופעמיים כשהגיעה כמחרוזת JSON (ההערה מעל
-    ``_edits_from_upload`` ב-``handlers.py``). **והמשפט השני של ``edits`` — ההוראה
+    **העדפה לחוד, נכונות לחוד.** "כמה עריכות בגרסה אחת — הכלי הזה" הוא משפט העדפה:
+    שני המסלולים נכונים, וההבדל הוא מחיר. לוכסן שנועד להיות טקסט אינו העדפה — מסלול
+    אחד כותב תוכן שגוי — ולכן הוא משפט משלו, שמנוסח כעובדה ותוצאה: ``edits`` הוא
+    רשימה, ומחרוזות בתוכו מפוענחות פעם אחת כשהרשימה הגיעה כמערך ופעמיים כשהגיעה
+    כמחרוזת JSON (ההערה מעל ``_edits_from_upload`` ב-``handlers.py``), ולכן לוכסן
+    כזה הולך ל-``codekeeper_edit_file``, ו-escape של יוניקוד ל-``edits_upload_id``.
+    החלוקה לפי הטקסט, ושלושת הענפים, בהערה מעל ``_OTHER_BACKSLASHES_DOC``; בתיאור
+    הכלי רק מה שנכנס בתקרה. **והמשפט השני של ``edits`` — ההוראה
     ואחריה הסיבה:** לשלוח מערך. הוא נכתב אחרי שנמדד שמערך אכן מפוענח פעם אחת
     (``mcp 1.28.1``), ו-``tests/test_mcp_uploads.py`` מקבע את המדידה.
     """
@@ -990,9 +1061,10 @@ def _build_multi_edit_docs() -> tuple[str, str]:
         "refuses the whole call with its index, and nothing is written. edits_applied "
         "counts edits; replacements counts the replacements made (a replace_all edit that "
         "hit seven places counts seven). The edits parameter has the details. Prefer this "
-        "tool for several edits in one version; for text with backslashes meant as text (a "
-        "literal \\u200F or \\n), prefer codekeeper_edit_file, whose strings arrive as "
-        "sent, or edits_upload_id."
+        "tool for several edits in one version. Backslashes meant as text are not a "
+        "preference: a string in edits can be decoded twice, so they go by "
+        "codekeeper_edit_file, and a Unicode escape meant as text by edits_upload_id — "
+        "see that parameter."
         + _EXPECTED_SHA256_TOOL_DOC
         + " Requires write permission."
         + _WRITE_SHA256_DOC
@@ -3156,13 +3228,17 @@ def build_mcp(
             "old_string must match exactly, whitespace included; if it occurs more than "
             "once, pass a longer unique snippet or set replace_all=true. For several "
             "places in one file, codekeeper_multi_edit_file saves them as one version."
-            # **המשפט הזה הוא החצי השני של משפט ה-"Prefer" ב-``codekeeper_multi_edit_file``.**
+            # **שני משפטים, לפי הטקסט** — ההערה מעל ``_OTHER_BACKSLASHES_DOC``.
             # ``old_string`` ו-``new_string`` מוצהרים ``str`` בדיוק, ברמה העליונה, ולכן
             # ``pre_parse_json`` של ה-SDK מדלג עליהם בעצמו (``field_info.annotation is not
-            # str``, mcp 1.28.1) — מה שהגיע לשרת הוא מה שהכלי מקבל. מה שהלקוח עשה לפני
-            # שהבקשה יצאה אינו בידי השרת, ולכן "as they were sent" ולא "as you wrote them".
-            " old_string and new_string reach this tool as they were sent, so for text "
-            "with backslashes meant as text, this is the tool."
+            # str``, mcp 1.28.1) — מה שהגיע לשרת הוא מה שהכלי מקבל, ולכן לוכסן שאינו
+            # escape של יוניקוד בטוח כאן. מה שקרה לפני שהבקשה יצאה אינו בידי השרת:
+            # "as they were sent", לא "as you wrote them" — ו-escape של יוניקוד הוא
+            # בדיוק המקרה שבו השניים נפרדים. שלושת הענפים בתיאור ``new_string``.
+            f" old_string and new_string reach this tool as they were sent, so "
+            f"{_OTHER_BACKSLASHES_DOC} are safe here. "
+            f"{_UNICODE_ESCAPE_AS_TEXT_DOC[0].upper()}{_UNICODE_ESCAPE_AS_TEXT_DOC[1:]} is "
+            f"not: it {_UNICODE_ESCAPE_HAZARD_DOC} — see new_string."
             + _EXPECTED_SHA256_TOOL_DOC
             + " Requires write permission."
             + _WRITE_SHA256_DOC
@@ -3173,7 +3249,9 @@ def build_mcp(
         ctx: Context,
         file_name: str,
         old_string: str,
-        new_string: str,
+        # ``str`` בדיוק, עם תיאור: ``_keeps_raw_string`` קולף את ה-``Annotated``, וה-SDK
+        # קורא את ``FieldInfo.annotation``, שהוא ``str`` — המחרוזת מגיעה כמו שנשלחה.
+        new_string: Annotated[str, Field(description=_NEW_STRING_PARAM_DOC)],
         replace_all: bool = False,
         expected_content_sha256: Annotated[
             str | None, Field(description=_EXPECTED_SHA256_PARAM_DOC)

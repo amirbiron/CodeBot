@@ -46,6 +46,7 @@ from note_threads import (
     agent_author,
     comment_body_error,
     parse_thread_id,
+    utf8_encodable,
     working_on_or_error,
 )
 
@@ -758,6 +759,47 @@ def max_code_size() -> int:
         return DEFAULT_MAX_CODE_SIZE
 
 
+#: מה שנאמר על טקסט שאי אפשר לקודד כ-UTF-8 — משפט אחד, לסירוב על הטקסט שנשמר
+#: (:func:`_not_utf8_text`) ולסירוב על זוג (``invalid_edit`` ב-:func:`multi_edit_file`).
+#: ה-escape נכתב במילים: escape שכתוב כ-escape בתוך hint עלול להגיע לסוכן כתו.
+_LONE_SURROGATE = (
+    "a lone surrogate: half of a surrogate pair, which UTF-8 cannot encode and the store "
+    "cannot keep. A JSON escape made of a backslash, u and a value from D800 to DFFF "
+    "produces one when its other half is missing"
+)
+
+
+def _not_utf8_text(text: str) -> dict[str, Any] | None:
+    """הסירוב על טקסט של קובץ שאי אפשר לקודד כ-UTF-8 — או ``None``. לפני השער, ולפני כל כתיבה.
+
+    **מה זה סוגר.** מחרוזת של פייתון יכולה לשאת surrogate בודד — כך מפוענח escape של
+    חצי זוג ב-JSON, בתעבורה או בקובץ זוגות שהועלה — ו-UTF-8 אינו יכול לקודד אותו. המסד
+    לא ישמור טקסט כזה: מקודד ה-BSON של pymongo זורק ``UnicodeEncodeError`` עוד לפני
+    שמשהו נשלח (נמדד על ``pymongo 4.15.3``, ב-``bson.encode`` וב-``pymongo.message._op_msg``),
+    ``save_code_snippet_returning_id`` תופס ומחזיר ``None``, והכלי עונה ``save_failed``.
+    כלומר בלי הבדיקה כאן הסירוב מגיע מאוחר ובלי סיבה — **אחרי** שהשער כבר שרף העלאה
+    (``upload_consumed``), עם אירוע ברמת error על קלט של לקוח, ועם hint שאומר להעלות שוב
+    את אותו קובץ. כאן הוא מגיע לפני השער, אומר למה, וההעלאה נשארת.
+
+    **אותה מילה של הראוט** (``invalid_utf8`` ב-``mcp_server/uploads.py``): שם בתים שאינם
+    UTF-8, כאן טקסט ש-UTF-8 אינו יכול לשאת — אותו מצב משני הכיוונים.
+
+    **הכלל עצמו כתוב פעם אחת**, ב-``note_threads.utf8_encodable``, שגוף של תגובה על פתק
+    כבר נבדק בו. גוף של פתק, תיאור ושם קובץ אינם נבדקים בו עדיין — זה לא נסגר כאן.
+
+    **הדמה של הטסטים אינה מסרבת כמו BSON**, ולכן בלי הבדיקה הטסטים ראו כשל אחר מזה של
+    הייצור: גרסה שנכתבה, ואז ``UnicodeEncodeError`` בחישוב ה-hash של הקריאה החוזרת.
+    ``tests/test_mcp_uploads.py`` מקבע גם מה BSON עושה, כדי שהטענה הזו לא תישען על זיכרון.
+    """
+    if utf8_encodable(text):
+        return None
+    return {
+        "ok": False,
+        "error": "invalid_utf8",
+        "hint": f"the text to save holds {_LONE_SURROGATE}. Nothing was written.",
+    }
+
+
 # ---------------------------------------------------------------------------
 # ``upload_id`` — תוכן שעלה ב-``PUT /api/agent/upload`` (``mcp_server/uploads.py``)
 # במקום לעבור inline דרך המודל.
@@ -809,10 +851,14 @@ _SEND_THE_CONTENT_INLINE = "send the content inline"
 _CODE_UPLOAD = _UploadParam("upload_id", "code", _SEND_THE_CONTENT_INLINE)
 _CONTENT_UPLOAD = _UploadParam("upload_id", "content", _SEND_THE_CONTENT_INLINE)
 #: לא "send the edits inline": מי שהעלה זוגות עשה זאת כי המחרוזות שלהם אינן עוברות
-#: בבטחה בתוך ``edits``. ב-``codekeeper_edit_file`` המחרוזות הן פרמטרים ברמה העליונה,
-#: שמגיעים לכלי כמו שנשלחו (``_RawStringMetadata`` ב-``mcp_server/server.py``).
+#: בבטחה בתוך ``edits``. **וגם לא "use codekeeper_edit_file":** מה שעושים בלי העלאה
+#: תלוי בטקסט — escape של יוניקוד שנועד להיות טקסט דורש בדיקה לפני שכותבים אותו בכלי
+#: כלשהו — והכלל הזה כתוב פעם אחת, בתיאור הפרמטר (``_edits_upload_id_param_doc`` ב-
+#: ``mcp_server/server.py``). ה-hint מפנה לשם, ואינו עותק שני שלו.
 _EDITS_UPLOAD = _UploadParam(
-    "edits_upload_id", "edits", "make the edits with codekeeper_edit_file, one edit per call"
+    "edits_upload_id",
+    "edits",
+    "follow the steps the edits_upload_id parameter gives for writing without an upload",
 )
 
 
@@ -1103,6 +1149,10 @@ def save_file(
     max_size = max_code_size()
     if len(code) > max_size:
         return {"ok": False, "error": "code_too_large", "max": max_size}
+    # טקסט שהמסד לא יכול להחזיק נדחה כאן, עם הסיבה — ולא כ-``save_failed`` אחרי השער.
+    not_text = _not_utf8_text(code)
+    if not_text is not None:
+        return not_text
 
     # Auto-detect the language when the caller didn't specify one.
     lang = (language or "").strip()
@@ -1283,10 +1333,17 @@ def _resave_edited(
     ``consume`` — שער החד-פעמיות של ``upload_id`` (:func:`_consume_upload`): רץ
     אחרי בדיקת התקרה ולפני השמירה, כך שהעלאה שהתוצאה שלה גדולה מדי אינה נשרפת.
     סירוב שלו חוזר כמו שהוא, ושמירה שנכשלת אחריו אומרת שההעלאה נצרכה.
+
+    **כל מה שידוע על הטקסט לפני הכתיבה נבדק לפני השער:** התקרה, ושאפשר לקודד אותו
+    כ-UTF-8 (:func:`_not_utf8_text`). זו הנקודה שכל כלי עריכה עובר בה, ולכן כלי עריכה
+    שייכתב מחר מקבל את שתי הבדיקות בלי שמישהו יזכור להוסיף אותן.
     """
     max_size = max_code_size()
     if len(new_code) > max_size:
         return {"ok": False, "error": "code_too_large", "max": max_size}
+    not_text = _not_utf8_text(new_code)
+    if not_text is not None:
+        return not_text
     if consume is not None:
         refusal = consume()
         if refusal is not None:
@@ -1844,6 +1901,23 @@ def multi_edit_file(
             "error": "invalid_edit",
             "index": min(problem["loc"][0] for problem in problems),
             "problems": problems,
+        }
+        return refusal if upload is None else _fix_the_upload(refusal)
+    # זוג שאחת המחרוזות שלו אינה טקסט ש-UTF-8 יכול לקודד: אותו סירוב של זוג פגום, עם
+    # ``index`` והשדה, לפני שהקובץ נקרא ולפני השער. :func:`_resave_edited` היה דוחה את
+    # התוצאה ממילא (``invalid_utf8``), אבל בלי לומר איזה זוג מתוך חמישים.
+    not_text = [
+        {"loc": [index, field], "msg": f"The string holds {_LONE_SURROGATE}"}
+        for index, pair in enumerate(pairs)
+        for field in ("old_string", "new_string")
+        if not utf8_encodable(getattr(pair, field))
+    ]
+    if not_text:
+        refusal = {
+            "ok": False,
+            "error": "invalid_edit",
+            "index": not_text[0]["loc"][0],
+            "problems": not_text,
         }
         return refusal if upload is None else _fix_the_upload(refusal)
     bad_expected = _invalid_expected_sha256(expected_content_sha256)

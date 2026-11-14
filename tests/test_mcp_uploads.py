@@ -840,12 +840,14 @@ def test_the_upload_id_description_names_the_parameter_and_leaves_refusals_to_th
 #: כל כלי שמקבל העלאה, כפי שהטסטים קוראים לו: ``(הכלי, הפרמטר שההעלאה באה במקומו,
 #: הפרמטר שנושא את המזהה, ערך inline תקין, הסירוב כשלא נשלח אף אחד מהשניים, מה ה-hint
 #: מציע לעשות בלי העלאה)``. ב-``codekeeper_multi_edit_file`` ההעלאה היא רשימת הזוגות,
-#: הפרמטר נקרא ``edits_upload_id``, והנסיגה היא ``codekeeper_edit_file`` ולא "inline".
+#: הפרמטר נקרא ``edits_upload_id``, והנסיגה אינה "inline" וגם אינה כלי אחד לכל טקסט: מה
+#: שעושים בלי העלאה תלוי בטקסט, והכלל כתוב פעם אחת, בתיאור הפרמטר — ה-hint מפנה לשם.
 _ONE_EDIT = [{"old_string": "head", "new_string": "HEAD"}]
+_SEE_THE_PARAMETER = "follow the steps the edits_upload_id parameter gives for writing without an upload"
 _TAKES_AN_UPLOAD = [
     ("codekeeper_save_file", "code", "upload_id", "inline\n", "empty_code", "send the content inline"),
     ("codekeeper_append_file", "content", "upload_id", "inline\n", "empty_content", "send the content inline"),
-    ("codekeeper_multi_edit_file", "edits", "edits_upload_id", _ONE_EDIT, "missing_edits", "codekeeper_edit_file"),
+    ("codekeeper_multi_edit_file", "edits", "edits_upload_id", _ONE_EDIT, "missing_edits", _SEE_THE_PARAMETER),
 ]
 #: שם הפרמטר שנושא את המזהה, לכל כלי — לטסטים שרצים על כמה כלים.
 _UPLOAD_ARG = {tool: upload_arg for tool, _, upload_arg, _, _, _ in _TAKES_AN_UPLOAD}
@@ -1468,7 +1470,7 @@ _BS = "\\"
 #: מה שסוכן רוצה לכתוב לקובץ כשהוא מתעד escape: לוכסן, ``u`` וארבע ספרות — שישה תווים.
 _ESCAPE_AS_TEXT = _BS + "u200F"
 #: והתו שששת התווים האלה מקודדים, כשקוראים אותם כ-escape של JSON.
-_RLM = "‏"
+_RLM = chr(0x200F)
 #: ערך שמסמן תוכן שנשלח, כדי לבדוק שאף סירוב אינו מהדהד אותו.
 _SECRET = "SECRET-VALUE-7f3a"
 
@@ -1789,11 +1791,12 @@ def test_an_edits_upload_of_someone_else_or_past_its_time_is_not_found(store, ba
     assert len(store.code_snippets.docs) == 1
 
 
-def test_upload_storage_that_does_not_answer_keeps_the_upload_and_offers_edit_file(store, backend, call):
+def test_upload_storage_that_does_not_answer_keeps_the_upload_and_points_at_the_parameter(store, backend, call):
     """האחסון לא ענה — בשליפה, ואחר כך בשער: ``upload_storage_unavailable``, ושום דבר לא נכתב.
 
-    ה-hint מציע את ``codekeeper_edit_file`` ולא "send the content inline". ואחרי כשל של
-    המחיקה בשער ההעלאה עדיין שם, והקריאה הבאה מחילה את הזוגות פעם אחת.
+    ה-hint אינו אומר "send the content inline", וגם אינו שולח לכלי אחר: הוא מפנה לתיאור
+    הפרמטר, שם כתוב מה עושים בלי העלאה לפי הטקסט. ואחרי כשל של המחיקה בשער ההעלאה
+    עדיין שם, והקריאה הבאה מחילה את הזוגות פעם אחת.
     """
     from pymongo.errors import AutoReconnect
 
@@ -1813,7 +1816,8 @@ def test_upload_storage_that_does_not_answer_keeps_the_upload_and_offers_edit_fi
 
     for res in (at_the_read, at_the_gate):
         assert res["ok"] is False and res["error"] == "upload_storage_unavailable", res
-        assert "codekeeper_edit_file" in res["hint"] and "inline" not in res["hint"]
+        assert _SEE_THE_PARAMETER in res["hint"] and "inline" not in res["hint"]
+        assert "codekeeper_edit_file" not in res["hint"]
     assert len(store.code_snippets.docs) == 1 and len(store.uploads.docs) == 1
 
     res = call(MULTI_EDIT, file_name="log.md", edits_upload_id=upload_id)
@@ -1850,39 +1854,82 @@ def test_two_consumers_of_one_edits_upload_apply_it_exactly_once(store, backend,
     assert len(store.code_snippets.docs) == 2 and racing.docs == []
 
 
-def test_the_edits_upload_id_description_is_built_from_the_parts_of_upload_id():
-    """מה שהלקוח מקבל ב-``tools/list`` על ``edits_upload_id``, ועל שני המשפטים שמפנים אליו.
+def test_the_descriptions_split_preference_from_correctness_and_divide_by_the_text():
+    """מה שהלקוח מקבל ב-``tools/list`` על לוכסן שנועד להיות טקסט — שלושה תיאורים, מאותם חלקים.
 
-    הפקודה, התוקף ומי שאינו יכול להעלות הם אותם חלקים של ``upload_id`` — רק שם הקובץ
-    שבפקודה שונה — ולא נוסח שהוקלד מחדש. מה ששונה הוא מה שעולה ומה עושים בלי העלאה:
-    הנסיגה היא ``codekeeper_edit_file``, ולא "use the edits parameter as usual".
+    **העדפה לחוד, נכונות לחוד.** "כמה עריכות בגרסה אחת — הכלי הזה" הוא העדפה: שני
+    המסלולים נכונים. לוכסן שנועד להיות טקסט אינו העדפה — מסלול אחד כותב תוכן שגוי —
+    ולכן הוא משפט משלו, עובדה ותוצאה.
+
+    **החלוקה לפי הטקסט, לא לפי הלקוח:** סוכן רואה את הטקסט שלו, ואינו יודע דרך איזה לקוח
+    הוא עובד. לוכסן שאינו escape של יוניקוד ← ``codekeeper_edit_file``, בלי תנאי. escape
+    של יוניקוד שנועד להיות טקסט ← רק קובץ בטוח, ובלי ``CODEKEEPER_PAT`` — בדיקה בקריאה
+    אחת ובלי כתיבה, ואחריה או כתיבה או הודעה למשתמש.
+
+    הפקודה, התוקף ומי שאינו יכול להעלות הם אותם חלקים של ``upload_id``; ומשפטי הלוכסן
+    משותפים ל-``new_string`` של ``codekeeper_edit_file`` ולנסיגה של ``edits_upload_id``.
     """
     import mcp_server.server as srv
 
     tools = srv.build_mcp(_backend()[0], public_url="https://mcp.example.com")._tool_manager
-    multi_edit = tools.get_tool(MULTI_EDIT)
+    multi_edit, edit = tools.get_tool(MULTI_EDIT), tools.get_tool("codekeeper_edit_file")
     props = multi_edit.parameters["properties"]
     doc = props["edits_upload_id"]["description"]
+    new_string = edit.parameters["properties"]["new_string"]["description"]
 
-    # הכלל במשפט הראשון, וכולו בתוך 120 תווים.
+    other = "ackslashes that are not a Unicode escape (a backslash and n as two characters, a regex, a path)"
+    escape = "Unicode escape meant as text (a backslash, u and four hex digits)"
+    hazard = "can be turned into the character before any tool sees it, in any argument"
+    check = (
+        "check first, without writing — call codekeeper_get_file on the file with query set to a backslash "
+        "followed by u0041; the reply echoes query as it arrived. Six characters back: write with "
+        "codekeeper_edit_file. The letter A back: do not write, and tell the user that this text cannot be "
+        "written from this client."
+    )
+
+    # תיאור ``codekeeper_multi_edit_file``: משפט העדפה, ואחריו עובדה ותוצאה.
+    assert (
+        "Prefer this tool for several edits in one version. Backslashes meant as text are not a preference: a "
+        "string in edits can be decoded twice, so they go by codekeeper_edit_file, and a Unicode escape meant "
+        "as text by edits_upload_id — see that parameter."
+    ) in multi_edit.description
+
+    # תיאור ``codekeeper_edit_file``: שני סוגי הטקסט, ולכל אחד דין אחר.
+    assert (
+        f"old_string and new_string reach this tool as they were sent, so b{other} are safe here. A {escape} "
+        f"is not: it {hazard} — see new_string."
+    ) in edit.description
+
+    # ``new_string``: הכלל במשפט הראשון, בתוך 120 תווים, ואחריו שלושת הענפים.
+    rule = new_string.split(". ", 1)[0]
+    assert len(rule) <= 120, rule
+    assert rule == "The replacement, saved as it reached the tool; a Unicode escape meant as text may not reach it as text"
+    assert f"B{other} arrive as sent. But a {escape} {hazard}" in new_string
+    assert (
+        "With CODEKEEPER_PAT, send the edit by edits_upload_id of codekeeper_multi_edit_file instead: only a "
+        "file is safe in every client."
+    ) in new_string
+    assert new_string.endswith(f"Without it, {check}"), new_string
+
+    # ``edits_upload_id``: הכלל במשפט הראשון, מה ש-JSON צריך — במילים — ואותם חלקים של ``upload_id``.
     rule = doc.split(". ", 1)[0]
     assert len(rule) <= 120, rule
-    assert rule == "Instead of edits, for edits with backslashes meant as text (a literal " + _BS + "u200F or " + _BS + "n): single-use"
-
-    # מה ש-JSON צריך, בשתי הצורות: שני לוכסנים הם הטקסט, אחד הוא התו.
+    assert rule == "Instead of edits, for edits whose strings hold backslashes meant as text: single-use"
     assert "decoded exactly once" in doc
-    assert "written " + _BS * 2 + ": there " + _BS * 2 + "u200F is the six characters of text, and " + _BS + (
-        "u200F is the character U+200F itself") in doc
-
-    # אותם חלקים של ``upload_id``.
+    assert (
+        "written as two backslashes: two backslashes and u200F there are the six characters of text, and one "
+        "backslash and u200F is the character itself."
+    ) in doc
     shared = ('curl -sS -T {} -H "Authorization: Bearer $CODEKEEPER_PAT" https://mcp.example.com/api/agent/upload'
               f" — the reply carries upload_id, valid for {mcp_uploads.UPLOAD_TTL_SECONDS // 60} minutes")
     assert shared.format("edits.json") in doc
     for tool in ("codekeeper_save_file", "codekeeper_append_file"):
         assert shared.format("report.md") in tools.get_tool(tool).parameters["properties"]["upload_id"]["description"]
+
+    # והנסיגה: לפי הטקסט, ולא "use the edits parameter as usual" ולא כלי אחד לכל טקסט.
     assert doc.endswith(
-        "Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), make such edits with "
-        "codekeeper_edit_file, one edit per call."
+        f"Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), b{other} go by "
+        f"codekeeper_edit_file. A {escape} {hazard}: {check}"
     ), doc
     assert "as usual" not in doc
     for word in ("Refusals", "upload_not_found", "upload_corrupted", "invalid_edits_upload", "edits_and_edits_upload_id"):
@@ -1896,12 +1943,118 @@ def test_the_edits_upload_id_description_is_built_from_the_parts_of_upload_id():
     assert second == ("Send edits as a JSON array, not as a string that holds JSON: strings inside a list that "
                       "arrived as a string are decoded twice")
 
-    # ושני המשפטים בתיאורי הכלים: ההכרעה בין שלוש הדרכים, ומה מיוחד ב-``codekeeper_edit_file``.
-    assert ("Prefer this tool for several edits in one version; for text with backslashes meant as text (a literal "
-            + _BS + "u200F or " + _BS + "n), prefer codekeeper_edit_file, whose strings arrive as sent, or "
-            "edits_upload_id.") in multi_edit.description
-    assert ("old_string and new_string reach this tool as they were sent, so for text with backslashes meant as "
-            "text, this is the tool.") in tools.get_tool("codekeeper_edit_file").description
+
+def test_the_probe_in_the_descriptions_is_what_get_file_answers(store, call):
+    """הבדיקה שהתיאורים שולחים אליה: ``codekeeper_get_file`` מהדהד את ``query`` כפי שהגיע.
+
+    לוכסן ואחריו ``u0041`` שהגיע כששת התווים חוזר כששת התווים, והאות ``A`` — מה שמגיע כשה-escape
+    הומר לתו בדרך — חוזרת כאות אחת, ואינה נדחית כ-``query_too_short``. בלי זה ההוראה
+    שבתיאור ("Six characters back", "The letter A back") הייתה מתארת תשובה שהכלי אינו נותן.
+
+    מקבע התנהגות קיימת של ``codekeeper_get_file``, ולכן עובר גם על הקוד שלפני השינוי —
+    בכוונה: מה שנבדק הוא שהתיאור החדש נשען על משהו שהכלי באמת עושה.
+    """
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+
+    as_text = call("codekeeper_get_file", file_name="log.md", query=_BS + "u0041")
+    as_the_letter = call("codekeeper_get_file", file_name="log.md", query="A")
+
+    assert as_text["query"] == _BS + "u0041" and len(as_text["query"]) == 6
+    assert as_the_letter["query"] == "A"
+    assert as_text["status"] == as_the_letter["status"] == "query"
+
+
+# ---------------------------------------------------------------------------
+# 4ג. טקסט ש-UTF-8 אינו יכול לקודד — נדחה לפני השער, עם הסיבה
+#
+# surrogate בודד נוצר מ-escape של חצי זוג ב-JSON: בתעבורה, או בקובץ זוגות שהועלה.
+# המסד לא ישמור אותו, ולכן בלי בדיקה מוקדמת הסירוב הגיע מהדרייבר, אחרי השער, כ-
+# ``save_failed`` בלי סיבה — והעלאה נשרפה על קלט שאפשר היה לדחות לפניו.
+# ---------------------------------------------------------------------------
+
+#: חצי של זוג surrogate — תו שאין לו קידוד ב-UTF-8. נבנה ב-``chr`` ולא נכתב כ-escape.
+_LONE = chr(0xD800)
+
+#: כלי כתיבה שהטקסט שלו הוא פרמטר ברמה העליונה: ``(שם הקובץ, הארגומנטים)``.
+_UNENCODABLE_TEXT = {
+    "codekeeper_save_file": ("new.md", {"code": "a" + _LONE + "b"}),
+    "codekeeper_edit_file": ("log.md", {"old_string": "head", "new_string": "he" + _LONE + "ad"}),
+    "codekeeper_append_file": ("log.md", {"content": "tail " + _LONE + "\n"}),
+}
+
+
+def test_the_driver_refuses_a_lone_surrogate_and_the_fake_collection_does_not():
+    """מקבע את מה שהבדיקה המוקדמת נשענת עליו, ואת הפער בין הייצור לדמה.
+
+    ``bson.encode`` — המקודד שבו pymongo בונה כל מסמך לפני שהוא שולח אותו — זורק
+    ``UnicodeEncodeError`` על surrogate בודד (נמדד על ``pymongo 4.15.3``; ``UnicodeEncodeError``
+    אינה ``PyMongoError``). בייצור זה אומר שה-insert נכשל, ``save_code_snippet_returning_id``
+    מחזיר ``None``, והכלי עונה ``save_failed``. הדמה של הטסטים אינה מקודדת דבר ומקבלת את
+    המסמך — ולכן בלי הבדיקה המוקדמת הטסטים ראו כשל אחר מזה של הייצור.
+    """
+    import bson
+
+    from _fake_mongo import FakeCollection
+
+    with pytest.raises(UnicodeEncodeError):
+        bson.encode({"code": "a" + _LONE + "b"})
+    assert FakeCollection().insert_one({"code": "a" + _LONE + "b"}).inserted_id is not None
+
+
+@pytest.mark.parametrize("tool", sorted(_UNENCODABLE_TEXT))
+def test_text_that_utf8_cannot_encode_is_refused_with_the_reason_and_nothing_is_written(store, call, tool):
+    """``invalid_utf8`` — אותה מילה של ראוט ההעלאה — בשלושת הכלים שהטקסט שלהם הוא פרמטר.
+
+    לפני הבדיקה: בייצור ``save_failed`` בלי סיבה, אחרי ניסיון כתיבה; ובדמה — גרסה שנכתבה,
+    ואחריה ``UnicodeEncodeError`` בחישוב ה-hash, שגם הפיל כל קריאה הבאה של הקובץ. על
+    הקוד שלפני התיקון הטסט נופל בחריגה.
+    """
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+    file_name, arguments = _UNENCODABLE_TEXT[tool]
+    versions, pushes = len(store.code_snippets.docs), len(store.raw["push_events"].docs)
+
+    res = call(tool, file_name=file_name, **arguments)
+
+    assert res["ok"] is False and res["error"] == "invalid_utf8", res
+    assert "lone surrogate" in res["hint"] and "Nothing was written" in res["hint"]
+    assert _LONE not in "".join(str(value) for value in res.values())
+    assert len(store.code_snippets.docs) == versions
+    assert len(store.raw["push_events"].docs) == pushes
+    # והקובץ נקרא כמו קודם.
+    assert call("codekeeper_get_file", file_name="log.md")["file"]["code"] == "head\n"
+
+
+@pytest.mark.parametrize("uploaded", [False, True], ids=["edits", "edits_upload_id"])
+def test_a_pair_that_holds_a_lone_surrogate_is_refused_with_its_index_before_the_gate(store, backend, call, uploaded):
+    """זוג שאחת המחרוזות שלו אינה טקסט: ``invalid_edit`` עם ``index`` והשדה — וההעלאה נשארת.
+
+    בקובץ הזוגות ה-surrogate נכתב כ-escape של JSON תקין (לוכסן, ``u`` ו-``d800``), ורק
+    הפענוח בשרת יוצר אותו. לפני הבדיקה השער שרף את ההעלאה, ואחריו בא הכשל: בייצור
+    ``save_failed`` עם ``upload_consumed`` ו-hint שאומר להעלות שוב את אותו קובץ — לולאה —
+    ובדמה חריגה, בלי ``upload_consumed`` בכלל.
+    """
+    assert call("codekeeper_save_file", file_name="log.md", code="head tail\n")["ok"] is True
+    versions, pushes = len(store.code_snippets.docs), len(store.raw["push_events"].docs)
+
+    if uploaded:
+        pairs = ('[{"old_string": "head", "new_string": "HEAD"}, {"old_string": "tail", "new_string": "'
+                 + _BS + 'ud800"}]')
+        res = call(MULTI_EDIT, file_name="log.md", edits_upload_id=_create(backend, pairs))
+    else:
+        res = call(MULTI_EDIT, file_name="log.md", edits=[
+            {"old_string": "head", "new_string": "HEAD"}, {"old_string": "tail", "new_string": _LONE}])
+
+    assert (res["ok"], res["error"], res["index"]) == (False, "invalid_edit", 1), res
+    assert [problem["loc"] for problem in res["problems"]] == [[1, "new_string"]]
+    assert "lone surrogate" in res["problems"][0]["msg"]
+    assert _LONE not in json.dumps(res, ensure_ascii=False, default=str)
+    if uploaded:
+        assert "upload it again" in res["hint"] and "edits_upload_id" in res["hint"]
+        assert len(store.uploads.docs) == 1 and "upload_consumed" not in res
+    else:
+        assert "hint" not in res
+    assert len(store.code_snippets.docs) == versions
+    assert len(store.raw["push_events"].docs) == pushes
 
 
 def _owners(tree: ast.AST) -> dict[int, str]:
