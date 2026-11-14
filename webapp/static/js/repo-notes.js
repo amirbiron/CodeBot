@@ -18,8 +18,9 @@
   var current = { repo: '', path: null };
   var enabled = false;
 
-  //: העדפה פר-קובץ, כמו ``board-infinite:<id>`` בלוח. רק "דלוק" נשמר —
-  //: היעדר מפתח פירושו כבוי, וכך ברירת המחדל נשארת שמרנית.
+  //: העדפה פר-קובץ, במפתח מקומי — אותה צורה כמו ההעדפות לכל לוח (``board-infinite:<id>``
+  //: ושכנותיו ב-``note_board.html``). אבל כאן רק "דלוק" נשמר — היעדר מפתח פירושו כבוי, וכך
+  //: ברירת המחדל נשארת שמרנית. בלוח שני המצבים נשמרים, וברירות המחדל שלו מוגדרות שם.
   function prefKey(repo, path) { return 'repo-notes:' + repo + ':' + path; }
 
   function readPref(repo, path) {

@@ -202,8 +202,9 @@ from note_threads import MAX_COMMENT_CHARS as MAX_THREAD_COMMENT_CHARS_FOR_TEMPL
 from note_reminder_state import active_reminder_filter  # noqa: E402
 # השם שבו פתק מוצג בשורה אחת — אותה פונקציה של התראת הפוש וחלונית הפעמון.
 from sticky_notes_target import NOTE_LABEL_FIELDS, note_label  # noqa: E402
-# איפה פתק יושב (כרטיס "פתקים אחרונים"): סוג היעד ושדותיו, ושמות הלוחות.
-from sticky_notes_target import TARGET_FIELDS, note_target_ref  # noqa: E402
+# איפה פתק יושב (כרטיס "פתקים אחרונים"): סוג היעד ושדותיו, ושמות הלוחות. והכרטיס מציג רק פתקים
+# שאינם בארכיון — באותו פילטר שסופר את תקרת הפתקים ושמסתיר את הארכיון בחיפוש.
+from sticky_notes_target import TARGET_FIELDS, active_notes_filter, note_target_ref  # noqa: E402
 from note_boards import board_names_by_id  # noqa: E402
 
 from utils import TimeUtils, detect_language_from_filename  # noqa: E402
@@ -2592,6 +2593,8 @@ def inject_globals():
         'note_fonts_scope': note_fonts_scope,
         'note_font_size': note_font_size,
         'note_font_size_scope': note_font_size_scope,
+        # ברירת המחדל עצמה, ולא ההכרעה של המשתמש: הלוח מכריע בדפדפן, לפי ``localStorage``, ונופל לכאן.
+        'note_font_size_default': NOTE_FONT_SIZE_DEFAULT,
         'files_compact_view': files_compact_view,
         'ui_theme_custom_id': ui_theme_custom_id,
         'custom_theme': custom_theme,
@@ -2777,7 +2780,8 @@ def _resolve_note_fonts(
 #
 # **הגדרה אחת לשני משטחים** — דפדפן הריפו וקבצי Markdown — ולא אחת לכל
 # אחד. הלוחות **אינם** כאן: להם בורר משלהם במודאל הלוח, שנשמר
-# ב-``localStorage`` לכל לוח בנפרד.
+# ב-``localStorage`` לכל לוח בנפרד. **אבל ברירת המחדל של שניהם היא אחת** —
+# ``NOTE_FONT_SIZE_DEFAULT`` שלמטה — ראו שם.
 #
 # הערכים הם הטוקנים ש-``STICKY_NOTE_FONT_MENUS.settings`` מציע
 # ב-``_note_fonts_head.html``, ומי ששומר על שני המקורות מיושרים הוא
@@ -2790,7 +2794,16 @@ def _resolve_note_fonts(
 # נופל לבחירה המשותפת שבמסד, ושדה כזה במסד — לברירת המחדל. הנימוק
 # לשמות החדשים, ולמה אין להחזיר את הישנים, ליד ``STICKY_NOTE_FONT_SIZES``.
 NOTE_FONT_SIZE_VALUES = ("normal", "large", "xlarge")
-NOTE_FONT_SIZE_DEFAULT = NOTE_FONT_SIZE_VALUES[0]
+
+#: הגודל של מי שעוד לא בחר — **בעמוד ההגדרות ובכל לוח**. המקום היחיד שקובע אותו: ``inject_globals``
+#: מעביר אותו לתבניות כ-``note_font_size_default``, ו-``_note_fonts_head.html`` מרנדר אותו
+#: ל-``window.STICKY_NOTE_FONT_SIZE_DEFAULT``, שממנו הלוח קורא בכל מקום שבו חסרה בחירה.
+#:
+#: **"גדול מאוד" מנובמבר 2026, לבקשת המשתמש; עד אז "רגיל".** בחירה שנשמרה נשארת: בעמוד ההגדרות כל
+#: בחירה נשמרת במסד וב-cookie, גם "רגיל". בלוח, עד אותו שינוי, "רגיל" נשמר כהיעדר מפתח — ולכן לוח
+#: שבחרו בו "רגיל" עבר ל"גדול מאוד" כמו לוח שלא בחרו בו כלום. מאז הלוח שומר כל בחירה, כדי ששינוי
+#: עתידי כאן לא יגיע לבחירה של אף אחד.
+NOTE_FONT_SIZE_DEFAULT = "xlarge"
 
 
 def _decode_note_font_size(raw: Any) -> Optional[str]:
@@ -13523,8 +13536,11 @@ def _dashboard_note_location(
     * לוח — שם הלוח (:func:`_board_location_label`), מ-``board_names``.
     * קובץ — השם ששמור בפתק, שהוא גם השם שהקישור פותח את הגרסה האחרונה שלו
       (``_note_file_target_id``). פתק בלי שם שמור — מ-``file_names`` (:func:`_lookup_files_map`).
-    * קובץ בריפו — ``ריפו: <ריפו>/<נתיב>``. ארכיון — "ארכיון".
+    * קובץ בריפו — ``ריפו: <ריפו>/<נתיב>``.
     * מסמך בלי יעד תקין (``"unknown"``) — "מיקום לא ידוע", ולא ניחוש.
+
+    **אין כאן ענף לארכיון, כי פתק ארכיון אינו מגיע לכרטיס** — :func:`_build_notes_snapshot` שולף
+    ב-``active_notes_filter``. עד נובמבר 2026 הכרטיס הציג גם אותם, עם השורה "ארכיון".
     """
     kind = ref.get('target')
     if kind == 'board':
@@ -13533,8 +13549,6 @@ def _dashboard_note_location(
         return ref.get('file_name') or file_names.get(str(ref.get('file_id') or '')) or 'קובץ'
     if kind == 'repo':
         return f"ריפו: {ref.get('repo_name')}/{ref.get('repo_path')}"
-    if kind == 'archive':
-        return 'ארכיון'
     return 'מיקום לא ידוע'
 
 
@@ -13554,6 +13568,12 @@ def _build_notes_snapshot(db, user_id: int, limit: int = 10) -> Dict[str, Any]:
     "עודכנו" לפי ``updated_at``, שזז רק כשהתוכן או השם משתנים (``sticky_notes_target.NOTE_EDIT_FIELDS``):
     פתק שרק נפתח ממזעור, הוזז או נצבע אינו קופץ לראש הכרטיס.
 
+    **רק פתקים שאינם בארכיון** — ``sticky_notes_target.active_notes_filter``, הפילטר שסופר את תקרת
+    הפתקים ושמסתיר את הארכיון בחיפוש, ולא נוסח משלו. פתק שהועבר לארכיון עזב את הלוח או הקובץ שלו,
+    ומקומו בעמוד הארכיון. עד נובמבר 2026 הכרטיס שלף ``{'user_id': ...}``, ופתק ארכיון הופיע בו עם
+    השורה "ארכיון". הצורה — שני שוויונות ומיון ב-``updated_at`` עם תקרה — היא של חיפוש הפתקים, ולה
+    נבנה ``user_archived_updated_idx`` (``webapp/sticky_notes_api._QUERY_INDEX_SPECS``).
+
     **שלוש שאילתות לכל היותר, ולא אחת לכל פתק:** הפתקים, שמות הלוחות שלהם
     (``note_boards.board_names_by_id``), ושמות הקבצים רק לפתקים על קובץ שאין בהם שם שמור
     (:func:`_lookup_files_map`).
@@ -13567,7 +13587,7 @@ def _build_notes_snapshot(db, user_id: int, limit: int = 10) -> Dict[str, Any]:
     """
     try:
         cursor = db.sticky_notes.find(
-            {'user_id': user_id}, _NOTES_SNAPSHOT_PROJECTION
+            active_notes_filter(user_id), _NOTES_SNAPSHOT_PROJECTION
         ).sort('updated_at', DESCENDING).limit(limit)
         note_docs = list(cursor or [])
     except PyMongoError:
@@ -13601,7 +13621,7 @@ def _build_notes_snapshot(db, user_id: int, limit: int = 10) -> Dict[str, Any]:
             'id': note_id,
             'title': _dashboard_note_title(note),
             'location': _dashboard_note_location(ref, board_names, file_names),
-            # הסוג של ``location`` (``note_target_ref``: ``file`` / ``board`` / ``repo`` / ``archive`` / ``unknown``) —
+            # הסוג של ``location`` (``note_target_ref``: ``file`` / ``board`` / ``repo`` / ``unknown`` — ארכיון אינו מגיע לכאן) —
             # בפתק על קובץ הכרטיס בונה את השם בפילטר ``file_name``, וכל מיקום אחר נשאר טקסט.
             'location_kind': ref.get('target'),
             'url': f"/note/{url_quote(note_id, safe='')}",

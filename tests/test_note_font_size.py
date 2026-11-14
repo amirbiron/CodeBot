@@ -147,7 +147,7 @@ def test_a_size_name_from_the_old_scale_is_rejected(old):
     ``mid`` ו-``lg`` היו בחירות חוקיות בעמוד ההגדרות, והם עדיין שמורים
     אצל משתמשים — במסד וב-cookie. אילו "גדול" החדש היה נקרא ``lg``, כל
     בחירה ישנה הייתה מקבלת בשקט גודל אחר. כשהשם אינו מוכר, ערך כזה
-    מטופל כמו ערך פגום, והבחירה חוזרת ל"רגיל" (ראו
+    מטופל כמו ערך פגום, והבחירה חוזרת לברירת המחדל (ראו
     ``test_a_size_saved_on_the_old_scale_falls_back``). ``xl`` היה רק בלוח
     ומעולם לא התקבל כאן; הוא ברשימה כדי שלא יחזור עם משמעות חדשה.
     """
@@ -188,7 +188,7 @@ def test_a_corrupt_device_cookie_falls_back_to_the_shared_value(app):
 
 @pytest.mark.parametrize("old", ["mid", "lg"])
 def test_a_size_saved_on_the_old_scale_falls_back(app, old):
-    """בחירה מלפני אוקטובר 2026 חוזרת ל"רגיל" — בלי מיגרציה.
+    """בחירה מלפני אוקטובר 2026 חוזרת לברירת המחדל — בלי מיגרציה.
 
     שני המקומות שבהם היא שמורה, ושניהם עוברים באותו פענוח: שדה במסד
     שאין לו cookie שגובר עליו נופל לברירת המחדל; ו-cookie של מכשיר
@@ -237,7 +237,7 @@ def test_a_malformed_ui_prefs_does_not_raise(app, prefs):
 
     ל-מחרוזת אין ``.get``, ולכן ``(doc.get('ui_prefs') or {})`` היה זורק
     כאן. הבדיקה עוברת דרך הפונקציה ולא דרך התבנית, כי ההזרקה עוטפת
-    ב-``try`` ובולעת — כלומר כשל היה נראה כמו "הגודל חזר לרגיל".
+    ב-``try`` ובולעת — כלומר כשל היה נראה כמו "הגודל חזר לברירת המחדל".
     """
     from webapp.app import NOTE_FONT_SIZE_DEFAULT
 
@@ -576,24 +576,46 @@ def _selected_option(html, select_id):
     return marked[0]
 
 
+#: הציפייה "ברירת המחדל" — נפתרת בתוך הבדיקה ל-``NOTE_FONT_SIZE_DEFAULT``, ולא נכתבת כאן כמילה.
+_DEFAULT = object()
+
+
 @pytest.mark.parametrize("stored,expected", [
-    (None, "normal"),
+    (None, _DEFAULT),
     ("normal", "normal"),
     ("large", "large"),
     ("xlarge", "xlarge"),
-    # השמות מהסולם שלפני אוקטובר 2026: הבחירה חוזרת ל"רגיל", והבורר
+    # השמות מהסולם שלפני אוקטובר 2026: הבחירה חוזרת לברירת המחדל, והבורר
     # מציג את מה שהפתק מציג.
-    ("mid", "normal"),
-    ("lg", "normal"),
-    ("xl", "normal"),
-    ("garbage", "normal"),
+    ("mid", _DEFAULT),
+    ("lg", _DEFAULT),
+    ("xl", _DEFAULT),
+    ("garbage", _DEFAULT),
 ])
 def test_the_settings_select_reflects_the_saved_size(monkeypatch, stored, expected):
+    """**"רגיל" ששמור מוצג "רגיל", ומי שלא בחר — או ששמור אצלו ערך שאינו מוכר — רואה את ברירת המחדל.**"""
+    from webapp.app import NOTE_FONT_SIZE_DEFAULT
+
+    if expected is _DEFAULT:
+        expected = NOTE_FONT_SIZE_DEFAULT
     prefs = {} if stored is None else {"note_font_size": stored}
     html = _render_settings(monkeypatch, prefs)
 
     assert 'id="settingsNoteFontSizeSelect"' in html, "הבורר אינו מגיע לעמוד"
     assert _selected_option(html, "settingsNoteFontSizeSelect") == expected
+
+
+def test_the_default_size_is_extra_large():
+    """**החלטת מוצר, נובמבר 2026: מי שלא בחר מקבל "גדול מאוד"** — בעמוד ההגדרות ובכל לוח.
+
+    שאר הבדיקות נגזרות מ-``NOTE_FONT_SIZE_DEFAULT`` ולא מהמילה, ולכן זו הבדיקה שאומרת מה הוחלט.
+    והערך חייב להיות אחד הטוקנים: ברירת מחדל שאינה ב-``NOTE_FONT_SIZE_VALUES`` הייתה מוחזרת
+    מ-``_resolve_note_font_size`` בלי שום בורר שיכול להציג אותה."""
+    from webapp.app import NOTE_FONT_SIZE_DEFAULT, NOTE_FONT_SIZE_VALUES
+
+    assert NOTE_FONT_SIZE_DEFAULT == "xlarge"
+    assert NOTE_FONT_SIZE_DEFAULT in NOTE_FONT_SIZE_VALUES
+
 
 
 @pytest.mark.parametrize("scope,expected", [
