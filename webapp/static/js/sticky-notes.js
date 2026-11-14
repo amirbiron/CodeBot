@@ -303,6 +303,19 @@
     ['circle', { cx: '10.5', cy: '10.5', r: '6.5' }],
     ['path', { d: 'M15.5 15.5 21 21' }],
   ];
+  //: שני הכפתורים שאינם אלרט בחלונית "כלי MD" (``_openMdTools``) — קישור ובלוק מתקפל. **מאותה משפחה
+  //: כמו אייקוני האלרטים** שלידם ברשת (``ADMONITION_ICONS``, ‏Lucide), ולכן הצורות הועתקו מילה
+  //: במילה מ-Lucide ‏1.73.0 (``icons/link.svg`` ו-``icons/square-chevron-down.svg`` ב-
+  //: ``github.com/lucide-icons/lucide``): אותו ``viewBox`` של 24, אותו עובי קו, ואותו ``currentColor``
+  //: ש-``buildStrokeIcon`` מציב. נבנים בצמתים, כמו כל אייקון אחר שנכתב כאן.
+  const LINK_ICON_SHAPES = [
+    ['path', { d: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71' }],
+    ['path', { d: 'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71' }],
+  ];
+  const DETAILS_ICON_SHAPES = [
+    ['rect', { width: '18', height: '18', x: '3', y: '3', rx: '2' }],
+    ['path', { d: 'm16 10-4 4-4-4' }],
+  ];
 
   //: בונה SVG מקווקו מתוך מערך צורות. ``buildFabIcon`` מצייר צורות
   //: מלאות עם ``fill`` משלהן; כאן הקווים יורשים את צבע הכפתור דרך
@@ -357,6 +370,36 @@
   const NOTE_EDGE_GAP = 12, NOTE_TOP_GAP = 60, NOTE_BOTTOM_GAP = 20;
 
   /**
+   * **הכתובת של הקובץ הזה, כפי שהעמוד טען אותו** — כולל ``?v=`` של הגרסה. ``currentScript`` מצביע
+   * על התגית רק בזמן שסקריפט קלאסי רץ בפעם הראשונה (HTML Standard, ``document.currentScript``), ולכן
+   * היא נלכדת כאן ולא בזמן הקריאה. ``null`` כשאין תגית עם ``src`` — סקריפט מוטמע, או ההרצה של
+   * הבדיקות ב-node.
+   */
+  const OWN_SCRIPT_URL = (function ownScriptUrl(){
+    const own = (typeof document !== 'undefined') ? document.currentScript : null;
+    return (own && own.src) ? String(own.src) : null;
+  })();
+
+  /**
+   * **כתובת של קובץ סטטי — ליד הקובץ הזה, ועם אותה גרסה.** הנכסים הסטטיים נשמרים בקאש לשנה
+   * (``SEND_FILE_MAX_AGE_DEFAULT`` ב-``webapp/app.py``), ולכן כתובת קבועה הייתה מגישה אייקון ישן אחרי
+   * שהוא משתנה. כל תגית בתבניות נושאת ``?v={{ static_version }}``; כאן אין Jinja, ולכן הגרסה נלקחת
+   * מהכתובת שבה העמוד טען את ``sticky-notes.js`` — אותו פתרון בדיוק כמו ``bundleUrlFromOwnTag``
+   * ב-``markdown-deps.js``.
+   *
+   * ``relPath`` יחסי לתיקיית הסטטיק: הקובץ הזה יושב ב-``static/js/``, ולכן הבסיס הוא ``../``.
+   * ``null`` כשאין כתובת לגזור ממנה (``OWN_SCRIPT_URL``) — היעדר יכולת קבוע לכל חיי העמוד, ובדיקת
+   * החיווט ב-``tests/sticky-notes-target.test.js`` דורשת שכל תבנית טוענת את הקובץ הזה עם ``src``.
+   */
+  function staticAssetUrl(relPath){
+    if (!OWN_SCRIPT_URL || typeof URL !== 'function') return null;
+    const own = new URL(OWN_SCRIPT_URL);
+    const url = new URL('../' + relPath, own);
+    url.search = own.search;
+    return url.href;
+  }
+
+  /**
    * **הפריטים של תפריט ⋮ — רשימה אחת, והתפריט נבנה ממנה.**
    *
    * לתפריט נכנסות הפעולות שהכי פחות שכיחות: שורת הפעולות אינה נשברת (#3478), ומה שאינו
@@ -375,8 +418,21 @@
    * ``checked`` (אופציונלי) הופך את הפריט למתג: ``role="menuitemcheckbox"`` עם
    * ``aria-checked`` לפי מה שהפונקציה מחזירה (WAI-ARIA, ‏``menuitemcheckbox``). השם הנגיש נשאר
    * קבוע, והמצב נאמר במצב ולא בשם — כמו כל תיבת סימון.
+   *
+   * ``iconFile`` (במקום ``icon``) הוא קובץ אייקון, בנתיב יחסית לתיקיית הסטטיק — לפריט שהאייקון
+   * שלו ציור ולא תו. הוא מוצג ב-``<img alt="">``: השם הנגיש כבר ב-``label``, ומזהים בתוך הקובץ
+   * (למשל ``id`` של gradient) אינם יכולים להתנגש עם SVG אחר בעמוד, כי קובץ שנטען ב-``<img>`` הוא
+   * מסמך נפרד. הכתובת נגזרת מזו של הקובץ הזה, עם אותה גרסה (``staticAssetUrl``).
    */
   const NOTE_MENU_ITEMS = Object.freeze([
+    Object.freeze({
+      id: 'md-tools', iconFile: 'icons/md-tools.svg', label: 'כלי MD',
+      // **רק בפתק שיש בו לאן להזריק.** פתק ממוזער הוא שורת הכותרת בלבד, בלי textarea גלוי. בארכיון
+      // ובעמוד הקבצים התוכן נערך ונשמר כמו בכל פתק (השרת אינו חוסם עדכון תוכן של פתק בארכיון), ולכן
+      // הפריט מוצג שם — ופתק שנפתח מעל עמוד ממילא אינו ממוזער אף פעם (``_renderNote``).
+      available: (mgr, el) => !el.classList.contains('is-minimized'),
+      run: (mgr, el) => mgr._openMdTools(el),
+    }),
     Object.freeze({ id: 'reminder', icon: '🔔', label: 'קבע תזכורת', run: (mgr, el) => mgr._openReminderModal(el) }),
     Object.freeze({
       id: 'files-page-pin', icon: '📎', label: 'נעיצה בראש עמוד הקבצים',
@@ -752,6 +808,50 @@
   //: ומטופל **לפני** מפת האלרטים — כך שגם אם ``details`` ייכנס אי-פעם
   //: ל-``ADMONITION_TITLES`` לא ייווצר כאן מסלול שני שקט.
   const MD_DETAILS_TYPE = 'details';
+
+  // ----- כלי MD: התבניות שהחלונית מזריקה לתוכן הפתק -----
+  //
+  // **תבנית היא רשימת חלקים**: מחרוזת נכתבת כמו שהיא, ו"משבצת" (``slot``) היא טקסט למילוי עם
+  // ``placeholder``. ``fromSelection`` היא המשבצת שהטקסט המסומן בפתק נכנס אליה במקום ה-placeholder,
+  // ו-``selectAfter`` היא המשבצת שמסומנת אחרי ההזרקה — מה שהמשתמש ממלא עכשיו. ``block`` אומר
+  // שהתבנית חייבת לעמוד בשורות משלה (``:::`` נפתח רק בתחילת שורה — ``MD_CONTAINER_OPEN_RE``);
+  // ``inline`` אומר שהיא בתוך שורה, ולכן אינה מקבלת טקסט מסומן שחוצה שורות. ההזרקה עצמה —
+  // ``_mdToolInsertion``.
+  //
+  // **הטקסט למילוי מינימלי בכוונה**, בשונה מהתבניות של ``markdown-toolbar.js``: שם טקסט הדגמה ארוך,
+  // וכאן מילה אחת שמסומנת ומוחלפת בהקלדה הראשונה.
+  const MD_TOOL_LINK = Object.freeze({
+    id: 'link', label: 'קישור', iconShapes: LINK_ICON_SHAPES, inline: true,
+    parts: Object.freeze(['[', Object.freeze({ slot: 'text', placeholder: 'טקסט הקישור' }), '](',
+      Object.freeze({ slot: 'url', placeholder: 'https://' }), ')']),
+    fromSelection: 'text', selectAfter: 'url',
+  });
+  const MD_TOOL_DETAILS = Object.freeze({
+    id: 'details', label: 'בלוק מתקפל', iconShapes: DETAILS_ICON_SHAPES, block: true,
+    parts: Object.freeze(['::: ' + MD_DETAILS_TYPE + ' ', Object.freeze({ slot: 'title', placeholder: 'כותרת' }), '\n',
+      Object.freeze({ slot: 'body', placeholder: 'תוכן' }), '\n:::']),
+    fromSelection: 'body', selectAfter: 'title',
+  });
+  /**
+   * תבנית האלרט לסוג אחד. **הסוגים אינם רשימה כאן**: הם המפתחות של ``ADMONITION_TITLES`` — המקום
+   * היחיד שמגדיר מהו סוג אלרט, וממנו גם ``_containerSpec`` מזהה אלרט בתצוגה — והתווית היא הערך שם.
+   * לכן סוג שיתווסף לקובץ ההוא יופיע בחלונית מעצמו (``_mdTools``).
+   *
+   * כשהטקסט המסומן ממלא את התוכן, אין עוד מה למלא, והסמן נעמד בסוף התוכן — בתוך הבלוק (הכרעה של
+   * המשתמש).
+   */
+  function mdAlertTool(type, label){
+    return Object.freeze({
+      id: 'alert-' + type, label, alertType: type, block: true,
+      parts: Object.freeze(['::: ' + type + '\n', Object.freeze({ slot: 'body', placeholder: 'תוכן ההתראה' }), '\n:::']),
+      fromSelection: 'body', selectAfter: 'body',
+    });
+  }
+  //: סוג אלרט כשר להזרקה: אותיות לטיניות קטנות בלבד. אותיות — כמו קבוצת הסוג ב-
+  //: ``MD_CONTAINER_OPEN_RE``; קטנות — כי ``_containerSpec`` מקטין את הסוג שנכתב לפני שהוא מחפש אותו
+  //: במפה. סוג אחר לא היה מזוהה כמכולה בתצוגה, והכפתור היה מזריק טקסט שנשאר טקסט.
+  const MD_TOOL_ALERT_TYPE_RE = /^[a-z]+$/;
+
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
@@ -1035,12 +1135,15 @@
         // **ותפריט ⋮ — אותם שני מנגנונים.** לחיצה מחוץ לו סוגרת אותו, וגלילה או שינוי גודל
         // ממקמים אותו מחדש מול המסך (``_layoutNoteMenu``), באותו פריים של השרשורים.
         this._on(document, 'pointerdown', (ev) => this._onDocumentPointerDownForNoteMenu(ev), { capture: true });
+        // **והחלונית "כלי MD" — אותם שני מנגנונים בדיוק** (``_layoutMdTools``).
+        this._on(document, 'pointerdown', (ev) => this._onDocumentPointerDownForMdTools(ev), { capture: true });
         const relayoutPopups = () => {
           // סביבה בלי ``requestAnimationFrame`` (בדיקות ב-node) — ממקמים מיד, כמו
           // ``_updateSurfaceExtent``.
           if (typeof requestAnimationFrame !== 'function') {
             this._relayoutOpenThreadUi();
             this._relayoutOpenNoteMenus();
+            this._relayoutOpenMdTools();
             return;
           }
           if (this._threadLayoutFrame) return;
@@ -1048,6 +1151,7 @@
             this._threadLayoutFrame = 0;
             this._relayoutOpenThreadUi();
             this._relayoutOpenNoteMenus();
+            this._relayoutOpenMdTools();
           });
         };
         this._on(document, 'scroll', relayoutPopups, { capture: true, passive: true });
@@ -1535,8 +1639,7 @@
             if (result === false) {
               // כפול אנטר → יציאה מרשימה, הטקסטריה כבר עודכנה
               ev.preventDefault();
-              this._noteProgrammaticEdit(el, textarea, beforeChange);
-              this._queueSave(el, { content: textarea.value });
+              this._commitProgrammaticEdit(el, textarea, beforeChange);
             } else if (typeof result === 'string') {
               ev.preventDefault();
               const start = textarea.selectionStart;
@@ -1545,8 +1648,7 @@
               textarea.value = before + result + after;
               const newPos = start + result.length;
               textarea.selectionStart = textarea.selectionEnd = newPos;
-              this._noteProgrammaticEdit(el, textarea, beforeChange);
-              this._queueSave(el, { content: textarea.value });
+              this._commitProgrammaticEdit(el, textarea, beforeChange);
             }
           }
         } catch (_) { /* list continuation error – silent */ }
@@ -1800,7 +1902,8 @@
         };
         if (isToggle) attrs['aria-checked'] = item.checked(this, el) ? 'true' : 'false';
         const btn = createEl('button', 'sticky-note-menu-item', attrs);
-        btn.textContent = item.icon;
+        if (item.iconFile) this._appendMenuIconFile(btn, item);
+        else btn.textContent = item.icon;
         btn.addEventListener('click', (ev) => {
           ev.stopPropagation(); ev.preventDefault();
           // **התפריט נסגר לפני הפעולה**, ובלי להחזיר פוקוס ל-⋮: הפעולה עשויה לפתוח משטח
@@ -1825,6 +1928,24 @@
       // ``preventScroll``: מיקוד רגיל גולל כל אב כדי לחשוף את הכפתור (MDN,
       // ``HTMLElement.focus()``), כלומר מזיז את הלוח או את המסמך שמתחת לפתק.
       if (first) first.focus({ preventScroll: true });
+    }
+
+    /**
+     * אייקון של פריט מקובץ (``iconFile`` ב-``NOTE_MENU_ITEMS``): ``<img>`` עם ``alt`` ריק, כי השם
+     * הנגיש כבר על הכפתור. בלי כתובת (``staticAssetUrl`` מחזיר ``null`` — העמוד לא טען את הקובץ הזה
+     * מתגית עם ``src``) הכפתור נשאר בלי אייקון, ואזהרה אחת בקונסול אומרת למה; השם הנגיש וה-``title``
+     * נשארים, והפריט עובד.
+     */
+    _appendMenuIconFile(btn, item){
+      const src = staticAssetUrl(item.iconFile);
+      if (!src) {
+        if (!this._warnedNoIconUrl) {
+          this._warnedNoIconUrl = true;
+          console.warn('sticky notes: sticky-notes.js was not loaded from a <script src>; menu icon files cannot be resolved');
+        }
+        return;
+      }
+      btn.appendChild(createEl('img', 'sticky-note-menu-icon', { src, alt: '', draggable: 'false' }));
     }
 
     /** סוגר את תפריט ⋮. ``returnFocus`` מחזיר את הפוקוס ל-⋮ — למקלדת. */
@@ -1980,6 +2101,322 @@
       for (const entry of this.notes.values()) {
         if (entry && entry.noteMenu) this._layoutNoteMenu(entry.el);
       }
+    }
+
+    // ---------------------------------------------------------------- כלי MD
+
+    /**
+     * הכפתורים של החלונית, בסדר הרשת: קישור ובלוק מתקפל, ואחריהם אלרט לכל מפתח ב-
+     * ``ADMONITION_TITLES``, בסדר שבו הם כתובים שם. בלי הקובץ (התבנית לא טענה אותו, ובדיקת החיווט
+     * דורשת שכן) נשארים שני הראשונים: התצוגה של הפתק ממילא לא הייתה מזהה אלרט בעמוד כזה.
+     *
+     * ``details`` מדולג גם אם ייכנס אי-פעם למפה — הוא כבר הכפתור השני, וכפתור כפול היה מזריק אותו
+     * בשני מסלולים (אותה הכרעה כמו ב-``_containerSpec``, שמטפל בו לפני המפה).
+     */
+    _mdTools(){
+      const tools = [MD_TOOL_LINK, MD_TOOL_DETAILS];
+      const titles = window.ADMONITION_TITLES;
+      if (!titles || typeof titles !== 'object') return tools;
+      Object.keys(titles).forEach((type) => {
+        const label = titles[type];
+        if (type === MD_DETAILS_TYPE || !MD_TOOL_ALERT_TYPE_RE.test(type)) return;
+        if (typeof label !== 'string' || !label) return;
+        tools.push(mdAlertTool(type, label));
+      });
+      return tools;
+    }
+
+    /**
+     * **איפה הסמן היה, לפי ה-textarea עצמו.** טקסט נשאר בבחירה או במיקום סמן "תמיד (גם באלמנט שאינו
+     * מרונדר)", וכתיבה של ערך אחר מהקוד מזיזה את הסמן לסוף (HTML Standard, ‏``textFieldSelection``
+     * ו-``dom-textarea-value``). לכן אחרי הלחיצה על ⋮ הדפדפן עדיין מחזיק את מה שהמשתמש השאיר, גם
+     * כשהפתק עבר לתצוגה וה-textarea מוסתר; ובפתק שלא נגעו בו, או שתוכנו הוחלף מהקוד, הסמן בסוף —
+     * בדיוק ברירת המחדל שנדרשה. נמדד בכרומיום, בעכבר ובמגע, בחמשת המסלולים האלה. אין כאן עותק משלנו
+     * של המצב הזה.
+     *
+     * טווח שאינו תקין — לא מספר שלם, הפוך, או מחוץ לטקסט — הופך לסוף התוכן.
+     */
+    _mdToolRange(value, start, end){
+      const len = value.length;
+      const ok = Number.isInteger(start) && Number.isInteger(end) && start >= 0 && start <= end && end <= len;
+      return ok ? { start, end } : { start: len, end: len };
+    }
+
+    /** האם הכלי מקבל את הטקסט המסומן. קישור הוא בתוך שורה, ולכן טקסט מסומן שחוצה שורות — לא (הכרעה של המשתמש). */
+    _mdToolAccepts(tool, selected){
+      return !(tool.inline && selected.indexOf('\n') !== -1);
+    }
+
+    /**
+     * **ההזרקה עצמה — טהורה, בלי DOM**, ולכן נבדקת ישירות. מחזירה ``{ value, selStart, selEnd }`` —
+     * הטקסט החדש ומה שמסומן אחריו — או ``null`` כשהכלי אינו מקבל את הטקסט המסומן (``_mdToolAccepts``):
+     * אז לא מוזרק כלום.
+     *
+     * הטקסט המסומן נכנס למשבצת ``fromSelection`` במקום ה-placeholder. בלוק עומד בשורות משלו: אם לפניו
+     * יש טקסט באותה שורה נוספת לפניו ירידת שורה, ואם אחריו יש טקסט באותה שורה — גם אחריו. קישור
+     * נשאר בתוך השורה.
+     *
+     * ההיסטים הם ביחידות של ``String``, כמו ``selectionStart`` (UTF-16), ולכן אין כאן המרה.
+     */
+    _mdToolInsertion(value, start, end, tool){
+      const text = String(value == null ? '' : value);
+      const range = this._mdToolRange(text, start, end);
+      const selected = text.slice(range.start, range.end);
+      if (!this._mdToolAccepts(tool, selected)) return null;
+      const before = text.slice(0, range.start);
+      const after = text.slice(range.end);
+      let out = before;
+      if (tool.block && before && !before.endsWith('\n')) out += '\n';
+      let selStart = out.length;
+      let selEnd = out.length;
+      for (const part of tool.parts) {
+        if (typeof part === 'string') { out += part; continue; }
+        const filled = part.slot === tool.fromSelection && selected !== '';
+        const at = out.length;
+        out += filled ? selected : part.placeholder;
+        if (part.slot === tool.selectAfter) {
+          // טקסט שהמשתמש סימן כבר מילא את המשבצת, ואין בה מה לסמן — הסמן נעמד בסופה.
+          selStart = filled ? out.length : at;
+          selEnd = out.length;
+        }
+      }
+      if (tool.block && after && !after.startsWith('\n')) out += '\n';
+      out += after;
+      return { value: out, selStart, selEnd };
+    }
+
+    /**
+     * פותח את החלונית "כלי MD": רשת של כפתורים, כל אחד עם אייקון ותווית בעברית מתחתיו. התווית חובה
+     * ולא רק ``title`` — בטאבלט אין ריחוף שיציג אותו.
+     *
+     * **לא מודאל — בלי רקע ובלי טשטוש**, בשונה מחלון התזכורת ומבורר הצבע: בזמן ההזרקה רואים את הפתק,
+     * איפה הסמן ומה כבר כתוב. לכן ``role="dialog"`` בלי ``aria-modal``.
+     *
+     * **ילד של הפתק, כמו תפריט ⋮** — זז איתו, נמחק איתו, ואינו משנה את המלבן שממנו המיקום נשמר.
+     * לכן גם אותם שני צעדים: ``_raiseToFront``, כי ה-``z-index`` שלו כלוא בתוך הפתק, ו-
+     * ``_syncNoteClipping``, כי הוא יושב מחוץ לפתק. וחלונית אחת לכל המנהל.
+     *
+     * כפתור שהכלי שלו אינו מקבל את הטקסט המסומן (קישור, כשהבחירה חוצה שורות) מושבת, ולא נראה זמין
+     * בלי לעשות דבר. המיקוד נכנס לכפתור הראשון שאינו מושבת, כמו בבורר הצבע.
+     */
+    _openMdTools(el){
+      const entry = this._getEntry(el);
+      const textarea = el ? el.querySelector('.sticky-note-content') : null;
+      if (!entry || !textarea || entry.mdTools) return;
+      this._closeMdToolsElsewhere(el);
+      const value = String(textarea.value == null ? '' : textarea.value);
+      const range = this._mdToolRange(value, textarea.selectionStart, textarea.selectionEnd);
+      const selected = value.slice(range.start, range.end);
+      const panel = createEl('div', 'sticky-md-tools sticky-note-outside', { role: 'dialog', 'aria-label': 'כלי MD' });
+      const grid = createEl('div', 'sticky-md-tools-grid');
+      const buttons = [];
+      this._mdTools().forEach((tool) => {
+        // קישור ובלוק מתקפל — מבנה, ולא אלרט: ``is-structure`` מפריד אותם בעין מהאלרטים שאחריהם.
+        const btn = createEl('button', tool.alertType ? 'sticky-md-tool' : 'sticky-md-tool is-structure', {
+          type: 'button', 'data-md-tool': tool.id
+        });
+        const icon = createEl('span', 'sticky-md-tool-icon', { 'aria-hidden': 'true' });
+        if (tool.alertType) this._appendAlertIcon(icon, tool.alertType);
+        else icon.appendChild(buildStrokeIcon(tool.iconShapes));
+        const label = createEl('span', 'sticky-md-tool-label');
+        label.textContent = tool.label;
+        btn.appendChild(icon);
+        btn.appendChild(label);
+        if (!this._mdToolAccepts(tool, selected)) {
+          btn.disabled = true;
+          btn.setAttribute('title', 'הטקסט המסומן חוצה שורות, וקישור הוא בתוך שורה אחת');
+        }
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation(); ev.preventDefault();
+          // **החלונית נסגרת לפני ההזרקה**, ובלי להחזיר פוקוס ל-⋮: הפוקוס עובר ל-textarea, אל הטקסט
+          // שמסומן למילוי. הכול באותה לחיצה, בלי השהיה — מיקוד מתוך הלחיצה הוא מה שפותח את המקלדת
+          // במכשיר מגע.
+          this._closeMdTools(el);
+          this._applyMdTool(el, tool);
+        });
+        grid.appendChild(btn);
+        buttons.push(btn);
+      });
+      panel.appendChild(grid);
+      // **מקשים בחלונית אינם מבעבעים**, כמו בתפריט ⋮: בדפדפן הריפו ``Escape`` ברמת העמוד סוגר חלוניות.
+      panel.addEventListener('keydown', (ev) => this._onMdToolsKey(el, ev));
+      panel.addEventListener('keyup', (ev) => ev.stopPropagation());
+      panel.addEventListener('keypress', (ev) => ev.stopPropagation());
+      el.appendChild(panel);
+      entry.mdTools = { panel };
+      this._raiseToFront(el);
+      this._syncNoteClipping(el);
+      this._layoutMdTools(el);
+      const first = buttons.find((b) => !b.disabled);
+      // ``preventScroll`` — מאותה סיבה כמו בתפריט ⋮: מיקוד רגיל גולל כל אב כדי לחשוף את הכפתור.
+      if (first) first.focus({ preventScroll: true });
+    }
+
+    /** סוגר את החלונית. ``returnFocus`` מחזיר את הפוקוס ל-⋮ — הפריט שפתח אותה כבר ירד מה-DOM עם התפריט. */
+    _closeMdTools(el, opts){
+      const entry = this._getEntry(el);
+      const st = entry && entry.mdTools;
+      if (!st) return;
+      entry.mdTools = null;
+      st.panel.remove();
+      this._syncNoteClipping(el);
+      if (opts && opts.returnFocus) {
+        const back = el.querySelector('.sticky-note-more');
+        if (back) back.focus({ preventScroll: true });
+      }
+    }
+
+    /** סוגר חלונית פתוחה בכל פתק אחר של המנהל — חלונית אחת בכל פעם. */
+    _closeMdToolsElsewhere(el){
+      for (const entry of this.notes.values()) {
+        if (entry && entry.el !== el && entry.mdTools) this._closeMdTools(entry.el);
+      }
+    }
+
+    /** לחיצה מחוץ לחלונית סוגרת אותה — ``pointerdown`` על ``document`` בשלב הלכידה, כמו תפריט ⋮. */
+    _onDocumentPointerDownForMdTools(ev){
+      const target = ev.target;
+      for (const entry of this.notes.values()) {
+        const st = entry && entry.mdTools;
+        if (!st) continue;
+        if (target && st.panel.contains(target)) continue;
+        this._closeMdTools(entry.el);
+      }
+    }
+
+    /**
+     * המקלדת בחלונית: ``Escape`` סוגר ומחזיר את הפוקוס ל-⋮. ``Tab`` עובר בין הכפתורים כרגיל, וכשהוא
+     * יוצא מהם — ``Tab`` מהאחרון או ``Shift+Tab`` מהראשון — החלונית נסגרת והפוקוס עובר ל-⋮ **בלי**
+     * לבטל את ברירת המחדל, כמו בתפריט: המעבר ממשיך מ-⋮, ולא מאלמנט שכבר ירד מה-DOM.
+     */
+    _onMdToolsKey(el, ev){
+      ev.stopPropagation();
+      const entry = this._getEntry(el);
+      const st = entry && entry.mdTools;
+      if (!st) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); this._closeMdTools(el, { returnFocus: true }); return; }
+      if (ev.key !== 'Tab') return;
+      const enabled = Array.prototype.slice.call(st.panel.querySelectorAll('.sticky-md-tool')).filter((b) => !b.disabled);
+      const at = enabled.indexOf(document.activeElement);
+      const leaving = ev.shiftKey ? at <= 0 : at === enabled.length - 1;
+      if (leaving) this._closeMdTools(el, { returnFocus: true });
+    }
+
+    /**
+     * **מיקום החלונית — כך שלא תסתיר את הפתק** (הכרעה של המשתמש): מעל הפתק, אם היא נכנסת שם; אחרת
+     * בצד שבו היא נכנסת ויש בו הכי הרבה שטח פנוי — שמאל, ימין או מתחת; ורק כשאין מקום באף צד — על
+     * הפתק עצמו, וכשצריך עם גלילה פנימית. "נכנסת" פירושו בלי גלילה ובלי לחרוג מהמלבן.
+     *
+     * **המלבן הוא מה שחותך בפועל** — ``_noteMenuBounds``, אותה תשובה שתפריט ⋮ מקבל: אזור התצוגה, חותך
+     * עם כל אב שבאמת חותך את הפתק (``.board-surface``, ``#code-viewer-container``).
+     *
+     * **מצמצמים לפני שמזיזים (H7).** בכל צד הרוחב מוגבל קודם למקום שיש בו, והרשת נשברת לפחות עמודות
+     * בעצמה (``auto-fill`` ב-CSS, שם גם יושב המספר המרבי של העמודות); רק אז נמדד הגובה, ורק אז נקבע
+     * המיקום. החשבון כולו הפרש בין מלבנים שנמדדו, ולכן נכון ב-RTL וב-LTR כאחד, ו-``left``/``top``
+     * נכתבים פיזיים בכוונה — כמו בתפריט, ומאותה סיבה (ההערה ב-``sticky-notes.css``).
+     *
+     * **חישוב לפני הציור הראשון, ולא חיישן** — אותו נימוק כמו בתפריט: הודעה של ``IntersectionObserver``
+     * מגיעה אחרי עדכון הרינדור, והחלונית הייתה נפתחת במקום אחד וקופצת לאחר. היא ממוקמת מחדש בכל
+     * גלילה ובשינוי גודל החלון, באותו פריים של התפריט והשרשורים.
+     */
+    _layoutMdTools(el){
+      const entry = this._getEntry(el);
+      const st = entry && entry.mdTools;
+      if (!st || !st.panel.isConnected) return;
+      const { panel } = st;
+      panel.style.width = '';
+      panel.style.maxHeight = '';
+      panel.style.top = '0px';
+      panel.style.left = '0px';
+      const bounds = this._noteMenuBounds(el);
+      const gap = NOTE_EDGE_GAP;
+      const off = NOTE_MENU_OFFSET;
+      const n = el.getBoundingClientRect();
+      const originX = n.left + (el.clientLeft || 0);
+      const originY = n.top + (el.clientTop || 0);
+      // הרוחב הטבעי — מה שה-CSS קובע (``width`` מפורש, ולכן אינו תלוי ברוחב הפתק שהחלונית יושבת בו).
+      const naturalWidth = panel.getBoundingClientRect().width;
+      const inner = { left: bounds.left + gap, top: bounds.top + gap, right: bounds.right - gap, bottom: bounds.bottom - gap };
+      const rooms = {
+        above: { w: inner.right - inner.left, h: (n.top - off) - inner.top },
+        left: { w: (n.left - off) - inner.left, h: inner.bottom - inner.top },
+        right: { w: inner.right - (n.right + off), h: inner.bottom - inner.top },
+        below: { w: inner.right - inner.left, h: inner.bottom - (n.bottom + off) },
+      };
+      // חצי פיקסל של סובלנות: הרוחב שנכתב הוא מספר עשרוני, והמדידה חוזרת עם עיגול משלה.
+      const SLACK = 0.5;
+      const fitIn = (room) => {
+        if (!(room.w > 0) || !(room.h > 0)) return null;
+        const width = Math.min(naturalWidth, room.w);
+        panel.style.width = width + 'px';
+        const r = panel.getBoundingClientRect();
+        // ``scrollWidth`` גדול מ-``clientWidth``: גם עמודה אחת לא נכנסה ברוחב הזה, והרשת גולשת הצידה.
+        if (panel.scrollWidth > panel.clientWidth || r.width > room.w + SLACK || r.height > room.h + SLACK) return null;
+        return { width, w: r.width, h: r.height };
+      };
+      let side = null;
+      let fit = fitIn(rooms.above);
+      if (fit) side = 'above';
+      else {
+        let best = -1;
+        ['left', 'right', 'below'].forEach((name) => {
+          const f = fitIn(rooms[name]);
+          const area = rooms[name].w * rooms[name].h;
+          if (f && area > best) { best = area; side = name; fit = f; }
+        });
+      }
+      let top;
+      let left;
+      if (side) {
+        panel.style.width = fit.width + 'px';
+        const centeredX = clamp(n.left + n.width / 2 - fit.w / 2, inner.left, inner.right - fit.w);
+        const alignedY = clamp(n.top, inner.top, inner.bottom - fit.h);
+        if (side === 'above') { top = n.top - off - fit.h; left = centeredX; }
+        else if (side === 'below') { top = n.bottom + off; left = centeredX; }
+        else if (side === 'left') { top = alignedY; left = n.left - off - fit.w; }
+        else { top = alignedY; left = n.right + off; }
+      } else {
+        // אין מקום באף צד — על הפתק עצמו. הגודל קודם, ורק אחריו המיקום.
+        panel.style.width = Math.max(0, Math.min(naturalWidth, inner.right - inner.left)) + 'px';
+        let r = panel.getBoundingClientRect();
+        const maxH = Math.max(0, inner.bottom - inner.top);
+        if (r.height > maxH) {
+          panel.style.maxHeight = Math.floor(maxH) + 'px';
+          r = panel.getBoundingClientRect();
+        }
+        top = clamp(n.top, inner.top, inner.bottom - r.height);
+        left = clamp(n.left + n.width / 2 - r.width / 2, inner.left, inner.right - r.width);
+      }
+      panel.style.top = Math.round(top - originY) + 'px';
+      panel.style.left = Math.round(left - originX) + 'px';
+    }
+
+    /** חלונית פתוחה בפתק כלשהו — ממקמים מחדש (גלילה, שינוי גודל חלון). */
+    _relayoutOpenMdTools(){
+      for (const entry of this.notes.values()) {
+        if (entry && entry.mdTools) this._layoutMdTools(entry.el);
+      }
+    }
+
+    /**
+     * מזריק את התבנית של הכלי לתוכן הפתק, במקום שבו הסמן היה, ומסמן את מה שצריך למלא — ``https://``
+     * בקישור, ``כותרת`` בבלוק מתקפל, ``תוכן ההתראה`` באלרט. מחזיר האם הוזרק משהו.
+     *
+     * כתיבה תכנותית ל-textarea אינה משדרת ``input``, ולכן הרישום לביטול, בדיקת האורך והשמירה עוברים
+     * ב-``_commitProgrammaticEdit`` — המסלול של כל כתיבה תכנותית. המיקוד והסימון ב-``_enterEditAt``,
+     * שמציג את ה-textarea לפני המיקוד: בפתק שהציג את התצוגה המרונדרת הוא מוסתר, ואי אפשר למקד אלמנט
+     * מוסתר.
+     */
+    _applyMdTool(el, tool){
+      const textarea = el.querySelector('.sticky-note-content');
+      if (!textarea) return false;
+      const before = String(textarea.value == null ? '' : textarea.value);
+      const result = this._mdToolInsertion(before, textarea.selectionStart, textarea.selectionEnd, tool);
+      if (!result) return false;
+      textarea.value = result.value;
+      this._commitProgrammaticEdit(el, textarea, before);
+      this._enterEditAt(el, result.selStart, result.selEnd);
+      return true;
     }
 
     _openReminderModal(el){
@@ -4467,7 +4904,12 @@
       // בלי זה התצוגה היא דלת חד-כיוונית: מרגע שנכתב צ'קבוקס אחד, אי אפשר
       // היה להוסיף או למחוק טקסט בפתק — ה-textarea מוסתר ואין מה שיחזיר
       // אליו את הפוקוס.
-      _enterEditAt(el, charOffset){
+      //
+      // ``charEnd`` (אופציונלי) מסמן טווח במקום סמן — ``_applyMdTool`` מסמן כך
+      // את הטקסט שצריך למלא. ``selectionStart`` נכתב לפני ``selectionEnd``:
+      // התחלה שעוברת את הסוף הקיים מזיזה גם אותו, וסוף שנכתב אחריה מותח את
+      // הטווח בחזרה (HTML Standard, ``selectionStart`` ו-``selectionEnd``).
+      _enterEditAt(el, charOffset, charEnd){
         try {
           const textarea = el.querySelector('.sticky-note-content');
           if (!textarea) return;
@@ -4476,9 +4918,15 @@
           textarea.focus();
           if (Number.isFinite(charOffset)) {
             const pos = clamp(Math.round(charOffset), 0, textarea.value.length);
-            try { textarea.selectionStart = textarea.selectionEnd = pos; } catch(_) {}
+            const endPos = Number.isFinite(charEnd) ? clamp(Math.round(charEnd), pos, textarea.value.length) : pos;
+            textarea.selectionStart = pos;
+            textarea.selectionEnd = endPos;
           }
-        } catch(_) {}
+        } catch(e) {
+          // **נרשם, ולא נבלע.** בלי זה כניסה לעריכה שנכשלה — מהתצוגה, או אחרי הזרקה מכלי MD —
+          // נראית כמו לחיצה שלא עשתה כלום, בלי שום עקבה.
+          console.warn('sticky note: entering edit failed', e);
+        }
       }
 
       // ── חיפוש בתוך פתק ──────────────────────────────────────────────
@@ -5099,7 +5547,7 @@
 
       /**
        * **הפתק מפסיק לחתוך כשיש לו ילדים מחוץ לגבולותיו** — תיבת החיפוש, בועות
-       * השרשורים, החלונית, ותפריט ⋮. זה המנגנון של החיפוש (``docs/dev/sticky_notes_extending_ui.rst``,
+       * השרשורים, החלונית שלהם, תפריט ⋮, והחלונית "כלי MD". זה המנגנון של החיפוש (``docs/dev/sticky_notes_extending_ui.rst``,
        * "התיבה: ילד של הפתק"), מוכלל: ``overflow: visible`` על הפתק, וכל ילד אחר חותך
        * את עצמו — ``.is-unclipped`` ב-CSS. מקום אחד מחליט, כדי שהפיצ'רים לא יכבו
        * זה לזה את המצב.
@@ -5110,7 +5558,10 @@
         const threadsOutside = !!(st && (st.row || st.panel || st.menu));
         // תפריט ⋮ יוצא מהפתק כשהפתק נמוך ממנו — פתק ממוזער הוא שורת הכותרת בלבד.
         const menuOutside = !!(entry && entry.noteMenu);
-        el.classList.toggle('is-unclipped', this._isNoteSearching(el) || threadsOutside || menuOutside);
+        // החלונית "כלי MD" יושבת ליד הפתק — מעליו, בצד או מתחתיו — ולא בתוכו (``_layoutMdTools``).
+        const mdToolsOutside = !!(entry && entry.mdTools);
+        el.classList.toggle('is-unclipped',
+          this._isNoteSearching(el) || threadsOutside || menuOutside || mdToolsOutside);
       }
 
       /**
@@ -6325,6 +6776,21 @@
           if (from !== after) this._pushUndo(el, from);
           this._syncUndoButton(el);
         } catch(_) {}
+      }
+
+      /**
+       * **כל מה שכתיבה תכנותית ל-textarea חייבת לעשות — במקום אחד.** ``input`` נורה רק על הקלדה של
+       * אדם, ולכן מה שמאזין ה-``input`` עושה בהקלדה נעשה כאן בעצמו: רישום לביטול
+       * (``_noteProgrammaticEdit``), בדיקת האורך (``_checkContentLength``) ושמירה (``_queueSave``).
+       *
+       * **עד שהמקום הזה נכתב, המשך הרשימה דילג על בדיקת האורך**: Enter שהוסיף תבליט יכול היה לעבור
+       * את התקרה בלי שהאזהרה תופיע, עד ההקלדה הבאה. שלושה צעדים שכל קורא חייב לזכור הם בדיוק מה
+       * שנשכח; לכן הם כאן, וכל כתיבה תכנותית — המשך הרשימה וכלי MD — עוברת דרכו.
+       */
+      _commitProgrammaticEdit(el, textarea, before){
+        this._noteProgrammaticEdit(el, textarea, before);
+        this._checkContentLength(el, textarea.value);
+        this._queueSave(el, { content: textarea.value });
       }
 
       // תוכן סמכותי מהשרת מאפס את נקודת ההשוואה.

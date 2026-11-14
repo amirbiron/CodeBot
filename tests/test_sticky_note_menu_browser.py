@@ -57,7 +57,8 @@ MENU_JS = """(nid) => {
   const hit = document.elementFromPoint(ib.left + ib.width / 2, ib.top + ib.height / 2);
   out.menu = box(menu);
   out.above = menu.classList.contains('is-above');
-  out.items = [...menu.querySelectorAll('.sticky-note-menu-item')].map((b) => b.textContent);
+  // **המזהים (``data-menu-item``), ולא הטקסט**: לפריט שהאייקון שלו קובץ ("כלי MD") אין טקסט.
+  out.items = [...menu.querySelectorAll('.sticky-note-menu-item')].map((b) => b.getAttribute('data-menu-item'));
   out.hitsItem = hit === item || item.contains(hit);
   return out;
 }"""
@@ -93,8 +94,8 @@ def test_the_menu_opens_down_into_the_note(browser):  # noqa: F811
     np = NotePage(browser, [note("a", "שורה\n" * 12, w=360, h=320, x=200, y=160)], viewport=DESKTOP)
     try:
         m = open_menu(np, "a")
-        # פתק לוח: גם 📎, הנעיצה לראש עמוד הקבצים (בפתק קובץ ובפתק ריפו אין אותו)
-        assert m["items"] == ["🔔", "📎", "🗃️"], m
+        # פתק לוח: גם 📎, הנעיצה לראש עמוד הקבצים (בפתק קובץ ובפתק ריפו אין אותו). כלי MD ראשון.
+        assert m["items"] == ["md-tools", "reminder", "files-page-pin", "archive"], m
         assert m["expanded"] == "true" and m["unclipped"], m
         assert not m["above"] and m["menu"]["top"] >= m["more"]["bottom"], m
         assert centered_under_more(m) < 1, m
@@ -359,7 +360,7 @@ def test_keyboard_opens_moves_and_closes_and_keys_stay_in_the_menu(browser):  # 
         np.page.wait_for_selector(np.sel("k", ".sticky-note-menu"))
         assert np.page.evaluate(FOCUS_JS) == "sticky-note-menu-item"
         np.page.keyboard.press("ArrowDown")
-        assert np.page.evaluate(FOCUS_JS) == "sticky-note-menu-item", "פריט אחד — ArrowDown חוזר אליו"
+        assert np.page.evaluate(FOCUS_JS) == "sticky-note-menu-item", "ArrowDown עובר לפריט הבא, בתוך התפריט"
         np.page.keyboard.press("Escape")
         m = np.page.evaluate(MENU_JS, "k")
         assert m["menu"] is None and m["expanded"] == "false", m
@@ -382,7 +383,7 @@ WHERE_FOCUS_JS = """() => { const a = document.activeElement;
 
 @pytest.mark.parametrize("how", ["close-button", "backdrop"])
 def test_choosing_the_bell_moves_focus_into_the_reminder_window_and_back_to_more(browser, how):  # noqa: F811
-    """מהמקלדת: ⋮ ← Enter ← Enter על 🔔 — המיקוד עובר לכפתור הקיצור הראשון בחלון, ובסגירה חוזר ל-⋮.
+    """מהמקלדת: ⋮ ← Enter ← חץ למטה אל 🔔 ← Enter — המיקוד עובר לכפתור הקיצור הראשון בחלון, ובסגירה חוזר ל-⋮.
 
     הפריט שנלחץ יורד מה-DOM יחד עם התפריט, ולכן בלי מיקוד מפורש בחלון המיקוד נפל ל-``body`` —
     משתמש מקלדת היה ממשיך מראש העמוד, מאחורי החלון. ובסגירה, כשהחלון יורד, אותו דבר.
@@ -392,6 +393,9 @@ def test_choosing_the_bell_moves_focus_into_the_reminder_window_and_back_to_more
         np.page.focus(np.sel("r", ".sticky-note-more"))
         np.page.keyboard.press("Enter")
         np.page.wait_for_selector(np.sel("r", ".sticky-note-menu"))
+        # 🔔 הוא הפריט השני — הראשון הוא כלי MD.
+        np.page.keyboard.press("ArrowDown")
+        assert np.page.evaluate("() => document.activeElement.getAttribute('data-menu-item')") == "reminder"
         np.page.keyboard.press("Enter")
         np.page.wait_for_selector(".sticky-reminder-modal")
         f = np.page.evaluate(WHERE_FOCUS_JS)

@@ -42,7 +42,8 @@ STATIC_DIR = REPO_ROOT / "webapp" / "static"
 
 STYLESHEETS = ("css/markdown-enhanced.css", "css/high-contrast.css", "css/dark-mode.css", "css/sticky-notes.css")
 MODULE = "js/utils/text-highlight.js"
-MIME = {".js": "application/javascript", ".css": "text/css"}
+#: ``.svg`` — אייקון מקובץ בתפריט ⋮ (``iconFile``, "כלי MD"). בלי סוג נכון ``<img>`` אינו מצייר SVG.
+MIME = {".js": "application/javascript", ".css": "text/css", ".svg": "image/svg+xml"}
 
 #: ``fetch`` מדומה. שומר את התוכן האחרון של כל פתק (מה-``PUT`` של הלקוח,
 #: שנשלח כ-``content_b64``), ועל ``POST .../task`` הופך את המשימה במקום

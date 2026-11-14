@@ -1970,6 +1970,108 @@
   outline: 2px solid #1d4ed8;
   outline-offset: -2px;
 }
+/* **אייקון מקובץ** (``iconFile`` ב-``NOTE_MENU_ITEMS`` — היום "כלי MD"). הגודל ב-``em``, כלומר יחסית
+   ל-``font-size`` של הפריט, שהוא גם הגודל של האימוג'ים שלידו — כך שינוי שלו מזיז את שניהם יחד. היחס
+   נמדד ולא נוחש, בגודל הדיו ולא בגודל הקופסה (באימוג'י ובציור יש שוליים שקופים שונים): בכרומיום
+   153 עם Noto Color Emoji, ב-14.11.2026, הדיו של 🔔 ו-📎 יצא כ-20 פיקסלים בפריט של 18, והציור ב-
+   ``1.3em`` — 19.8×19.5; ב-``1.2em`` הוא יצא 18.2×18. גופן אימוג'י אחר (אפל, סמסונג) מצייר מעט אחרת.
+   הבדיקה שמשווה: ``test_the_icon_file_looks_the_size_of_the_emoji_beside_it`` ב-
+   ``tests/test_sticky_md_tools_browser.py``. ``pointer-events: none`` — הלחיצה שייכת לכפתור, ובמגע
+   לחיצה ארוכה על תמונה הייתה פותחת את תפריט "שמירת תמונה" של הדפדפן. */
+.sticky-note-menu-icon {
+  display: block;
+  width: 1.3em;
+  height: 1.3em;
+  margin: auto;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ----- כלי MD ----- */
+/* החלונית שנפתחת מ"כלי MD" בתפריט ⋮ (``_openMdTools`` ב-``sticky-notes.js``): רשת של כפתורים, אייקון
+   ותווית בעברית מתחתיו. **לא מודאל** — בלי רקע ובלי טשטוש, כדי שהפתק יישאר גלוי בזמן ההזרקה. היא ילד
+   של הפתק, כמו תפריט ⋮, ומעתיקה ממנו את הנייר, הדיו והצל: הצבעים ליטרליים מאותה סיבה (הפתק הוא נייר
+   קבוע בכל הערכות), ו-``left``/``top`` פיזיים מאותה סיבה — ``_layoutMdTools`` כותב אותם כהפרש בין
+   מלבנים שנמדדו.
+
+   **מספר העמודות המרבי — כאן בלבד** (``--md-tools-cols``). הרוחב הטבעי מפורש, ולכן אינו תלוי ברוחב
+   הפתק שהחלונית יושבת בו: אלמנט ``absolute`` בלי רוחב מתכווץ לרוחב ה-containing block, כלומר לרוחב
+   הפתק. כשאין מקום, ``_layoutMdTools`` מצמצם את ``width`` בלבד, ו-``auto-fill`` שובר את הרשת לפחות
+   עמודות בעצמו — אין עותק של המספר ב-JS. ``overflow: auto`` נכנס לפעולה רק במוצא האחרון, כשהחלונית
+   יושבת על הפתק ו-``_layoutMdTools`` מגביל את הגובה. */
+.sticky-md-tools {
+  --md-tools-cols: 6;
+  --md-tools-cell: 68px;
+  --md-tools-gap: 4px;
+  --md-tools-pad: 6px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 6;
+  box-sizing: border-box;
+  width: calc(var(--md-tools-cols) * var(--md-tools-cell)
+    + (var(--md-tools-cols) - 1) * var(--md-tools-gap) + 2 * var(--md-tools-pad));
+  padding: var(--md-tools-pad);
+  overflow: auto;
+  background: #fcfbf8;
+  color: #24314f;
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(10, 14, 22, .45), 0 0 0 1px rgba(43, 63, 106, .10);
+}
+.sticky-md-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--md-tools-cell), 1fr));
+  gap: var(--md-tools-gap);
+}
+/* כפתור: אייקון ומתחתיו התווית. התווית עד שתי שורות ("משימות לביצוע"), ושורות הרשת מתיישרות לגבוה
+   שבהן. */
+.sticky-md-tool {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 2px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+.sticky-md-tool:hover { background: rgba(43, 63, 106, .06); }
+.sticky-md-tool:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: -2px;
+}
+/* **קישור ובלוק מתקפל — מבנה, ולא אלרט**, ולכן רקע עדין משלהם: הפרדה שנשמרת גם כשהרשת נשברת לפחות
+   עמודות, בשונה מקו מפריד שהיה נוחת בסוף שורה. */
+.sticky-md-tool.is-structure { background: rgba(43, 63, 106, .07); }
+.sticky-md-tool.is-structure:hover { background: rgba(43, 63, 106, .12); }
+.sticky-md-tool:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+.sticky-md-tool:disabled:hover { background: rgba(43, 63, 106, .07); }
+.sticky-md-tool-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+}
+/* האייקונים של האלרטים מגיעים מ-``ADMONITION_ICONS`` עם ``width``/``height`` של 16 כתכונות, ושל
+   הקישור והבלוק — מ-``buildStrokeIcon`` בלי גודל. גודל אחד לכולם, מכאן. */
+.sticky-md-tool-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.sticky-md-tool-label {
+  font-size: 12px;
+  line-height: 1.25;
+  text-align: center;
+}
 
 /* **ערכת הניגודיות הגבוהה: החלונית, הרשימה ותפריט ⋮ מצטרפים לערכה**, כמו תיבת החיפוש — שחור,
    טקסט לבן, גבול לבן. הערכה כופה ממילא ב-``!important`` על כל ``button`` ו-``textarea`` רקע
@@ -1977,12 +2079,16 @@
    בועות שחורות עם גבול לבן — מספר או ✓ מבדילים ביניהן, לא הגוון. */
 [data-theme="high-contrast"] .sticky-note .sticky-thread-panel,
 [data-theme="high-contrast"] .sticky-note .sticky-thread-menu,
-[data-theme="high-contrast"] .sticky-note .sticky-note-menu {
+[data-theme="high-contrast"] .sticky-note .sticky-note-menu,
+[data-theme="high-contrast"] .sticky-note .sticky-md-tools {
   background: #000;
   color: #fff;
   border: 2px solid #fff;
   box-shadow: none;
 }
+/* קישור ובלוק מתקפל בחלונית "כלי MD": הערכה כופה על כל ``button`` רקע שחור וגבול לבן ב-``!important``,
+   ולכן הרקע העדין שמפריד אותם מהאלרטים נבלע — ההפרדה נאמרת כאן בגבול מקווקו. */
+[data-theme="high-contrast"] .sticky-note .sticky-md-tool.is-structure { border-style: dashed !important; }
 [data-theme="high-contrast"] .sticky-note .sticky-thread-arrow {
   background: #000;
   border: 2px solid #fff;
