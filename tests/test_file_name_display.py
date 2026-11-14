@@ -253,9 +253,10 @@ def test_the_filter_is_registered_on_the_app():
 
 
 class _VisibleText(HTMLParser):
-    """הטקסט הגלוי של תבנית — בלי מאפיינים, בלי ``<script>``, ``<style>`` ו-``<title>``."""
+    """הטקסט שאפשר לשים בו ``<bdi>`` — בלי מאפיינים, בלי ``<script>`` ו-``<style>``, ובלי ``<title>`` ו-``<option>``:
+    התוכן של שני האחרונים הוא טקסט בלבד, והדפדפן לא מציג בהם תגיות (כך האפשרויות בבורר של ``compare_files.html``)."""
 
-    SKIP = {"script", "style", "title"}
+    SKIP = {"script", "style", "title", "option"}
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=False)
@@ -275,17 +276,20 @@ class _VisibleText(HTMLParser):
             self.chunks.append(data)
 
 
-#: התבניות שמציגות שם קובץ של המשתמש בשרת (המיפוי של ה-PR, נובמבר 2026).
-SERVER_TEMPLATES = [
-    "files.html", "view_file.html", "md_preview.html", "html_preview.html", "svg_preview.html", "compare.html",
-    "trash.html", "dashboard.html",
-]
+#: **כל** התבניות, ולא רשימה ביד. הרשימה הקודמת הייתה המיפוי של PR #3693, ו-``shared_files.html`` — עמוד הקבצים ששותפו
+#: בקישור — לא היה בו, ולכן נשאר עם השם כמו שהוא. תבנית חדשה, או כזו שהמיפוי מחמיץ, נכשלת כאן מעצמה.
+SERVER_TEMPLATES = sorted(path.relative_to(TEMPLATES).as_posix() for path in TEMPLATES.rglob("*.html"))
+
+
+def test_the_template_scan_sees_the_templates():
+    """רשימה ריקה הייתה הופכת את הסריקה שלמטה לדילוג שקט ("got empty parameter set"), ולא לכישלון."""
+    assert {"files.html", "dashboard.html", "shared_files.html", "compare_files.html"} <= set(SERVER_TEMPLATES)
 
 
 @pytest.mark.parametrize("template_name", SERVER_TEMPLATES)
 def test_every_visible_file_name_in_the_template_goes_through_the_filter(template_name):
     """``{{ ….file_name }}`` בטקסט גלוי בלי ``|file_name`` היה מציג שם עברי שנגמר בחלק לטיני עם הסיומת באמצע. מאפיינים
-    (``title``, ``data-*``, ``alt``), ``<title>`` ו-JS אינם טקסט גלוי, ושם אי אפשר תגיות — הם נשארים כמו שהם."""
+    (``title``, ``data-*``, ``alt``), ``<title>``, ``<option>`` ו-JS אינם מקום לתגיות — הם נשארים כמו שהם."""
     source = (TEMPLATES / template_name).read_text(encoding="utf-8")
     source = re.sub(r"\{#.*?#\}", "", source, flags=re.S)
     source = re.sub(r"\{%\s*block title\s*%\}.*?\{%\s*endblock\s*%\}", "", source, flags=re.S)

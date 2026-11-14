@@ -183,6 +183,34 @@ def test_the_name_in_the_files_card_and_the_file_page_headings(fixed, chromium_e
             assert not shape["dot_left_of_tail"], f"{name}: בקרה — בלי הפילטר הסיומת באמצע; אחרת המדידה אינה מבחינה: {shape}"
 
 
+def _shared_files_html(filters) -> str:
+    """רשת הכרטיסים של ``shared_files.html`` — עמוד הקבצים ששותפו בקישור — מהתבנית האמיתית, עם שם שמפורק."""
+    source = (TEMPLATES_DIR / "shared_files.html").read_text(encoding="utf-8")
+    start = '<div style="display:grid;'
+    begin = source.index(start)
+    stop = source.index("{% endfor %}", begin) + len("{% endfor %}")
+    item = {"id": "s1", "file_name": SPLIT, "language": "markdown", "icon": "", "size": "1 KB", "lines": 3}
+    body = _render_fragment(source[begin:stop] + "</div>", filters=filters, items=[item], lang_icon=_lang_icon,
+                            LANG_ICON_SIZES=SimpleNamespace(list=16))
+    return _rtl_page(body)
+
+
+@pytest.mark.parametrize("fixed", [True, False], ids=["fixed", "control"])
+def test_the_name_in_the_shared_files_page(fixed, chromium_executable):
+    """הכרטיס בעמוד הקבצים המשותפים, עם ה-``line-clamp`` שלו. לא היה במיפוי של PR #3693, ונמצא בריוויו של #3694."""
+    pages = {"/shared": _shared_files_html(None if fixed else PLAIN_FILTERS)}
+    with _browser(chromium_executable) as browser:
+        page = _open(browser, pages, "/shared")
+        shape = _shape(page, "strong")
+        assert page.locator("strong").first.evaluate("(el) => el.textContent.trim()") == SPLIT
+        assert not page.js_errors, page.js_errors
+        page.context.close()
+    if fixed:
+        assert shape == SPLIT_RIGHT, shape
+    else:
+        assert not shape["dot_left_of_tail"], f"בקרה — בלי הפילטר הסיומת באמצע; אחרת המדידה אינה מבחינה: {shape}"
+
+
 def _dashboard_html(filters) -> str:
     event = {"group": "files", "accent": "", "icon": "", "title": f"עודכן {SHORT_SPLIT}", "subtitle": "",
              "relative_time": "עכשיו", "meta": {"action": "עודכן", "file_name": SHORT_SPLIT}}
