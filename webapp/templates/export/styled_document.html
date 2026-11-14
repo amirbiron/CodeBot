@@ -575,6 +575,9 @@
         התגית), המנוע של התצוגה החיה — אותו partial של עמודי העורך, בלי עותק שני של הרשימה — ומה שמרנדר אותו. כולם
         ``defer``, ולכן הם רצים אחרי סקריפט ההעתקה שמעל, שמשאיר את ``window.ckAttachCopyButtons`` למסמך שעוד יגיע. #}
     <script type="application/json" id="ckShareSource">{{ share_source | tojson }}</script>
+    {#- ``utils/file-name.js`` לפני ה-partial: ``utils/rtl-code.js`` שבו קורא ממנו את הפירוק של שם קובץ בקוד בשורה, והעמוד
+        הזה אינו יורש מ-``base.html``, שטוען אותו בכל עמוד אחר. ``defer`` כמו כולם, ולכן הוא רץ ראשון. #}
+    <script src="{{ url_for('static', filename='js/utils/file-name.js') }}?v={{ static_version }}" defer></script>
 {% include "_live_preview_scripts.html" %}
     <script src="{{ url_for('static', filename='js/utils/styled-export-core.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/styled-share-view.js') }}?v={{ static_version }}" defer></script>

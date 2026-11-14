@@ -167,9 +167,9 @@ def client(db, monkeypatch):
     })
     monkeypatch.setattr(app_mod, "_get_active_dismissals", lambda *_a, **_k: [])
     monkeypatch.setattr(app_mod, "_build_files_need_attention", lambda *_a, **_k: {
-        "missing_metadata": [], "stale_files": [], "total_missing": 0, "total_stale": 0,
-        "shown_missing": 0, "shown_stale": 0, "has_items": False,
-        "settings": {"stale_days": 60, "max_items": 10},
+        "missing_metadata": [], "total_missing": 0,
+        "shown_missing": 0, "has_items": False,
+        "settings": {"max_items": 10},
     })
     monkeypatch.setattr(app_mod, "user_stats", types.SimpleNamespace(
         get_all_time_stats=lambda: {"total_users": 1, "active_today": 1, "active_week": 1},

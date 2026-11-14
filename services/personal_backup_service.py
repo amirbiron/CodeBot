@@ -44,13 +44,13 @@ BOARDS_EXPORT_LIMIT = 500
 
 # שדות מותריים לשחזור ב-user_preferences (allowlist)
 USER_PREFERENCES_ALLOWLIST = {
+    # אותם שדות כמו ``allowed_fields`` ב-``api_update_attention_settings`` (``webapp/routes/settings_routes.py``).
+    # ``stale_days`` ו-``show_stale_files`` הוסרו משם בנובמבר 2026, ולכן גם גיבוי ישן שמכיל אותם לא משחזר אותם.
     "attention_settings": {
         "enabled",
-        "stale_days",
         "max_items_per_group",
         "show_missing_description",
         "show_missing_tags",
-        "show_stale_files",
     }
 }
 
@@ -1891,15 +1891,12 @@ def _sanitize_user_preferences(prefs: Dict[str, Any]) -> Dict[str, Any]:
                 continue
             val = att.get(key)
             try:
-                if key == "stale_days":
-                    val = min(max(int(val), 7), 365)
-                elif key == "max_items_per_group":
+                if key == "max_items_per_group":
                     val = min(max(int(val), 3), 50)
                 elif key in (
                     "enabled",
                     "show_missing_description",
                     "show_missing_tags",
-                    "show_stale_files",
                 ):
                     if isinstance(val, bool):
                         pass

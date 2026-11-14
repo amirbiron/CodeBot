@@ -56,11 +56,10 @@
 # בדיקת עדכון הגדרות
 curl -X PUT http://localhost:5000/api/settings/attention \
   -H "Content-Type: application/json" \
-  -d '{"enabled": true, "stale_days": 30}' \
+  -d '{"enabled": true, "max_items_per_group": 5}' \
   --cookie "session=<YOUR_SESSION>"
 ```
 - [ ] וודא שהעדכון מחזיר `{"ok": true}`
-- [ ] וודא ש-stale_days מוגבל לטווח 7-365
 - [ ] וודא ש-max_items_per_group מוגבל לטווח 3-50
 - [ ] וודא שערכים לא תקינים מחזירים שגיאה 400
 

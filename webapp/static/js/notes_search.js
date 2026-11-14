@@ -161,7 +161,11 @@
     meta.className = 'notes-search-meta';
     var where = TARGET_LABELS[hit.target] || TARGET_LABELS.unknown;
     var detail = hit.file_name || hit.repo_path || '';
-    meta.textContent = detail ? (where + ' · ' + detail) : where;
+    meta.textContent = detail ? (where + ' · ') : where;
+    // שם קובץ כ-``<bdi>`` (``FileName.element`` ב-``utils/file-name.js``), כדי ששם עברי שנגמר בחלק לטיני יוצג עם הסיומת
+    // בקצה השמאלי. נתיב בריפו נשאר טקסט. הטקסט של השורה כולה — "קובץ · NAME" — לא משתנה.
+    if (hit.file_name) meta.appendChild(window.FileName.element(hit.file_name));
+    else if (detail) meta.appendChild(document.createTextNode(String(detail)));
     body.appendChild(meta);
 
     link.appendChild(body);

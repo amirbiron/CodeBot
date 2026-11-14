@@ -279,6 +279,8 @@ from file_tags import normalize_quick_update_tags, split_tags_text  # noqa: E402
 from webapp_url import approval_notice, log_webapp_url_status, webapp_base_url_for_request, webapp_url_status  # noqa: E402
 from user_stats import user_stats  # noqa: E402
 from webapp.size_format import format_file_size as _format_file_size_shared
+# שם קובץ בשורה עברית (הפילטר ``file_name``) — התאום של ``utils/file-name.js``. ראו file_name_display.py.
+from webapp.file_name_display import TEMPLATE_FILTERS as _FILE_NAME_TEMPLATE_FILTERS  # noqa: E402
 from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 # הצ'קליסט "צעדים ראשונים" בדשבורד: שמות הדגלים ב-``ui_prefs`` ש-``/api/ui_prefs`` כותב,
@@ -11871,6 +11873,13 @@ def format_time_hhmm(value) -> str:
     except Exception:
         return ''
 
+# ``{{ file.file_name|file_name }}`` — שם קובץ כ-``<bdi>``, עם הסיומת בקצה השמאלי כשהיא הייתה נדבקת לחלק הלטיני.
+# הפילטרים והשמות שלהם מוגדרים ב-``webapp/file_name_display.py`` (``TEMPLATE_FILTERS``), וטסטים שמרנדרים תבניות
+# בסביבת Jinja משלהם מוסיפים אותם משם — כך השם כתוב פעם אחת.
+for _filter_name, _filter_func in _FILE_NAME_TEMPLATE_FILTERS.items():
+    app.add_template_filter(_filter_func, _filter_name)
+
+
 # מסנן Jinja להצגת תאריך כולל (DD/MM/YYYY HH:MM)
 @app.template_filter('datetime_display')
 def jinja_datetime_display(value) -> str:
@@ -12851,7 +12860,10 @@ def _build_file_timeline_event(doc: Dict[str, Any]) -> Dict[str, Any]:
         badge=file_badge,
         badge_variant='code',
         href=f"/file/{doc.get('_id')}",
-        meta={'details': " · ".join(details)},
+        # ``action`` ו-``file_name`` בנפרד מ-``title``: הדשבורד בונה את השם כ-``<bdi>`` משלו (הפילטר ``file_name``
+        # בתבנית, ``FileName.element`` ב"טען עוד"), כדי ששם עברי שנגמר בחלק לטיני יוצג עם הסיומת בקצה השמאלי.
+        # ``title`` נשאר המחרוזת המלאה, מאותם שני ערכים.
+        meta={'details': " · ".join(details), 'action': action, 'file_name': file_name},
     )
 
 
@@ -12991,23 +13003,23 @@ def _build_files_need_attention(
     db,
     user_id: int,
     max_items: int = 10,
-    stale_days: int = 60,
     dismissed_ids: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """
-    בונה נתונים עבור ווידג'ט "קבצים שדורשים טיפול".
-    
+    בונה נתונים עבור ווידג'ט "קבצים שדורשים טיפול": קבצים שחסר להם תיאור או תגיות.
+
+    עד נובמבר 2026 הייתה בווידג'ט גם קבוצה שנייה, "לא עודכן זמן רב" (קבצים שלא עודכנו 60 יום), והיא הוסרה לפי
+    בקשת המשתמש — ואיתה השאילתה והספירה שלה בכל טעינה של הדשבורד.
+
     Args:
         db: חיבור למסד הנתונים
         user_id: מזהה המשתמש
-        max_items: מקסימום פריטים להצגה בכל קבוצה
-        stale_days: מספר ימים לאחריהם קובץ נחשב "לא עודכן זמן רב"
+        max_items: מקסימום פריטים להצגה
         dismissed_ids: רשימת מזהים שהמשתמש דחה (להסתרה זמנית)
-    
+
     Returns:
         מילון עם נתוני הווידג'ט
     """
-    from datetime import datetime, timezone, timedelta
     from database.repository import HEAVY_FIELDS_EXCLUDE_PROJECTION
     
     dismissed_ids = dismissed_ids or []
@@ -13019,17 +13031,12 @@ def _build_files_need_attention(
             pass
     
     missing_metadata: List[Dict[str, Any]] = []
-    stale_files: List[Dict[str, Any]] = []
     result: Dict[str, Any] = {
         'missing_metadata': missing_metadata,
-        'stale_files': stale_files,
         'total_missing': 0,
-        'total_stale': 0,
         'shown_missing': 0,
-        'shown_stale': 0,
         'has_items': False,
         'settings': {
-            'stale_days': stale_days,
             'max_items': max_items
         }
     }
@@ -13059,7 +13066,7 @@ def _build_files_need_attention(
     def _count_latest(match_extra: Optional[Dict[str, Any]]) -> Optional[int]:
         # רק סופר — אבל עדיין צריך את מסמך הגרסה האחרונה, כי הסינונים
         # שאחרי הקיבוץ (``dismissed_oids`` על ``_id``, ו-``match_extra`` על
-        # ``description``/``tags``/``updated_at``) חלים עליו ולא על כל גרסה.
+        # ``description``/``tags``) חלים עליו ולא על כל גרסה.
         # ``$project {file_name: 1}`` היה מוחק בדיוק את השדות האלה, והספירה
         # הייתה יוצאת אפס.
         pipeline = _latest_version_per_file_stages(base_query, non_empty_only=False)
@@ -13133,66 +13140,7 @@ def _build_files_need_attention(
             'reason_text': ' + '.join(reasons) if reasons else 'חסר מידע'
         })
     
-    # =====================================================
-    # קבוצה 2: קבצים שלא עודכנו זמן רב
-    # =====================================================
-    # תנאי מפתח: רק קבצים עם מטא-דאטה תקין!
-    # קובץ נחשב "stale" רק אם:
-    #   - updated_at ישן
-    #   - description קיים ולא ריק
-    #   - tags קיים ויש בו לפחות איבר אחד
-    
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=stale_days)
-    
-    stale_query = dict(base_query)
-    stale_query['updated_at'] = {'$lt': cutoff_date}
-    
-    # החרגה מפורשת של קבצים חסרי מטא-דאטה
-    # שימוש ב-$and כדי לוודא שגם description וגם tags תקינים
-    stale_query['$and'] = [
-        # description קיים ולא ריק
-        {'description': {'$exists': True}},
-        {'description': {'$ne': None}},
-        {'description': {'$ne': ''}},
-        # tags קיים ויש לפחות איבר אחד (pattern מומלץ למונגו)
-        {'tags.0': {'$exists': True}}
-    ]
-    
-    # ספירה כוללת (רק הגרסה האחרונה לכל קובץ)
-    result['total_stale'] = _count_latest(stale_query)
-    
-    # שליפה מוגבלת - הישנים קודם (רק הגרסה האחרונה לכל קובץ)
-    stale_pipeline = _latest_files_pipeline(stale_query, {'updated_at': 1})
-    stale_docs = list(db.code_snippets.aggregate(
-        stale_pipeline + [{'$limit': max_items}],
-        allowDiskUse=True
-    ))
-    
-    result['shown_stale'] = len(stale_docs)
-    
-    for doc in stale_docs:
-        updated = doc.get('updated_at')
-        days_ago = 0
-        if updated:
-            try:
-                delta = datetime.now(timezone.utc) - updated
-                days_ago = delta.days
-            except Exception:
-                days_ago = stale_days
-        
-        stale_files.append({
-            'id': str(doc['_id']),
-            'file_name': doc.get('file_name', ''),
-            'language': doc.get('programming_language', 'text'),
-            'icon': get_language_icon(doc.get('programming_language', '')),
-            'description': (doc.get('description') or '')[:100],
-            'tags': (doc.get('tags') or [])[:5],
-            'updated_at': updated,
-            'days_ago': days_ago,
-            'reason_text': f'לא עודכן {days_ago} ימים'
-        })
-    
-    result['has_items'] = bool(result['missing_metadata'] or result['stale_files'])
+    result['has_items'] = bool(result['missing_metadata'])
     
     return result
 
@@ -13456,6 +13404,9 @@ def _build_notes_snapshot(db, user_id: int, limit: int = 10) -> Dict[str, Any]:
             'id': note_id,
             'title': _dashboard_note_title(note),
             'location': _dashboard_note_location(ref, board_names, file_names),
+            # הסוג של ``location`` (``note_target_ref``: ``file`` / ``board`` / ``repo`` / ``archive`` / ``unknown``) —
+            # בפתק על קובץ הכרטיס בונה את השם בפילטר ``file_name``, וכל מיקום אחר נשאר טקסט.
+            'location_kind': ref.get('target'),
             'url': f"/note/{url_quote(note_id, safe='')}",
             'timestamp': dt.isoformat() if dt else None,
             'relative_time': _format_relative(dt),
@@ -13743,7 +13694,6 @@ def _legacy_dashboard():
             db,
             user_id,
             max_items=10,
-            stale_days=60,  # ניתן לקרוא מהעדפות המשתמש בעתיד
             dismissed_ids=dismissed_ids
         )
 
@@ -13780,14 +13730,10 @@ def _legacy_dashboard():
         fallback_notes = {'notes': [], 'has_notes': False}
         fallback_attention = {
             'missing_metadata': [],
-            'stale_files': [],
             'total_missing': 0,
-            'total_stale': 0,
             'shown_missing': 0,
-            'shown_stale': 0,
             'has_items': False,
             'settings': {
-                'stale_days': 60,
                 'max_items': 10
             }
         }
@@ -22042,19 +21988,17 @@ def _legacy_api_update_attention_settings():
     data = request.get_json() or {}
     
     allowed_fields = {
-        'enabled', 'stale_days', 'max_items_per_group',
-        'show_missing_description', 'show_missing_tags', 'show_stale_files'
+        'enabled', 'max_items_per_group',
+        'show_missing_description', 'show_missing_tags'
     }
     
     updates = {}
     for field in allowed_fields:
         if field in data:
             value = data[field]
-            if field == 'stale_days':
-                value = min(max(int(value), 7), 365)
-            elif field == 'max_items_per_group':
+            if field == 'max_items_per_group':
                 value = min(max(int(value), 3), 50)
-            elif field in ('enabled', 'show_missing_description', 'show_missing_tags', 'show_stale_files'):
+            elif field in ('enabled', 'show_missing_description', 'show_missing_tags'):
                 value = bool(value)
             updates[f'attention_settings.{field}'] = value
     

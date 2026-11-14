@@ -487,13 +487,13 @@ def api_update_attention_settings():
     user_id = session["user_id"]
     data = request.get_json() or {}
 
+    # ``stale_days`` ו-``show_stale_files`` הוסרו (נובמבר 2026) יחד עם הקבוצה "לא עודכן זמן רב" בדשבורד. שדה שאינו
+    # כאן פשוט לא נשמר, ולכן לקוח ששולח אותם לא מקבל שגיאה.
     allowed_fields = {
         "enabled",
-        "stale_days",
         "max_items_per_group",
         "show_missing_description",
         "show_missing_tags",
-        "show_stale_files",
     }
 
     updates = {}
@@ -501,15 +501,12 @@ def api_update_attention_settings():
         if field in data:
             value = data[field]
             try:
-                if field == "stale_days":
-                    value = min(max(int(value), 7), 365)
-                elif field == "max_items_per_group":
+                if field == "max_items_per_group":
                     value = min(max(int(value), 3), 50)
                 elif field in (
                     "enabled",
                     "show_missing_description",
                     "show_missing_tags",
-                    "show_stale_files",
                 ):
                     # Proper boolean parsing - handle both JSON booleans and string values
                     if isinstance(value, bool):

@@ -40,10 +40,22 @@
     return;
   }
 
+  // מקודד גם מרכאות: הפונקציה בונה גם ערכי מאפיינים (``data-file-name`` ועוד), ושם עם ``"`` היה נחתך שם.
+  // ``fillItemNames`` קורא את השם מ-``data-file-name``, ולכן הוא חייב להיות השם המלא. בטקסט — אותה תצוגה.
   function escapeHtml(value){
-    const div = document.createElement('div');
-    div.textContent = String(value == null ? '' : value);
-    return div.innerHTML;
+    return String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /**
+   * השם של כל פריט ברשימה נכנס אחרי ה-``innerHTML``, דרך ``FileName.fill`` (``utils/file-name.js``), ולא כמחרוזת: כך
+   * שם עברי שנגמר בחלק לטיני מוצג עם הסיומת בקצה השמאלי. השם נקרא מ-``data-file-name`` של הפריט, כי הפריטים מקובצים
+   * לפי תיקיות, וסדרם בעמוד אינו סדר הרשימה שהגיעה מהשרת.
+   */
+  function fillItemNames(root){
+    root.querySelectorAll('.shared-item-name[data-file-name]').forEach((el) => {
+      window.FileName.fill(el, el.getAttribute('data-file-name') || '');
+    });
   }
 
   function renderError(message){
@@ -182,7 +194,7 @@
     return `
       <li class="shared-collection-item" tabindex="0" data-file-id="${escapeHtml(share.file_id || '')}" data-view-url="${escapeHtml(share.view_url || '')}" data-download-url="${escapeHtml(share.download_url || '')}">
         <div class="shared-item-row">
-          <span class="shared-item-name">${escapeHtml(name || 'ללא שם')}</span>
+          <span class="shared-item-name" data-file-name="${escapeHtml(name || 'ללא שם')}"></span>
           <div class="shared-item-actions">
             ${languageLabel ? `<div class="shared-item-actions-meta">${languageLabel}</div>` : ''}
             <div class="shared-item-actions-buttons">
@@ -256,6 +268,7 @@
     }
 
     itemsContainer.innerHTML = `<ul class="shared-collection-list">${html}</ul>`;
+    fillItemNames(itemsContainer);
     markActiveItem(activeFileId);
     updateSaveAllButton(hasSavableItems);
   }
@@ -309,7 +322,7 @@
     const metaHtml = metaParts.length ? `<div class="shared-viewer-meta">${metaParts.join(' · ')}</div>` : '';
     const header = `
       <div class="shared-viewer-header">
-        <div class="file-name">${escapeHtml(file.file_name || 'קובץ')}</div>
+        <div class="file-name"></div>
         ${file.download_url ? '<button type="button" class="shared-viewer-download" data-download-url="' + escapeHtml(file.download_url) + '">📥 הורד</button>' : ''}
       </div>
       ${metaHtml}
@@ -323,6 +336,8 @@
       body = '<div class="viewer-error">התוכן לא זמין לצפייה</div>';
     }
     viewerEl.innerHTML = header + body;
+    // השם נכנס אחרי השלד, דרך ``FileName.fill`` — כמו בשמות שברשימה (``fillItemNames``).
+    window.FileName.fill(viewerEl.querySelector('.shared-viewer-header .file-name'), file.file_name || 'קובץ');
     const downloadBtn = viewerEl.querySelector('.shared-viewer-download');
     if (downloadBtn) {
       downloadBtn.addEventListener('click', () => {
