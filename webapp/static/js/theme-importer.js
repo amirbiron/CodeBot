@@ -23,15 +23,18 @@
     const uploadStatus = document.getElementById('uploadStatus');
     const revertBtn = document.getElementById('revertPreviewBtn');
     const preview = document.getElementById('theme-preview-container');
-    // ערכת המסמך (לשונית הייבוא): ערכה שחלה רק על תצוגת ה-Markdown של הקבצים. השמירה ב-/api/ui_prefs
-    // (md_doc_theme + md_doc_theme_scope), והבחירה הנוכחית מגיעה מהשרת ב-data-current / data-scope.
+    // ערכת המסמך (לשונית הייבוא): ערכה שחלה רק על תצוגת ה-Markdown של הקבצים. הבחירה הנוכחית, השמירה והטוקנים —
+    // ``window.CkMdDocTheme`` (``static/js/utils/md-doc-theme.js``), המודול שגם מודאל הערכות בסרגל הניווט משתמש בו.
     const docThemeSection = document.getElementById('mdDocThemeSection');
     const docThemeSelect = document.getElementById('mdDocThemeSelect');
     const docThemeScope = document.getElementById('mdDocThemeScope');
     const docThemeApply = document.getElementById('mdDocThemeApply');
     const docThemeStatus = document.getElementById('mdDocThemeStatus');
     const importAsDocTheme = document.getElementById('importAsDocTheme');
-    let docThemeCurrent = docThemeSection ? (docThemeSection.dataset.current || '') : '';
+    const docThemeApi = window.CkMdDocTheme || null;
+    // ``null`` עד שהשרת ענה מה הבחירה הנוכחית: "לא ידוע" אינו "ללא", ולכן עד אז התיבה לא מציגה "ללא" ולא מאפשרת להחיל.
+    let docThemeCurrent = null;
+    let docThemeStateFailed = false;
     // ``custom:<id>`` / ``shared:<slug>`` ← שם הערכה, לשורת המצב.
     const docThemeNames = new Map();
 
@@ -283,6 +286,12 @@
     // === ערכת המסמך ===
     function renderDocThemeStatus() {
         if (!docThemeStatus) return;
+        if (docThemeCurrent === null) {
+            docThemeStatus.textContent = docThemeStateFailed
+                ? 'לא הצלחתי לטעון את ערכת המסמך הנוכחית — רעננו את העמוד ונסו שוב.'
+                : 'טוען את ערכת המסמך הנוכחית…';
+            return;
+        }
         if (!docThemeCurrent) {
             docThemeStatus.textContent = 'אין ערכת מסמך — המסמך מוצג בערכת הממשק.';
             return;
@@ -292,6 +301,18 @@
         docThemeStatus.textContent = name
             ? `ערכת המסמך: ${name}`
             : 'הערכה שנבחרה לתצוגת המסמך כבר לא קיימת — המסמך מוצג בערכת הממשק.';
+    }
+
+    // התיבה פעילה רק כשהבחירה הנוכחית ידועה: אחרת "ללא" שמוצג בה כברירת מחדל היה נראה כמו המצב, ו"החל" היה מכבה.
+    function syncDocThemeControls() {
+        const known = docThemeCurrent !== null;
+        if (docThemeSelect) {
+            docThemeSelect.disabled = !known;
+            if (known) docThemeSelect.value = docThemeNames.has(docThemeCurrent) ? docThemeCurrent : '';
+        }
+        if (docThemeScope) docThemeScope.disabled = !known;
+        if (docThemeApply) docThemeApply.disabled = !known;
+        renderDocThemeStatus();
     }
 
     function addDocThemeGroup(label, items) {
@@ -307,9 +328,24 @@
         docThemeSelect.appendChild(group);
     }
 
-    async function loadDocThemeChoices() {
-        if (!docThemeSelect) return;
+    async function loadDocThemeState() {
         try {
+            if (!docThemeApi) throw new Error('CkMdDocTheme is not loaded');
+            const state = await docThemeApi.getState();
+            docThemeCurrent = state.token;
+            if (docThemeScope) docThemeScope.value = state.scope;
+            docThemeStateFailed = false;
+        } catch (error) {
+            console.error('Failed to load the current document theme:', error);
+            docThemeStateFailed = true;
+        }
+    }
+
+    /** בונה מחדש את רשימת הערכות בתיבה. ``true`` כשהרשימה נטענה; בכשל — הודעה בשורת המצב, ו-``false``. */
+    async function loadDocThemeChoices() {
+        if (!docThemeSelect) return false;
+        try {
+            if (!docThemeApi) throw new Error('CkMdDocTheme is not loaded');
             const res = await fetch('/api/themes/list', { headers: { 'Accept': 'application/json' } });
             const data = await res.json();
             if (!res.ok || !data || !data.ok || !Array.isArray(data.themes)) {
@@ -319,9 +355,8 @@
             const shared = [];
             docThemeNames.clear();
             data.themes.forEach(theme => {
-                if (!theme || typeof theme.id !== 'string' || !theme.id) return;
-                if (theme.type !== 'custom' && theme.type !== 'shared') return;
-                const token = `${theme.type}:${theme.id}`.toLowerCase();
+                const token = docThemeApi.tokenFor(theme);
+                if (!token) return;
                 const name = (typeof theme.name === 'string' && theme.name) ? theme.name : theme.id;
                 docThemeNames.set(token, name);
                 (theme.type === 'custom' ? mine : shared).push({ token, name });
@@ -330,13 +365,12 @@
             docThemeSelect.querySelectorAll('optgroup').forEach(group => group.remove());
             addDocThemeGroup('הערכות שלי', mine);
             addDocThemeGroup('ערכות ציבוריות', shared);
-            docThemeSelect.value = docThemeNames.has(docThemeCurrent) ? docThemeCurrent : '';
         } catch (error) {
             console.error('Failed to load document theme choices:', error);
             if (docThemeStatus) docThemeStatus.textContent = 'שגיאה בטעינת רשימת הערכות';
-            return;
+            return false;
         }
-        renderDocThemeStatus();
+        return true;
     }
 
     /**
@@ -344,26 +378,14 @@
      * זורק בכל כשל — הקורא מציג שגיאה ולא הצלחה.
      */
     async function saveDocTheme(token, scope) {
-        const res = await fetch('/api/ui_prefs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ md_doc_theme: token || null, md_doc_theme_scope: scope }),
-        });
-        const data = await res.json().catch(() => null);
-        // ``data.ok`` ולא רק ``res.ok``: האנדפוינט מחזיר גם 200 עם ``ok:false`` בחלק ממסלולי הכשל.
-        if (!res.ok || !data || data.ok !== true) {
-            throw new Error((data && data.error) || 'md_doc_theme_save_failed');
-        }
-        const saved = typeof data.md_doc_theme === 'string' ? data.md_doc_theme : '';
+        if (!docThemeApi) throw new Error('CkMdDocTheme is not loaded');
+        const saved = await docThemeApi.save(token, scope);
         docThemeCurrent = saved;
         return saved;
     }
 
-    function initDocTheme() {
+    async function initDocTheme() {
         if (!docThemeSection || !docThemeSelect || !docThemeApply) return;
-        if (docThemeScope) {
-            docThemeScope.value = docThemeSection.dataset.scope === 'device' ? 'device' : 'global';
-        }
         docThemeApply.addEventListener('click', async () => {
             const token = docThemeSelect.value || '';
             docThemeApply.disabled = true;
@@ -375,10 +397,14 @@
                 console.error('Save document theme error:', error);
                 showToast('שגיאה בשמירת ערכת המסמך', 'error');
             } finally {
-                docThemeApply.disabled = false;
+                docThemeApply.disabled = docThemeCurrent === null;
             }
         });
-        loadDocThemeChoices();
+        syncDocThemeControls();
+        // הבחירה והרשימה נטענות במקביל, והתיבה מסתנכרנת אחרי ששתיהן חזרו. רשימה שלא נטענה משאירה את התיבה מושבתת,
+        // עם ההודעה שלה בשורת המצב.
+        const [, listLoaded] = await Promise.all([loadDocThemeState(), loadDocThemeChoices()]);
+        if (listLoaded) syncDocThemeControls();
     }
 
     /**
@@ -391,13 +417,17 @@
             return false;
         }
         try {
-            await saveDocTheme(`custom:${theme.id}`, docThemeScope ? docThemeScope.value : 'global');
+            if (!docThemeApi) throw new Error('CkMdDocTheme is not loaded');
+            const token = docThemeApi.tokenFor({ type: 'custom', id: theme.id });
+            // טוקן ריק הוא "כיבוי" ב-``save`` — מזהה שאינו מחרוזת לא יכבה את ערכת המסמך במקום להחיל את החדשה.
+            if (!token) throw new Error('imported_theme_without_id');
+            await saveDocTheme(token, docThemeScope ? docThemeScope.value : 'global');
             showToast('הערכה יובאה והוחלה על תצוגת המסמך', 'success');
         } catch (error) {
             console.error('Apply imported theme to document error:', error);
             showToast('הערכה יובאה, אבל לא הוחלה על תצוגת המסמך', 'error');
         }
-        await loadDocThemeChoices();
+        if (await loadDocThemeChoices()) syncDocThemeControls();
         return true;
     }
 

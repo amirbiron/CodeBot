@@ -2205,7 +2205,12 @@ def rebase_hljs_css(css: str, selector_prefix: str, *, include_base: bool = Fals
 #: ``markdown-enhanced.css`` (משתני הקטעים המתקפלים והסימון) ו-``md_preview.html`` (רקע הכרטיס) — ו-
 #: ``MD_DOC_THEME_SELECTOR_FILES`` ב-``tests/test_md_doc_theme.py`` דורש שבכל אחד מהם הוא זהה לזה.
 #: docs/webapp/custom_themes_guide.rst, md-doc-theme.
-MD_DOC_THEME_ROOT_SELECTOR = ':root:is([data-theme="custom"], [data-theme^="shared:"]) #mdCard[data-md-doc-theme]'
+#:
+#: ``MD_DOC_THEME_UI_CONDITION`` הוא החצי של התנאי על ערכת הממשק, בנפרד, בשביל מי שצריך לדעת אם ערכת מסמך חלה בלי
+#: שיש לו כרטיס: מודאל הערכות שבסרגל הניווט (``initThemePicker`` ב-``base.html``) מקבל אותו דרך משתנה Jinja ומציג
+#: הערה כשהוא לא מתקיים.
+MD_DOC_THEME_UI_CONDITION = ':root:is([data-theme="custom"], [data-theme^="shared:"])'
+MD_DOC_THEME_ROOT_SELECTOR = f'{MD_DOC_THEME_UI_CONDITION} #mdCard[data-md-doc-theme]'
 
 #: מה שמוסיפים לבורר של כלל highlight.js של ערכת הממשק כדי שלא יחול בתוך ערכת מסמך. ``:where()`` כדי שהספציפיות של
 #: הכלל לא תשתנה — הכללים האלה הם ``!important``, ומתחרים בכללים אחרים לפי הספציפיות.
