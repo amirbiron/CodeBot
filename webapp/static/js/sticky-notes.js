@@ -889,11 +889,12 @@
   // אחרי שהאצבע עוזבת פתק: כמה זמן עדכון מהשרת עוד מחכה, כדי שהלחיצה (שבמגע יכולה להגיע במשימה
   // נפרדת אחרי ``pointerup``) תגיע לתצוגה שעליה היא חושבה. ראו ``_deferWhilePressed``.
   const PRESS_SETTLE_MS = 350;
-  // **טיוטה שמחכה להחלטה**, כשהמנהל מתפרק בלי שהמשתמש בחר "עדכן" או "התעלם" (החלפת קובץ בדפדפן הריפו
-  // — אי אפשר לעצור אותה, כי הקובץ החדש כבר נטען). הטקסט שהוקלד נשמר בדפדפן, ומוצג שוב עם ההתראה
-  // כשהפתק מוצג שוב — ראו ``_persistHeldDrafts`` ו-``_restoreHeldDraft``. המפתח הוא של הפתק ולא של
-  // המשטח: אותו פתק יכול להיות מוצג במשטח אחר. שבוע — מעבר לזה הבסיס שהטקסט נשען עליו ישן מכדי שהשוואה
-  // אליו תגיד משהו, והטיוטה נזרקת עם אזהרה בקונסול.
+  // **טיוטה שמחכה להחלטה** — הטקסט שהוקלד בפתק שעדכון מהשרת מחכה בו ל"עדכן" או "התעלם". היא נשמרת בדפדפן
+  // כל עוד הבחירה ממתינה (``_syncHeldDraft``), ומוצגת שוב עם ההתראה כשהפתק מוצג שוב — גם אחרי סגירת
+  // הלשונית, וגם אחרי פירוק המנהל (``_persistHeldDrafts``, החלפת קובץ בדפדפן הריפו). ראו ``_restoreHeldDraft``.
+  // **לא בקאש של הפתקים:** הוא מחזיק בכוונה רק את מה שהשרת שמר (``_afterRemoteApplied``), נכתב מחדש בכל טעינה,
+  // והמפתח שלו הוא של המשטח — בזמן שהמפתח כאן הוא של הפתק, כי אותו פתק יכול להיות מוצג במשטח אחר. שבוע —
+  // מעבר לזה הבסיס שהטקסט נשען עליו ישן מכדי שהשוואה אליו תגיד משהו, והטיוטה נזרקת עם אזהרה בקונסול.
   const HELD_DRAFT_KEY_PREFIX = 'sticky-notes:held-draft:';
   const HELD_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   // כמה פעמים ``_flushFor`` ממתין לשמירה שבאוויר לפני שהוא שולח את מה שבתור. בכל פעם הוא ממתין לבקשה
@@ -1306,6 +1307,12 @@
       if (this._didSetupLifecycleGuards) return;
       this._didSetupLifecycleGuards = true;
       const flush = () => {
+        // הטיוטות שמחכות להחלטה — לפני הכול. הן נכתבות כבר בכל הקלדה (``_queueSave``), וכאן הן מיושרות שוב עם
+        // המסך למקרה שעריכה הגיעה ממסלול אחר. בטאבלט סגירת לשונית אינה מציגה את שאלת ``beforeunload``, ולכן
+        // זו ההגנה היחידה שם.
+        for (const entry of this.notes.values()) {
+          if (entry && entry.remote) this._syncHeldDraft(entry);
+        }
         try {
           this._flushPendingKeepalive();
         } catch(err) {
@@ -1904,21 +1911,59 @@
         if (!entry || !entry.el || entry.serverGone || !isSavedNoteId(id)) continue;
         const dirty = this._dirtyFields(entry);
         if (!dirty.content && !dirty.title) continue;
-        const base = this._noteBase(entry);
-        const local = this._localFields(entry);
-        const titleInput = entry.el.querySelector('.sticky-note-title');
-        const draft = {
-          v: 1,
-          ts: Date.now(),
-          base: { content: base.content, title: base.title, updated_at: base.updated_at || null },
-          local: { content: local.content, title: titleInput ? String(titleInput.value == null ? '' : titleInput.value) : local.title },
-        };
-        try {
-          localStorage.setItem(HELD_DRAFT_KEY_PREFIX + id, JSON.stringify(draft));
-        } catch(err) {
-          // אחסון חסום או מלא — הטיוטה לא נשמרה, ומה שהוקלד אובד. נרשם, כי זה בדיוק מה שהמנגנון נועד למנוע.
-          console.error('sticky note: could not keep the draft that was waiting for a decision', id, err);
-        }
+        this._writeHeldDraft(id, entry);
+      }
+    }
+
+    /**
+     * **הטיוטה במאגר זהה למסך כל עוד הבחירה ממתינה.** פתק שההתראה פתוחה בו ויש בו שינוי מקומי — נכתב; בלי
+     * שינוי מקומי — אין מה לאבד, והטיוטה נמחקת. נקרא כשההתראה מופיעה (``_showRemoteNotice``), בכל עריכה בזמן
+     * שהיא פתוחה (``_queueSave``, המקום שכל עריכה עוברת בו), וכשהלשונית מוסתרת או נסגרת
+     * (``_setupLifecycleGuards``). הבחירה עצמה — "עדכן", "התעלם", או עדכון שנטען ביציאה מעריכה — מוחקת את
+     * הטיוטה (``_clearRemoteNotice``).
+     *
+     * **עד נובמבר 2026 הטיוטה נכתבה רק בפירוק המנהל**, ובסגירת לשונית שום דבר לא כתב אותה: ההגנה היחידה הייתה
+     * השאלה של ``beforeunload``, שדפדפן בטאבלט אינו מציג בסגירת לשונית — והטקסט שהוקלד נעלם, והגרסה מהשרת
+     * נטענה בלי בחירה (דווח בשימוש).
+     */
+    _syncHeldDraft(entry){
+      if (!entry || !entry.el) return;
+      const id = String(entry.el.dataset.noteId || '');
+      if (!isSavedNoteId(id) || !entry.remote) return;
+      const dirty = this._dirtyFields(entry);
+      if ((dirty.content || dirty.title) && !entry.serverGone) this._writeHeldDraft(id, entry);
+      else this._removeHeldDraft(id);
+    }
+
+    /** הטיוטה של הפתק: מה שבמסך, הבסיס שהוא נשען עליו (גוף, שם ואסימון), ומתי. ראו ``_takeHeldDraft`` למבנה. */
+    _writeHeldDraft(id, entry){
+      if (typeof localStorage === 'undefined' || !localStorage) return;
+      const base = this._noteBase(entry);
+      const local = this._localFields(entry);
+      const titleInput = entry.el.querySelector('.sticky-note-title');
+      const draft = {
+        v: 1,
+        ts: Date.now(),
+        base: { content: base.content, title: base.title, updated_at: base.updated_at || null },
+        local: { content: local.content, title: titleInput ? String(titleInput.value == null ? '' : titleInput.value) : local.title },
+      };
+      try {
+        localStorage.setItem(HELD_DRAFT_KEY_PREFIX + id, JSON.stringify(draft));
+      } catch(err) {
+        // אחסון חסום או מלא — הטיוטה לא נשמרה, ומה שהוקלד אובד אם העמוד ייסגר. נרשם, כי זה בדיוק מה שהמנגנון
+        // נועד למנוע.
+        console.error('sticky note: could not keep the draft that was waiting for a decision', id, err);
+      }
+    }
+
+    /** הבחירה נעשתה (או שאין מה לאבד) — הטיוטה יוצאת מהמאגר, ולא תוצג שוב בטעינה הבאה. */
+    _removeHeldDraft(id){
+      if (typeof localStorage === 'undefined' || !localStorage) return;
+      try {
+        localStorage.removeItem(HELD_DRAFT_KEY_PREFIX + String(id));
+      } catch(err) {
+        // בלי מחיקה הטיוטה תוצג שוב בטעינה הבאה, ותעבור את הפיוס — לא אובדן, אבל שאלה מיותרת. נרשם.
+        console.warn('sticky note: removing a draft after the decision failed — it may be shown again', id, err);
       }
     }
 
@@ -1963,10 +2008,15 @@
      * מחזיר למסך טיוטה שחיכתה להחלטה: הטקסט שהוקלד בתיבה ובשם, והבסיס שהוא נשען עליו. ואז הפתק כמו
      * שהשרת מחזיק אותו עכשיו עובר את הפיוס מול הבסיס הזה — כמו בכל מקור אחר (``_reconcileServerNote``):
      * השתנה מאז — ההתראה חוזרת; לא השתנה — אין על מה להחליט, והטיוטה נשמרת כרגיל, עם האסימון של הבסיס.
-     * ``note`` יכול להגיע מהקאש; הרשימה מהשרת שאחריו פוגשת פתק שנגעו בו, ועוברת את אותו פיוס.
+     *
+     * **רק מול מה שהשרת מחזיק עכשיו, לא מול הקאש.** הקאש ישן מהשרת בהגדרה — עדכון שהעלה את ההתראה לא נכנס אליו
+     * (``_afterRemoteApplied`` כותב רק מה שהוחל) — ופיוס מולו היה מחליט "אין על מה להחליט" ושולח את הטיוטה, רק
+     * כדי שתידחה ב-409. בטעינה מהקאש הטיוטה נשארת במאגר, והרשימה מהשרת בונה את הפתק מחדש (הוא עוד לא נגעו בו)
+     * ומשחזרת אותה מולה.
      */
     _restoreHeldDraft(entry, note){
       if (!entry || !entry.el || !note || !isSavedNoteId(String(note.id))) return;
+      if (this._renderingFromCache) return;
       const draft = this._takeHeldDraft(String(note.id));
       if (!draft) return;
       // **עותק של מה שהשרת החזיר, לפני שהרשומה משתנה.** ``_renderNote`` שומר את ``note`` עצמו כ-``entry.data``,
@@ -7884,6 +7934,8 @@
           el.classList.add('has-remote-update');
         }
         this._syncRemoteNotice(el);
+        // מכאן הבחירה ממתינה, והטקסט שבמסך נשמר בדפדפן עד שהיא נעשית — גם אם הלשונית תיסגר.
+        this._syncHeldDraft(entry);
       }
 
       /** הטקסט של ההתראה — לפי האם יש שינויים מקומיים שהעדכון יחליף. */
@@ -7915,11 +7967,16 @@
       }
 
       _clearRemoteNotice(entry){
+        const hadDecision = !!entry.remote;
         entry.remote = null;
         const el = entry.el;
         const bar = el.querySelector('.sticky-note-remote');
         if (bar && bar.remove) bar.remove();
         el.classList.remove('has-remote-update');
+        // הבחירה שחיכתה כאן נעשתה (או שכבר אין על מה להחליט) — הטיוטה יוצאת מהמאגר, ולא תוצג שוב בטעינה הבאה.
+        // רק כשבאמת חיכתה בחירה בפתק הזה: עדכון שהוחל על פתק נקי בלשונית אחרת אינו נוגע בטיוטה של הלשונית
+        // שבה המשתמש הקליד.
+        if (hadDecision && isSavedNoteId(String(el.dataset.noteId))) this._removeHeldDraft(String(el.dataset.noteId));
         // השמירות שהוחזקו ממשיכות — עכשיו עם האסימון שהתיישר.
         const id = String(el.dataset.noteId);
         if (this._pending.has(id)) {
@@ -8789,6 +8846,9 @@
       delete pending.prev_updated_at;
       this._pending.set(id, pending);
       this._syncEntryFromFragment(id, pending);
+      // עריכה בזמן שבחירה ממתינה — השמירה לשרת מוחזקת, והטיוטה בדפדפן מתעדכנת (``_syncHeldDraft``).
+      const heldEntry = this.notes.get(String(id));
+      if (heldEntry && heldEntry.remote) this._syncHeldDraft(heldEntry);
       // advance per-note pending version to avoid dropping newer edits after batch
       try {
         const nextSeq = (this._pendingSeq.get(id) || 0) + 1;
@@ -10004,7 +10064,13 @@
         if (!parsed || !Array.isArray(parsed.notes)) return;
         const ts = Number(parsed.ts || 0);
         if (ts && (Date.now() - ts) > CACHE_TTL_MS) return;
-        (parsed.notes || []).forEach(n => this._renderNote(n));
+        // ``_renderingFromCache`` — טיוטה שמחכה להחלטה אינה משוחזרת מול הקאש (``_restoreHeldDraft``).
+        this._renderingFromCache = true;
+        try {
+          (parsed.notes || []).forEach(n => this._renderNote(n));
+        } finally {
+          this._renderingFromCache = false;
+        }
         this._renderedFromCache = true;
       } catch(_) {}
     }
