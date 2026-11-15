@@ -181,3 +181,187 @@ def test_the_page_does_not_claim_encryption_while_tokens_can_be_saved_unencrypte
     assert secret_manager.encrypt_secret("token") is None
 
     assert "encrypt" not in _privacy_text().lower()
+
+
+# ---------------------------------------------------------------------------
+# הסעיף של המחבר (``<section id="mcp">``) — אותה שיטה: כל עובדה שהעמוד נוקב בה מוצמדת לקוד שקובע אותה.
+#
+# הכתובת של העמוד נמסרת גם בהגשה לספריית המחברים של Anthropic, ומדיניות הספרייה דורשת מדיניות פרטיות שמתארת "accurately" מה נאסף ואיך משתמשים בזה. מי שמשנה את אורך החיים של טוקן, את אופן השמירה שלו, את מה ש-PostHog מקבל, או מוסיף כלי מחיקה — מפיל טסט כאן ומגיע לעמוד. הרקע: הסעיף ``mcp-privacy-page`` ב-``docs/mcp-server.rst``.
+#
+# מה **לא** כאן, כי כבר מוצמד במקום אחר: שהארגומנטים והתוצאות של הכלים לא יוצאים ל-PostHog, ושקריאת כלי לא נושאת משפט כוונה (``tests/test_mcp_analytics_privacy.py``, ובפרט ``test_a_real_instrumented_tool_call_reaches_posthog_with_no_content``).
+# ---------------------------------------------------------------------------
+
+_DURATION_RE = re.compile(r"\b(\d+) (minute|hour|day)s?\b")
+_UNIT_SECONDS = {"day": 86400, "hour": 3600, "minute": 60}
+
+
+def _mcp_section() -> str:
+    """הטקסט של הסעיף ``mcp`` — בלי תגיות ועם רווחים מכווצים, כמו שקורא רואה אותו."""
+    import html
+
+    match = re.search(r'<section id="mcp">(.*?)</section>', _privacy_text(), re.S)
+    assert match, "the mcp section is missing from the privacy page"
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", match.group(1))).split())
+
+
+def _as_words(seconds: int) -> str:
+    """משך בשניות כפי שהעמוד כותב אותו — ביחידה הגדולה ביותר שמחלקת אותו בלי שארית."""
+    for unit, size in _UNIT_SECONDS.items():
+        if seconds % size == 0:
+            count = seconds // size
+            return f"{count} {unit}{'' if count == 1 else 's'}"
+    raise AssertionError(f"{seconds} seconds is not a whole number of minutes")
+
+
+def test_the_lifetimes_the_mcp_section_states_are_the_ones_in_the_code():
+    """הטוקנים, וההעלאה שממתינה לשמירה: כל משך שהסעיף נוקב בו נגזר כאן מהקבוע שאוכף אותו.
+
+    הבדיקה השנייה תופסת גם משך שלישי שמישהו יוסיף לסעיף בלי קבוע מאחוריו, או מספר ישן שנשאר במשפט אחר.
+    """
+    from mcp_server.oauth_store import ACCESS_TTL_SECONDS, REFRESH_TTL_SECONDS
+    from mcp_uploads import UPLOAD_TTL_SECONDS
+
+    access, refresh, upload = (_as_words(s) for s in (ACCESS_TTL_SECONDS, REFRESH_TTL_SECONDS, UPLOAD_TTL_SECONDS))
+    section = _mcp_section()
+
+    assert f"An access token expires after {access} and a refresh token after {refresh}" in section
+    assert f"({access} for an access token, {refresh} for a refresh token)" in section
+    assert f"It can be used for up to {upload}" in section
+
+    stated = {count * _UNIT_SECONDS[unit] for count, unit in ((int(c), u) for c, u in _DURATION_RE.findall(section))}
+    assert stated == {ACCESS_TTL_SECONDS, REFRESH_TTL_SECONDS, UPLOAD_TTL_SECONDS}, stated
+
+
+class _FakeCollection:
+    def __init__(self) -> None:
+        self.docs: list[dict] = []
+        self.indexes: list[tuple] = []
+
+    def create_index(self, keys, **kwargs):
+        self.indexes.append((keys, kwargs))
+
+    def insert_one(self, doc):
+        self.docs.append(dict(doc))
+
+
+class _FakeDb(dict):
+    def __missing__(self, name):
+        coll = self[name] = _FakeCollection()
+        return coll
+
+
+def test_connector_tokens_are_stored_only_as_a_hash_and_expire_out_of_the_database():
+    """העמוד אומר שנשמר רק SHA-256 של כל טוקן, ושרשומות שפג תוקפן נמחקות לבד.
+
+    שלושת הסודות של OAuth (קוד, טוקן גישה, טוקן רענון) והטוקן האישי של הבוט נכתבים כאן דרך הקוד האמיתי, והטוקן הגולמי לא אמור להופיע בשום מקום במסמך שנכתב. ה"נמחקות לבד" הוא אינדקס TTL על ``expires_at`` באוסף הטוקנים, ש-``OAuthStore`` מצהיר עליו בבנאי. כל כתיבה לאוספים של OAuth היא מתודה של אותה מחלקה, ואף מודול אחר לא נוקב בשמות האוספים — ``test_nothing_outside_the_store_names_its_collections`` ב-``tests/test_mcp_oauth_store.py``.
+    """
+    import hashlib
+
+    from mcp_server.oauth_store import TOKENS_COLLECTION, OAuthStore
+    from mcp_server.token_store import COLLECTION_NAME, MCPTokenStore
+
+    db = _FakeDb()
+    store = OAuthStore(db)
+    raw = {"access": "ckoat_raw-access-value", "refresh": "ckort_raw-refresh-value"}
+    for kind, value in raw.items():
+        store.save_token(value, kind=kind, data={"subject": "7", "client_id": "c", "scopes": ["read"]})
+    store.save_code("ckoc_raw-code-value", {"subject": "7", "client_id": "c"})
+
+    written = db[TOKENS_COLLECTION].docs + db["mcp_oauth_codes"].docs
+    for value in [*raw.values(), "ckoc_raw-code-value"]:
+        assert all(value not in repr(doc) for doc in written), value
+    assert {doc["token_hash"] for doc in db[TOKENS_COLLECTION].docs} == {
+        hashlib.sha256(value.encode("utf-8")).hexdigest() for value in raw.values()
+    }
+    assert ("expires_at", {"expireAfterSeconds": 0}) in db[TOKENS_COLLECTION].indexes
+
+    pat = MCPTokenStore(db).issue(7, label="Claude")
+    (pat_doc,) = db[COLLECTION_NAME].docs
+    assert pat not in repr(pat_doc)
+    assert pat_doc["token_hash"] == hashlib.sha256(pat.encode("utf-8")).hexdigest()
+    # "its first few characters so that tokens can be told apart"
+    assert pat.startswith(pat_doc["token_prefix"]) and len(pat_doc["token_prefix"]) < len(pat) // 2
+
+    section = _mcp_section()
+    assert "We store only a SHA-256 hash of each token, never the token itself." in section
+    assert "Expired token records are deleted automatically." in section
+
+
+def test_posthog_gets_no_user_identity_and_no_intent_option(monkeypatch):
+    """העמוד אומר שהאירועים לא נושאים את מזהה המשתמש, ושהמחבר לא מוסיף לכלים פרמטר שמבקש מהסוכן לתאר את הקריאה.
+
+    שניהם הם אופציות של ``posthog.mcp`` ש-``instrument_mcp_server`` מעביר: בלי ``identify`` ה-``distinct_id`` הוא מזהה הסשן ואין פרופיל (``_posthog_events.py``, posthog 7.45.3); ו-``context=False`` — ברירת המחדל של ה-SDK היא ``True``, ולכן הבדיקה היא על ``is False`` ולא על "לא הועבר". כאן נלכדות האופציות שהשרת באמת מעביר. הפרמטר היחיד שכן מבקש תיאור משימה הוא ``working_on`` של תגובה על פתק — :func:`test_the_only_task_description_the_connector_asks_for_is_working_on_on_a_comment`.
+    """
+    pytest.importorskip("mcp")
+    posthog_mcp = pytest.importorskip("posthog.mcp")
+    from mcp.server.fastmcp import FastMCP
+
+    from mcp_server import analytics
+
+    captured = {}
+
+    def fake_instrument(server, client, options):
+        captured["options"] = options
+
+    monkeypatch.setattr(posthog_mcp, "instrument", fake_instrument)
+    monkeypatch.setattr(analytics, "_CLIENT", object())
+    monkeypatch.setattr(analytics, "_ANALYTICS", None)
+
+    analytics.instrument_mcp_server(FastMCP("privacy-page-test"))
+
+    options = captured["options"]
+    assert options.identify is None
+    assert options.context is False
+    assert options.intent_fallback is None
+
+    assert "It does not include your CodeKeeper user ID" in _mcp_section()
+
+
+class _NoBody:
+    """backend שאף גוף כלי לא מגיע אליו — כאן רק נבנית רשימת הכלים."""
+
+    def __getattr__(self, _name):
+        raise AssertionError("a tool body ran while only the tool list was needed")
+
+
+def _registered_tools(monkeypatch) -> list:
+    """הכלים שהשרת האמיתי רושם (``build_mcp``), כולל כלי האדמין.
+
+    ``ENVIRONMENT=production``: בלי קונפיגורציית PostHog, ``instrument_mcp_server`` זורק מחוץ לפרודקשן — כמו ב-``tests/test_mcp_pre_parse_json.py``.
+    """
+    pytest.importorskip("mcp")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    import mcp_server.server as srv
+
+    return srv.build_mcp(_NoBody(), repo_backend=_NoBody())._tool_manager.list_tools()
+
+
+def test_the_only_task_description_the_connector_asks_for_is_working_on_on_a_comment(monkeypatch):
+    """העמוד אומר שהמחבר מבקש מהסוכן לתאר את המשימה במקום אחד בלבד: ``working_on`` בתגובה על פתק, עד ``MAX_WORKING_ON_CHARS`` תווים, והמשפט נשמר עם התגובה.
+
+    כאן נבדקות הסכימות של כל הכלים הרשומים: ``working_on`` רק ב-``codekeeper_comment_note``, ו-``context`` (מה ש-``posthog.mcp`` מזריק כשהאופציה דלוקה) באף כלי. הבדיקה היא לפי שם הפרמטר: פרמטר חדש בשם אחר שמבקש תיאור משימה לא ייתפס כאן, ומי שמוסיף כזה צריך לעדכן את העמוד ואת הטסט.
+    """
+    from note_threads import MAX_WORKING_ON_CHARS
+
+    tools = _registered_tools(monkeypatch)
+    asking = {tool.name for tool in tools if "working_on" in (tool.parameters.get("properties") or {})}
+    injected = {tool.name for tool in tools if "context" in (tool.parameters.get("properties") or {})}
+
+    assert asking == {"codekeeper_comment_note"}, asking
+    assert injected == set(), injected
+
+    section = _mcp_section()
+    assert "The connector asks the assistant to describe its task in one place only: when the assistant comments on a sticky note" in section
+    assert f"up to {MAX_WORKING_ON_CHARS} characters, what it is working on" in section
+    assert "and with the sentence the assistant wrote about what it is working on" in section
+
+
+def test_the_connector_has_no_tool_that_deletes(monkeypatch):
+    """העמוד אומר שלמחבר אין דרך למחוק קבצים, פתקים או אוספים. כאן נבנה השרת האמיתי, עם כלי האדמין, ושמות כל הכלים הרשומים נבדקים."""
+    names = {tool.name for tool in _registered_tools(monkeypatch)}
+
+    # הרשימה האמיתית, ולא רשימה ריקה שעוברת כל בדיקה
+    assert {"codekeeper_save_file", "codekeeper_update_note", "codekeeper_list_repos"} <= names
+    deleting = {name for name in names if re.search(r"delete|remove|purge|trash|destroy|erase|drop", name)}
+    assert deleting == set(), deleting
+    assert "The connector has no way to delete your files, notes or collections." in _mcp_section()

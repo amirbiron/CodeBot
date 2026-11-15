@@ -3093,13 +3093,12 @@ def build_mcp(
     # תקרת התיאור — קבוע בקוד ולא תצורה, ובכל זאת נקראת כאן, מהמודול ולא משם
     # שיובא בייבוא: כך התיאורים נבנים מאותו ערך שהאכיפה קוראת באותו רגע.
     description_limit = file_description.FILE_DESCRIPTION_MAX_CHARS
-    # PostHog MCP analytics. **Not** schema-neutral when it runs: it adds a
-    # ``context`` string to every advertised tool schema and strips it again
-    # before the tool runs — what that costs is in the docstring of
-    # ``instrument_mcp_server``, and ``tests/test_mcp_pre_parse_json.py`` runs
-    # the tools with it switched on. Must run before ``streamable_http_app()``
-    # below, which the same call also wraps. See ``mcp_server/analytics.py``
-    # for the privacy gate.
+    # PostHog MCP analytics. It leaves the schemas of the registered tools as
+    # they are (``context`` is off — why, in the docstring of
+    # ``instrument_mcp_server``) and adds one virtual tool, ``get_more_tools``;
+    # ``tests/test_mcp_pre_parse_json.py`` runs the tools with it switched on.
+    # Must run before ``streamable_http_app()`` below, which the same call also
+    # wraps. See ``mcp_server/analytics.py`` for the privacy gate.
     lists_missing_capability_tool = instrument_mcp_server(mcp)
 
     @mcp.tool(

@@ -20,7 +20,7 @@
 3. **קצה לקצה**, עם גוף הכלי האמיתי: ``query="null"``, כותרת ששמה ``null``, קובץ
    ששמו ``null``, ``codekeeper_docs_get_section``, ופתק שנכתב בו ``null`` — עם
    קריאה חוזרת של מה שנכתב.
-4. **PostHog דלוק** — ה-session האמיתי והסכימות של הייצור, עם ``context`` מוזרק.
+4. **PostHog דלוק** — ה-session האמיתי והסכימות של הייצור, עם הכלי הווירטואלי ``get_more_tools`` ובלי ``context`` (כבוי, ``instrument_mcp_server``).
 5. **הכלל ברישום** — כל צורת annotation מקבלת הכרעה מפורשת, וצורה שאין לה הכרעה
    נכונה (``str | list[str]``, ``Any``, צורה לא מוכרת) מפילה את הרישום.
 6. **ה-SDK** — הגרסה הנעוצה היא המותקנת, התפר שהתיקון נשען עליו עדיין נקרא, וה-SDK
@@ -420,12 +420,16 @@ async def test_a_note_body_of_null_is_written_as_the_word(monkeypatch):
 async def test_with_posthog_on_every_string_still_arrives_as_sent(monkeypatch):
     """אותה בדיקה כמו בקבוצה 1, בתצורה שהייצור רץ בה.
 
-    בלי קונפיגורציית PostHog האינסטרומנטציה אינה רצה, והסכימות בטסטים אינן
-    הסכימות של הייצור: שם כל כלי מקבל פרמטר ``context`` מסוג מחרוזת, ו-PostHog
-    עוטף את ``ToolManager.call_tool`` ומסיר אותו לפני הכלי. כאן היא דלוקה, עם
-    לקוח ``Posthog`` אמיתי (``send=False`` — שום דבר לא יוצא לרשת), וכל קריאה
-    עוברת ב-session אמיתי של הפרוטוקול. ``rate_limit_per_minute=0`` מכבה את
-    המגביל במפורש: ב-session יש זהות, ומאות קריאות בשנייה היו נחסמות.
+    בלי קונפיגורציית PostHog האינסטרומנטציה אינה רצה, ובייצור היא עוטפת את
+    ``tools/list`` ואת ``ToolManager.call_tool``. כאן היא דלוקה, עם לקוח
+    ``Posthog`` אמיתי (``send=False`` — שום דבר לא יוצא לרשת), וכל קריאה עוברת
+    ב-session אמיתי של הפרוטוקול. ``rate_limit_per_minute=0`` מכבה את המגביל
+    במפורש: ב-session יש זהות, ומאות קריאות בשנייה היו נחסמות.
+
+    הסכימות של הכלים הרשומים זהות לאלה שבלי PostHog: ``context`` כבוי
+    (``instrument_mcp_server``). לקוח ששמר את רשימת הכלים מהתקופה שבה הוא היה
+    דלוק עדיין שולח ``context``, ולכן כל קריאה כאן שולחת אותו — הוא אסור שיפיל
+    את הקריאה, ואסור שיגיע לכלי.
     """
     from mcp.shared.memory import create_connected_server_and_client_session
     from posthog import Posthog
@@ -448,18 +452,17 @@ async def test_with_posthog_on_every_string_still_arrives_as_sent(monkeypatch):
     try:
         async with create_connected_server_and_client_session(mcp._mcp_server) as session:
             listed = {tool.name: tool.inputSchema for tool in (await session.list_tools()).tools}
-            # ההוכחה שהאינסטרומנטציה באמת דלוקה: ``context`` בכל סכימה, כחובה.
-            # ``get_more_tools`` הוא הכלי הווירטואלי של ``report_missing``.
+            # ההוכחה שהאינסטרומנטציה באמת דלוקה: ``get_more_tools``, הכלי
+            # הווירטואלי של ``report_missing``, נמצא ברשימה ואינו רשום בשרת.
+            # ו-``context`` אינו באף סכימה של כלי רשום.
             registered = {tool.name for tool in mcp._tool_manager.list_tools()}
             assert registered <= set(listed)
+            assert analytics.MISSING_CAPABILITY_TOOL_NAME in set(listed) - registered
             for name in registered:
-                assert "context" in listed[name]["properties"], name
-                assert "context" in listed[name].get("required", []), name
+                assert "context" not in listed[name]["properties"], name
 
             for name in sorted(registered):
                 for param in _string_params(listed[name]):
-                    if param == "context":
-                        continue
                     for value in JSON_LOOKING:
                         args = _arguments(listed[name], param, value)
                         args["context"] = intent
@@ -472,7 +475,7 @@ async def test_with_posthog_on_every_string_still_arrives_as_sent(monkeypatch):
                         if type(got) is not str or got != value:
                             wrong.append(f"{name}.{param}: sent {value!r}, received {got!r}")
                         if "context" in received[name]:
-                            wrong.append(f"{name}: the injected context reached the tool")
+                            wrong.append(f"{name}: a stale context argument reached the tool")
 
             # והבקרה השלילית באותה תצורה.
             result = await session.call_tool(

@@ -378,15 +378,16 @@ def test_the_exception_does_not_reopen_parameters_on_that_same_event():
     assert _FILE_BODY not in _payload_text(scrubbed)
 
 
-def test_the_agents_sentence_rides_an_ordinary_tool_call_too():
-    """The intent is no longer scoped to ``$mcp_missing_capability``.
+def test_the_gate_admits_the_agents_sentence_on_an_ordinary_tool_call_too():
+    """The **gate** does not scope the intent to ``$mcp_missing_capability``.
 
-    This is the half of the change that makes the navigation-cost table
-    readable: without it every row says a session made 15 calls and nothing
-    says what it was trying to do. It is a deliberate widening — the sentence
-    is free text an agent wrote — and it is only reachable because
-    ``instrument_mcp_server`` turns ``context`` on, which is what makes the SDK
-    produce an intent on a plain tool call at all.
+    It decides per property, not per event, so a sentence that arrives on a
+    plain tool call passes like any other. Nothing produces one there today:
+    ``instrument_mcp_server`` passes ``context=False``, and
+    ``test_a_real_instrumented_tool_call_reaches_posthog_with_no_content`` pins
+    that a real tool call carries no ``$mcp_intent``. This test pins only what
+    the gate itself does, so that whoever turns ``context`` back on knows the
+    gate will not stop the sentence.
     """
     scrubbed = analytics.scrub_mcp_payload(
         _tool_call_event(
@@ -570,14 +571,22 @@ async def test_a_real_instrumented_tool_call_reaches_posthog_with_no_content(mon
     try:
         async with create_connected_server_and_client_session(server._mcp_server) as session:
             listed = await session.list_tools()
-            await session.call_tool(
+            # A client whose cached tool list still has the ``context`` parameter
+            # from when it was on keeps sending it. The call must still run, and
+            # the sentence must not ride along.
+            stale_call = await session.call_tool(
                 "codekeeper_get_file",
                 {"file_name": "notes.py", "context": "reading a saved file to answer a question"},
+            )
+            await session.call_tool(
+                analytics.MISSING_CAPABILITY_TOOL_NAME,
+                {"context": "I wish I could grep inside sticky notes"},
             )
         await analytics._drain()
     finally:
         client.shutdown()
 
+    assert not stale_call.isError, stale_call.content
     tool_calls = [e for e in about_to_send if e.get("event") == "$mcp_tool_call"]
     assert tool_calls, "instrumentation captured nothing — the wiring is broken"
 
@@ -589,25 +598,39 @@ async def test_a_real_instrumented_tool_call_reaches_posthog_with_no_content(mon
     # The tool really did return the file body; none of it may be on the wire.
     assert _FILE_BODY not in _payload_text(about_to_send)
 
-    # The agent's sentence made it through the real pipeline, which is what the
-    # intent column on `/admin/mcp` reads. The unit tests above prove the gate
-    # admits it; only this one proves anything produces it.
-    assert properties["$mcp_intent"] == "reading a saved file to answer a question"
-    assert properties["$mcp_intent_source"] == "context_parameter"
+    # No sentence about the call travels on a tool call, even when the client
+    # sent one: `context` is off (see `instrument_mcp_server`), and the privacy
+    # policy at `/privacy` says so. The unit tests above prove the gate would
+    # admit it; only this one proves nothing produces it.
+    assert "$mcp_intent" not in properties
+    assert "$mcp_intent_source" not in properties
+    assert "reading a saved file" not in _payload_text(about_to_send)
+
+    # No person profile: with no `identify`, the SDK keys the event on the
+    # session and marks it personless (`_add_person_processing` in
+    # `posthog/mcp/_posthog_events.py`, posthog 7.45.3). The privacy policy
+    # says PostHog builds no profile of the user from these events.
+    assert properties["$process_person_profile"] is False
+
+    # The one place an agent's sentence does travel: `get_more_tools`, where the
+    # sentence is the report itself. The SDK sets it there whatever `context`
+    # says, and the privacy policy names it.
+    missing = [e for e in about_to_send if e.get("event") == "$mcp_missing_capability"]
+    assert missing, "get_more_tools was not captured"
+    assert missing[0]["properties"]["$mcp_intent"] == "I wish I could grep inside sticky notes"
+    assert missing[0]["properties"]["$mcp_intent_source"] == "context_parameter"
 
     # `codekeeper_get_file` is a file-read tool called with neither `lines` nor
     # `outline`, so it is a full content read — the expensive kind the outline
     # feature exists to replace.
     assert properties[analytics.CK_READ_MODE_KEY] == analytics.READ_MODE_FULL
 
-    # Instrumentation is **no longer** schema-neutral, and this is the assertion
-    # that used to say it was. `context=True` adds one string parameter to every
-    # tool, and marks it required — measured, not assumed. `conversation_id`
-    # stays off, so it must not appear here.
+    # Instrumentation is schema-neutral again. `context` is passed as False
+    # because the SDK's default is True: drop the argument and this assertion
+    # fails, with `context` back in the schema. `conversation_id` stays off too.
     schema = next(t.inputSchema for t in listed.tools if t.name == "codekeeper_get_file")
-    assert sorted(schema.get("properties") or {}) == ["context", "file_name"]
-    assert "context" in (schema.get("required") or [])
-    assert "conversation_id" not in (schema.get("properties") or {})
+    assert sorted(schema.get("properties") or {}) == ["file_name"]
+    assert "context" not in (schema.get("required") or [])
 
 
 # ---------------------------------------------------------------------------
