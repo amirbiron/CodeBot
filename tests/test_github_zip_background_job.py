@@ -628,6 +628,32 @@ async def test_github_client_has_no_retry_that_waits_for_the_rate_limit(monkeypa
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["skills/logo", ""], ids=["folder", "full-repo"])
+async def test_github_client_timeout_is_set_by_the_job(monkeypatch, path):
+    """ה-timeout של הקריאות ל-GitHub API נקבע במשימה, ולא נשאר לברירת המחדל של PyGithub.
+
+    ``get_repo`` ו-``get_archive_link`` רצות כשהמשימה כבר מחזיקה את המקום בתור. החסם
+    עליהן הוא ניסיון אחד ו-``ZIP_GITHUB_API_TIMEOUT_SECONDS``, וכך הוא לא משתנה בשקט
+    עם שדרוג של הספרייה.
+    """
+    import github_menu_handler as gh
+
+    repo = _default_repo()
+    handler = _handler(monkeypatch, repo, path=path)
+    install_archive_http(monkeypatch, gh, repo)
+    monkeypatch.setattr(gh, "backup_manager", _BackupManager())
+    ctx = make_context(bot_data={"backup_handler": _BackupsView()})
+
+    await _click(handler, _Query(f"download_zip:{path}"), ctx)
+    await ctx.application.drain()
+
+    assert handler.github_client_kwargs, "לא נבנה לקוח PyGithub"
+    assert all(k.get("timeout") == gh.ZIP_GITHUB_API_TIMEOUT_SECONDS for k in handler.github_client_kwargs), (
+        handler.github_client_kwargs
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["skills/logo", ""], ids=["folder", "full-repo"])
 async def test_rate_limit_gets_its_own_message(monkeypatch, path):
     """מכסה שנגמרה ⇒ הודעה שאומרת לנסות שוב, ולא שגיאה גולמית של 403.
 

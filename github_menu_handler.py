@@ -178,8 +178,10 @@ MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 # בין חתיכה לחתיכה, וקריאה שלא עונה נקטעת אחרי ``ZIP_DOWNLOAD_READ_TIMEOUT_SECONDS``,
 # כך שההורדה נגמרת לכל המאוחר זמן כזה אחרי התקרה. באריזה היא נאכפת בהריגת התהליך
 # שאורז (``_pack_folder_from_archive``). שאר השלבים מוגבלים כל אחד בעצמו, ולכן גם
-# הם לא מחזיקים את התור בלי סוף: הקריאות ל-GitHub API ולהורדה נשלחות בלי retry
-# (``_zip_github_client`` ו-``_download_repo_archive``), השמירה במונגו מוגבלת
+# הם לא מחזיקים את התור בלי סוף: הקריאות ל-GitHub API (``get_repo``,
+# ``get_archive_link``) נשלחות בניסיון אחד ועם ``ZIP_GITHUB_API_TIMEOUT_SECONDS``
+# (``_zip_github_client``), והן רצות בתחילת המשימה, אחרי שהתקרה כבר נקבעה, כך שהזמן
+# שלהן נספר בתוכה; ההורדה נשלחת בניסיון אחד (``_download_repo_archive``); השמירה במונגו מוגבלת
 # ב-``socketTimeoutMS`` לכל פעולה (``database/manager.py``), והשליחה לטלגרם
 # ב-timeouts של PTB לכל בקשה (``_apply_ptb_timeouts`` ב-``main.py``).
 ZIP_JOB_DEADLINE_SECONDS = 600
@@ -188,6 +190,11 @@ ZIP_JOB_DEADLINE_SECONDS = 600
 # שניות. קריאה שלא מקבלת אף בייט כל הזמן הזה היא חיבור תקוע, לא ריפו גדול.
 ZIP_DOWNLOAD_CONNECT_TIMEOUT_SECONDS = 10.0
 ZIP_DOWNLOAD_READ_TIMEOUT_SECONDS = 30.0
+# timeout של הקריאות ל-GitHub API במשימה (``Github(timeout=...)``; ‏requests מחיל
+# אותו על ההתחברות ועל כל המתנה לנתונים). זה הערך של ברירת המחדל ב-PyGithub 2.8.1
+# (``github.Consts.DEFAULT_TIMEOUT``), אבל הוא כתוב כאן כי הוא חלק מהחסם של המשימה
+# ולא פרט של הספרייה: שינוי של ברירת המחדל בגרסה אחרת לא ישנה אותו בשקט.
+ZIP_GITHUB_API_TIMEOUT_SECONDS = 15
 # כמה אריזות רצות במקביל בכל הבוט. כשההורדה רצה בתוך ה-handler הן רצו אחת-אחת,
 # כי תור העדכונים חיכה; מספר גדול יותר הוא החלטה על זיכרון השרת, שלא נמדדה.
 ZIP_JOBS_MAX_CONCURRENT = 1
@@ -1454,7 +1461,9 @@ class GitHubMenuHandler:
             async with self._zip_job_slot(query):
                 deadline_ts = time.monotonic() + ZIP_JOB_DEADLINE_SECONDS
                 g = self._zip_github_client(token)
-                # g.get_repo מבצע קריאת רשת חוסמת — נריץ אותה ב-thread כדי לא לחסום את הלולאה
+                # g.get_repo מבצע קריאת רשת חוסמת — נריץ אותה ב-thread כדי לא לחסום את הלולאה.
+                # היא מוגבלת בעצמה (ניסיון אחד, ``ZIP_GITHUB_API_TIMEOUT_SECONDS``), ורצה
+                # אחרי שהתקרה נקבעה, כך שהזמן שלה נספר ב-``ZIP_JOB_DEADLINE_SECONDS``.
                 repo = await asyncio.to_thread(g.get_repo, repo_name)
                 # הענף שהמשתמש בחר בדפדפן — אותה נגזרת כמו ב-show_repo_browser.
                 # בלעדיה האריזה הייתה מושכת תמיד מענף ברירת המחדל, בזמן שהדפדפן
@@ -1511,11 +1520,11 @@ class GitHubMenuHandler:
         הרבה אחרי ``ZIP_JOB_DEADLINE_SECONDS``. עם ``retry=None``, ‏PyGithub 2.8.1 מעביר
         ל-``HTTPAdapter`` את ``requests.adapters.DEFAULT_RETRIES``
         (``Requester.HTTPSRequestsConnectionClass``), ו-requests הופך אותו ל-
-        ``Retry(0, read=False)``: אין ניסיון חוזר ואין המתנה, וכל בקשה מוגבלת ב-timeout
-        של הלקוח (``Consts.DEFAULT_TIMEOUT``). מכסה שנגמרה מגיעה כ-
+        ``Retry(0, read=False)``: אין ניסיון חוזר ואין המתנה, וכל בקשה מוגבלת ב-
+        ``ZIP_GITHUB_API_TIMEOUT_SECONDS``. מכסה שנגמרה מגיעה כ-
         ``RateLimitExceededException``, והמשתמש מקבל ``ZIP_JOB_RATE_LIMIT_TEXT``.
         """
-        return Github(token, retry=None)
+        return Github(token, retry=None, timeout=ZIP_GITHUB_API_TIMEOUT_SECONDS)
 
     @staticmethod
     def _zip_failure_text(err: BaseException, prefix: str) -> str:
