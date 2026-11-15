@@ -162,8 +162,18 @@ def test_the_view_renders_the_note_under_the_spec_default_csp(chromium_executabl
                 return {
                     title: title.textContent,
                     titleSize: getComputedStyle(title).fontSize,
-                    lines: lines.map((l) => ({text: l.textContent, dir: getComputedStyle(l).direction,
-                                              size: getComputedStyle(l).fontSize})),
+                    lines: lines.map((l) => {
+                        // איפה הטקסט עצמו יושב בשורה — יישור לימין הוא מה שרואים, ולא רק ``direction``.
+                        const range = document.createRange();
+                        range.selectNodeContents(l);
+                        const run = range.getBoundingClientRect();
+                        const box = l.getBoundingClientRect();
+                        return {text: l.textContent, dir: getComputedStyle(l).direction,
+                                attr: l.getAttribute('dir'), size: getComputedStyle(l).fontSize,
+                                rightGap: Math.round(box.right - run.right)};
+                    }),
+                    titleDir: getComputedStyle(title).direction,
+                    dirAttrs: [...document.querySelectorAll('[dir]')].map((e) => e.tagName),
                     paperBg: getComputedStyle(paper).backgroundColor,
                     paperInk: getComputedStyle(paper).color,
                     bodyBg: getComputedStyle(document.body).backgroundColor,
@@ -191,11 +201,14 @@ def test_the_view_renders_the_note_under_the_spec_default_csp(chromium_executabl
     assert texts == ["# כותרת בעברית", " ", "English line first", "שורה בעברית עם English באמצע", _EVIL]
     assert state["paperBg"] == "rgb(255, 237, 219)"
     assert state["paperInk"] == "rgb(34, 34, 34)"
-    # כל שורה מחליטה את הכיוון שלה (dir="auto"), כמו במנוע של הפתק
-    directions = {line["text"]: line["dir"] for line in state["lines"]}
-    assert directions["# כותרת בעברית"] == "rtl"
-    assert directions["English line first"] == "ltr"
-    assert directions["שורה בעברית עם English באמצע"] == "rtl"
+    # כל שורה יורשת rtl מהדף, כמו בפתק בוובאפ — גם שורה שמתחילה באנגלית, והיא מיושרת לימין.
+    # נמדד בוובאפ בכרום (תיבת הטקסט ותצוגת ה-Markdown): ``direction: rtl`` בלי תכונת ``dir``.
+    assert {line["dir"] for line in state["lines"]} == {"rtl"}, state["lines"]
+    assert {line["attr"] for line in state["lines"]} == {None}, state["lines"]
+    english = next(line for line in state["lines"] if line["text"] == "English line first")
+    assert abs(english["rightGap"]) <= 1, english
+    assert state["titleDir"] == "rtl"
+    assert state["dirAttrs"] == ["HTML"], state["dirAttrs"]
     # הגוף ב"גדול מאוד" (20px), והכותרת כמו בוובאפ (13px) — הערכים שהטסט של ה-CSS משווה לוובאפ
     assert {line["size"] for line in state["lines"]} == {"20px"}
     assert state["titleSize"] == "13px"
@@ -236,6 +249,8 @@ _CASES = {
                                 "availableDisplayModes": ["inline", "fullscreen"], "displayMode": "inline"}, 600),
     "long-fullscreen-flexible": (_LONG, {"containerDimensions": {"width": 600, "maxHeight": 900},
                                          "availableDisplayModes": ["inline", "fullscreen"], "displayMode": "inline"}, 600),
+    "long-zoomed": (_LONG, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                            "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
     "short-safe-area": (_SHORT, {"containerDimensions": {"width": 600, "maxHeight": 900},
                                  "availableDisplayModes": ["inline"], "displayMode": "inline",
                                  "safeAreaInsets": {"top": 0, "right": 0, "bottom": 48, "left": 0}}, 600),
@@ -248,7 +263,7 @@ _CASES = {
 #: אינו מחיל דיווחים, כי הגובה שלו; או גובה גמיש עם תקרה, כמו ``basic-host`` של ext-apps
 #: (``{ width, maxHeight: 6000 }``) — ואז ממשיך להחיל.
 _FRAME_HOST = """<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
-<iframe id="view" src="/view.html" sandbox="allow-scripts"
+<iframe id="view" src="%(view)s" sandbox="allow-scripts"
         style="width:%(width)dpx;height:80px;border:0;display:block"></iframe>
 <script>
 const NOTE_RESULT = {content: [{type: 'text', text: JSON.stringify(%(note)s)}]};
@@ -296,6 +311,7 @@ def frame_host():
         note_json = json.dumps(note, ensure_ascii=False).replace("<", "\\u003c")
         pages[f"/{name}.html"] = _FRAME_HOST % {
             "note": note_json, "context": json.dumps(context), "width": width,
+            "view": _ZOOMED_VIEW_PATH if name.endswith("-zoomed") else "/view.html",
             "fixed_fullscreen": "false" if name.endswith("-flexible") else "true",
         }
 
@@ -305,6 +321,8 @@ def frame_host():
                 body, headers = pages[self.path], {}
             elif self.path == "/view.html":
                 body, headers = view.html, {"Content-Security-Policy": _SPEC_DEFAULT_CSP}
+            elif self.path == _ZOOMED_VIEW_PATH:
+                body, headers = _zoomed(view.html), {"Content-Security-Policy": _SPEC_DEFAULT_CSP}
             else:
                 self.send_error(404)
                 return
@@ -330,16 +348,34 @@ def frame_host():
         server.server_close()
 
 
-def _open(pw, chromium_executable, url, *, reduced_motion=None):
-    browser = (pw.chromium.launch(executable_path=chromium_executable)
-               if chromium_executable else pw.chromium.launch())
+#: **הגדלת הטקסט של WebView, בכרום של שולחן העבודה.** אנדרואיד מגדיל כל גופן ב-WebView לפי גודל
+#: הגופן של המערכת (``AwSettings.java`` ב-Chromium), דרך ``TextZoomFactor`` של המסגרת, שאין לו פקודה
+#: ב-DevTools. ``text-size-adjust`` נכנס לאותה מכפלה בדיוק — ``FontBuilder::GetComputedSizeFromSpecifiedSize``
+#: מכפיל את שניהם באותו ``zoom_factor`` — והוא פעיל רק כש-``textSizeAdjustEnabled`` דלוק, ולכן הדפדפן
+#: של הבדיקה עולה עם ``--blink-settings``. הדף עצמו אינו משתנה: רק כלל אחד על ``html`` נוסף לו, כמו
+#: מכפלה שהמנוע מוסיף מבחוץ.
+_TEXT_ZOOM = 1.3
+_ZOOMED_VIEW_PATH = "/view-zoomed.html"
+_TEXT_ZOOM_ARGS = ["--blink-settings=textSizeAdjustEnabled=true"]
+
+
+def _zoomed(html):
+    marker = "<head>"
+    assert html.count(marker) == 1
+    return html.replace(marker, f"{marker}<style>html{{text-size-adjust:{round(_TEXT_ZOOM * 100)}%}}</style>")
+
+
+def _open(pw, chromium_executable, url, *, reduced_motion=None, args=None):
+    launch = {"args": args} if args else {}
+    browser = (pw.chromium.launch(executable_path=chromium_executable, **launch)
+               if chromium_executable else pw.chromium.launch(**launch))
     page = browser.new_page(device_scale_factor=1, viewport={"width": 1000, "height": 1000})
     if reduced_motion:
         page.emulate_media(reduced_motion=reduced_motion)
     page.goto(url)
     view = None
     for _ in range(100):
-        view = next((f for f in page.frames if f.url.endswith("/view.html")), None)
+        view = next((f for f in page.frames if f.url.endswith(("/view.html", _ZOOMED_VIEW_PATH))), None)
         if view:
             break
         page.wait_for_timeout(50)
@@ -603,3 +639,33 @@ def test_flexible_fullscreen_drops_the_conversation_height(chromium_executable, 
     assert inline["last"]["height"] == _new_note_height(), inline
     assert state["scrollHeight"] == state["clientHeight"] and not state["scroll"], state
     assert full["last"]["height"] == state["doc"], (full, state)
+
+
+def test_the_system_text_zoom_is_measured_and_undone(chromium_executable, frame_host):
+    """WebView שמגדיל כל גופן ב-130% (גודל הגופן של המערכת באנדרואיד): הדף מודד את ההגדלה ומבטל
+    אותה, והפתק בגודל של הוובאפ — גוף, כותרת וכפתורים. לפני התיקון הגוף יצא 26px, ובגובה הקבוע
+    נכנסו פחות שורות. נבדק גם שהאמולציה עצמה פעילה: בלעדיה הבדיקה הייתה עוברת על כלום."""
+    from playwright.sync_api import sync_playwright
+    from test_mcp_note_view import _new_note_height
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/long-zoomed.html", args=_TEXT_ZOOM_ARGS)
+        try:
+            settled = _settled(page, view, "the frame took the reported height")
+            state = view.evaluate("""() => {
+                const probe = document.createElement('span');
+                probe.style.fontSize = '100px';
+                document.body.appendChild(probe);
+                const zoomed = getComputedStyle(probe).fontSize;
+                probe.remove();
+                const size = (sel) => getComputedStyle(document.querySelector(sel)).fontSize;
+                return {zoomed, scale: getComputedStyle(document.documentElement).getPropertyValue('--ck-text-scale').trim(),
+                        line: size('.ck-line'), title: size('.ck-title'), button: size('.ck-down')};
+            }""")
+        finally:
+            browser.close()
+
+    assert state["zoomed"] == f"{round(100 * _TEXT_ZOOM)}px", state  # האמולציה פעילה
+    assert (state["line"], state["title"], state["button"]) == ("20px", "13px", "16px"), state
+    assert state["scale"] and float(state["scale"]) == _TEXT_ZOOM, state
+    assert settled["last"]["height"] == _new_note_height(), settled

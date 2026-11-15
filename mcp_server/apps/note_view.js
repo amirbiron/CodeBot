@@ -57,6 +57,8 @@
   var SCROLL_STEP_RATIO = 0.75;
   /** השדות של ``safeAreaInsets`` במפרט — פיזיים, ולכן גם המשתנים ב-CSS. */
   var SAFE_AREA_SIDES = ['top', 'right', 'bottom', 'left'];
+  /** הגודל שאלמנט הבדיקה מבקש — ``measureTextScale`` מחלק בו את הגודל המחושב. */
+  var TEXT_PROBE_PX = 100;
 
   var INIT_DEADLINE_MS = 10000;
   var RESULT_DEADLINE_MS = 120000;
@@ -99,6 +101,9 @@
     this.hostContext = {};
     /** הפתק המוצג והכפתורים שלו — ``null`` כשמוצגת הודעה במקום פתק. */
     this.view = null;
+    /** ההגדלה של המערכת שנמדדה אחרונה — ראו ``measureTextScale``. */
+    this.textScale = 1;
+    this.textProbe = null;
     this.initTimer = null;
     this.resultTimer = null;
     this.onMessage = this.onMessage.bind(this);
@@ -110,6 +115,8 @@
 
   NoteView.prototype.start = function () {
     var self = this;
+    // לפני כל רינדור: הגודל הנכון כבר בפתק הראשון, בלי פריסה שנייה.
+    this.measureTextScale();
     this.win.addEventListener('message', this.onMessage);
     // הטיימר מבוטל בתשובה, ולכן אינו צריך לשאול אם כבר התחברנו.
     this.initTimer = this.win.setTimeout(function () {
@@ -357,9 +364,48 @@
     else v.body.scrollTop += direction * step;
   };
 
+  // -- הגדלת הטקסט של המערכת ---------------------------------------------------
+
+  /** מודד בכמה המנוע מגדיל טקסט, ומעביר את היחס ל-CSS (``--ck-text-scale``), שמחלק בו כל גופן.
+
+   *  **למה מדידה, ומה היא מודדת.** WebView של אנדרואיד מכפיל כל גופן בגודל הגופן של המערכת
+   *  (``AwSettings.java``: "By default, scale the text size by the system font scale factor"), דרך
+   *  ``TextZoomFactor`` של המסגרת. ב-Blink ההכפלה נכנסת לגודל המחושב
+   *  (``FontBuilder::GetComputedSizeFromSpecifiedSize``), ו-``getComputedStyle`` מחזיר את הגודל
+   *  המחושב חלקי הזום של העמוד בלבד (``ComputedStyleUtils::ValueForFontSize``). לכן אלמנט שמבקש
+   *  ``TEXT_PROBE_PX`` מדווח בדיוק ``TEXT_PROBE_PX`` כפול ההגדלה — בלי לנחש לפי מכשיר, ובלי שום
+   *  שינוי בדסקטופ ובווב, שם היחס 1. זום של כל העמוד אינו נכנס ליחס, ובצדק: הוא מגדיל גם את הגובה.
+   *
+   *  **``display: none``** — לגודל מחושב אין צורך בפריסה, ואלמנט שאינו נפרס אינו משפיע על הגובה
+   *  שהדף מדווח. הגודל שלו קבוע ואינו עובר דרך ``--ck-text-scale``, כדי שהמדידה לא תמדוד את התיקון.
+   *
+   *  נקרא בעלייה ובכל מדידת גודל. שינוי של גודל הגופן במערכת בזמן שהתצוגה פתוחה משנה את גובה
+   *  התוכן, ו-``ResizeObserver`` מוביל לכאן; פתק ארוך, שגובהו נעצר בתקרה, יתעדכן במדידה הבאה. */
+  NoteView.prototype.measureTextScale = function () {
+    var probe = this.textProbe;
+    if (!probe) {
+      probe = this.doc.createElement('span');
+      probe.setAttribute('aria-hidden', 'true');
+      probe.style.display = 'none';
+      probe.style.fontSize = TEXT_PROBE_PX + 'px';
+      this.doc.body.appendChild(probe);
+      this.textProbe = probe;
+    }
+    var scale = parseFloat(this.win.getComputedStyle(probe).fontSize) / TEXT_PROBE_PX;
+    // ערך שאינו מספר חיובי אינו מגיע מדפדפן אמיתי (אלמנט מחובר תמיד מקבל גודל בפיקסלים). אם
+    // בכל זאת — הפתק נשאר בגודל של הוובאפ בלי פיצוי, שהוא ברירת המחדל של התצוגה, ולא נכנס ל-CSS
+    // ``calc`` לא תקין, שהיה מחזיר את כל הגופנים לגודל ההתחלתי של הדפדפן.
+    if (!isLength(scale, false) || scale === this.textScale) return;
+    this.textScale = scale;
+    var docEl = this.doc.documentElement;
+    if (scale === 1) docEl.style.removeProperty('--ck-text-scale');
+    else docEl.style.setProperty('--ck-text-scale', String(scale));
+  };
+
   // -- גודל (``setupSizeChangedNotifications`` ב-SDK) ------------------------------------
 
   NoteView.prototype.measureAndReport = function () {
+    this.measureTextScale();
     this.updateControls();
     var docEl = this.doc.documentElement;
     // כמו ה-SDK: גובה התוכן נמדד עם ``height: max-content`` זמני — ``fit-content`` היה נחתך
@@ -480,7 +526,6 @@
     if (typeof note.title === 'string' && note.title.trim() !== '') {
       var title = doc.createElement('h1');
       title.className = 'ck-title';
-      title.setAttribute('dir', 'auto');
       title.textContent = note.title;
       paper.appendChild(title);
     }
@@ -496,7 +541,11 @@
       for (var i = 0; i < lines.length; i += 1) {
         var row = doc.createElement('div');
         row.className = 'ck-line';
-        row.setAttribute('dir', 'auto');
+        // **בלי ``dir``** — השורה יורשת ``rtl`` מה-``<html>``, כמו בפתק בוובאפ. נמדד שם בכרום:
+        // בתיבת הטקסט ובתצוגה כל שורה ``direction: rtl`` בלי תכונת ``dir``, גם שורה שמתחילה
+        // באנגלית, והיא מיושרת לימין. ``dir="auto"`` במנוע יושב רק על קוד בשורה ועל תאי טבלה
+        // (``fillInlineCode`` ו-``sticky-md-cell`` ב-``sticky-md-render.js``). כל שורה היא עדיין אלמנט משלה,
+        // ולכן פסקה משלה לאלגוריתם ה-bidi — כמו שורה בתיבת הטקסט, ש-``unicode-bidi`` שלה ``normal``.
         // שורה ריקה נושאת רווח קשיח, כדי שתתפוס גובה של שורה כמו בפתק.
         row.textContent = lines[i] === '' ? '\u00a0' : lines[i];
         body.appendChild(row);

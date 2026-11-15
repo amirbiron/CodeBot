@@ -400,13 +400,13 @@ def test_the_view_copies_the_ink_spacing_and_default_size_of_a_webapp_note():
     assert _css_value(paper, "--ck-line-height") == _css_value(content, "line-height")
     assert _css_value(paper, "--ck-title-ink").lower() == _css_value(note, "--note-ink").lower()
     assert _css_value(paper, "--ck-muted-ink").lower() == _css_value(note, "--note-ink-muted").lower()
-    assert _css_value(_css_block(view_css, ".ck-body"), "font-size") == "var(--ck-font)"
+    assert _css_value(_css_block(view_css, ".ck-body"), "font-size") == "calc(var(--ck-font) / var(--ck-text-scale, 1))"
     # הכותרת כמו בוובאפ — החלטת המשתמש — ולא בגודל של הגוף.
     webapp_title = _css_block(webapp_css, ".sticky-note-title")
     view_title = _css_block(view_css, ".ck-title")
     assert _css_value(paper, "--ck-title-font") == _css_value(webapp_title, "font-size")
     assert _css_value(paper, "--ck-title-weight") == _css_value(webapp_title, "font-weight")
-    assert _css_value(view_title, "font-size") == "var(--ck-title-font)"
+    assert _css_value(view_title, "font-size") == "calc(var(--ck-title-font) / var(--ck-text-scale, 1))"
     assert _css_value(view_title, "font-weight") == "var(--ck-title-weight)"
 
 
@@ -430,3 +430,21 @@ def test_the_fixed_height_of_the_view_is_the_height_of_a_new_webapp_note():
     assert _css_value(_css_block(view_css, "#ck-note-root"), "max-height") == (
         "min(var(--ck-cap), var(--ck-host-max, var(--ck-cap)))"
     )
+
+
+def test_every_font_size_in_the_view_undoes_the_system_text_zoom():
+    """כל ``font-size`` בתצוגה מחולק ב-``--ck-text-scale`` — ההגדלה של המערכת שהדף מודד.
+
+    WebView של אנדרואיד מכפיל כל גופן בגודל הגופן של המערכת, בזמן שהגובה הקבוע של התצוגה אינו גדל.
+    ``note_view.js`` מודד את ההכפלה ומעביר אותה כמשתנה, והחלוקה כאן מחזירה כל גופן לגודל של
+    הוובאפ. גופן חדש שנכתב בלי החלוקה היה גדל לבדו בטאבלט, בלי שום סימן בדסקטופ — ולכן הטסט עובר
+    על **כל** ההצהרות בקובץ, ולא על רשימה של סלקטורים.
+    """
+    view_css = (_REPO / "mcp_server" / "apps" / "note_view.css").read_text(encoding="utf-8")
+    rules = re.sub(r"/\*.*?\*/", "", view_css, flags=re.S)
+    sizes = re.findall(r"(?:^|[;{\s])font-size\s*:\s*([^;]+);", rules)
+    assert sizes, "no font-size declarations found"
+    off = [value for value in sizes if not re.fullmatch(r"calc\(.+ / var\(--ck-text-scale, 1\)\)", value.strip())]
+    assert not off, off
+    # המשתנה מוצב רק מה-JS: ערך שהוקלד ב-CSS היה חל גם בלי הגדלה.
+    assert "--ck-text-scale:" not in rules.replace(" ", "")
