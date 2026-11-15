@@ -39,7 +39,9 @@ from test_sticky_note_search_browser import browser, playwright_instance  # noqa
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = REPO_ROOT / "webapp" / "static"
 MIME = {".js": "application/javascript", ".css": "text/css", ".svg": "image/svg+xml"}
-STYLESHEETS = ("css/markdown-enhanced.css", "css/high-contrast.css", "css/dark-mode.css", "css/sticky-notes.css")
+#: כמו בתבניות: העיצוב של המנוע צמוד לפני ``sticky-notes.css`` (הבדיקה בתבניות ב-``tests/sticky-notes-target.test.js``).
+STYLESHEETS = ("css/markdown-enhanced.css", "css/high-contrast.css", "css/dark-mode.css", "css/sticky-md-render.css",
+               "css/sticky-notes.css")
 SCRIPTS = ("js/admonition-icons.js", "js/utils/file-name.js", "js/utils/rtl-code.js", "js/utils/text-highlight.js",
            "js/utils/visible-poll.js", "js/sticky-md-render.js", "js/sticky-notes.js")
 

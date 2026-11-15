@@ -390,7 +390,9 @@ def test_the_view_copies_the_ink_spacing_and_default_size_of_a_webapp_note():
     view_css = (_REPO / "mcp_server" / "apps" / "note_view.css").read_text(encoding="utf-8")
     paper = _css_block(view_css, ".ck-paper")
     content = _css_block(webapp_css, ".sticky-note-content")
-    note = _css_block(webapp_css, ".sticky-note")
+    # הדיו של הפתק מוצהר בקובץ העיצוב של המנוע, שנטען לפני ``sticky-notes.css`` בכל תבנית.
+    ink_css = (_REPO / "webapp" / "static" / "css" / "sticky-md-render.css").read_text(encoding="utf-8")
+    note = _css_block(ink_css, ".sticky-note")
     size_selector = ":root" if NOTE_FONT_SIZE_DEFAULT == "normal" else f":root.sticky-font-{NOTE_FONT_SIZE_DEFAULT}"
     size = _css_block(webapp_css, size_selector)
 

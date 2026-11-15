@@ -79,7 +79,7 @@ def test_the_card_colour_beats_every_theme_rule_on_a_button():
 
 #: הקבצים שעמוד הארכיון ועמוד הקבצים טוענים ושמגדירים גופן לפתקים — שם יכול לשבת כלל שגובר על
 #: הכרטיס.
-NOTE_CSS = (CSS_DIR / "sticky-notes.css", BOARDS_CSS, CARDS_CSS)
+NOTE_CSS = (CSS_DIR / "sticky-md-render.css", CSS_DIR / "sticky-notes.css", BOARDS_CSS, CARDS_CSS)
 
 
 def _title_fonts() -> list[tuple[str, str, str]]:

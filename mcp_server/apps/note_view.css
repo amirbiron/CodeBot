@@ -9,7 +9,7 @@
    מערכת הנושא של המארח היה יוצא בהיר על בהיר בערכה כהה. לכן על פתק צבוע הטקסט קבוע.
    הערכים יושבים במשתנים שבראש ``.ck-paper``, וכל אחד מהם הוא עותק של ערך שהבעלים שלו
    בוובאפ: הדיו של הגוף — ``color`` של ``.sticky-note-content`` ב-``sticky-notes.css``; דיו
-   הכותרת והדיו המעומעם — ``--note-ink`` ו-``--note-ink-muted`` שם; ריווח השורות — ``line-height``
+   הכותרת והדיו המעומעם — ``--note-ink`` ו-``--note-ink-muted`` ב-``sticky-md-render.css``; ריווח השורות — ``line-height``
    של ``.sticky-note-content``; הגודל של הגוף — הטוקן ``--sticky-note-font`` של הגודל שבברירת
    המחדל, ``NOTE_FONT_SIZE_DEFAULT`` ב-``webapp/app.py`` ("גדול מאוד" מנובמבר 2026); והגודל
    והמשקל של הכותרת — ``font-size`` ו-``font-weight`` של ``.sticky-note-title``. הדף הזה אינו

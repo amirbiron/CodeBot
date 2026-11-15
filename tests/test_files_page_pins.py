@@ -640,7 +640,8 @@ def test_the_page_has_the_region_and_loads_what_the_opened_note_needs_for_every_
                                         "js/files-page-notes.js")]
     assert order == sorted(order)
     assert scripts.count("js/admonition-icons.js") == 1, "נטען פעמיים אצל אדמין?"
-    for css in ("css/sticky-notes.css", "css/note-cards.css", "css/files-page-notes.css", "css/toast.css"):
+    for css in ("css/sticky-md-render.css", "css/sticky-notes.css", "css/note-cards.css", "css/files-page-notes.css",
+                "css/toast.css"):
         assert re.search(rf'href="/static/{re.escape(css)}\?v=', html), css
 
 

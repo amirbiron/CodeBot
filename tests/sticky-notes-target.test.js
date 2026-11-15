@@ -1457,7 +1457,7 @@ check('CSS: לקוד בשורה, בפתק ובשם של כרטיס, אין direc
   // רצות ב-CI; השומר הזה כן.
   //
   // ההערות מוסרות לפני הבדיקה, כי ההסבר ב-CSS מזכיר את שתי התכונות בשמן.
-  const targets = [['sticky-notes.css', 'sticky-md-code'], ['note-cards.css', 'archive-card-code']];
+  const targets = [['sticky-md-render.css', 'sticky-md-code'], ['note-cards.css', 'archive-card-code']];
   for (const [file, cls] of targets) {
     const css = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'css', file), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '');
@@ -1826,7 +1826,7 @@ check('קינון: ה-CSS מזיח בפועל, ובכיוון הלוגי', () =>
   // הפרויקט ולכן ההארנס לא נשאר כאן; מה שנשאר הוא הבדיקה שההחלטה לא
   // בוטלה בשקט.
   const css = fs.readFileSync(
-    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-md-render.css'), 'utf8');
   eq(/--sticky-li-indent\s*:/.test(css), true, 'הטוקן מוגדר');
   for (let d = 1; d <= 5; d += 1) {
     eq(css.includes('.sticky-task-line.is-depth-' + d), true, 'כלל לרמה ' + d);
@@ -2305,13 +2305,18 @@ check('בלוק קוד: מארקדאון כבוי — הגדרות מוצגות 
 });
 
 check('בלוק קוד: ה-CSS מעצב את העוטפת ואין יותר is-fence', () => {
-  const css = fs.readFileSync(
-    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
-  const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  ['.sticky-md-code-block', '.sticky-md-code-head', '.sticky-md-code-lang',
-   '.sticky-md-code-copy'].forEach((sel) => {
-    eq(decls.includes(sel + ' {') || decls.includes(sel + '.'), true, 'כלל ל-' + sel);
+  // העוטפת, הכותרת והתווית — בקובץ המשותף, כי כל מי שמרנדר בלוק קוד צריך אותן. כפתור ההעתקה —
+  // בפתק, כי הפתק הוא שמספק אותו (``_mdCodeCopyButton``), ומצב קריאה בלבד אינו בונה אותו.
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
+  const md = strip(fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-md-render.css'), 'utf8'));
+  const note = strip(fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8'));
+  ['.sticky-md-code-block', '.sticky-md-code-head', '.sticky-md-code-lang'].forEach((sel) => {
+    eq(md.includes(sel + ' {') || md.includes(sel + '.'), true, 'כלל ל-' + sel + ' בקובץ המשותף');
   });
+  eq(note.includes('.sticky-md-code-copy {'), true, 'כלל לכפתור ההעתקה בפתק');
+  const decls = md + note;
   // הפינות העגולות עברו לעוטפת. הכלל הישן ניסה לזהות "תחילת רצף" לפי
   // השכן, וכבר נדרש שם תיקון פעם אחת.
   eq(/\.is-fence/.test(decls), false, 'אין שאריות של המחלקה שבוטלה');
@@ -2508,7 +2513,7 @@ check('RTL: בלי window.RtlCode הפתק עדיין מרנדר מארקדאו�
 
 check('RTL: ל-CSS יש כלל שמהפך, והוא גובר בלי important', () => {
   const css = fs.readFileSync(
-    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-md-render.css'), 'utf8');
   const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');
   const rule = /\.sticky-md-code-block\.rtl-code\s+\.sticky-md-pre\s*\{([^}]*)\}/.exec(decls);
   eq(!!rule, true, 'קיים כלל למחלקה');
@@ -2845,7 +2850,7 @@ check('אלרט: ה-CSS מכייל לפתק ואינו מגדיר פלטה שנ�
   // אותו קוד, לא העתק. ההגדרה של ``--admonition``/``border-color`` בקובץ
   // הפתקים הייתה פלטה שנייה שנסחפת מהראשונה.
   const css = fs.readFileSync(
-    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-md-render.css'), 'utf8');
   eq(/\.sticky-note \.admonition\s*\{/.test(css), true, 'יש כלל כיול לפתק');
   // ``markdown-enhanced.css`` מותח את האלרט אל מחוץ לשוליים במסכים צרים
   // (``margin: 0.75rem -0.5rem``). בעמוד זה נכון; בפתק זה מוציא אותו אל
@@ -3194,7 +3199,7 @@ check('details: ה-CSS מכייל את המידות לפתק', () => {
   // הפיצול ל-``margin-block``/``margin-inline`` הוא מה שהופך את הביטול
   // לשורה שאפשר להפיל — נמדד בכרומיום, פתק ברוחב 260 באזור תצוגה 390.
   const css = fs.readFileSync(
-    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-md-render.css'), 'utf8');
   const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');   // בלי הערות — הן מזכירות את שמות התכונות
   eq(/\.sticky-note \.markdown-details\s*\{/.test(decls), true, 'יש כלל כיול לפתק');
   const calib = decls.slice(decls.indexOf('.sticky-note .markdown-details {'));
@@ -3229,8 +3234,10 @@ check('details: הפתק מספק ערך לכל טוקן שהרכיב המשות
   const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
   const shared = strip(fs.readFileSync(
     path.join(root, 'webapp', 'static', 'css', 'markdown-enhanced.css'), 'utf8'));
+  // **בקובץ המשותף ולא בקובץ של הפתק:** משטח קשיח חייב לספק ערך לכל טוקן שרכיב בתוכו קורא, וכל
+  // משטח שמרנדר Markdown של פתק טוען את הקובץ הזה — גם כזה שאינו טוען את ``sticky-notes.css``.
   const sticky = strip(fs.readFileSync(
-    path.join(root, 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8'));
+    path.join(root, 'webapp', 'static', 'css', 'sticky-md-render.css'), 'utf8'));
 
   // הכללים של הבלוק המתקפל, לפי הבורר המדויק שלהם. ``::-webkit-details-marker``
   // מוחרג כי הוא ``display`` בלבד ואינו נושא צבע.
@@ -3620,6 +3627,32 @@ check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת גם 
        path.basename(f) + ' טוען אותה עם ?v=static_version');
     eq(cacheBusted(src, 'css/sticky-notes.css'), true,
        path.basename(f) + ' טוען את ה-CSS של הפתקים עם ?v=static_version');
+  });
+});
+
+check('חיווט: כל תבנית שטוענת את המנוע טוענת גם את ה-CSS שלו, לפני sticky-notes.css ועם ?v=', () => {
+  // **הזוג של ``sticky-md-render.js``.** בתבנית שטוענת את המנוע בלי העיצוב שלו, הפתק היה מוצג
+  // בלי עיצוב ל-Markdown ובלי הדיו של הפתק — בלי שגיאה ובלי סימן, כי CSS שחסר אינו זורק. ולפני
+  // ``sticky-notes.css``: קודם התוכן, ואחריו הפתק שמארח אותו — הסדר שבו נמדד שהפתק לא השתנה.
+  const dir = path.join(__dirname, '..', 'webapp', 'templates');
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+  const all = walk(dir).filter((f) => f.endsWith('.html'));
+  const loaders = all.filter((f) => fs.readFileSync(f, 'utf8').includes("filename='js/sticky-md-render.js'"));
+  eq(loaders.length >= 3, true, 'נמצאו התבניות שטוענות את המנוע (' + loaders.length + ')');
+  loaders.forEach((f) => {
+    const src = fs.readFileSync(f, 'utf8');
+    const name = path.basename(f);
+    const md = src.indexOf("filename='css/sticky-md-render.css'");
+    const note = src.indexOf("filename='css/sticky-notes.css'");
+    eq(md !== -1, true, name + ' טוען את ה-CSS של המנוע');
+    eq(note === -1 || md < note, true, name + ' טוען אותו לפני sticky-notes.css');
+    eq(cacheBusted(src, 'css/sticky-md-render.css'), true, name + ' טוען אותו עם ?v=static_version');
+  });
+  // ובכיוון ההפוך: ה-CSS של הפתק לבדו, בלי זה, היה פתק בלי דיו.
+  all.filter((f) => fs.readFileSync(f, 'utf8').includes("filename='css/sticky-notes.css'")).forEach((f) => {
+    eq(fs.readFileSync(f, 'utf8').includes("filename='css/sticky-md-render.css'"), true,
+       path.basename(f) + ' טוען את sticky-notes.css יחד עם sticky-md-render.css');
   });
 });
 

@@ -40,7 +40,9 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = REPO_ROOT / "webapp" / "static"
 
-STYLESHEETS = ("css/markdown-enhanced.css", "css/high-contrast.css", "css/dark-mode.css", "css/sticky-notes.css")
+#: כמו בתבניות: העיצוב של המנוע צמוד לפני ``sticky-notes.css`` (הבדיקה בתבניות ב-``tests/sticky-notes-target.test.js``).
+STYLESHEETS = ("css/markdown-enhanced.css", "css/high-contrast.css", "css/dark-mode.css", "css/sticky-md-render.css",
+               "css/sticky-notes.css")
 MODULE = "js/utils/text-highlight.js"
 #: ``.svg`` — אייקון מקובץ בתפריט ⋮ (``iconFile``, "כלי MD"). בלי סוג נכון ``<img>`` אינו מצייר SVG.
 MIME = {".js": "application/javascript", ".css": "text/css", ".svg": "image/svg+xml"}
