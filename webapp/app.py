@@ -12157,7 +12157,7 @@ def index():
 def privacy_policy():
     """מדיניות הפרטיות — עמוד ציבורי, בלי התחברות.
 
-    הכתובת רשומה כקישור למדיניות הפרטיות בפרויקט ה-Google Cloud של חיבור ה-Drive (הבוט והוובאפ), ולכן הנתיב לא משתנה. הוא רשום כאן ולא ב-Blueprint: הרישום של ה-Blueprints עטוף ב-``except Exception: pass``, וכשל בייבוא היה מעלים את העמוד בשקט. העובדות שהעמוד מצהיר עליהן מוצמדות ב-``tests/test_privacy_page.py``; הרקע ב-``docs/services/google_drive_service.rst`` (``drive-privacy-page``).
+    הכתובת רשומה כקישור למדיניות הפרטיות בפרויקט ה-Google Cloud של חיבור ה-Drive (הבוט והוובאפ), ונמסרת גם בהגשה של שרת ה-MCP לספריית המחברים של Anthropic, ולכן הנתיב לא משתנה. הוא רשום כאן ולא ב-Blueprint: הרישום של ה-Blueprints עטוף ב-``except Exception: pass``, וכשל בייבוא היה מעלים את העמוד בשקט. העובדות שהעמוד מצהיר עליהן מוצמדות ב-``tests/test_privacy_page.py``; הרקע ב-``docs/services/google_drive_service.rst`` (``drive-privacy-page``), ולסעיף של המחבר ב-``docs/mcp-server.rst`` (``mcp-privacy-page``).
     """
     return render_template('privacy.html')
 

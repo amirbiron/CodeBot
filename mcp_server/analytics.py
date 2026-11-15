@@ -13,12 +13,11 @@ file content out of an event.
 
 The gate has three layers:
 
-1. ``enable_conversation_id`` stays off. ``report_missing`` is on: it adds one
+1. ``enable_conversation_id`` and ``context`` stay off — ``context`` is passed
+   as ``False`` explicitly, because the SDK's default is ``True``; why it is off
+   is in :func:`instrument_mcp_server`. ``report_missing`` is on: it adds one
    virtual ``get_more_tools`` tool the agent calls to say which capability it
-   wishes existed, and it changes none of the existing tools. ``context`` is
-   **on**, and it is the one option here that does change what the server
-   advertises — see :func:`instrument_mcp_server` for what it costs and what it
-   buys.
+   wishes existed, and it changes none of the existing tools.
 2. ``before_send`` on the ``Posthog`` client keeps an **allowlist** of
    ``$mcp_*`` properties. Deleting the known payload keys would be a blocklist,
    and the MCP SDK is pre-1.0: a payload property added in a future release
@@ -44,10 +43,12 @@ mirrored documents) are blocked on every event, with no exception and no
 discriminator that can open them. What *is* forwarded is two free-text fields
 whose exposure was accepted deliberately by the project owner, not derived:
 
-* ``$mcp_intent`` — the sentence the agent writes about what it is trying to
-  do. Agent-authored, and the parameter's own description tells the agent to
-  keep content and credentials out of it. That instruction is guidance to a
-  model, not an enforced boundary.
+* ``$mcp_intent`` — the sentence the agent writes when it calls
+  ``get_more_tools`` to say which capability it is missing; with ``context``
+  off, that call is the only thing that produces the property. Agent-authored
+  and unfiltered except for the secret patterns below: the SDK's parameter
+  description asks for "a description of your goal", and nothing stops the
+  agent from putting more in it.
 * ``$mcp_error_message`` — the failed call's primary exception message, for
   **every** error type rather than only ``ValidationError`` as before. Measured
   costs, so nobody has to rediscover them: Pydantic renders the rejected
@@ -142,9 +143,11 @@ _ALLOWED_MCP_PROPERTIES = frozenset(
 #:
 #: תווית סגורה שה-SDK כותב בעצמו, ולכן היא נאכפת מול הערכים שלו ולא מתקבלת
 #: כמחרוזת חופשית. הערכים נקראו מ-``posthog.mcp._intent``:
-#: ``context_parameter`` כשהסוכן העביר ``context``, ו-``inferred`` כש-
-#: ``intent_fallback`` גזר אותה (כבוי כאן, ונשמר כדי שהדלקתו לא תשתיק את
-#: השדה).
+#: ``context_parameter`` כשהמשפט הגיע מארגומנט ``context`` — היום רק זה של
+#: ``get_more_tools`` (``record_missing_capability`` ב-
+#: ``posthog/mcp/_instrumentation.py``), כי האופציה ``context`` כבויה; ו-
+#: ``inferred`` כש-``intent_fallback`` גזר אותה (כבוי כאן, ונשמר כדי שהדלקתו
+#: לא תשתיק את השדה).
 #:
 #: **למה לא ברשימת המטא-דאטה הרגילה.** שם כל ערך עובר בלי בדיקת טיפוס, וזה
 #: נכון לשדות שה-SDK מייצר כמספר או כבוליאני. כאן השדה אמור להיות אחת משתי
@@ -172,22 +175,6 @@ _ALLOWED_FREE_TEXT_PROPERTIES = frozenset(
         "$mcp_error_message",
         "$mcp_intent",
     }
-)
-
-#: The description of the injected ``context`` parameter, as the agent reads it.
-#:
-#: Replaces the SDK's default, which is seven lines long, repeats itself, and
-#: shouts ``YOU MUST provide 15-25 words (count carefully)`` — schema text that
-#: is served with **every** tool this server advertises. Short is not the only
-#: goal: this string is also the one place an agent is ever told what must not
-#: go into a field whose contents now reach PostHog verbatim. That last line is
-#: guidance to a model, not a boundary the server enforces, and the gate is
-#: written on the assumption that it can be ignored.
-_CONTEXT_DESCRIPTION = (
-    "One short sentence, in the third person, on what this call is for — "
-    "roughly 10 to 20 words. It is recorded for usage analytics only and never "
-    "changes the result. Never put file contents, credentials, tokens or "
-    "personal data in it."
 )
 
 # Blocked on every event, with no discriminator anywhere in this module that can
@@ -694,21 +681,32 @@ def instrument_mcp_server(server: Any) -> bool:
     also wraps that factory, to carry one ``$session_id`` across a stateless
     deployment.
 
-    **This is no longer purely additive, and that is the point.** ``context=True``
-    makes the SDK add a ``context`` string to every tool's advertised input
-    schema and to its ``required`` list. Measured against ``mcp 1.28.1`` +
-    ``posthog 7.45.3`` on this server's FastMCP path: a call that omits
-    ``context`` is **not** rejected — the tool runs exactly as before and the
-    injected argument never reaches the tool body — so no existing client
-    breaks; what changes is what the tool listing advertises, and that agents
-    are asked for a sentence they were not asked for before.
+    **``context`` is off, and it is passed as ``False`` on purpose.** When it is
+    on, the SDK adds a ``context`` string to every tool's advertised input schema
+    (and to its ``required`` list), and whatever the agent writes there reaches
+    PostHog as ``$mcp_intent`` on every tool call — a sentence about what the
+    user's conversation is trying to do. The Anthropic Software Directory
+    Policy, which a connector listed in the directory has to follow, says
+    software "must not collect extraneous conversation data, even for logging
+    purposes" (section 1E), and the privacy policy at ``/privacy``
+    (``webapp/templates/privacy.html``, the ``mcp`` section) tells users this
+    server does not record it. ``False`` is written out because the SDK's own
+    default is on: ``MCPAnalyticsOptions.context`` defaults to ``True``, and
+    ``is_context_enabled`` is ``context is not False``
+    (``posthog/mcp/types.py``, ``posthog/mcp/_context_parameters.py``,
+    ``posthog 7.45.3``) — leaving the argument out would have kept it on.
+    ``test_a_real_instrumented_tool_call_reaches_posthog_with_no_content``
+    (``tests/test_mcp_analytics_privacy.py``) pins both halves: no ``context``
+    in the advertised schema, and no ``$mcp_intent`` on a tool call even when a
+    client still sends one.
 
-    What it buys is the whole intent layer. Without it ``posthog.mcp._intent``
-    resolves an intent only for ``get_more_tools``, so ``$mcp_intent`` exists on
-    one rare event and the ``/admin/mcp`` tables stay pure numbers: which
-    session made 15 calls, never what it was trying to do. Opening the property
-    in the gate alone would have changed nothing, because nothing was producing
-    it.
+    What turning it off costs: ``$mcp_intent`` now exists only on
+    ``$mcp_missing_capability``. The SDK sets it there from ``get_more_tools``'s
+    own ``context`` argument (``record_missing_capability`` in
+    ``posthog/mcp/_instrumentation.py``), not through this option, so the
+    "missing capabilities" table on ``/admin/mcp`` keeps working, while the
+    intent column of its sessions table no longer gets a sentence from an
+    ordinary tool call.
     """
     global _ANALYTICS
 
@@ -718,7 +716,7 @@ def instrument_mcp_server(server: Any) -> bool:
 
     try:
         from posthog.mcp import instrument
-        from posthog.mcp.types import MCPAnalyticsContextOptions, MCPAnalyticsOptions
+        from posthog.mcp.types import MCPAnalyticsOptions
     except Exception:
         logger.warning(
             "posthog.mcp is not importable; MCP analytics disabled", exc_info=True
@@ -731,13 +729,9 @@ def instrument_mcp_server(server: Any) -> bool:
             server,
             _CLIENT,
             MCPAnalyticsOptions(
-                # Intent capture. The description is ours rather than the SDK's
-                # default for two reasons: the default is a seven-line block
-                # that shouts "YOU MUST provide 15-25 words (count carefully)",
-                # which is a lot of schema for every one of this server's tools;
-                # and this text is the only place an agent is told what not to
-                # put in a field that now reaches PostHog.
-                context=MCPAnalyticsContextOptions(description=_CONTEXT_DESCRIPTION),
+                # No intent capture on tool calls. Explicit, because the SDK
+                # defaults to True — see the docstring above.
+                context=False,
                 # Registers a virtual `get_more_tools` tool so an agent can
                 # report a capability this server does not offer. Additive to
                 # the listing; it touches no existing tool.
