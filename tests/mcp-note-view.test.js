@@ -165,10 +165,10 @@ function load(opts = {}) {
   // **דמה של מנוע התצוגה**, בחוזה שלו: ``render(container, text)`` מנקה את המכל ובונה אותו מהטקסט,
   // רק עם ``createElement`` ו-``textContent``. שורה שכולה ``[תווית](כתובת)`` הופכת לקישור, כמו במנוע.
   // המנוע האמיתי נבדק בדפדפן (``tests/test_mcp_note_view_browser.py``) ובבדיקות שלו; כאן — מה שהדף
-  // עושה סביבו.
+  // עושה סביבו. ``opts.engineOmit`` — מנוע שחסר בו חלק מהחוזה (דף שנבנה עם מנוע אחר).
   const mdCalls = [];
   if (!opts.noEngine) {
-    win.StickyMdRender = Object.freeze({
+    const engine = {
       MD_SAFE_LINK: /^https?:\/\//i,
       render(container, text) {
         mdCalls.push({ container, text });
@@ -190,7 +190,9 @@ function load(opts = {}) {
         }
         return container;
       },
-    });
+    };
+    for (const key of opts.engineOmit || []) delete engine[key];
+    win.StickyMdRender = Object.freeze(engine);
   }
   const sandbox = { window: win, JSON, Object, Array, Math, String };
   vm.createContext(sandbox);
@@ -629,6 +631,17 @@ console.log('\nבלי המנוע');
   host.fire(120000);
   check('והודעת "לא הגיע" אינה דורסת אותה אחר כך', host.main.textContent.indexOf('לא נטענה במלואה') !== -1, host.main.textContent);
 }
+{
+  // כל מה שהתצוגה צריכה מהמנוע נבדק במקום אחד, לפני הרינדור — ולא רק מה שהרינדור עצמו קורא.
+  for (const missing of ['render', 'MD_SAFE_LINK']) {
+    const host = load({ engineOmit: [missing] });
+    initialize(host, {}, { openLinks: {} });
+    host.deliver(toolResult({ ok: true, note: { title: 'x', content: '[אתר](https://example.com)', color: '#ffffcc' } }));
+    check(`מנוע בלי ${missing} — הודעה, ולא פתק שהקישור בו היה זורק בלחיצה`,
+      host.main.textContent.indexOf('לא נטענה במלואה') !== -1 && !host.find('ck-paper') && host.mdCalls.length === 0,
+      [host.main.textContent, host.mdCalls.length]);
+  }
+}
 
 console.log('\nקישורים');
 {
@@ -652,6 +665,22 @@ console.log('\nקישורים');
   host.find('ck-body').dispatch('click', { target: link });
   check('כתובת שאינה http/https אינה נשלחת', host.sent.filter((m) => m.message.method === 'ui/open-link').length === 1,
     host.sent.filter((m) => m.message.method === 'ui/open-link').length);
+}
+{
+  // הקישור נשפט מול המנוע שבנה אותו — זה שנבדק לפני הרינדור — ולא מול מה שיש ב-``window`` ברגע הלחיצה.
+  const host = load();
+  initialize(host, {}, { openLinks: {} });
+  host.deliver(toolResult({ ok: true, note: { title: 'x', content: '[אתר](https://example.com/b)', color: '#ffffcc' } }));
+  host.win.StickyMdRender = undefined;
+  let thrown = null;
+  try {
+    host.find('ck-body').dispatch('click', { target: host.find('sticky-md-link') });
+  } catch (err) {
+    thrown = err;
+  }
+  const req = host.last('ui/open-link');
+  check('הלחיצה אינה קוראת שוב את window — הבקשה נשלחת, בלי חריגה',
+    thrown === null && req && req.message.params.url === 'https://example.com/b', [thrown && String(thrown), req && req.message]);
 }
 {
   for (const caps of [{}, { openLinks: true }, { openLinks: null }, null, 'x']) {

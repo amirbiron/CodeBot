@@ -568,10 +568,13 @@
     var host = this.root();
     if (!host) return;
     var md = this.win.StickyMdRender;
-    // **הכרעה סטטית על היעדר יכולת:** ``build_note_view`` מכניס את המנוע לדף, ו-
+    // **הכרעה סטטית על היעדר יכולת, במקום אחד:** ``build_note_view`` מכניס את המנוע לדף, ו-
     // ``tests/test_mcp_note_view.py`` בודק שהוא שם. דף בלעדיו הוא דף שנבנה לא נכון, והמשתמש
-    // רואה את זה במילים — לא פתק ריק, ולא חריגה שמשאירה "טוען…".
-    if (!md || typeof md.render !== 'function') {
+    // רואה את זה במילים — לא פתק ריק, ולא חריגה שמשאירה "טוען…". **כל מה שהתצוגה לוקחת מהמנוע
+    // נבדק כאן:** ``render`` לבנייה, ו-``MD_SAFE_LINK`` לקישורים. והאובייקט שנבדק הוא זה שהקישורים
+    // נשפטים מולו (``onLinkClick`` מקבל אותו), כך שבזמן הלחיצה אין בדיקה שנייה ואין קריאה שנייה של
+    // ``window`` — מנוע שעבר את הבדיקה הזו הוא המנוע של כל מה שקורה בפתק עד הרינדור הבא.
+    if (!md || typeof md.render !== 'function' || !md.MD_SAFE_LINK || typeof md.MD_SAFE_LINK.test !== 'function') {
       this.settle();
       this.showStatus('התצוגה של הפתק לא נטענה במלואה, ולכן הפתק לא מוצג.', true);
       return;
@@ -594,6 +597,8 @@
     }
     var body = doc.createElement('div');
     body.className = 'ck-body';
+    var self = this;
+    body.addEventListener('click', function (event) { self.onLinkClick(event, md); });
     // **התוכן עטוף, ובכוונה.** ``ck-body`` הוא מכל הגלילה, ובגובה הקבוע הוא אינו משנה גודל כשהתוכן
     // שבתוכו גדל — בלוק מתקפל שנפתח, גופן שנטען. ``ResizeObserver`` על ``ck-content`` רואה את
     // זה, ולכן ▲▼ מופיעים ונעלמים לפי התוכן ולא רק לפי המסגרת.
@@ -647,14 +652,13 @@
    *  נפתח במסגרת מבודדת, וב-WebView של המובייל ניווט היה מחליף את התצוגה עצמה. במקומו — בקשה
    *  מהמארח, ``ui/open-link`` (המפרט, "Requests"), כשהמארח מודיע שהוא תומך בה (``openLinks``).
    *  ב-Claude, בקונקטור מותאם, המשתמש מאשר בחלון לפני שהקישור נפתח (התיעוד של Claude, "Open
-   *  external links from MCP Apps"). */
-  NoteView.prototype.onLinkClick = function (event) {
+   *  external links from MCP Apps"). ``md`` — המנוע שבנה את הקישור, כפי ש-``render`` בדק אותו. */
+  NoteView.prototype.onLinkClick = function (event, md) {
     var target = event && event.target;
     var link = target && typeof target.closest === 'function' ? target.closest('a.sticky-md-link') : null;
     if (!link) return;
     event.preventDefault();
     var url = link.getAttribute('href');
-    var md = this.win.StickyMdRender;
     // הכלל של המנוע עצמו (``MD_SAFE_LINK``), ולא עותק שלו: המנוע כבר יצר קישור רק לכתובת שעברה
     // אותו, והבדיקה כאן היא הגבול שלפני מה שנשלח החוצה.
     if (!this.canOpenLinks() || typeof url !== 'string' || !md.MD_SAFE_LINK.test(url)) return;
@@ -696,7 +700,6 @@
     up.addEventListener('click', function () { self.scrollStep(-1); });
     down.addEventListener('click', function () { self.scrollStep(1); });
     body.addEventListener('scroll', function () { self.updateScrollButtons(); });
-    body.addEventListener('click', function (event) { self.onLinkClick(event); });
     this.view = { body: body, bar: bar, expand: expand, group: group, up: up, down: down };
     return bar;
   };
