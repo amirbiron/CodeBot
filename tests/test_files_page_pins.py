@@ -633,10 +633,11 @@ def test_the_page_has_the_region_and_loads_what_the_opened_note_needs_for_every_
     assert 'data-testid="files-notes-state-error"' in html
     scripts = re.findall(r'<script src="/static/([^"?]+)\?v=[^"]+"(?: defer)?>', html)
     for needed in ("js/admonition-icons.js", "js/utils/rtl-code.js", "js/utils/text-highlight.js", "js/toast.js",
-                   "js/sticky-notes.js", "js/note-cards.js", "js/files-page-notes.js"):
+                   "js/sticky-md-render.js", "js/sticky-notes.js", "js/note-cards.js", "js/files-page-notes.js"):
         assert needed in scripts, f"{needed} לא נטען, או בלי ?v="
     # הסדר: התלויות, המנהל, רכיב הכרטיס, ואז הדבק של העמוד
-    order = [scripts.index(n) for n in ("js/sticky-notes.js", "js/note-cards.js", "js/files-page-notes.js")]
+    order = [scripts.index(n) for n in ("js/sticky-md-render.js", "js/sticky-notes.js", "js/note-cards.js",
+                                        "js/files-page-notes.js")]
     assert order == sorted(order)
     assert scripts.count("js/admonition-icons.js") == 1, "נטען פעמיים אצל אדמין?"
     for css in ("css/sticky-notes.css", "css/note-cards.css", "css/files-page-notes.css", "css/toast.css"):

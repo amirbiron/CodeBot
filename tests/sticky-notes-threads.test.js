@@ -20,6 +20,9 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// **מנוע התצוגה של הפתק נטען לפני המודול, כמו בכל תבנית** (``sticky-md-render.js``): המודול קורא
+// ממנו את העזרים ואת הפרסר בטעינה, ובלעדיו הוא נעצר ב-``TypeError`` לפני שהוא מגדיר משהו.
+const ENGINE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky-md-render.js');
 const MODULE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky-notes.js');
 
 /** אלמנט מדומה — מספיק ל-``createEl`` ולמה שתיבת הכתיבה עושה בו. */
@@ -91,6 +94,7 @@ function makeSandbox() {
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(ENGINE_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   return sandbox;
 }

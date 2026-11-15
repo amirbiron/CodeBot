@@ -24,6 +24,9 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// **מנוע התצוגה של הפתק נטען לפני המודול, כמו בכל תבנית** (``sticky-md-render.js``): המודול קורא
+// ממנו את העזרים ואת הפרסר בטעינה, ובלעדיו הוא נעצר ב-``TypeError`` לפני שהוא מגדיר משהו.
+const ENGINE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky-md-render.js');
 const MODULE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky-notes.js');
 const SRC = fs.readFileSync(MODULE_PATH, 'utf8');
 
@@ -90,6 +93,7 @@ function makeSandbox(href) {
   sandbox.self = sandbox;
   sandbox.window.document = sandbox.document;
   vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(ENGINE_PATH, 'utf8'), sandbox);
   vm.runInContext(SRC, sandbox);
   return sandbox;
 }

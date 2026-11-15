@@ -22,6 +22,9 @@ import { fileURLToPath } from 'url';
 import MarkdownIt from 'markdown-it';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// **מנוע התצוגה של הפתק נטען לפני המודול, כמו בכל תבנית** (``sticky-md-render.js``): המודול קורא
+// ממנו את העזרים ואת הפרסר בטעינה, ובלעדיו הוא נעצר ב-``TypeError`` לפני שהוא מגדיר משהו.
+const ENGINE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky-md-render.js');
 const MODULE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky-notes.js');
 // **המטא-דאטה של סוגי האלרט נטענת לפני המודול, בדיוק כמו בתבניות.**
 // ``_containerSpec`` קורא את ``window.ADMONITION_TITLES`` ואת
@@ -122,6 +125,7 @@ function makeSandbox(opts = {}) {
   vm.runInContext(fs.readFileSync(FILE_NAME_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(RTL_CODE_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(TEXT_HIGHLIGHT_PATH, 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(ENGINE_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   return sandbox;
 }
@@ -3655,6 +3659,28 @@ check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת גם 
   });
 });
 
+check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת לפניו את מנוע התצוגה, בלי defer ועם ?v=', () => {
+  // **כאן הסדר אינו "בלי מארקדאון" אלא "בלי פתק".** ``sticky-notes.js`` קורא את העזרים ואת הפרסר
+  // מ-``window.StickyMdRender`` כבר בטעינה; תבנית שטוענת אותו בלי המנוע, או אחריו, מקבלת ``TypeError``
+  // בקונסול ושום פתק. ``defer`` היה הופך את טענת הסדר לשקר, כמו בבדיקה שמעל.
+  const dir = path.join(__dirname, '..', 'webapp', 'templates');
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+  const loaders = walk(dir).filter((f) => f.endsWith('.html'))
+    .filter((f) => fs.readFileSync(f, 'utf8').includes("filename='js/sticky-notes.js'"));
+  eq(loaders.length >= 3, true, 'נמצאו התבניות שטוענות את המודול (' + loaders.length + ')');
+  loaders.forEach((f) => {
+    const src = fs.readFileSync(f, 'utf8');
+    const engine = src.indexOf("filename='js/sticky-md-render.js'");
+    const sticky = src.indexOf("filename='js/sticky-notes.js'");
+    const name = path.basename(f);
+    eq(engine !== -1, true, name + ' טוען את המנוע');
+    eq(engine < sticky, true, name + ' טוען אותו לפני sticky-notes.js');
+    eq(cacheBusted(src, 'js/sticky-md-render.js'), true, name + ' טוען אותו עם ?v=static_version');
+    eq(/\bdefer\b/.test(scriptTagFor(src, 'js/sticky-md-render.js') || ''), false, name + ' טוען אותו בלי defer');
+  });
+});
+
 check('חיווט: כל תבנית שטוענת sticky-notes.js מזריקה לפניו את שתי תקרות האורך מהשרת', () => {
   // **אותה מלכודת, בפעם השלישית.** ``maxNoteChars`` ומונה התגובה בשרשור קוראים את התקרה מ-``window``;
   // בעמוד שלא הזריק אותה אין אזהרה בזמן ההקלדה, והשרת הוא שמסרב בשמירה — בלי שגיאה ובלי סימן.
@@ -4327,6 +4353,7 @@ function makeDomSandbox() {
   vm.runInContext(fs.readFileSync(FILE_NAME_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(RTL_CODE_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(TEXT_HIGHLIGHT_PATH, 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(ENGINE_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   return sandbox;
 }
@@ -6383,6 +6410,82 @@ check('שמירה: לכל בקשת שמירה יש תקרת זמן — אחרת 
     if (!hadSignal) delete sandbox.AbortSignal;
     cleanupLive('lv13');
   }
+});
+
+// ---------- מנוע התצוגה כקובץ משותף (``sticky-md-render.js``) ----------
+//
+// המנוע נחלץ מהמחלקה כדי שתצוגה לקריאה בלבד — תגובה בשרשור, התצוגה בתוך Claude — תשתמש באותו
+// פרסר ולא בעותק שלישי. מה שהפתק עושה לא השתנה (כל הבדיקות שמעל רצות על המנוע המוצמד); כאן
+// נבדק המצב השני: אותו מבנה בדיוק, בלי מה ששייך לעריכה.
+
+/** עץ התצוגה כמחרוזת להשוואה — ``drop`` מחליט מה לא נכנס (ההבדלים שבין המצבים, ורק הם). */
+function dumpView(node, drop){
+  if (!node.tagName) return JSON.stringify(node.textContent);
+  if (drop.node(node)) return '';
+  const attrs = Object.keys(node._attrs).sort().map((k) => k + '=' + node._attrs[k]);
+  const data = Object.keys(node.dataset).filter((k) => !drop.data(k)).sort().map((k) => 'data-' + k + '=' + node.dataset[k]);
+  const props = ['checked', 'disabled', 'open', 'type'].filter((p) => p in node && !drop.prop(p)).map((p) => p + '=' + node[p]);
+  const inner = node.children.length ? node.children.map((c) => dumpView(c, drop)).join('') : JSON.stringify(node._text || '');
+  return '<' + String(node.tagName).toLowerCase() + ' class="' + [...node._classes].sort().join(' ') + '" '
+    + attrs.concat(data, props).join(' ') + '>' + inner + '</>';
+}
+
+const ENGINE_CORPUS = [
+  '# כותרת\n## משנה\n- א\n  - ב\n1. אחד', '- [ ] משימה\n- [x] בוצע\nטקסט',
+  '| a | b |\n|---|:-:|\n| `x` | **ב** |', '```python\nprint("שלום")\n\nx = 1\n```', '```\nשורה עברית\n```',
+  '::: note\nתוכן **מודגש**\n- [ ] בתוך\n:::', '::: details פרטים\n- א\n:::\nאחרי', '> ציטוט\n---\n[קישור](https://example.com)',
+  '`code` ו-*נטוי* ו-~~מחוק~~ ו-==מסומן==', '<script>alert(1)</script> [רע](javascript:alert(1))',
+];
+
+check('מנוע: render לקריאה בלבד בונה את אותו מבנה כמו הפתק, בלי היסטים, בלי סידור משימות ובלי כפתור העתקה', () => {
+  const R = sandbox.window.StickyMdRender;
+  const asNote = { node: (n) => n._classes.has('sticky-md-code-copy'), data: (k) => k === 'charOffset' || k === 'taskIndex', prop: (p) => p === 'disabled' };
+  const asView = { node: () => false, data: () => false, prop: (p) => p === 'disabled' };
+  ENGINE_CORPUS.forEach((text) => {
+    const note = renderMd(mdMgr, text).view;
+    // אותו מכל כמו של הפתק — ההשוואה היא על מה שהמנוע בונה בתוכו.
+    const host = new FakeEl('div');
+    host.className = 'sticky-note-tasks';
+    const view = R.render(host, text);
+    if (!note.children.length){
+      // **טקסט בלי שום מבנה — ההבדל היחיד, ובכוונה.** הפתק נשאר אז ``textarea`` ואינו בונה תצוגה; לתצוגה
+      // לקריאה בלבד אין ``textarea`` לחזור אליו, ולכן היא מציגה את הטקסט כשורות טקסט — כמו כל שורה רגילה.
+      eq(view.children.every((r) => r._classes.has('is-text')), true, 'בלי מבנה — שורות טקסט: ' + JSON.stringify(text).slice(0, 40));
+      eq(view.textContent, text, 'והטקסט כמו שהוא, בלי שום תגית');
+      return;
+    }
+    eq(dumpView(view, asView), dumpView(note, asNote), 'אותו מבנה: ' + JSON.stringify(text).slice(0, 40));
+  });
+});
+
+check('מנוע: במצב קריאה בלבד אין data-charOffset, הצ\'קבוקס מושבת ובלי סידור, ואין כפתור העתקה', () => {
+  const R = sandbox.window.StickyMdRender;
+  const walk = (n, out) => { if (n.tagName){ out.push(n); n.children.forEach((c) => walk(c, out)); } return out; };
+  const nodes = walk(R.render(new FakeEl('div'), ENGINE_CORPUS.join('\n')), []);
+  eq(nodes.some((n) => 'charOffset' in n.dataset), false, 'אף אלמנט אינו נושא היסט');
+  const boxes = nodes.filter((n) => n._classes.has('sticky-task-box'));
+  eq(boxes.length >= 2, true, 'יש צ\'קבוקסים בקלט');
+  eq(boxes.every((b) => b.disabled === true && !('taskIndex' in b.dataset)), true, 'כולם מושבתים ובלי סידור');
+  eq(nodes.some((n) => n._classes.has('sticky-md-code-copy')), false, 'אין כפתור העתקה');
+  eq(nodes.some((n) => n._classes.has('sticky-md-code-block')), true, 'אבל בלוק הקוד עצמו נבנה');
+});
+
+check('מנוע: ובפתק — כפתור ההעתקה מגיע מה-hook של המארח, אחרי תווית השפה', () => {
+  const { view } = renderMd(mdMgr, '```js\nx\n```');
+  const head = view.querySelector('.sticky-md-code-head');
+  eq(head && head.children.map((c) => [...c._classes].join(' ')).join(','), 'sticky-md-code-lang,sticky-md-code-copy', 'תווית ואז כפתור');
+});
+
+check('מנוע: mixInto מסרב לדרוס שם שכבר קיים, וה-API קפוא', () => {
+  const R = sandbox.window.StickyMdRender;
+  let threw = null;
+  try { R.mixInto({ _parseInline(){ return 'mine'; } }); } catch (e) { threw = String(e.message || e); }
+  eq(/_parseInline/.test(threw || ''), true, 'Error שנוקב בשם');
+  const target = {};
+  R.mixInto(target);
+  eq(typeof target._renderMarkdownView, 'function', 'על יעד נקי — המתודות מוצמדות');
+  eq(Object.isFrozen(R), true, 'window.StickyMdRender קפוא');
+  eq(StickyNotesManager.prototype._parseInline === R.Engine.prototype._parseInline, true, 'המנהל משתמש באותה פונקציה, לא בעותק');
 });
 
 (async () => {

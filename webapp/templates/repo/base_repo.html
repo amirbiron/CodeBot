@@ -410,6 +410,9 @@
 <script>window.STICKY_NOTE_MAX_CHARS = {{ max_note_chars | tojson }}; window.NOTE_THREAD_MAX_CHARS = {{ max_thread_comment_chars | tojson }};</script>
 <!-- הטוסט המשותף — ההודעה אחרי העברת פתק לארכיון (``_notify`` ב-sticky-notes.js). -->
 <script src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
+<!-- מנוע התצוגה של הפתק (sticky-md-render.js) — לפני sticky-notes.js ואחרי התלויות שהוא קורא מ-window, ובלי defer:
+     המודול קורא ממנו בטעינה. ההסבר בראש הקובץ. -->
+<script src="{{ url_for('static', filename='js/sticky-md-render.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/repo-notes.js') }}?v={{ static_version }}"></script>
 {% endblock %}
