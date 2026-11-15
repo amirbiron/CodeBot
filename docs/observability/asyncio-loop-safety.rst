@@ -57,6 +57,8 @@ asyncio, לעומת זאת, שומר את מצב "הלולאה הרצה" ברמ�
   דרך ``asgiref``, שפותח לולאה משלו ב-``ThreadPoolExecutor`` — כלומר בגרינלט —
   והלולאה הזו דולפת לכל שאר הבקשות באותו worker.
 
+גם תהליך הבוט מריץ ``monkey.patch_all()`` (``main.py``, אלא אם ``CODEBOT_DISABLE_GEVENT_PATCH`` מוגדר), ולכן גם שם ``asyncio.to_thread`` מריץ את העבודה בגרינלט באותו OS thread ולא ב-thread אמיתי. לקריאת I/O זה מספיק, כי היא קואופרטיבית. עבודת CPU ארוכה — דחיסה, פרסור של מסמך שלם — לא מחזירה את השליטה, ועוצרת את לולאת הבוט לכל אורכה גם כשהיא עטופה ב-``to_thread``. עבודה כזו רצה בתת-תהליך, שלא יורש את ה-patching: ``services/github_zip_packer.py``, ש-``GitHubMenuHandler._pack_folder_from_archive`` מריץ, ו-Playwright ב-``services/image_generator.py``. ``tests/test_github_zip_background_job.py`` מודד את זה תחת gevent, בתת-תהליך (``tests/helpers/gevent_zip_pack_probe.py``).
+
 Checklist לפני דיפלוי
 ---------------------
 - אין ``asyncio.run`` / ``run_until_complete`` / ``loop.create_task`` בשום מסלול

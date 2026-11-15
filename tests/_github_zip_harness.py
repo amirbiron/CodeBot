@@ -154,7 +154,10 @@ class FakeArchiveRepo:
         return []
 
     def archive_for_url(self, url: str) -> bytes:
-        ref = url.rsplit("/", 1)[-1]
+        # כל מה שאחרי ``/legacy.zip/`` הוא ה-ref, כולל ``/`` שבתוכו (``feature/x``)
+        marker = "/legacy.zip/"
+        assert marker in url, url
+        ref = url.split(marker, 1)[1]
         # בלי ref GitHub מחזיר את ענף ברירת המחדל (תיעוד ה-REST של zipball:
         # "If you omit :ref, the repository's default branch (usually main) will be used")
         key = self.default_branch if ref == "HEAD" else ref
@@ -168,6 +171,8 @@ def install_archive_http(monkeypatch, gh, repo: FakeArchiveRepo, responses: Opti
     def _http_request(method, url, **kwargs):
         assert method == "GET"
         resp = FakeArchiveResponse(repo.archive_for_url(url))
+        # הארגומנטים של הבקשה נשמרים, כדי שטסט יבדוק timeouts ו-retry
+        resp.request_kwargs = kwargs
         responses.append(resp)
         return resp
 

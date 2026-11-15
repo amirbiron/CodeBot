@@ -34,7 +34,7 @@ async def test_zipball_large_sends_link_no_doc(monkeypatch):
             for i in range(0, len(self._content), chunk_size):
                 yield self._content[i:i+chunk_size]
 
-    def _req_get(_url, headers=None, stream=False, timeout=60):
+    def _req_get(_url, headers=None, stream=False, timeout=60, **kwargs):
         return _Resp(payload)
 
     class _Repo:
@@ -127,7 +127,7 @@ async def test_zipball_persist_enospc_emits_and_message(monkeypatch):
             for i in range(0, len(self._content), chunk_size):
                 yield self._content[i:i+chunk_size]
 
-    def _req_get(_url, headers=None, stream=False, timeout=60):
+    def _req_get(_url, headers=None, stream=False, timeout=60, **kwargs):
         return _Resp(payload)
 
     class _Repo:

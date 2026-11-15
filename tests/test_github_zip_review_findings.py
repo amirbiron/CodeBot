@@ -103,7 +103,7 @@ def _install(monkeypatch, *, save_return="bid", payload=None, content_length=Non
                 for i in range(0, len(payload), chunk_size):
                     yield payload[i:i + chunk_size]
 
-    def _req_get(_url, headers=None, stream=False, timeout=60):
+    def _req_get(_url, headers=None, stream=False, timeout=60, **kwargs):
         return _Resp()
 
     class _Gh:
@@ -272,7 +272,7 @@ async def test_http_response_closed_on_hard_ceiling_abort(monkeypatch):
         def close(self):
             closed["n"] += 1
 
-    def _req_get(_url, headers=None, stream=False, timeout=60):
+    def _req_get(_url, headers=None, stream=False, timeout=60, **kwargs):
         return _Resp()
 
     class _Repo:

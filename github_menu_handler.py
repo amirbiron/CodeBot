@@ -7,7 +7,8 @@ import json
 import logging
 import os
 import re
-import stat
+import subprocess
+import sys
 import time
 import zipfile as _stdlib_zipfile
 from contextlib import asynccontextmanager
@@ -17,6 +18,7 @@ import tempfile
 import shutil
 from html import escape
 from io import BytesIO
+from pathlib import Path
 from typing import Any, Dict, Optional
 from http_sync import request as _http_sync_request
 import errno
@@ -172,14 +174,20 @@ MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 # handler שמחכה להורדה תוקע את כל הבוט, לכל המשתמשים, עד שהיא נגמרת. ה-handler
 # רק מתחיל את העבודה ב-``application.create_task`` וחוזר מיד; ראו ``_start_zip_job``.
 #
-# תקרת זמן להורדה ולאריזה — השלבים שאורכם גדל עם גודל הריפו. נבדקת בין חתיכה
-# לחתיכה של ההורדה ובין קובץ לקובץ באריזה; קריאה בודדת שלא עונה מוגבלת בנוסף
-# ב-timeout של הבקשה עצמה (``_download_repo_archive``). שאר השלבים מוגבלים כל
-# אחד בעצמו, ולכן גם הם לא מחזיקים את התור בלי סוף: הקריאות ל-GitHub API נשלחות
-# בלי retry (``_zip_github_client``), השמירה במונגו מוגבלת ב-``socketTimeoutMS``
-# לכל פעולה (``database/manager.py``), והשליחה לטלגרם ב-timeouts של PTB לכל
-# בקשה (``_apply_ptb_timeouts`` ב-``main.py``).
+# תקרת זמן להורדה ולאריזה — השלבים שאורכם גדל עם גודל הריפו. בהורדה היא נבדקת
+# בין חתיכה לחתיכה, וקריאה שלא עונה נקטעת אחרי ``ZIP_DOWNLOAD_READ_TIMEOUT_SECONDS``,
+# כך שההורדה נגמרת לכל המאוחר זמן כזה אחרי התקרה. באריזה היא נאכפת בהריגת התהליך
+# שאורז (``_pack_folder_from_archive``). שאר השלבים מוגבלים כל אחד בעצמו, ולכן גם
+# הם לא מחזיקים את התור בלי סוף: הקריאות ל-GitHub API ולהורדה נשלחות בלי retry
+# (``_zip_github_client`` ו-``_download_repo_archive``), השמירה במונגו מוגבלת
+# ב-``socketTimeoutMS`` לכל פעולה (``database/manager.py``), והשליחה לטלגרם
+# ב-timeouts של PTB לכל בקשה (``_apply_ptb_timeouts`` ב-``main.py``).
 ZIP_JOB_DEADLINE_SECONDS = 600
+# timeouts של בקשת ההורדה מ-codeload. נמדד ב-15.11.2026 על zipball של הריפו הזה
+# (75MB): הכותרות הגיעו אחרי פחות מחצי שנייה, והפער הגדול בין שתי חתיכות היה 0.06
+# שניות. קריאה שלא מקבלת אף בייט כל הזמן הזה היא חיבור תקוע, לא ריפו גדול.
+ZIP_DOWNLOAD_CONNECT_TIMEOUT_SECONDS = 10.0
+ZIP_DOWNLOAD_READ_TIMEOUT_SECONDS = 30.0
 # כמה אריזות רצות במקביל בכל הבוט. כשההורדה רצה בתוך ה-handler הן רצו אחת-אחת,
 # כי תור העדכונים חיכה; מספר גדול יותר הוא החלטה על זיכרון השרת, שלא נמדדה.
 ZIP_JOBS_MAX_CONCURRENT = 1
@@ -257,18 +265,17 @@ class _ZipQueueTimeout(Exception):
 class _ZipJobProgress:
     """מצב ההתקדמות של אריזה אחת, לתצוגה בלבד.
 
-    החוט שמוריד ואורז כותב, ומשימת הדיווח (``_zip_progress_reporter``) קוראת.
-    כותב אחד, קורא אחד, ושדות שהם מספרים שלמים ומחרוזת — השמה כזו אטומית תחת
-    ה-GIL, ולכן אין נעילה. הקורא עלול לראות ערך ישן בשבריר שנייה, וזה מקובל
-    לשורת התקדמות.
+    ההורדה כותבת, ומשימת הדיווח (``_zip_progress_reporter``) קוראת. כותב אחד, קורא
+    אחד, ושדות שהם מספר שלם ומחרוזת — השמה כזו אטומית, ולכן אין נעילה. הקורא עלול
+    לראות ערך ישן בשבריר שנייה, וזה מקובל לשורת התקדמות. האריזה רצה בתהליך נפרד
+    ולא מדווחת מספר קבצים בדרך (``services/github_zip_packer.py``).
     """
 
-    __slots__ = ("stage", "downloaded_bytes", "packed_files")
+    __slots__ = ("stage", "downloaded_bytes")
 
     def __init__(self) -> None:
         self.stage = "download"  # "download" או "pack"
         self.downloaded_bytes = 0
-        self.packed_files = 0
 
 
 def _zip_progress_text(label_html: str, progress: _ZipJobProgress) -> str:
@@ -280,7 +287,7 @@ def _zip_progress_text(label_html: str, progress: _ZipJobProgress) -> str:
     בבייטים ולא באחוזים.
     """
     if progress.stage == "pack":
-        return f"📦 אורז את <code>{label_html}</code>… {progress.packed_files} קבצים"
+        return f"📦 אורז את <code>{label_html}</code>…"
     if progress.downloaded_bytes:
         return (
             f"⏳ מוריד את הריפו מ-GitHub כדי לארוז את <code>{label_html}</code>… "
@@ -303,15 +310,8 @@ def _github_ref_page_url(full_name: str, ref: str) -> str:
     return f"https://github.com/{full_name}/tree/{quote(ref, safe='/')}"
 
 
-def _zip_entry_is_symlink(info) -> bool:
-    """האם רשומה בארכיון של GitHub היא קישור סימבולי.
-
-    ה-zipball שומר קישור כרשומה עם ``create_system == 3`` (Unix) ו-``S_IFLNK``
-    בחצי העליון של ``external_attr``, ותוכן הרשומה הוא יעד הקישור. נמדד על
-    zipball אמיתי של הריפו הזה (``node_modules/.bin/*`` יצאו ``0o120777``), וזו
-    גם הצורה ש-``git archive --format=zip`` מייצר.
-    """
-    return info.create_system == 3 and stat.S_ISLNK(info.external_attr >> 16)
+# הסקריפט שאורז תיקייה בתהליך נפרד — ראו ``_pack_folder_from_archive``
+_ZIP_PACKER_SCRIPT = Path(__file__).resolve().parent / "services" / "github_zip_packer.py"
 
 
 def _read_file_bytes(path: str) -> bytes:
@@ -1077,7 +1077,9 @@ class GitHubMenuHandler:
 
         ``ref`` — ענף או תג. בלעדיו GitHub מחזיר את ענף ברירת המחדל.
         ``deadline_ts`` — ערך של ``time.monotonic()`` שאחריו ההורדה נעצרת. נבדק בין
-        חתיכה לחתיכה, ולכן קריאה בודדת שלא עונה מוגבלת בנוסף ב-``timeout`` של הבקשה.
+        חתיכה לחתיכה, וקריאה בודדת שלא עונה נקטעת אחרי
+        ``ZIP_DOWNLOAD_READ_TIMEOUT_SECONDS`` — כך שההורדה נגמרת לכל המאוחר זמן כזה
+        אחרי הדדליין, והחיבור נסגר ב-``finally`` לפני שהחוט חוזר.
         ``progress`` — ``_ZipJobProgress`` שמתעדכן במספר הבייטים שירדו.
 
         מחזירה dict עם ``zip_path``, ``content_length`` ו-``too_big_for_telegram``. כתובת
@@ -1098,7 +1100,23 @@ class GitHubMenuHandler:
         # (``assert is_optional(ref, str)`` ב-``Repository.get_archive_link``).
         url = repo.get_archive_link("zipball", ref=ref) if ref else repo.get_archive_link("zipball")
         headers = {"Accept-Encoding": "identity"}
-        r = http_request('GET', url, headers=headers, stream=True, timeout=180)
+        # בלי retry: ``http_sync.request`` מנסה שוב גם על ``requests.Timeout``
+        # (``_is_retryable_exception``), עד ``max_attempts`` של ``DEFAULT_RETRY_POLICY``,
+        # וה-adapter מוסיף ניסיונות משלו על 5xx — שרשרת שיכולה לעבור את הדדליין לפני
+        # שירד בייט אחד. ``max_attempts=1`` יחד עם ``adapter_retries=False`` הם ניסיון
+        # אחד בדיוק (ה-docstring של ``http_sync.request``), וכשל מגיע למשתמש כהודעה.
+        read_timeout = ZIP_DOWNLOAD_READ_TIMEOUT_SECONDS
+        if deadline_ts is not None:
+            read_timeout = min(read_timeout, max(1.0, deadline_ts - time.monotonic()))
+        r = http_request(
+            'GET',
+            url,
+            headers=headers,
+            stream=True,
+            timeout=(ZIP_DOWNLOAD_CONNECT_TIMEOUT_SECONDS, read_timeout),
+            max_attempts=1,
+            adapter_retries=False,
+        )
         zip_path = None
         try:
             r.raise_for_status()
@@ -1278,94 +1296,93 @@ class GitHubMenuHandler:
         }
 
     @staticmethod
-    def _pack_folder_from_archive(archive_path, folder_path, dest_path, *, deadline_ts=None, progress=None):
-        """אורז תיקייה אחת מתוך ה-zipball שירד, לתוך ``dest_path``.
+    def _pack_folder_from_archive(archive_path, folder_path, dest_path, *, deadline_ts=None):
+        """אורז תיקייה אחת מתוך ה-zipball שירד, לתוך ``dest_path`` — בתהליך נפרד.
 
-        פונקציה חוסמת (דיסק) שרצה ב-``asyncio.to_thread``. כותבת ישר לקובץ היעד,
-        כך שבזיכרון יושב בכל רגע קובץ אחד לכל היותר — ותקרת הקובץ הבודד,
-        ``MAX_INLINE_FILE_BYTES``, נבדקת לפני הקריאה שלו.
+        פונקציה חוסמת שרצה ב-``asyncio.to_thread``. האריזה עצמה ב-
+        ``services/github_zip_packer.py``, ושם ההסבר המלא: תהליך הבוט מריץ gevent
+        ``monkey.patch_all()``, ובו ``to_thread`` הוא גרינלט באותו OS thread — כך
+        שדחיסה בתוך התהליך עצרה את לולאת הבוט לכל אורכה (נמדד). ``subprocess.run``
+        תחת gevent ממתין בלי לחסום את הלולאה, ובלי gevent (בטסטים) הוא רץ בחוט אמיתי.
+        זה הדפוס של Playwright ב-``services/image_generator.py``.
 
-        **מבנה ה-zipball (נמדד על zipball אמיתי של הריפו הזה):** תיקיית שורש אחת
-        בשם ``{owner}-{repo}-{sha}/`` שכל הרשומות תחתיה, ורשומות תיקייה שמסתיימות
-        ב-``/``. את השורש גוזרים מכל הרשומות ולא מהראשונה, ושורש שאינו יחיד הוא
-        ארכיון שאיננו מכירים — עוצרים ולא מנחשים.
+        ``deadline_ts`` נאכף בהריגת התהליך: ``timeout`` של ``subprocess.run`` הורג
+        אותו ומחכה לו לפני שהוא זורק ``TimeoutExpired``, כך שקובץ היעד החלקי כבר לא
+        נכתב כשהקורא מוחק אותו. התקרות נשלחות לתהליך מהקבועים כאן, בזמן הקריאה.
 
-        התקרות ובדיקתן לפי אותו סדר כמו באריזה הקודמת, קובץ-קובץ דרך ה-API:
-        ``MAX_ZIP_FILES`` קודם (דילוג נספר ב-``skipped_limits``), אחריה
-        ``MAX_INLINE_FILE_BYTES`` (``skipped_large``), ואחריה ``MAX_ZIP_TOTAL_BYTES``
-        (``skipped_limits``). קישורים סימבוליים לא נכללים: בארכיון התוכן שלהם הוא
-        רק נתיב היעד ולא הקובץ, וקישור שמצביע אל מחוץ לתיקייה ממילא לא היה עובד.
-
-        מחזירה dict עם ``total_files``, ``total_bytes``, ``skipped_large``, ``skipped_limits``
-        ו-``skipped_symlinks`` (כדי שתיקייה שיש בה רק קישורים לא תדווח "הנתיב לא קיים").
+        מחזירה dict עם ``total_files``, ``total_bytes``, ``skipped_large``,
+        ``skipped_limits`` ו-``skipped_symlinks``. ארכיון במבנה לא צפוי, או דדליין
+        שעבר, זורקים ``_ZipBackupError`` עם הודעה למשתמש; כשל אחר של התהליך זורק
+        ``RuntimeError``.
         """
-        folder = (folder_path or "").strip("/")
-        zip_root = folder.split("/")[-1]
-        total_files = total_bytes = skipped_large = skipped_limits = skipped_symlinks = 0
-
-        def _unexpected(reason: str) -> _ZipBackupError:
-            return _ZipBackupError(
-                "❌ הארכיון שהתקבל מ-GitHub אינו במבנה הצפוי, ולא ארזתי ממנו כלום.",
-                cause=ValueError(reason),
+        timeout = None
+        if deadline_ts is not None:
+            timeout = deadline_ts - time.monotonic()
+            if timeout <= 0:
+                raise _ZipBackupError(
+                    ZIP_JOB_TIMEOUT_TEXT,
+                    cause=TimeoutError("zip job deadline exceeded before packing"),
+                )
+        # JSON עם ``ensure_ascii`` (ברירת המחדל), כך ששם תיקייה בעברית עובר כ-ASCII
+        # ולא תלוי בקידוד ברירת המחדל של התהליך
+        request = json.dumps({
+            "archive_path": archive_path,
+            "folder": folder_path,
+            "dest_path": dest_path,
+            "max_files": MAX_ZIP_FILES,
+            "max_file_bytes": MAX_INLINE_FILE_BYTES,
+            "max_total_bytes": MAX_ZIP_TOTAL_BYTES,
+        })
+        try:
+            # ``-I``: בלי ``sys.path`` של הריפו ובלי משתני ``PYTHON*`` — הסקריפט מייבא רק
+            # מהספרייה הסטנדרטית
+            proc = subprocess.run(
+                [sys.executable, "-I", str(_ZIP_PACKER_SCRIPT)],
+                input=request,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=timeout,
             )
+        except subprocess.TimeoutExpired as e:
+            raise _ZipBackupError(
+                ZIP_JOB_TIMEOUT_TEXT,
+                cause=TimeoutError("zip job deadline exceeded while packing"),
+            ) from e
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"zip packer exited with {proc.returncode}: {(proc.stderr or '')[-1000:]}"
+            )
+        return GitHubMenuHandler._parse_packer_output(proc.stdout)
 
-        with zipfile.ZipFile(archive_path, "r") as zin:
-            infos = zin.infolist()
-            roots = {info.filename.split("/", 1)[0] for info in infos}
-            if len(roots) != 1:
-                raise _unexpected(f"expected one root folder in the zipball, found {len(roots)}")
-            # המפריד בסוף הקידומת הוא הגבול: בלעדיו "skills" היה תופס גם את "skills-old/"
-            prefix = f"{roots.pop()}/{folder}/"
+    @staticmethod
+    def _parse_packer_output(stdout: str) -> Dict[str, int]:
+        """מאמת את הפלט של ``services/github_zip_packer.py`` ומחזיר את הספירות.
 
-            with zipfile.ZipFile(dest_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zout:
-                for info in infos:
-                    if not info.filename.startswith(prefix) or info.is_dir():
-                        continue
-                    if _zip_entry_is_symlink(info):
-                        skipped_symlinks += 1
-                        continue
-                    rel = info.filename[len(prefix):]
-                    if any(part in ("", ".", "..") for part in rel.split("/")):
-                        # git לא מתיר רכיבים כאלה בנתיב, אז זה לא ארכיון של GitHub כפי שאנחנו מכירים
-                        raise _unexpected("zipball entry with an empty or dot path component")
-                    if deadline_ts is not None and time.monotonic() > deadline_ts:
-                        raise _ZipBackupError(
-                            ZIP_JOB_TIMEOUT_TEXT,
-                            cause=TimeoutError("zip job deadline exceeded while packing"),
-                        )
-                    # התקרה נבדקת לפני הקריאה: ארכיון שהגיע לתקרה לא צריך לפרוס עוד קבצים
-                    if total_files >= MAX_ZIP_FILES:
-                        skipped_limits += 1
-                        continue
-                    if info.file_size > MAX_INLINE_FILE_BYTES:
-                        skipped_large += 1
-                        continue
-                    # דילוגים בגלל תקרת הארכיון נספרים גם הם: בלי זה המשתמש מקבל ZIP
-                    # חסר בלי שום סימן שמשהו נחתך
-                    if total_bytes + info.file_size > MAX_ZIP_TOTAL_BYTES:
-                        skipped_limits += 1
-                        continue
-                    # ``file_size`` מגיע מהארכיון, אבל הוא חסם אמיתי: ``ZipExtFile`` לא מחזיר
-                    # יותר ממנו (``data = data[:self._left]`` ב-Lib/zipfile.py, גם ב-3.11)
-                    # ובודק CRC בסוף הקריאה.
-                    data = zin.read(info)
-                    out = zipfile.ZipInfo(f"{zip_root}/{rel}", date_time=info.date_time)
-                    # שומרים את ההרשאות כמו שהן ב-git, כולל סקריפט שמסומן להרצה
-                    out.create_system = info.create_system
-                    out.external_attr = info.external_attr
-                    zout.writestr(out, data, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
-                    total_files += 1
-                    total_bytes += len(data)
-                    if progress is not None:
-                        progress.packed_files = total_files
-
-        return {
-            "total_files": total_files,
-            "total_bytes": total_bytes,
-            "skipped_large": skipped_large,
-            "skipped_limits": skipped_limits,
-            "skipped_symlinks": skipped_symlinks,
-        }
+        הפלט מגיע מתהליך אחר, ולכן נבדק לפני שסומכים עליו: dict, ובו ספירות שהן
+        מספרים שלמים אי-שליליים (``bool`` אינו מספר כאן). פלט אחר הוא תקלה של
+        התהליך ולא נתון.
+        """
+        try:
+            result = json.loads(stdout)
+        except ValueError as e:
+            raise RuntimeError(f"zip packer printed something that is not JSON: {stdout[:200]!r}") from e
+        if not isinstance(result, dict):
+            raise RuntimeError("zip packer output is not an object")
+        if result.get("ok") is not True:
+            if result.get("error") == "unexpected_archive":
+                raise _ZipBackupError(
+                    "❌ הארכיון שהתקבל מ-GitHub אינו במבנה הצפוי, ולא ארזתי ממנו כלום.",
+                    cause=ValueError(str(result.get("reason"))),
+                )
+            raise RuntimeError(f"zip packer failed: {result!r}"[:500])
+        stats = result.get("stats")
+        keys = ("total_files", "total_bytes", "skipped_large", "skipped_limits", "skipped_symlinks")
+        if not isinstance(stats, dict) or not all(
+            isinstance(stats.get(k), int) and not isinstance(stats.get(k), bool) and stats[k] >= 0 for k in keys
+        ):
+            raise RuntimeError(f"zip packer returned malformed stats: {stats!r}"[:500])
+        return {k: stats[k] for k in keys}
 
     # ------------------------------------------------------------------
     # הורדת ZIP כמשימת רקע (``download_zip:``)
@@ -1646,7 +1663,6 @@ class GitHubMenuHandler:
                     folder,
                     dest_path,
                     deadline_ts=deadline_ts,
-                    progress=progress,
                 )
 
             total_files = stats["total_files"]

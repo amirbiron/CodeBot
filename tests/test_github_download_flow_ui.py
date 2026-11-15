@@ -382,7 +382,7 @@ async def test_download_zip_of_root_sends_backup_and_summary(monkeypatch):
             for i in range(0, len(self._content), chunk_size):
                 yield self._content[i:i+chunk_size]
 
-    def _req_get(_url, headers=None, stream=False, timeout=60):
+    def _req_get(_url, headers=None, stream=False, timeout=60, **kwargs):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as z:
             z.writestr('repo/file1.txt', b'hello')

@@ -105,7 +105,7 @@ async def test_download_zip_repo_error_does_not_open_backups_list(monkeypatch):
     class _Resp:
         def raise_for_status(self):
             raise Exception("boom")
-    def _req_get(_url, headers=None, stream=False, timeout=60):
+    def _req_get(_url, headers=None, stream=False, timeout=60, **kwargs):
         return _Resp()
 
     # Patch environment

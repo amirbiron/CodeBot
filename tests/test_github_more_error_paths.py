@@ -33,7 +33,7 @@ async def test_zipball_fetch_error_emits_and_counts(monkeypatch):
         def raise_for_status(self):
             raise RuntimeError("fetch-fail")
     # Ensure our stub matches the new signature with headers/stream
-    def _req_get(url, headers=None, stream=False, timeout=60):
+    def _req_get(url, headers=None, stream=False, timeout=60, **kwargs):
         return _Resp()
     monkeypatch.setattr(gh, "requests", types.SimpleNamespace(get=_req_get))
 

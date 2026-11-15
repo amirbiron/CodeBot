@@ -298,12 +298,22 @@ async def test_github_calls_do_not_block_the_event_loop(monkeypatch):
 
     def _tracked_http(method, url, **kwargs):
         seen.append(("http", threading.get_ident()))
-        return original_http(method, url, **kwargs)
+        resp = original_http(method, url, **kwargs)
+        original_iter = resp.iter_content
+
+        # גוף הארכיון נקרא בהזרמה, אחרי שהבקשה חזרה — גם הקריאה הזו חוסמת
+        def _tracked_iter(*a, **k):
+            for chunk in original_iter(*a, **k):
+                seen.append(("body", threading.get_ident()))
+                yield chunk
+
+        resp.iter_content = _tracked_iter
+        return resp
 
     monkeypatch.setattr(gh, "http_request", _tracked_http)
     await _pack(handler, upd, ctx)
 
-    assert {kind for kind, _ in seen} == {"link", "http"}, seen
+    assert {kind for kind, _ in seen} == {"link", "http", "body"}, seen
     assert all(t != main_thread for _, t in seen), "קריאת רשת חוסמת רצה על ה-event loop"
 
 
@@ -459,33 +469,6 @@ async def test_failed_send_does_not_double_save(monkeypatch):
     )
     await _choose(handler, upd, ctx, f"ghzip_name_default:{token}")
     assert len(saves) == 1, f"נשמר פעמיים לאותו ארכיון: {len(saves)}"
-
-
-@pytest.mark.asyncio
-async def test_file_cap_checked_before_reading_content(monkeypatch):
-    """אחרי שהגענו לתקרת הקבצים לא פורסים עוד תוכן מהארכיון.
-
-    התקרה קיימת כדי להגביל עבודה וזיכרון; פריסה של קובץ שנזרק מיד אחריה
-    מבזבזת את שניהם.
-    """
-    import github_menu_handler as gh
-
-    monkeypatch.setattr(gh, "MAX_ZIP_FILES", 1)
-    handler, upd, ctx, _ = _make(monkeypatch)
-
-    read_names = []
-    real_zipfile = zipfile.ZipFile
-
-    class _TrackingZipFile(real_zipfile):
-        def read(self, name, pwd=None):
-            read_names.append(getattr(name, "filename", name))
-            return super().read(name, pwd)
-
-    monkeypatch.setattr(gh.zipfile, "ZipFile", _TrackingZipFile, raising=False)
-    token = await _pack(handler, upd, ctx)
-
-    assert ctx.user_data["ghzip_pending"][token]["skipped_limits"] >= 1
-    assert len(read_names) == 1, f"נפרסו קבצים אחרי התקרה: {read_names}"
 
 
 @pytest.mark.asyncio

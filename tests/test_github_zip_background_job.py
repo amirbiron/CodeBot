@@ -14,6 +14,7 @@
 """
 
 import asyncio
+import os
 import threading
 import types
 import zipfile
@@ -738,3 +739,177 @@ async def test_harness_drain_waits_for_every_task_before_raising():
     assert slow_done.is_set(), "drain החזיר שליטה בזמן שמשימה אחרת עוד רצה"
     with pytest.raises(RuntimeError, match="boom"):
         await app.drain()
+
+
+# ------------------------------------------------- ריוויו 2: gevent, הורדה, רשימת גיבויים
+
+
+PROBE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "helpers", "gevent_zip_pack_probe.py")
+
+
+def test_packing_does_not_stall_the_bot_loop_under_gevent(tmp_path):
+    """תחת gevent, אריזה לא עוצרת את לולאת הבוט.
+
+    תהליך הבוט מריץ ``monkey.patch_all()`` (``main.py``), ואחריו ``asyncio.to_thread``
+    הוא גרינלט באותו OS thread: דחיסה בתוכו עצרה את הלולאה לכל אורכה. בסוויטה gevent
+    כבוי (``conftest.py``), ולכן הבדיקה רצה בתת-תהליך שמפעיל אותו בעצמו
+    (``tests/helpers/gevent_zip_pack_probe.py``). על הקוד שאורז בתוך התהליך הפער
+    הגדול בלולאה היה כאורך האריזה כולה.
+    """
+    import json
+    import subprocess
+    import sys
+
+    pytest.importorskip("gevent")
+    completed = subprocess.run(
+        [sys.executable, "-B", PROBE, str(tmp_path)], capture_output=True, text=True, timeout=180
+    )
+    assert completed.returncode == 0, f"stdout: {completed.stdout}\nstderr: {completed.stderr[-2000:]}"
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+
+    assert result["patched"] is True, "הפרוב לא רץ תחת gevent — הבדיקה לא בודקת כלום"
+    assert result["files"] > 0 and result["pack_seconds"] >= 0.2, f"האריזה קצרה מכדי למדוד: {result}"
+    assert result["max_gap"] < 0.5 * result["pack_seconds"], f"הלולאה עמדה בזמן האריזה: {result}"
+
+
+def _fake_packer(tmp_path, body: str):
+    script = tmp_path / "fake_packer.py"
+    script.write_text(body, encoding="utf-8")
+    return script
+
+
+@pytest.mark.asyncio
+async def test_packing_is_killed_at_the_deadline(monkeypatch, tmp_path, isolated_pending_dir):
+    """תהליך אריזה שלא מסיים נהרג בדדליין: הודעה, הקובץ הממתין נמחק, והסימון משתחרר."""
+    import github_menu_handler as gh
+
+    monkeypatch.setattr(gh, "_ZIP_PACKER_SCRIPT", _fake_packer(tmp_path, "import time\ntime.sleep(60)\n"))
+    monkeypatch.setattr(gh, "ZIP_JOB_DEADLINE_SECONDS", 1.0)
+    repo = _default_repo()
+    handler = _handler(monkeypatch, repo)
+    install_archive_http(monkeypatch, gh, repo)
+    ctx = make_context()
+    query = _Query("download_zip:x")
+
+    await _click(handler, query, ctx)
+    await ctx.application.drain(timeout=20)
+
+    assert query.edits[-1] == gh.ZIP_JOB_TIMEOUT_TEXT, query.edits
+    assert not list(isolated_pending_dir.glob("*.bin")), "הקובץ הממתין החלקי נשאר"
+    assert USER not in handler._zip_jobs_in_flight
+
+
+@pytest.mark.asyncio
+async def test_malformed_packer_output_is_an_error_not_a_result(monkeypatch, tmp_path):
+    """פלט שאינו JSON בצורה הצפויה הוא תקלה של התהליך, לא ספירות שסומכים עליהן."""
+    import github_menu_handler as gh
+
+    script = _fake_packer(tmp_path, 'import json\nprint(json.dumps({"ok": True, "stats": {"total_files": "many"}}))\n')
+    monkeypatch.setattr(gh, "_ZIP_PACKER_SCRIPT", script)
+    repo = _default_repo()
+    handler = _handler(monkeypatch, repo)
+    install_archive_http(monkeypatch, gh, repo)
+    ctx = make_context()
+    query = _Query("download_zip:x")
+
+    await _click(handler, query, ctx)
+    await ctx.application.drain(timeout=20)
+
+    assert (query.edits[-1] or "").startswith("❌ שגיאה בהכנת ZIP"), query.edits
+    assert not ctx.user_data.get("ghzip_pending")
+
+
+@pytest.mark.asyncio
+async def test_download_request_has_one_attempt_and_split_timeouts(monkeypatch):
+    """בקשת ההורדה: ניסיון אחד בלבד, ו-timeout נפרד לחיבור ולקריאה.
+
+    ``http_sync.request`` מנסה שוב גם על timeout, וה-adapter מוסיף ניסיונות על 5xx —
+    שרשרת שיכולה לעבור את הדדליין לפני שירד בייט.
+    """
+    import github_menu_handler as gh
+
+    repo = _default_repo()
+    handler = _handler(monkeypatch, repo)
+    responses = install_archive_http(monkeypatch, gh, repo)
+    ctx = make_context()
+
+    await _click(handler, _Query("download_zip:x"), ctx)
+    await ctx.application.drain()
+
+    kwargs = responses[0].request_kwargs
+    assert kwargs["max_attempts"] == 1 and kwargs["adapter_retries"] is False, kwargs
+    connect, read = kwargs["timeout"]
+    assert connect == gh.ZIP_DOWNLOAD_CONNECT_TIMEOUT_SECONDS
+    assert 0 < read <= gh.ZIP_DOWNLOAD_READ_TIMEOUT_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_branch_with_a_slash_is_packed_from_its_own_archive(monkeypatch):
+    """ענף כמו ``feature/x``: בקשת הארכיון עם השם המלא, והתוכן מהענף הזה."""
+    import github_menu_handler as gh
+
+    repo = FakeArchiveRepo(
+        {"main": zipball_bytes({"skills/logo/SKILL.md": b"main"}), "feature/x": zipball_bytes({"skills/logo/SKILL.md": b"feature"})}
+    )
+    handler = _handler(monkeypatch, repo)
+    install_archive_http(monkeypatch, gh, repo)
+    ctx = make_context(user_data={"browse_ref": "feature/x"})
+
+    await _click(handler, _Query("download_zip:x"), ctx)
+    await ctx.application.drain()
+
+    assert repo.archive_refs == ["feature/x"]
+    entry = next(iter(ctx.user_data["ghzip_pending"].values()))
+    with zipfile.ZipFile(entry["path"]) as zf:
+        assert zf.read("logo/SKILL.md") == b"feature"
+
+
+@pytest.mark.asyncio
+async def test_backups_list_is_shown_even_when_the_click_is_stale(monkeypatch):
+    """בסוף גיבוי מלא הלחיצה כבר ישנה, ורשימת הגיבויים מוצגת בכל זאת.
+
+    ``_show_backups_list`` אישרה את הלחיצה ב-``query.answer()`` ישיר, וזה זורק
+    "Query is too old" על לחיצה ישנה — בדיוק התקלה המקורית. כאן רצה הרשימה האמיתית
+    (``BackupMenuHandler``), ונבדק שהיא הוצגה ולא המסך החלופי.
+    """
+    from telegram.error import BadRequest
+
+    import backup_menu_handler as bmh
+    import github_menu_handler as gh
+
+    repo = _default_repo()
+    handler = _handler(monkeypatch, repo, path="")
+    install_archive_http(monkeypatch, gh, repo)
+    monkeypatch.setattr(gh, "backup_manager", _BackupManager())
+    monkeypatch.setattr(bmh.backup_manager, "list_backups", lambda user_id: [])
+    outcomes = []
+    original = bmh.BackupMenuHandler._show_backups_list
+
+    async def _spy(self, update, context, page=None):
+        try:
+            result = await original(self, update, context, page=page)
+        except BaseException as e:
+            outcomes.append(f"raised {type(e).__name__}")
+            raise
+        outcomes.append("shown")
+        return result
+
+    monkeypatch.setattr(bmh.BackupMenuHandler, "_show_backups_list", _spy)
+    fallback = []
+
+    async def _fallback(update, context):
+        fallback.append(1)
+
+    monkeypatch.setattr(handler, "show_github_backup_menu", _fallback)
+    ctx = make_context()
+    query = _Query("download_zip:")
+
+    async def _too_old(*a, **k):
+        raise BadRequest("Query is too old and response timeout expired or query id is invalid")
+
+    query.answer = _too_old
+    await _click(handler, query, ctx)
+    await ctx.application.drain()
+
+    assert outcomes == ["shown"], outcomes
+    assert not fallback, "הוצג המסך החלופי במקום רשימת הגיבויים"

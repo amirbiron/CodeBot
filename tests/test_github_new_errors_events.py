@@ -8,88 +8,81 @@ from _github_zip_harness import FakeApplication
 
 @pytest.mark.asyncio
 async def test_zip_create_error_emits_event_and_counter(monkeypatch):
-    handler = gh.GitHubMenuHandler()
+    """כשל באריזת תיקייה מגיע לאירוע ``github_zip_create_error`` ולמונה שלו.
 
-    # stub session and repo to force zip error
+    הכשל מוזרק בנקודה שהזרימה באמת עוברת בה — בקשת הארכיון מ-GitHub — כדי שהטסט
+    ייכשל אם האירוע או המונה יפסיקו להירשם.
+    """
+    handler = gh.GitHubMenuHandler()
     handler.get_user_session = lambda uid: {"selected_repo": "owner/repo", "selected_folder": None}
+    handler.get_user_token = lambda uid: "t"
 
     class _Repo:
         name = "repo"
         full_name = "owner/repo"
         default_branch = "main"
-        def get_contents(self, path):
+
+        def get_archive_link(self, archive_format, ref=None):
             raise RuntimeError("boom")
+
     class _Github:
         # המשימה בונה את הלקוח עם retry=None (``_zip_github_client``)
         def __init__(self, token, **kwargs):
             pass
+
         def get_repo(self, name):
             return _Repo()
+
     monkeypatch.setattr(gh, "Github", _Github, raising=False)
 
-    # stub token/db
-    class _DB:
-        def get_github_token(self, user_id):
-            return "t"
-    import database as _database
-    monkeypatch.setattr(_database, 'db', _DB(), raising=False)
-
-    # stub query & update/context
     class _Msg:
         async def reply_text(self, *a, **k):
             return None
+
     class _Query:
-        data = "download_zip:"
+        data = "download_zip:folder"
         message = _Msg()
         from_user = types.SimpleNamespace(id=1)
+
         async def edit_message_text(self, *a, **k):
             return None
+
         async def answer(self, *a, **k):
             return None
+
     class _Update:
         callback_query = _Query()
         effective_user = types.SimpleNamespace(id=1)
+
     class _Ctx:
-        user_data = {"upload_target_branch": "main", "upload_target_folder": None}
+        user_data = {}
         bot_data = {}
         # ההורדה רצה כמשימת רקע; מחכים לה אחרי הלחיצה
         application = FakeApplication()
 
-    # capture events and counter increments
-    events = {"evts": []}
+    events = []
+    counters = []
+
     def _emit(evt, severity="info", **fields):
-        events["evts"].append((evt, severity, fields))
+        events.append((evt, severity, fields))
+
     class _Errors:
         def labels(self, **kw):
             class _C:
                 def inc(self_inner):
-                    events["evts"].append(("errors_total_inc", "info", kw))
+                    counters.append(kw)
             return _C()
+
     monkeypatch.setattr(gh, "emit_event", _emit, raising=False)
     monkeypatch.setattr(gh, "errors_total", _Errors(), raising=False)
-    # stub backup manager to avoid real IO
-    import file_manager as _fm
-    class _BM:
-        def save_backup_bytes(self, *a, **k):
-            return None
-        def list_backups(self, *a, **k):
-            return []
-    monkeypatch.setattr(_fm, "backup_manager", _BM(), raising=False)
 
-    # run the branch that builds zip from current repo path
-    # we call the callback handler directly for the relevant branch
-    # locate method that handles callback data; common name is on_callback_query or similar
-    # We'll invoke the class method "on_callback_query" if exists else simulate narrow path
-    # Route via the public callback handler used in tests
     ctx = _Ctx()
-    if hasattr(handler, "handle_menu_callback"):
-        await handler.handle_menu_callback(_Update(), ctx)
-    elif hasattr(handler, "on_callback_query"):
-        await handler.on_callback_query(_Update(), ctx)
+    await handler.handle_menu_callback(_Update(), ctx)
     await ctx.application.drain()
 
-    # assert event or at least counter emitted for zip error
-    assert any(e[0] in ("github_zip_create_error", "errors_total_inc") for e in events["evts"]) or True
+    zip_errors = [fields for name, _, fields in events if name == "github_zip_create_error"]
+    assert zip_errors and "boom" in zip_errors[0]["error"], events
+    assert {"code": "github_zip_create_error"} in counters, counters
 
 
 @pytest.mark.asyncio
