@@ -1575,8 +1575,12 @@ def _is_under_pending_dir(path: Path) -> bool:
         return False
 
 
-def stash_pending_zip_bytes(raw: bytes, token: str) -> str:
-    """שומר bytes של ZIP ממתין לבחירה בקובץ זמני ומחזיר את הנתיב המלא.
+def pending_zip_path(token: str) -> str:
+    """הנתיב של קובץ ה-ZIP הממתין עבור ``token``, בתוך תיקיית ה-pending הייעודית.
+
+    מי שבונה את הארכיון בעצמו (אריזת תיקייה מגיטהאב) כותב ישר לנתיב הזה, בלי
+    להחזיק את כל הבייטים בזיכרון ואז להעתיק אותם. ``stash_pending_zip_bytes``
+    משתמש באותו נתיב, כך שכלל השם והבטיחות מוגדר במקום אחד.
 
     ה-token חייב להיות מזהה בטוח לשם קובץ (ללא מפרידי נתיב או '..').
     """
@@ -1584,10 +1588,15 @@ def stash_pending_zip_bytes(raw: bytes, token: str) -> str:
         raise ValueError("invalid pending-zip token")
     # בטוח מ-path traversal: _SAFE_TOKEN_RE מתיר רק [A-Za-z0-9_-] (בלי '/', '\' או '..'),
     # ולכן הנתיב המורכב כאן נשאר תמיד בתוך _pending_zip_dir()
-    path = _pending_zip_dir() / f"{token}.bin"
+    return str(_pending_zip_dir() / f"{token}.bin")
+
+
+def stash_pending_zip_bytes(raw: bytes, token: str) -> str:
+    """שומר bytes של ZIP ממתין לבחירה בקובץ זמני ומחזיר את הנתיב המלא."""
+    path = pending_zip_path(token)
     with open(path, "wb") as f:
         f.write(raw)
-    return str(path)
+    return path
 
 
 def load_pending_zip_bytes(path: str) -> Optional[bytes]:

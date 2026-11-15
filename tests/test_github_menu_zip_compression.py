@@ -7,8 +7,13 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_download_zip_folder_uses_high_compression(monkeypatch):
+async def test_download_zip_folder_uses_high_compression(monkeypatch, tmp_path):
     import github_menu_handler as gh
+    import utils
+    from _github_zip_harness import FakeArchiveRepo, install_archive_http, make_context, zipball_bytes
+
+    # הארכיון שנארז ממתין בתיקייה של הטסט הזה בלבד
+    monkeypatch.setattr(utils, "_pending_zip_dir", lambda: tmp_path)
 
     handler = gh.GitHubMenuHandler()
 
@@ -16,30 +21,17 @@ async def test_download_zip_folder_uses_high_compression(monkeypatch):
     handler.get_user_session = lambda uid: {"selected_repo": "o/r"}
     handler.get_user_token = lambda uid: "t"
 
-    # fake repo API for folder path
-    class _Item:
-        def __init__(self, t, name, size=0, data=b""):
-            self.type = t
-            self.name = name
-            self.path = name
-            self.size = size
-            self.decoded_content = data
-
-    class _Repo:
-        name = "r"
-        full_name = "o/r"
-        def get_contents(self, path, ref=None):
-            if not path:
-                return [_Item('file', 'a.txt', len(b'a'), b'a')]
-            return [_Item('file', 'b.txt', len(b'bb'), b'bb')]
+    # ריפו שמגיש zipball עם תיקייה אחת ושני קבצים
+    repo = FakeArchiveRepo({"main": zipball_bytes({"folder/a.txt": b"a", "folder/b.txt": b"bb"})})
 
     class _Gh:
         def __init__(self, *a, **k):
             pass
         def get_repo(self, _):
-            return _Repo()
+            return repo
 
     monkeypatch.setattr(gh, "Github", _Gh)
+    install_archive_http(monkeypatch, gh, repo)
 
     # Capture document sent to user and inspect the in-memory zip
     sent = {}
@@ -67,7 +59,7 @@ async def test_download_zip_folder_uses_high_compression(monkeypatch):
         effective_user=types.SimpleNamespace(id=5),
         effective_message=query.message,
     )
-    ctx = types.SimpleNamespace(user_data={}, bot_data={})
+    ctx = make_context()
 
     # Force the "build local zip" branch by providing a non-empty path
     def _get_path_from_cb(context, data, prefix):
@@ -75,6 +67,7 @@ async def test_download_zip_folder_uses_high_compression(monkeypatch):
     monkeypatch.setattr(handler, "_get_path_from_cb", _get_path_from_cb)
 
     await handler.handle_menu_callback(upd, ctx)
+    await ctx.application.drain()
 
     # האריזה נעצרת עכשיו על שאלת היעד — משלימים את שני המסכים כדי להגיע לקובץ.
     # מפאטצ'ים את השמירה כדי שהטסט לא ייגע באחסון אמיתי, וכדי שהניקוי של הקובץ

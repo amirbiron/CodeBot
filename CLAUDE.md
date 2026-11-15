@@ -180,7 +180,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 - לפני קומיט: `git status` ו־`git diff --stat`, ולוודא שכל קובץ ברשימה שייך לשינוי.
 
 ### טסטים וסקריפטים
-- כל קלט/פלט בטסטים ב־`tmp_path`. לא כותבים ולא מוחקים בשורש הפרויקט או בתיקיות קוד מקור, כולל `__pycache__` (תת־תהליך בטסט רץ עם `-B`).
+- כל קלט/פלט בטסטים ב־`tmp_path`. לא כותבים ולא מוחקים בשורש הפרויקט או בתיקיות קוד מקור, כולל `__pycache__`. תהליך פייתון שטסט מריץ יורש `PYTHONDONTWRITEBYTECODE` מהפיקסצ'ר `_child_pythons_do_not_write_bytecode` ב־`conftest.py` שבשורש; תהליך שרץ עם `-I` או `-E` (הם מתעלמים ממשתני `PYTHON*`), או שמקבל `env` שלא נבנה מ־`os.environ`, מקבל `-B` בקריאה עצמה.
 - משתני סביבה של נתיבי עבודה (`OUTPUT_DIR`/`WORKDIR`) מצביעים לתיקייה זמנית ונבדקים שאינם ריקים, בלי ברירת מחדל ל־`"."`.
 - לא משנים cwd. אם חייבים, שומרים ומשחזרים, ומוחקים רק לפי נתיב מוחלט.
 - בלי גלובים גורפים (`rm -rf */*`, `build*`).
@@ -269,7 +269,7 @@ safe_rmrf() {
 
 - דפים כבדים ב־Webapp צריכים להחזיר HTML ראשוני מהר (< 200ms).
 - השתמש ב־**Skeleton Loaders** ובשליפת נתונים מה־API דרך JavaScript ברקע.
-- עטוף חישובים כבדים ב־`await asyncio.to_thread(...)` כדי לא לחסום את ה־Event Loop.
+- **`asyncio.to_thread` — לפי התהליך, ולא לעבודת CPU.** ב־WebApp (Flask על WSGI עם worker של gevent) אין asyncio בכלל: שירות שהוובאפ צורך נכתב סינכרוני, וה־I/O ממילא קואופרטיבי. בבוט, מתוך handler אסינכרוני, עוטפים ב־`await asyncio.to_thread(...)` קריאת I/O סינכרונית (מונגו, PyGithub). אבל `main.py` מריץ `monkey.patch_all()`, ואחריו `to_thread` הוא גרינלט באותו OS thread ולא thread אמיתי: המתנה לרשת משחררת את הלולאה, ועבודת CPU ארוכה (דחיסה, פרסור של מסמך שלם) עוצרת את כל הבוט לכל אורכה. עבודה כזו רצה בתת־תהליך, כמו `services/github_zip_packer.py`. פרטים: `docs/observability/asyncio-loop-safety.rst`.
 - **חריג: `mcp_server`.** שם לא עוטפים ידנית. `add_tool` מעביר כל גוף סינכרוני ל־thread בעצמו, וכלי כתיבה עוברים בתור נפרד. כלי חדש נרשם כרגיל, עם `readOnlyHint` נכון. פרטים ב־`Ck-MCP-Handoff.md`.
 
 ---

@@ -1,40 +1,33 @@
+import asyncio
 import types
 import pytest
 
 import github_menu_handler as gh
+from _github_zip_harness import FakeArchiveRepo, install_archive_http, make_context, zipball_bytes
 
 
 @pytest.mark.asyncio
-async def test_github_zip_persist_error_emits(monkeypatch):
+async def test_github_zip_persist_error_emits(monkeypatch, tmp_path):
+    import utils
+
+    # תיקיית ה-ZIP הממתין של הטסט הזה בלבד — השמירה נכשלת, והקובץ נשאר בה בכוונה
+    monkeypatch.setattr(utils, "_pending_zip_dir", lambda: tmp_path)
+
     handler = gh.GitHubMenuHandler()
 
     handler.get_user_session = lambda uid: {"selected_repo": "owner/repo"}
     handler.get_user_token = lambda uid: "t"
 
-    # Repo stub for folder zip branch
-    class _FileObj:
-        # type/name נדרשים גם למסך הדפדפן שמוצג בסוף הזרימה אחרי כשל שמירה
-        type = "file"
-        name = "f.txt"
-        path = "folder/f.txt"
-        size = 3
-        decoded_content = b"abc"
-    class _Repo:
-        full_name = "owner/repo"
-        name = "repo"
-        default_branch = "main"
-        def get_contents(self, path="", ref=None):
-            # first call with "folder" returns a list with one file item
-            if path in ("folder", "folder/"):
-                return [types.SimpleNamespace(type="file", name="f.txt", path="folder/f.txt")]
-            # second call returns file object with content
-            return _FileObj()
+    # ריפו שמגיש zipball עם תיקייה אחת וקובץ אחד בתוכה
+    repo = FakeArchiveRepo({"main": zipball_bytes({"folder/f.txt": b"abc"})}, name="repo", full_name="owner/repo")
     class _GH:
-        def __init__(self, token):
+        # המשימה בונה את הלקוח עם retry=None (``_zip_github_client``)
+        def __init__(self, token, **kwargs):
             pass
         def get_repo(self, name):
-            return _Repo()
+            return repo
     monkeypatch.setattr(gh, "Github", _GH, raising=False)
+    install_archive_http(monkeypatch, gh, repo)
 
     events = {"evts": []}
     def _emit(evt, severity="info", **fields):
@@ -68,12 +61,9 @@ async def test_github_zip_persist_error_emits(monkeypatch):
         callback_query = _q
         effective_user = types.SimpleNamespace(id=1)
         effective_message = _q.message
-    class _Ctx:
-        user_data = {}
-        bot_data = {}
-
-    upd, ctx = _Upd(), _Ctx()
+    upd, ctx = _Upd(), make_context()
     await handler.handle_menu_callback(upd, ctx)
+    await asyncio.wait_for(ctx.application.drain(), timeout=5.0)
 
     # השמירה כבר לא קורית עם האריזה — היא מתבצעת רק אחרי שהמשתמש בוחר יעד ושם,
     # ולכן צריך להשלים את שני המסכים כדי להגיע לנתיב הכושל.

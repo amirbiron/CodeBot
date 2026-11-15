@@ -6,6 +6,8 @@ import zipfile
 
 import pytest
 
+from _github_zip_harness import FakeApplication
+
 
 @pytest.mark.asyncio
 async def test_zipball_spools_to_disk_and_uses_save_backup_file(monkeypatch, tmp_path):
@@ -33,14 +35,14 @@ async def test_zipball_spools_to_disk_and_uses_save_backup_file(monkeypatch, tmp
             for i in range(0, len(self._content), chunk_size):
                 yield self._content[i:i+chunk_size]
 
-    def _req_get(_url, headers=None, stream=False, timeout=60):
+    def _req_get(_url, headers=None, stream=False, timeout=60, **kwargs):
         return _Resp(payload)
 
     class _Repo:
         full_name = "o/r"
         name = "r"
         default_branch = "main"
-        def get_archive_link(self, _):
+        def get_archive_link(self, _fmt, ref=None):
             return "https://example.com/archive.zip"
 
     class _Gh:
@@ -78,6 +80,8 @@ async def test_zipball_spools_to_disk_and_uses_save_backup_file(monkeypatch, tmp
     class _Ctx:
         user_data = {}
         bot_data = {}
+        # ההורדה רצה כמשימת רקע; הטסט מחכה לה אחרי הלחיצה
+        application = FakeApplication()
 
     # Monkeypatch external deps
     monkeypatch.setattr(gh, "Github", _Gh)
@@ -100,7 +104,9 @@ async def test_zipball_spools_to_disk_and_uses_save_backup_file(monkeypatch, tmp
     monkeypatch.setattr(gh, "backup_manager", _BM())
 
     # Run flow
-    await asyncio.wait_for(handler.handle_menu_callback(_Upd(), _Ctx()), timeout=2.0)
+    ctx = _Ctx()
+    await asyncio.wait_for(handler.handle_menu_callback(_Upd(), ctx), timeout=2.0)
+    await ctx.application.drain()
 
     # Assert save_backup_file was called with a path
     assert called["args"], "save_backup_file was not called"

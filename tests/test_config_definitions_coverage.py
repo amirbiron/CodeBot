@@ -35,6 +35,7 @@ ALLOWED_UNDECLARED = {
     "ONLY_LIGHT_PERF": "דגל של תוסף הביצועים ב-conftest",
     "PERF_HEAVY_PERCENTILE": "דגל של תוסף הביצועים ב-conftest",
     "TEST_USER_ID": "פרמטר לסקריפט scripts/profile_dashboard.py",
+    "PYTHONDONTWRITEBYTECODE": "משתנה תקני של פייתון; הפיקסצ'ר _child_pythons_do_not_write_bytecode ב-conftest.py מגדיר אותו לתהליכי-בן של הבדיקות",
     # קוד צד-שלישי שנשמר בריפו
     "PIP_NO_SETUPTOOLS": "דגל של get-pip.py, קובץ צד-שלישי",
     "PIP_NO_WHEEL": "דגל של get-pip.py, קובץ צד-שלישי",

@@ -35,6 +35,7 @@ Testing Guide
 ---------------
 
 - כל IO בטסטים יתבצע תחת ``tmp_path`` בלבד.
+- **תהליך פייתון שטסט מריץ לא כותב** ``__pycache__`` **לתוך הריפו.** הפיקסצ'ר ``_child_pythons_do_not_write_bytecode`` ב-``conftest.py`` שבשורש מגדיר ``PYTHONDONTWRITEBYTECODE`` לכל הריצה, וכל תהליך-בן שהסביבה שלו נבנית מ-``os.environ`` יורש אותו. תהליך שרץ עם ``-I`` או ``-E`` מתעלם ממשתני ``PYTHON*``, ותהליך שמקבל ``env`` שלא נבנה מ-``os.environ`` לא רואה אותו — לשניהם מוסיפים ``-B`` בקריאה. למה פיקסצ'ר ולא השמה בזמן טעינת ה-conftest: ב-docstring שלו. ``tests/test_child_python_skips_bytecode.py`` נופל בלעדיו.
 - מחיקות יתבצעו רק תחת ``/tmp`` באמצעות wrapper בטוח.
 - מבודדים את תלות ``python-telegram-bot`` באמצעות Stubs כדי להימנע מקריאות אמתיות.
 
@@ -91,6 +92,7 @@ Mocking HTTP ב‑github_menu_handler
 - עבור הורדות/GET (למשל zipball): עדיף לבצע monkeypatch על ``gh.requests.get`` במקום על ``requests.get`` הגלובלי.
 - עבור קריאות non‑GET (POST/PUT/DELETE): בצעו monkeypatch על ``gh._http_sync_request``.
 - אין יציאה לרשת בזמן טסטים – תמיד למקבש (monkeypatch) את הקריאות.
+- **לחיצה על הורדת ZIP (``download_zip:``) מתחילה משימת רקע ולא מסיימת את העבודה.** ה-handler קורא ל-``context.application.create_task`` וחוזר מיד (``GitHubMenuHandler._start_zip_job``), ולכן טסט צריך ``application`` מדומה, ולחכות למשימה לפני שהוא בודק תוצאה. ``tests/_github_zip_harness.py`` נותן את שניהם: ``make_context()`` ו-``FakeApplication.drain()``, שזורק את החריגה של המשימה אם הייתה. באותו קובץ יש גם ``zipball_bytes``, שבונה ארכיון במבנה שנמדד על zipball אמיתי של GitHub, ו-``install_archive_http``, שמגיש אותו דרך ``gh.http_request``.
 
 דוגמה – Mock ל‑GET דרך ה‑shim:
 

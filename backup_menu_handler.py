@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 from services import backup_service as backup_manager
 from handlers.pagination import build_pagination_row
 from i18n.strings_he import BTN_BACKUP_ZIPS
+from utils import TelegramUtils
 
 logger = logging.getLogger(__name__)
 
@@ -539,7 +540,10 @@ class BackupMenuHandler:
     async def _show_backups_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE, page: Optional[int] = None):
         query = update.callback_query
         user_id = query.from_user.id
-        await query.answer()
+        # ``safe_answer`` ולא ``query.answer()``: הרשימה מוצגת גם בסוף הורדת ZIP מגיטהאב,
+        # שרצה ברקע (``GitHubMenuHandler._zip_repo_job``), והלחיצה שהתחילה אותה כבר ישנה
+        # אז. אישור ישיר זורק עליה "Query is too old", והרשימה לא הייתה מוצגת בכלל.
+        await TelegramUtils.safe_answer(query)
         highlight_id = context.user_data.pop("backup_highlight_id", None)
         with track_performance("backup_list_backups"):
             backups = backup_manager.list_backups(user_id)

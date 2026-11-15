@@ -119,62 +119,40 @@ def test_gds_create_repo_grouped_zip_bytes_uses_level_9(monkeypatch):
         or any(c["mode"] == 'a' and c["compresslevel"] == 9 for c in captured["calls"])  # metadata
 
 
-@pytest.mark.asyncio
-async def test_github_menu_handler_folder_zip_uses_level_9(monkeypatch):
-    import github_menu_handler as gh
+def test_github_folder_packer_uses_level_9(monkeypatch, tmp_path):
+    """אריזת תיקייה מגיטהאב: כתיבה אחת עם ``compresslevel=9``, וכל רשומה דחוסה.
 
-    handler = gh.GitHubMenuHandler()
-    handler.get_user_session = lambda uid: {"selected_repo": "o/r"}
-    handler.get_user_token = lambda uid: "t"
+    האריזה רצה בתהליך נפרד (``services/github_zip_packer.py``, ראו ההסבר שם), ולכן
+    הבדיקה פונה לפונקציה שהתהליך מריץ, באותו תהליך: monkeypatch לא מגיע לתהליך-בן.
+    המעטפת שומרת את המחלקה המקורית לפני ההחלפה, כי ``_capture_zipfile`` שלמעלה
+    נשען על הפרוקסי של ``github_menu_handler`` ובמודול הזה אין כזה.
+    """
+    from services import github_zip_packer as packer
+    from _github_zip_harness import zipball_bytes
 
-    class _Item:
-        def __init__(self, t, name, size=0, data=b""):
-            self.type = t
-            self.name = name
-            self.path = name
-            self.size = size
-            self.decoded_content = data
+    archive = tmp_path / "archive.zip"
+    archive.write_bytes(zipball_bytes({"folder/a.txt": b"a" * 100}))
+    dest = tmp_path / "packed.zip"
 
-    class _Repo:
-        name = "r"
-        full_name = "o/r"
-        def get_contents(self, path, ref=None):
-            return [_Item('file', 'a.txt', len(b'a'), b'a')]
+    calls = []
+    original = _real_zipfile.ZipFile
 
-    class _Gh:
-        def __init__(self, *a, **k):
-            pass
-        def get_repo(self, _):
-            return _Repo()
+    def _wrapper(file, mode="r", compression=_real_zipfile.ZIP_STORED, allowZip64=True, compresslevel=None, **kwargs):
+        calls.append({"mode": mode, "compression": compression, "compresslevel": compresslevel})
+        return original(file, mode=mode, compression=compression, allowZip64=allowZip64, compresslevel=compresslevel, **kwargs)
 
-    monkeypatch.setattr(gh, "Github", _Gh)
+    monkeypatch.setattr(packer.zipfile, "ZipFile", _wrapper)
+    stats = packer.pack_folder(
+        str(archive), "folder", str(dest), max_files=500, max_file_bytes=5 * 1024 * 1024, max_total_bytes=50 * 1024 * 1024
+    )
 
-    captured = _capture_zipfile(monkeypatch, gh)
-
-    class _Msg:
-        async def reply_document(self, document=None, filename=None, caption=None):
-            return None
-        async def reply_text(self, *a, **k):
-            return None
-    class _Q:
-        def __init__(self):
-            self.data = "download_zip:folder"
-            self.message = _Msg()
-            self.from_user = types.SimpleNamespace(id=5)
-        async def answer(self, *a, **k):
-            return None
-        async def edit_message_text(self, *a, **k):
-            return None
-
-    upd = types.SimpleNamespace(callback_query=_Q(), effective_user=types.SimpleNamespace(id=5))
-    ctx = types.SimpleNamespace(user_data={})
-
-    # force folder path flow
-    monkeypatch.setattr(handler, "_get_path_from_cb", lambda context, data, prefix: "folder", raising=True)
-    await handler.handle_menu_callback(upd, ctx)
-
-    # הזיפ נבנה בכתיבה אחת עם compresslevel=9. אין יותר פתיחה שנייה במצב 'a':
+    # הזיפ נבנה בכתיבה אחת עם compresslevel=9. אין פתיחה שנייה במצב 'a':
     # metadata.json לא מוזרק כאן — הגיבוי מקבל אותו מ-save_backup_bytes, ולסקיל
     # קובץ זר בשורש הארכיון פוסל אותו כסקיל תקין.
-    assert any(c["mode"] == 'w' and c["compresslevel"] == 9 for c in captured["calls"])
-    assert not any(c["mode"] == 'a' for c in captured["calls"]) 
+    assert any(c["mode"] == "w" and c["compresslevel"] == 9 for c in calls), calls
+    assert not any(c["mode"] == "a" for c in calls)
+    assert stats["total_files"] == 1
+    # וכל רשומה נדחסה בפועל — לא רק שהארכיון נפתח עם הרמה הנכונה
+    with original(dest) as zf:
+        assert zf.namelist() == ["folder/a.txt"]
+        assert all(i.compress_type == _real_zipfile.ZIP_DEFLATED for i in zf.infolist())

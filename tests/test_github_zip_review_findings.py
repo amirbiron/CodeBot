@@ -19,6 +19,8 @@ import zipfile
 
 import pytest
 
+from _github_zip_harness import FakeApplication
+
 
 def _small_zip_bytes():
     mem = io.BytesIO()
@@ -63,6 +65,8 @@ class _Ctx:
     def __init__(self):
         self.user_data = {}
         self.bot_data = {}
+        # ההורדה רצה כמשימת רקע (``_start_zip_job``); ``_run`` מחכה לה
+        self.application = FakeApplication()
 
 
 def _make_repo():
@@ -70,7 +74,7 @@ def _make_repo():
         full_name = "o/r"
         name = "r"
 
-        def get_archive_link(self, _):
+        def get_archive_link(self, _fmt, ref=None):
             return "https://example.com/archive.zip"
     return _Repo()
 
@@ -99,7 +103,7 @@ def _install(monkeypatch, *, save_return="bid", payload=None, content_length=Non
                 for i in range(0, len(payload), chunk_size):
                     yield payload[i:i + chunk_size]
 
-    def _req_get(_url, headers=None, stream=False, timeout=60):
+    def _req_get(_url, headers=None, stream=False, timeout=60, **kwargs):
         return _Resp()
 
     class _Gh:
@@ -137,7 +141,9 @@ async def _run(gh, user_id=6865105071):
     handler.get_user_session = lambda uid: {"selected_repo": "o/r"}
     handler.get_user_token = lambda uid: "t"
     upd = _Upd(user_id)
-    await asyncio.wait_for(handler.handle_menu_callback(upd, _Ctx()), timeout=5.0)
+    ctx = _Ctx()
+    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=5.0)
+    await ctx.application.drain()
     return upd.callback_query
 
 
@@ -181,14 +187,15 @@ async def test_hard_ceiling_aborts_oversized_download(monkeypatch):
     monkeypatch.setattr(gh, "MAX_BACKUP_BYTES", 8192, raising=True)
     q = await _run(gh)
     assert not q.message.docs
-    assert any("גדול מדי לגיבוי" in t for t in q.message.texts), q.message.texts
+    # ההודעה הידידותית מחליפה את שורת ההתקדמות, כדי שלא יישאר "מוריד…" על המסך
+    assert any(t and "גדול מדי לגיבוי" in t for t in q.edits), q.edits
 
 
 @pytest.mark.asyncio
 async def test_enospc_sends_single_message_not_generic(monkeypatch):
     gh, _ = _install(monkeypatch, save_return=OSError(errno.ENOSPC, "no space left"))
     q = await _run(gh)
-    assert any("אין מקום" in t for t in q.message.texts), q.message.texts
+    assert any(t and "אין מקום" in t for t in q.edits), q.edits
     # finding 1: after the friendly message we return — no generic error is edited in
     assert not any(t and "שגיאה בהורדת ZIP" in t for t in q.edits), q.edits
 
@@ -265,14 +272,14 @@ async def test_http_response_closed_on_hard_ceiling_abort(monkeypatch):
         def close(self):
             closed["n"] += 1
 
-    def _req_get(_url, headers=None, stream=False, timeout=60):
+    def _req_get(_url, headers=None, stream=False, timeout=60, **kwargs):
         return _Resp()
 
     class _Repo:
         full_name = "o/r"
         name = "r"
 
-        def get_archive_link(self, _):
+        def get_archive_link(self, _fmt, ref=None):
             return "https://example.com/archive.zip"
 
     class _Gh:
@@ -296,6 +303,6 @@ async def test_http_response_closed_on_hard_ceiling_abort(monkeypatch):
 
     q = await _run(gh)
     # ההורדה בוטלה עם הודעה ידידותית...
-    assert any("גדול מדי לגיבוי" in t for t in q.message.texts), q.message.texts
+    assert any(t and "גדול מדי לגיבוי" in t for t in q.edits), q.edits
     # ...וה-Response נסגר (ולא הודלף)
     assert closed["n"] >= 1

@@ -4,12 +4,46 @@ import os
 import sys
 import math
 from pathlib import Path
-from typing import AsyncIterator, Dict, List, Optional
+from typing import AsyncIterator, Dict, Iterator, List, Optional
 import pytest
 import pytest_asyncio
 
 # בדיקות: כיבוי gevent monkey patch כדי למנוע התנגשויות עם xdist/threads.
 os.environ.setdefault("CODEBOT_DISABLE_GEVENT_PATCH", "1")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _child_pythons_do_not_write_bytecode() -> Iterator[None]:
+    """תהליך פייתון שטסט מריץ לא כותב ``__pycache__`` לתוך תיקיות הקוד.
+
+    תהליך-בן שמייבא מודול מהריפו כותב לידו ``__pycache__`` — סקריפט שמייבא את
+    ``services/`` כותב ל-``services/__pycache__``. הכלל ב-CLAUDE.md היה ``-B`` בכל
+    קריאה, והוא נשכח שוב ושוב: ``tests/test_ai_map_freshness.py`` ו-
+    ``tests/test_ai_map_generator.py`` כתבו ל-``services/``, ל-``monitoring/`` ולשורש
+    הריפו, ועוד כמה טסטים מריצים תהליך-בן בלי הדגל. ``PYTHONDONTWRITEBYTECODE``
+    בסביבה עובר לכל תהליך-בן שהסביבה שלו נבנית מ-``os.environ`` — ``subprocess``
+    בלי ``env``, או ``env=dict(os.environ, ...)`` — כך שהכלל נאכף במקום אחד.
+
+    **בפיקסצ'ר ולא ברמת המודול:** הגדרה ב-``os.environ`` בזמן טעינת ה-conftest עוברת
+    גם ל-workers של pytest-xdist, שנוצרים אחריה, ומכבה בהם את כתיבת ה-bytecode של
+    התהליך שמריץ את הטסטים עצמו. נמדד ב-15.11.2026 (pytest 8.4.2, pytest-xdist
+    3.8.0, ``-n 2``): ברמת המודול ה-worker קיבל ``sys.dont_write_bytecode=True``,
+    ובפיקסצ'ר רק תהליך-הבן שלו. פיקסצ'ר של session רץ בתוך כל worker, לפני הטסט
+    הראשון שלו, ומשנה רק את מה שתהליכי-הבן יורשים.
+
+    **מה זה לא מכסה:** תהליך שרץ עם ``-I`` או ``-E`` מתעלם ממשתני ``PYTHON*``, ותהליך
+    שמקבל ``env`` שלא נבנה מ-``os.environ`` לא רואה אותם. שם מוסיפים ``-B`` בקריאה.
+    ``tests/test_child_python_skips_bytecode.py`` בודק את הפיקסצ'ר.
+    """
+    previous = os.environ.get("PYTHONDONTWRITEBYTECODE")
+    os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("PYTHONDONTWRITEBYTECODE", None)
+        else:
+            os.environ["PYTHONDONTWRITEBYTECODE"] = previous
 
 # -----------------------------------------------------------------------------
 # Telegram module isolation (safe)
