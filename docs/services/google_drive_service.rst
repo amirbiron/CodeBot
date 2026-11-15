@@ -56,7 +56,7 @@ Google Drive Service
 
 עמוד מדיניות הפרטיות (``/privacy``)
 -------------------------------------
-עמוד ציבורי באנגלית בוובאפ (``privacy_policy`` ב-``webapp/app.py``, התבנית ``webapp/templates/privacy.html``), שמתאר מה CodeKeeper עושה עם Google Drive. הכתובת שלו רשומה כקישור למדיניות הפרטיות בפרויקט ה-Google Cloud של חיבור ה-Drive. מדיניות הנתונים של גוגל דורשת את זה: *"You must list the privacy policy URL in your OAuth client configuration"* (`Google API Services User Data Policy <https://developers.google.com/terms/api-services-user-data-policy>`_). הקישור נקבע פעם אחת לפרויקט, ולכן העמוד מכסה גם את החיבור של הבוט. עמוד הבית ועמוד ההתחברות מקשרים אליו מהתחתית (``webapp/templates/_legal_footer.html``).
+עמוד ציבורי באנגלית בוובאפ (``privacy_policy`` ב-``webapp/app.py``, התבנית ``webapp/templates/privacy.html``), שמתאר מה CodeKeeper עושה עם Google Drive. הכתובת שלו רשומה כקישור למדיניות הפרטיות בפרויקט ה-Google Cloud של חיבור ה-Drive. מדיניות הנתונים של גוגל דורשת את זה: *"You must list the privacy policy URL in your OAuth client configuration"* (`Google API Services User Data Policy <https://developers.google.com/terms/api-services-user-data-policy>`_). הקישור נקבע פעם אחת לפרויקט, ולכן העמוד מכסה גם את החיבור של הבוט. עמוד הבית ועמוד ההתחברות מקשרים אליו מהתחתית (``webapp/templates/_legal_footer.html``). אותה כתובת נמסרת גם בהגשה של שרת ה-MCP לספריית המחברים של Anthropic, ולכן בעמוד יש גם סעיף על המחבר (``#mcp``). העובדות של הסעיף הזה, ומי מצמיד כל אחת: :ref:`mcp-privacy-page`.
 
 **מה אסור לשבור.** הנתיב רשום אצל גוגל, ולכן הוא לא משתנה. הוא חייב לענות בלי התחברות, כי גוגל ניגש אליו בלי סשן. הוא רשום ב-``webapp/app.py`` ולא ב-Blueprint: הרישום של ה-Blueprints עטוף ב-``except Exception: pass``, וכשל בייבוא היה מעלים את העמוד בשקט.
 

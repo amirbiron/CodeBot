@@ -3,9 +3,9 @@
 {#
   מדיניות הפרטיות — עמוד ציבורי (``/privacy``, ``privacy_policy`` ב-``webapp/app.py``).
 
-  הכתובת רשומה כקישור למדיניות הפרטיות בפרויקט ה-Google Cloud של חיבור ה-Drive, ולכן הנתיב לא משתנה והעמוד לא דורש התחברות.
+  הכתובת רשומה כקישור למדיניות הפרטיות בפרויקט ה-Google Cloud של חיבור ה-Drive, ונמסרת גם בהגשה של שרת ה-MCP לספריית המחברים של Anthropic, ולכן הנתיב לא משתנה והעמוד לא דורש התחברות.
 
-  כל משפט כאן הוא עובדה על הקוד, ולכן ``tests/test_privacy_page.py`` מצמיד את העובדות שהעמוד נשען עליהן: ה-scope שהוא נוקב בו מול כל מקום בקוד שמגדיר אותו, ושאין בקוד הורדה מ-Drive. מי שמשנה אחת מהן מפיל את הטסט, ומשם מגיע לכאן. הרקע: הסעיף ``drive-privacy-page`` ב-``docs/services/google_drive_service.rst``.
+  כל משפט כאן הוא עובדה על הקוד, ולכן ``tests/test_privacy_page.py`` מצמיד את העובדות שהעמוד נשען עליהן: ה-scope שהוא נוקב בו מול כל מקום בקוד שמגדיר אותו, ושאין בקוד הורדה מ-Drive; ובסעיף של המחבר (``#mcp``) — אורך החיים של טוקנים והעלאות, שנשמר רק hash, מה ש-PostHog מקבל, שהמקום היחיד שבו המחבר מבקש מהסוכן לתאר את המשימה הוא ``working_on`` של תגובה על פתק, ושאין כלי מחיקה. מי שמשנה אחת מהן מפיל את הטסט, ומשם מגיע לכאן. הרקע: הסעיף ``drive-privacy-page`` ב-``docs/services/google_drive_service.rst``, ולסעיף המחבר ``mcp-privacy-page`` ב-``docs/mcp-server.rst``.
 
   העמוד באנגלית בתוך אתר בעברית: ``lang``/``dir`` על ה-``article`` בלבד. הצבעים לא נקבעים כאן — הכרטיס (``glass-card``) והטקסט יורשים מערכת הנושא, וקישור מקבל ``color: inherit`` — צבע הטקסט שסביבו. בלעדיו, ב-Classic וב-Rose Pine Dawn הוא כחול-דפדפן (``rgb(0, 0, 238)``), כי שם אין כלל שצובע קישורים. ב-High Contrast הצהוב של ``high-contrast.css`` גובר, כי הוא ``!important``. שלושתם נמדדו ב-Chromium. כך אין כאן צבע שצריך override באף ערכה. הרוחב והמרכוז על עוטף ולא על הכרטיס, כמו ב-``login.html``: ``.main-content .glass-card`` ב-``base.html`` קובע לכרטיס שוליים ורוחב, והוא ספציפי יותר ממחלקה אחת.
 #}
@@ -16,11 +16,11 @@
 <div class="privacy-policy-container">
 <article class="glass-card privacy-policy" lang="en" dir="ltr">
     <h1 class="page-title">Privacy Policy — CodeKeeper</h1>
-    <p class="privacy-policy__updated">Last updated: October 17, 2026</p>
+    <p class="privacy-policy__updated">Last updated: November 15, 2026</p>
 
-    <section>
+    <section id="who-we-are">
         <h2>Who we are</h2>
-        <p>CodeKeeper is a code and document manager, available as a Telegram bot and as a web app. It is operated by Amir Biron. Contact: <a href="mailto:amirbiron@gmail.com">amirbiron@gmail.com</a></p>
+        <p>CodeKeeper is a code and document manager, available as a Telegram bot, as a web app, and as a connector that AI assistants such as Claude can use (see <a href="#mcp">The CodeKeeper connector for AI assistants</a>). It is operated by Amir Biron. Contact: <a href="mailto:amirbiron@gmail.com">amirbiron@gmail.com</a></p>
     </section>
 
     <section>
@@ -60,6 +60,43 @@
         <p>CodeKeeper's use and transfer of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the <a href="https://developers.google.com/terms/api-services-user-data-policy#additional_requirements_for_specific_api_scopes" target="_blank" rel="noopener">Limited Use requirements</a>.</p>
     </section>
 
+    <section id="mcp">
+        <h2>The CodeKeeper connector for AI assistants</h2>
+        <p>CodeKeeper offers a connector, built on the Model Context Protocol (MCP), that lets an AI assistant you choose, such as Claude, work with your own CodeKeeper content: your saved files and their versions, your collections, and your sticky notes and boards. This section explains what happens to your data when you use it.</p>
+
+        <h3>Connecting and access</h3>
+        <p>You connect the connector yourself. When you add it to your AI assistant, you sign in to CodeKeeper with Telegram and approve the access on a consent screen. Access is read-only unless the assistant asks for write access and you approve it on that screen. If you use Claude Code with a personal access token from the CodeKeeper bot (<code>/connect_claude</code>), the token is read-only unless you ask the bot for a write token. The connector only ever works on your own account: it knows who you are from the sign-in or the token, never from what the assistant sends.</p>
+        <p>With write access, the assistant can create files, save new versions of your files, change a file's description, add a file to a collection, and create and edit sticky notes. The connector has no way to delete your files, notes or collections.</p>
+
+        <h3>What the connector receives</h3>
+        <p>The connector only receives what the assistant sends to it: tool requests, such as "read this file" or "save this text as a file"; text the assistant uploads so that it can be saved as a file; and technical details that the assistant's app reports about itself, such as its name and version. It answers with the content you asked for, and it has no access to the rest of your conversation with the assistant.</p>
+        <p>The connector asks the assistant to describe its task in one place only: when the assistant comments on a sticky note, it writes in one short sentence, up to 60 characters, what it is working on. That sentence is saved with the comment (see What we store). Content the assistant reads through the connector becomes part of your conversation with that assistant, and from there it is handled under the assistant provider's own privacy policy (for Claude, Anthropic's).</p>
+
+        <h3>What we store</h3>
+        <ul>
+            <li>What the assistant saves through the connector (files, versions, descriptions and sticky notes), stored like any other CodeKeeper content. A comment that the assistant writes on a sticky note is saved together with the name that the assistant's app reports about itself, such as "claude-code", and with the sentence the assistant wrote about what it is working on; both are shown next to the comment.</li>
+            <li>The sign-in tokens of the connection. We store only a SHA-256 hash of each token, never the token itself. An access token expires after 1 hour and a refresh token after 30 days; using a refresh token replaces it with a new one. Expired token records are deleted automatically.</li>
+            <li>The registration details that your assistant's app sends when it first connects, such as its name and the addresses it returns to after sign-in.</li>
+            <li>If you created a personal access token in the bot: a hash of the token, its first few characters so that tokens can be told apart, its name, its permissions, and when it was created and last used.</li>
+            <li>Text that the assistant uploads to the connector's upload address so it can then save it as a file. It can be used for up to 10 minutes, and it is deleted when it is used or when it expires.</li>
+        </ul>
+
+        <h3>Usage analytics</h3>
+        <p>To learn which tools are used, how fast they are and how often they fail, the connector sends usage events to PostHog, our analytics provider. An event includes the tool's name, how long the request took, whether it failed and the type of error, the name, version and user-agent string of the assistant's app, and a random ID of the connection session. It does not include your CodeKeeper user ID, and PostHog does not build a profile of you from these events.</p>
+        <p>The events never include what the assistant sent to a tool or what the tool returned, so the content of your files and notes stays out of them. Two kinds of free text can be included: when a request fails, its error message, after we filter out known formats of keys and tokens (the message can still contain part of the request that caused the error); and when the assistant reports a capability it is missing (the <code>get_more_tools</code> tool), the sentence it writes about what it needs.</p>
+
+        <h3>Logs and notifications</h3>
+        <p>Our servers keep technical logs to run the service and fix problems, such as which operation ran, how long it took, data sizes and your CodeKeeper user ID. The logs are stored by our hosting provider, Render, according to its log retention.</p>
+        <p>If you turned on browser notifications in the web app, you get a notification when the assistant saves a file or comments on a sticky note through the connector.</p>
+
+        <h3>Sharing</h3>
+        <p>We do not sell your data, and we do not share it with third parties other than the providers named on this page, which store or process it for us: MongoDB Atlas (the database), Render (servers and logs) and PostHog (usage analytics, without your content). We do not use your data for advertising, and we do not use it to train AI or machine learning models.</p>
+
+        <h3>Disconnecting and deletion</h3>
+        <p>You can remove the connector in your AI assistant's settings at any time. The tokens that the assistant's app held stop working when they expire (1 hour for an access token, 30 days for a refresh token), or sooner if the app revokes them. A personal access token from the bot does not expire on its own; to revoke one, contact us.</p>
+        <p>Content created through the connector is ordinary CodeKeeper content, and you can delete it in the bot or in the web app. To ask us to revoke your connector access or to delete your data, contact us at the address in <a href="#who-we-are">Who we are</a>.</p>
+    </section>
+
     <section>
         <h2>Changes</h2>
         <p>If this policy changes, we will update this page and the date at the top.</p>
@@ -92,6 +129,13 @@
     font-size: 1.35rem;
     font-weight: 600;
     margin-bottom: 0.5rem;
+}
+
+.privacy-policy h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-top: 1.25rem;
+    margin-bottom: 0.4rem;
 }
 
 .privacy-policy p + p {
