@@ -352,6 +352,8 @@ class PersonalBackupService:
         ``file_id`` בפתקיות. השם הוא המפתח הקנוני לשיוך מחדש.
         """
         try:
+            from note_boards import board_order
+
             raw_db = getattr(self.db, "db", None)
             if raw_db is None:
                 return []
@@ -379,7 +381,7 @@ class PersonalBackupService:
                     # שדה דליל: נכתב רק ב-PATCH. בלעדיו המשתמש מאבד את
                     # בורר הלוחות המהיר, שנשען עליו.
                     "is_pinned": bool(doc.get("is_pinned", False)),
-                    "order": _safe_int(doc.get("order"), 0),
+                    "order": board_order(doc),
                     "created_at": _dt_to_str(doc.get("created_at")),
                     "updated_at": _dt_to_str(doc.get("updated_at")),
                 })
@@ -1160,7 +1162,7 @@ class PersonalBackupService:
             # את הקריאה הזו, ולכן ``ImportError`` היה מפיל את כל השחזור
             # אחרי שקבצים, אוספים וסימניות כבר נכתבו — בעוד שכל שלב אחר
             # מתנוון ל-``errors`` וממשיך.
-            from note_boards import ensure_default_board, normalize_board_name
+            from note_boards import board_order, ensure_default_board, normalize_board_name
             from webapp.note_boards_api import MAX_BOARDS_PER_USER
 
             raw_db = getattr(self.db, "db", None)
@@ -1181,7 +1183,7 @@ class PersonalBackupService:
                     if not isinstance(doc, dict):
                         continue
                     existing.add(normalize_board_name(doc.get("name")))
-                    top_order = max(top_order, _safe_int(doc.get("order"), 0))
+                    top_order = max(top_order, board_order(doc))
             except Exception:
                 pass
 
@@ -1718,14 +1720,6 @@ def _to_json(obj: Any) -> str:
         raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
     return json.dumps(obj, ensure_ascii=False, indent=2, default=_default)
-
-
-def _safe_int(value: Any, default: int) -> int:
-    """מספר שלם מקלט חיצוני. ה-ZIP מועלה על ידי המשתמש וניתן לעריכה ביד."""
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _dt_to_str(dt) -> Optional[str]:
