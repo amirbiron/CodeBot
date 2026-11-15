@@ -694,12 +694,20 @@
             background: rgba(255, 255, 255, 0.2);
         }
 
+        /* ווי דריסה לערכה מיובאת בהירה (theme-variables-light-import-hooks ב-docs/webapp/custom_themes_guide.rst):
+           --workspace-btn-bg-override מחליף את מעבר הצבע, ו---workspace-btn-border-override מוסיף מסגרת של פיקסל.
+           המסגרת היא box-shadow ולא border: border היה מגדיל את הכפתור בכל ערכה, גם בזו שאינה מצהירה. משתנה הביניים
+           --workspace-btn-ring לא תקף כשהווו אינו מוגדר (W3C css-variables-1, CR Snapshot מ-16.6.2022, סעיף 3.1: משתנה
+           שמפנה ל-var() לא מוגדר בלי fallback מקבל את הערך guaranteed-invalid), ואז box-shadow נופל ל-none — הערך שהיה
+           כאן עד היום. בגלל זה אין fallback בתוך --workspace-btn-ring: איתו המסגרת הייתה תקפה בכל ערכה. */
         .workspace-btn {
             /* fallback (old browsers) */
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             /* theme-based */
-            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            background: var(--workspace-btn-bg-override, linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%));
             border: none;
+            --workspace-btn-ring: inset 0 0 0 1px var(--workspace-btn-border-override);
+            box-shadow: var(--workspace-btn-ring, none);
             position: relative;
             color: white;
         }

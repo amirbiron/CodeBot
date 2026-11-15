@@ -403,16 +403,22 @@
 
 .. _theme-variables-light-import-hooks:
 
-ערכה מיובאת בהירה: שדות טופס, הפיד והפוש בדשבורד, ושורת החיפוש ב-Markdown
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ערכה מיובאת בהירה: שדות טופס, הדשבורד, שורת החיפוש, הכפתורים שמעל העורך ותצוגת הקוד
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-כל ערכה מיובאת מקבלת את העיצוב של הערכות הכהות, וזה נשאר כך בכוונה. כמה רכיבים צבועים שם בצבעים קבועים לרקע כהה — לבן שקוף לגבולות ולרקעים, וטקסט כמעט לבן בתגים — ולכן בערכה מיובאת בהירה הם לא נראים. לערכות המובנות הבהירות יש להם כללים משלהן, ולערכה מיובאת אין. ווים מאותו סוג נותנים לערכה בהירה לקבוע אותם לעצמה:
+כל ערכה מיובאת מקבלת את העיצוב של הערכות הכהות, וזה נשאר כך בכוונה. כמה רכיבים צבועים שם בצבעים קבועים לרקע כהה — לבן שקוף לגבולות ולרקעים, וטקסט לבן או כמעט לבן בתגים ובכפתורים — ולכן בערכה מיובאת בהירה הם לא נראים. לערכות המובנות הבהירות יש לחלק מהם כללים משלהן, ולערכה מיובאת אין. ווים מאותו סוג נותנים לערכה בהירה לקבוע אותם לעצמה:
 
 - ``--form-field-border-override``, ``--form-field-bg-override`` ו-``--form-field-focus-border-override`` — הגבול, הרקע והגבול בפוקוס של השדות בעמודי העריכה וההעלאה (``.form-field`` ב-``webapp/static/css/file-editor.css``): שם הקובץ, השפה, התיאור, התגיות והקוד. שני הראשונים נקראים גם בשדות הסינון בעמוד הקבצים (החיפוש, השפה והמיון), שצבועים רק ב-``style`` שבתגית שלהם ב-``webapp/templates/files.html``.
 - ``--timeline-block-bg-override`` — הרקע של הבלוקים בפיד האחרון בדשבורד: הקבוצה (``.timeline-group``) והפריט שבתוכה (``.timeline-item``), שצבועים היום באותו ערך. ``--timeline-item-border-override`` — הפס בצד של כל פריט.
 - ``--timeline-badge-text-override`` — הטקסט של התג בפיד, בכל סוגי התג (``.timeline-badge-code``, ``-info``, ``-warning`` ו-``-neutral``). הרקע של כל סוג נשאר בגוון שלו.
 - ``--status-pill-text-override`` — הטקסט של הבאדג' בכרטיס הגדרות הפוש ("מופעל ב-X דפדפנים"), בכל סוגי הבאדג' (``.status-success``, ``-warning``, ``-danger`` ו-``-neutral``).
-- ``--md-search-capsule-border-override`` — הגבול של שורת החיפוש בתצוגת ה-Markdown (``.md-search-capsule`` ב-``webapp/templates/md_preview.html``), שהוא שקוף עד שמתחילים להקליד.
+- ``--md-search-capsule-border-override`` — הגבול של שורת החיפוש, שהוא שקוף עד שמתחילים להקליד: בתצוגת ה-Markdown (``.md-search-capsule`` ב-``webapp/templates/md_preview.html``) ובתצוגת הקוד (``.search-capsule`` ב-``webapp/templates/view_file.html``). זה אותו רכיב בשני עותקים, ולכן אותו וו.
+- ``--workspace-btn-bg-override`` ו-``--workspace-btn-border-override`` — "שולחן עבודה" בעמוד הקבצים (``.workspace-btn`` ב-``webapp/templates/base.html``). הרקע שלו הוא מעבר צבע מ-``--primary`` ל-``--secondary``, ו-``--secondary`` אינו ב-``VSCODE_TO_CSS_MAP``, ולכן בערכה מיובאת מעבר הצבע מסתיים בערך הקבוע שבבלוק ה-``:root`` של ``base.html``. הראשון מחליף את מעבר הצבע ברקע אחיד, והשני מוסיף מסגרת של פיקסל. המסגרת היא ``box-shadow`` ולא ``border``, כי גבול היה מגדיל את הכפתור גם בערכה שאינה מצהירה; ההערה מעל הכלל ב-``base.html`` מסבירה איך היא נשארת ``none`` בערכה כזו. הטקסט אינו נקבע כאן: בערכה מיובאת הוא נצבע, כמו בשאר הכפתורים שהם קישורים, בכלל ``[data-theme="custom"] a`` שב-``webapp/static/css/dark-mode.css``.
+- ``--editor-btn-text-override``, ``--editor-btn-bg-override``, ``--editor-btn-border-override`` ו-``--editor-btn-hover-bg-override`` — הכפתורים שמעל העורך, בכל עמוד שיש בו את הסרגל של ``addSwitcherButton`` (``webapp/static/js/editor-manager.js``): "בטל", "בצע שוב", "בחר הכל", "העתק" ו"הדבק" (``.btn-editor-clip`` ב-``webapp/static/css/codemirror-custom.css``). הטקסט והגבול נקראים גם ב-"עורך פשוט" / "עורך מתקדם" (``.btn-switch-editor``), והטקסט גם בכפתור ה-MD (``.md-toolbar-trigger`` ב-``webapp/static/css/markdown-toolbar.css``). בערכה שמצהירה על ``--editor-btn-border-override``, הגבול של ``.btn-editor-clip`` בריחוף הוא אותו גבול כמו במצב הרגיל.
+- ``--editor-switch-btn-bg-override`` ו-``--editor-switch-btn-hover-bg-override`` — הרקע של "עורך פשוט" / "עורך מתקדם", רגיל ובריחוף, כדי שהכפתור יוכל להישאר מובחן משאר הכפתורים בשורה.
+- ``--code-toolbar-bg-override``, ``--code-toolbar-border-override``, ``--code-toolbar-hover-bg-override`` ו-``--code-toolbar-text-override`` — סרגל החיפוש בתצוגת הקוד (``.editor-toolbar`` ב-``webapp/templates/view_file.html``): הרקע והגבול של הסרגל ושל "מסך מלא" (``.fullscreen-btn``), גם בריחוף; הקו המפריד בשורת החיפוש (``.divider``), בצבע הגבול; הרקע בריחוף של "מסך מלא" ושל ▲ ▼ ✕ (``.icon-btn``); והצבע של ▲ ▼ ✕ ושל מונה התוצאות (``.search-count``). בתצוגת ה-Markdown אותו סרגל (``.md-editor-toolbar``) צבוע ב-``--glass`` וב-``--glass-border`` של הערכה, ולכן שם אין צורך בווים.
+- ``--code-search-capsule-bg-override`` — הרקע של שורת החיפוש בתצוגת הקוד (``.search-capsule``), גם בזמן הקלדה. ``--code-search-capsule-focus-border-override`` — הגבול שלה בזמן הקלדה (``.search-capsule:focus-within``).
+- ``--file-meta-item-bg-override`` — המלבנים של גודל, שורות, נוצר ועודכן בתצוגת הקוד (``.meta-item`` ב-``view_file.html``).
 
 .. code-block:: json
 
@@ -433,13 +439,28 @@
        "--timeline-item-border-override": "rgba(110, 78, 68, 0.35)",
        "--timeline-badge-text-override": "#2b3f6a",
        "--status-pill-text-override": "#2b3f6a",
-       "--md-search-capsule-border-override": "rgba(110, 78, 68, 0.3)"
+       "--md-search-capsule-border-override": "rgba(110, 78, 68, 0.3)",
+       "--workspace-btn-bg-override": "rgba(224, 218, 211, 0.55)",
+       "--workspace-btn-border-override": "rgba(110, 78, 68, 0.3)",
+       "--editor-btn-text-override": "#2b3f6a",
+       "--editor-btn-bg-override": "rgba(255, 253, 249, 0.6)",
+       "--editor-btn-border-override": "rgba(110, 78, 68, 0.3)",
+       "--editor-btn-hover-bg-override": "rgba(110, 78, 68, 0.12)",
+       "--editor-switch-btn-bg-override": "#e4dcc8",
+       "--editor-switch-btn-hover-bg-override": "#d2b493",
+       "--code-toolbar-bg-override": "rgba(224, 218, 211, 0.55)",
+       "--code-toolbar-border-override": "rgba(110, 78, 68, 0.3)",
+       "--code-toolbar-hover-bg-override": "rgba(110, 78, 68, 0.12)",
+       "--code-toolbar-text-override": "#2b3f6a",
+       "--code-search-capsule-bg-override": "rgba(248, 246, 241, 0.25)",
+       "--code-search-capsule-focus-border-override": "#6e4e44",
+       "--file-meta-item-bg-override": "rgba(255, 253, 249, 0.6)"
      }
    }
 
 .. note::
 
-   ערכה שאינה מצהירה על הטוקנים מרונדרת ללא שינוי, וכך גם התצוגה המקדימה של ערכה מובנית מתוך אשף הערכות: כל טוקן נקרא בכלל שצובע היום את הרכיב, עם fallback לערך שנצבע בו, והבורר של הכלל לא השתנה. במקומות שבהם ל-Rose Pine Dawn יש כלל משלה — השדות בעמודי העריכה וההעלאה, הפיד והפוש ושורת החיפוש — הכלל שלה ספציפי יותר וממשיך לגבור. בשורת החיפוש ה-fallback הוא ``transparent``, הגבול של הכלל הכללי, וכלל ה-``:focus-within`` ספציפי יותר מהכלל שקורא את הווו, ולכן בזמן הקלדה הגבול נשאר שלו. ``tests/services/test_theme_variables_light_import_hooks.py`` נועל את החוזה, כולל הדוגמה שלמעלה, וגם כאן ערכה שכבר קיימת בחשבון מקבלת את הטוקנים רק אחרי ייבוא מחדש. **מה נמדד ב-31.10.2026**, על הדוגמה שלמעלה עם הרקע של Pen Paper Coffee, מול הפיקסל האמיתי שמאחורי כל רכיב: הטקסט בתגים ובבאדג' עלה מניגודיות של 1.18–1.35 ל-5.75–7.18, והגבול של השדות מ-1.06 ל-1.51. בערכות שאינן מצהירות — Classic, Dark, Rose Pine Dawn, High Contrast, ערכה מיובאת כהה וערכה מיובאת בהירה — הרכיבים זהים למה שהיו לפני הווים, גם בפוקוס ובתצוגה המקדימה.
+   ערכה שאינה מצהירה על הטוקנים מרונדרת ללא שינוי, וכך גם התצוגה המקדימה של ערכה מובנית מתוך אשף הערכות: כל טוקן נקרא בכלל שצובע היום את הרכיב, עם fallback לערך שנצבע בו, והבורר של הכלל לא השתנה. במקומות שבהם ל-Rose Pine Dawn יש כלל משלה — השדות בעמודי העריכה וההעלאה, הפיד והפוש, שורת החיפוש בתצוגת ה-Markdown, הכפתורים שמעל העורך ו"מסך מלא" — הכלל שלה ספציפי יותר וממשיך לגבור. בשורת החיפוש של תצוגת ה-Markdown ה-fallback הוא ``transparent``, הגבול של הכלל הכללי, וכלל ה-``:focus-within`` ספציפי יותר מהכלל שקורא את הווו, ולכן בזמן הקלדה הגבול נשאר שלו. בתצוגת הקוד כלל ה-``:focus-within`` קורא וו משלו, ``--code-search-capsule-focus-border-override``. ב"שולחן עבודה" הריחוף נשאר כמו שהוא, כמו בשאר הכפתורים בשורה: הרקע מגיע מ-``.btn-secondary:hover``, וה-``box-shadow`` מ-``.categories-section .btn:hover`` ב-``webapp/templates/files.html``, שספציפי יותר מהכלל של המסגרת ולכן מחליף אותה בזמן הריחוף. ``tests/services/test_theme_variables_light_import_hooks.py`` נועל את החוזה, כולל הדוגמה שלמעלה, וגם כאן ערכה שכבר קיימת בחשבון מקבלת את הטוקנים רק אחרי ייבוא מחדש. **מה נמדד ב-31.10.2026**, על הדוגמה שלמעלה עם הרקע של Pen Paper Coffee, מול הפיקסל האמיתי שמאחורי כל רכיב: הטקסט בתגים ובבאדג' עלה מניגודיות של 1.18–1.35 ל-5.75–7.18, והגבול של השדות מ-1.06 ל-1.51. בערכות שאינן מצהירות — Classic, Dark, Rose Pine Dawn, High Contrast, ערכה מיובאת כהה וערכה מיובאת בהירה — הרכיבים זהים למה שהיו לפני הווים, גם בפוקוס ובתצוגה המקדימה. **ומה נמדד ב-15.11.2026**, כשנוספו הווים של "שולחן עבודה", הכפתורים שמעל העורך ותצוגת הקוד, בדפדפן ומול הקוד שלפני השינוי: בערכות שאינן מצהירות — Classic, Dark, Rose Pine Dawn, High Contrast, ערכה מיובאת כהה וערכה מיובאת בהירה בלי ווים — ובתצוגה מקדימה של Ocean מתוך ערכה שמצהירה, כל הרכיבים האלה זהים למה שהיו, במצב רגיל, בריחוף ובפוקוס.
 
 .. _theme-variables-md-document-colors-hook:
 
