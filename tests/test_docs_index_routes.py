@@ -163,7 +163,177 @@ def test_the_github_webhook_is_exempt_from_the_global_rate_limit():
     assert wa.limiter is not None
     manager = wa.limiter.limit_manager
     assert manager.exemption_scope(wa.app, "webhooks.handle_github_webhook", "webhooks") & ExemptionScope.DEFAULT
+    # הבדיקה שאחרי הפריסה שואלת כל כמה שניות מכתובות של GitHub Actions, ולכן גם הנתיבים שלה פטורים.
+    for endpoint in ("webhooks.docs_index_check_status", "webhooks.docs_index_check_pass"):
+        assert manager.exemption_scope(wa.app, endpoint, "webhooks") & ExemptionScope.DEFAULT, endpoint
     assert not manager.exemption_scope(wa.app, "api_docs_index_status", None) & ExemptionScope.DEFAULT
+
+
+# ---------------------------------------------------------------------------
+# הבדיקה שאחרי הפריסה: המצב לקומיט, ושליחה חוזרת של בקשת המעבר
+# ---------------------------------------------------------------------------
+
+
+def _signed_post(hook_app_client, path, payload, *, secret=SECRET, raw=None):
+    body = raw if raw is not None else json.dumps(payload).encode()
+    signature = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hook_app_client.post(
+        path, data=body, content_type="application/json", headers={"X-Hub-Signature-256": signature}
+    )
+
+
+@pytest.fixture
+def check(hook):
+    """``hook`` ועוד לקוח לשני הנתיבים של הבדיקה. הנתיבים נגזרים מה-blueprint ולא מוקלדים."""
+    from flask import Flask
+
+    from webapp.routes.webhooks import webhooks_bp
+
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    app.register_blueprint(webhooks_bp)
+    paths = {rule.endpoint: rule.rule for rule in app.url_map.iter_rules()}
+    client = app.test_client()
+    return SimpleNamespace(
+        **vars(hook),
+        status_path=paths["webhooks.docs_index_check_status"],
+        pass_path=paths["webhooks.docs_index_check_pass"],
+        post=lambda path, payload, **kw: _signed_post(client, path, payload, **kw),
+    )
+
+
+def test_the_check_routes_answer_inside_the_real_webapp(hook):
+    """ה-blueprint רשום ב-``webapp.app`` עם ה-``before_request`` של האפליקציה והמגביל — כמו בייצור, ולא רק
+    באפליקציה ריקה."""
+    import webapp.app as wa
+
+    client = wa.app.test_client()
+    # מסמך מצב כמו שהמעבר משאיר אחריו: ה-lease פנוי (``_put_pending`` כותב אותו ביצירה).
+    hook.db[contract.STATE_COLLECTION].insert_one({
+        "_id": svc.STATE_ID, "indexed_source_commit": SHA_A, "lease_holder": None, "lease_expires_at": svc._LEASE_FREE,
+    })
+
+    status = _signed_post(client, "/api/webhooks/docs-index/status", {"commit": SHA_A})
+    resend = _signed_post(client, "/api/webhooks/docs-index/pass", {"commit": SHA_A})
+    unsigned = client.post("/api/webhooks/docs-index/status", json={"commit": SHA_A})
+
+    assert status.status_code == 200 and status.get_json()["indexed"] is True
+    assert resend.status_code == 202 and resend.get_json()["status"] == svc.REQUEST_STARTED
+    assert unsigned.status_code == 401
+
+
+def test_the_check_status_says_whether_the_index_reached_the_commit(check):
+    check.db[contract.STATE_COLLECTION].insert_one({"_id": svc.STATE_ID, "indexed_source_commit": SHA_A})
+
+    at_commit = check.post(check.status_path, {"commit": SHA_A})
+    other = check.post(check.status_path, {"commit": "b" * 40})
+
+    assert at_commit.status_code == other.status_code == 200
+    assert at_commit.get_json()["indexed"] is True and other.get_json()["indexed"] is False
+    assert other.get_json()["indexed_source_commit"] == SHA_A and other.get_json()["commit"] == "b" * 40
+
+
+def test_the_check_status_carries_the_last_run_without_its_detail(check):
+    """``detail`` עלול לשאת הודעה של Google, והתשובה מודפסת ביומן ציבורי של ה-CI."""
+    check.db[contract.STATE_COLLECTION].insert_one({
+        "_id": svc.STATE_ID,
+        "run": {"status": svc.STATUS_FAILED, "code": svc.CODE_EMBEDDING_REJECTED, "trigger": svc.TRIGGER_DEPLOY,
+                "requested_commit": SHA_A, "detail": "403: secret text from the provider",
+                "export": {"source_commit": SHA_A, "url": "https://x"}},
+    })
+
+    run = check.post(check.status_path, {"commit": SHA_A}).get_json()["run"]
+
+    assert run["status"] == svc.STATUS_FAILED and run["code"] == svc.CODE_EMBEDDING_REJECTED
+    assert run["source_commit"] == SHA_A and run["trigger"] == svc.TRIGGER_DEPLOY
+    assert "detail" not in run and "secret text" not in json.dumps(run)
+
+
+def test_the_check_status_reports_a_pass_alive_only_while_its_lease_holds(check):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    state = check.db[contract.STATE_COLLECTION]
+    state.insert_one({"_id": svc.STATE_ID, "lease_holder": "runner", "lease_expires_at": now + timedelta(minutes=2)})
+    assert check.post(check.status_path, {"commit": SHA_A}).get_json()["pass_alive"] is True
+
+    state.update_one({"_id": svc.STATE_ID}, {"$set": {"lease_expires_at": now - timedelta(seconds=1)}})
+    assert check.post(check.status_path, {"commit": SHA_A}).get_json()["pass_alive"] is False
+
+
+def test_the_check_status_names_the_plan_that_waits_for_approval(check):
+    check.db[contract.STATE_COLLECTION].insert_one({
+        "_id": svc.STATE_ID,
+        "approval": {"source_commit": SHA_A, "reason": svc.APPROVAL_FIRST_FILL, "fingerprint": "f" * 64,
+                     "plan": {"chunks_to_embed": 512}},
+    })
+
+    approval = check.post(check.status_path, {"commit": SHA_A}).get_json()["approval"]
+
+    assert approval == {"source_commit": SHA_A, "reason": svc.APPROVAL_FIRST_FILL, "chunks_to_embed": 512}
+
+
+def test_the_check_pass_requests_the_same_pass_as_the_deployment_webhook(check):
+    first = check.post(check.pass_path, {"commit": SHA_A})
+
+    assert first.status_code == 202 and first.get_json()["status"] == svc.REQUEST_STARTED
+    pending = svc.read_state(check.db)["pending"]
+    assert (pending["trigger"], pending["commit"]) == (svc.TRIGGER_DEPLOY, SHA_A)
+    assert len(check.started) == 1
+    assert check.post(check.pass_path, {"commit": SHA_A}).get_json()["status"] == svc.REQUEST_QUEUED
+
+
+@pytest.mark.parametrize("route", ["status_path", "pass_path"])
+def test_the_check_routes_refuse_a_bad_signature_before_any_work(check, route):
+    response = check.post(getattr(check, route), {"commit": SHA_A}, secret="not-the-secret")
+
+    assert response.status_code == 401
+    assert svc.read_state(check.db) is None and check.started == []
+
+
+@pytest.mark.parametrize("route", ["status_path", "pass_path"])
+@pytest.mark.parametrize(
+    "payload,raw",
+    [
+        ({}, None),
+        ({"commit": "abc"}, None),
+        ({"commit": SHA_A.upper()}, None),
+        ({"commit": 7}, None),
+        ({"commit": [SHA_A]}, None),
+        ([SHA_A], None),
+        (None, b"not json"),
+    ],
+)
+def test_the_check_routes_refuse_anything_that_is_not_a_commit(check, route, payload, raw):
+    response = check.post(getattr(check, route), payload, raw=raw)
+
+    assert response.status_code == 400
+    assert svc.read_state(check.db) is None and check.started == []
+
+
+@pytest.mark.parametrize("route", ["status_path", "pass_path"])
+def test_the_check_routes_without_a_database_are_503(check, route, monkeypatch):
+    monkeypatch.setattr(check.db_manager, "get_db", lambda: None)
+
+    assert check.post(getattr(check, route), {"commit": SHA_A}).status_code == 503
+
+
+class _StateUnreadable(FakeCollection):
+    def find_one(self, *args, **kwargs):
+        raise ServerSelectionTimeoutError("no primary available")
+
+
+def test_a_database_failure_while_reading_the_check_status_is_503(check):
+    check.db.c[contract.STATE_COLLECTION] = _StateUnreadable()
+
+    assert check.post(check.status_path, {"commit": SHA_A}).status_code == 503
+
+
+def test_a_database_failure_while_sending_the_check_pass_is_503(check):
+    check.db.c[contract.STATE_COLLECTION] = _StateUnreachable()
+
+    assert check.post(check.pass_path, {"commit": SHA_A}).status_code == 503
+    assert check.started == []
 
 
 # ---------------------------------------------------------------------------

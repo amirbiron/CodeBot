@@ -48,7 +48,11 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
-    
+    # הבדיקה שאחרי הפריסה (check-docs-index) רצה רק כשהייצוא הצליח: בלי הקובץ אין לאינדקס ממה להתעדכן,
+    # וכשל הייצוא כבר מתריע בעצמו. outcome ולא conclusion — הצעד רץ עם continue-on-error.
+    outputs:
+      sections_export: ${{ steps.export_sections.outcome }}
+
     steps:
     - name: 📥 Checkout code
       uses: actions/checkout@v4
@@ -303,6 +307,62 @@ jobs:
         echo "- **URL**: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Environment**: github-pages" >> $GITHUB_STEP_SUMMARY
         echo "- **Deployed at**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+
+  # אחרי הפריסה: האם אינדקס החיפוש בתיעוד בוובאפ הגיע לקומיט שנפרס — ואם לא, בקשת המעבר נשלחת שוב, ובסוף
+  # התראה לטלגרם (scripts/docs_index_check.py). ה-webhook של הפריסה נשלח פעם אחת, וכשהוא מגיע בזמן שהוובאפ
+  # עולה מחדש הוא הולך לאיבוד. רץ רק אחרי פריסה מוצלחת עם קובץ ייצוא; ריצה חדשה של ה-workflow על אותו ענף
+  # מבטלת אותו (concurrency למעלה), ולכן הוא אף פעם לא מתריע על פריסה שכבר הוחלפה.
+  # צריך שני ערכים ב-GitHub: המשתנה WEBAPP_URL והסוד CODEBOT_WEBHOOK_SECRET (= GITHUB_WEBHOOK_SECRET בוובאפ).
+  check-docs-index:
+    name: 🔎 Docs search index caught up
+    needs: [build-docs, deploy-docs]
+    if: ${{ needs.build-docs.outputs.sections_export == 'success' }}
+    runs-on: ubuntu-24.04
+    # מעל DEADLINE_SECONDS של הסקריפט, עם מרווח להכנת הג'וב. tests/test_docs_index_check.py בודק את היחס.
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: 🔎 Wait for the docs index to reach this commit
+      id: check
+      env:
+        WEBAPP_URL: ${{ vars.WEBAPP_URL }}
+        CODEBOT_WEBHOOK_SECRET: ${{ secrets.CODEBOT_WEBHOOK_SECRET }}
+        SOURCE_COMMIT: ${{ github.sha }}
+      run: python scripts/docs_index_check.py --commit "${SOURCE_COMMIT}"
+
+    - name: 📨 Alert Telegram that the docs index did not catch up
+      if: ${{ failure() && steps.check.outcome == 'failure' }}
+      continue-on-error: true
+      uses: ./.github/actions/telegram-message
+      with:
+        bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+        text: |
+          ${{ steps.check.outputs.message }}
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    # צעד שנכשל לפני הבדיקה (checkout, ‏setup-python) לא כותב הודעה, ובלי הצעד הזה הג'וב היה נכשל בלי התראה.
+    - name: 📨 Alert Telegram that the docs index check did not run
+      if: ${{ failure() && steps.check.outcome != 'failure' }}
+      continue-on-error: true
+      uses: ./.github/actions/telegram-message
+      with:
+        bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+        text: |
+          ⚠️ בדיקת אינדקס התיעוד לא הגיעה לרוץ: צעד שלפניה נכשל, ולא נבדק אם האינדקס התעדכן לפריסה של ${{ github.sha }}.
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   linkcheck-nightly:
     name: 🔗 Nightly linkcheck (Sphinx)

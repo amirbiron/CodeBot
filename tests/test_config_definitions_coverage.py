@@ -49,6 +49,9 @@ ALLOWED_UNDECLARED = {
     "POEM_MODEL": "repository variable של GitHub Actions, נקרא ב-.github/pr-poem/pr_poem.py",
     "GITHUB_REPOSITORY": "משתנה ברירת מחדל של GitHub Actions, נקרא ב-.github/pr-poem/pr_poem.py",
     "POEM_APP_TOKEN": "טוקן ההתקנה של ה-GitHub App, מצעד ב-.github/workflows/pr-poem.yml",
+    # הבדיקה שאחרי פריסת אתר התיעוד: רצה ב-GitHub Actions (.github/workflows/documentation.yml), לא בשירות Render
+    "GITHUB_OUTPUT": "קובץ הפלט של צעד ב-GitHub Actions, נכתב ב-scripts/docs_index_check.py",
+    "GITHUB_STEP_SUMMARY": "קובץ הסיכום של צעד ב-GitHub Actions, נכתב ב-scripts/docs_index_check.py",
 }
 
 

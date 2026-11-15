@@ -1815,6 +1815,55 @@ def _vector_dimensions(definition: Any) -> Optional[int]:
     return None
 
 
+def _pass_alive(state: Dict[str, Any], now: datetime) -> bool:
+    """האם מעבר מחזיק עכשיו ב-lease. מעבר שמת באמצע מפסיק להיחשב חי כשה-lease שלו פג (:data:`LEASE_SECONDS`)."""
+    lease_expires_at = _as_utc(state.get("lease_expires_at"))
+    return bool(state.get("lease_holder")) and lease_expires_at is not None and lease_expires_at > now
+
+
+#: השדות של ``run`` שהבדיקה שאחרי הפריסה מקבלת. בלי ``detail``: הוא עלול לשאת טקסט של שגיאה מבחוץ (הודעה
+#: של Google), והתשובה מודפסת ביומן של ריצת ה-CI, שבריפו ציבורי פתוח לכולם.
+_DEPLOY_CHECK_RUN_FIELDS = ("status", "code", "trigger", "requested_commit", "started_at", "finished_at")
+
+
+def status_for_deploy_check(db: Any, commit: str) -> Dict[str, Any]:
+    """מה שהבדיקה שאחרי פריסת האתר (``scripts/docs_index_check.py``) צריכה כדי להחליט, ממסמך המצב בלבד.
+
+    ``indexed`` — האם האינדקס נכון לקומיט של הפריסה (``indexed_source_commit`` נקבע רק אחרי קריאה חוזרת
+    שאימתה את כל הכתיבות). ``pass_alive`` — האם מעבר מחזיק עכשיו ב-lease, ואז שליחה חוזרת רק תמתין אחריו.
+    ``approval`` — התוכנית שמחכה לאישור, אם יש. בלי רשת ובלי Gemini, כדי שבדיקה כל כמה שניות לא תעלה כלום.
+    """
+    if not contract.is_commit_sha(commit):
+        raise ValueError(f"expected a 40-character commit sha, got {commit!r}")
+    state = read_state(db) or {}
+    run = state.get("run") if isinstance(state.get("run"), dict) else None
+    approval = state.get("approval") if isinstance(state.get("approval"), dict) else None
+    plan = approval.get("plan") if approval is not None and isinstance(approval.get("plan"), dict) else {}
+    return {
+        "commit": commit,
+        "indexed": state.get("indexed_source_commit") == commit,
+        "indexed_source_commit": state.get("indexed_source_commit"),
+        "pass_alive": _pass_alive(state, _now()),
+        "pending": isinstance(state.get("pending"), dict),
+        "run": (
+            {
+                **{field: run.get(field) for field in _DEPLOY_CHECK_RUN_FIELDS},
+                # הקומיט של הקובץ שהמעבר האחרון קרא; אין כזה במעבר שעצר לפני ההורדה או קיבל 304.
+                "source_commit": run["export"].get("source_commit") if isinstance(run.get("export"), dict) else None,
+            }
+            if run is not None else None
+        ),
+        "approval": (
+            {
+                "source_commit": approval.get("source_commit"),
+                "reason": approval.get("reason"),
+                "chunks_to_embed": plan.get("chunks_to_embed"),
+            }
+            if approval is not None else None
+        ),
+    }
+
+
 def status_for_admin(db: Any) -> Dict[str, Any]:
     """מה שעמוד האדמין מציג: המעבר האחרון, האינדקס, שלושת הקומיטים, וה-Atlas — מקריאות בלבד."""
     state = read_state(db) or {}
@@ -1828,7 +1877,7 @@ def status_for_admin(db: Any) -> Dict[str, Any]:
     ) or {}
     return {
         "now": now,
-        "pass_alive": bool(state.get("lease_holder")) and lease_expires_at is not None and lease_expires_at > now,
+        "pass_alive": _pass_alive(state, now),
         "lease_expires_at": lease_expires_at,
         "stop_requested": state.get("stop_requested") is True,
         "pending": (
