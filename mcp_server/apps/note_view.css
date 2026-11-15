@@ -1,0 +1,109 @@
+/* תצוגת פתק בתוך Claude (MCP App) — ``mcp_server/note_view.py`` מכניס את הקובץ הזה לדף.
+
+   **הרקע של הדף שקוף, והפתק הוא "נייר".** Claude מבקש מדף של MCP App לא לצבוע את
+   ``html``/``body`` ("Any opaque background on <html> or <body> hides the chat surface",
+   עמוד "Transparent theming" בתיעוד של Claude). מה שנצבע הוא הפתק עצמו, בצבע שלו — כמו
+   בוובאפ, שם הפתק נשאר בגוון הפסטל שלו גם בערכה כהה.
+
+   **הדיו והגודל הם של הפתק בוובאפ, ולא של Claude.** על נייר פסטל קבוע, צבע טקסט שמגיע
+   מערכת הנושא של המארח היה יוצא בהיר על בהיר בערכה כהה. לכן על פתק צבוע הטקסט קבוע.
+   הערכים יושבים במשתנים שבראש ``.ck-paper``, וכל אחד מהם הוא עותק של ערך שהבעלים שלו
+   בוובאפ: הדיו של הגוף — ``color`` של ``.sticky-note-content`` ב-``sticky-notes.css``; דיו
+   הכותרת והדיו המעומעם — ``--note-ink`` ו-``--note-ink-muted`` שם; ריווח השורות — ``line-height``
+   של ``.sticky-note-content``; הגודל של הגוף — הטוקן ``--sticky-note-font`` של הגודל שבברירת
+   המחדל, ``NOTE_FONT_SIZE_DEFAULT`` ב-``webapp/app.py`` ("גדול מאוד" מנובמבר 2026); והגודל
+   והמשקל של הכותרת — ``font-size`` ו-``font-weight`` של ``.sticky-note-title``. הדף הזה אינו
+   טוען את ה-CSS של הוובאפ, ולכן ``tests/test_mcp_note_view.py`` קורא את שני המקורות ומשווה:
+   שינוי באחד בלי השני מפיל את ה-CI, ולא מתגלה בעין.
+
+   **בלי עותק של הפלטה.** הצבע של הפתק מגיע מהשרת כבר מנורמל (``note_color_hex``), ו-
+   ``note_view.js`` מציב אותו רק אחרי בדיקת צורה ומוסיף ``has-note-color``. בלי צבע תקין
+   הפתק נשאר בצבעי המארח — ולא בצהוב שהועתק לכאן מהפלטה, שהיה עותק שלישי שלה.
+
+   **תכונות לוגיות בלבד** (``padding-inline``, ``margin-block``): הפתק בעברית, וכלל פיזי
+   היה מזיח מהצד הלא נכון. */
+
+:root { color-scheme: light dark; }
+
+html, body {
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", Arial, sans-serif);
+  color: var(--color-text-primary, CanvasText);
+}
+
+#ck-note-root {
+  padding: 4px;
+}
+
+.ck-status {
+  margin: 0;
+  padding-block: 8px;
+  padding-inline: 4px;
+  font-size: var(--font-text-sm-size, 14px);
+  color: var(--color-text-secondary, GrayText);
+}
+
+.ck-status.is-error {
+  color: var(--color-text-danger, #b91c1c);
+}
+
+.ck-paper {
+  --ck-ink: #222;
+  --ck-title-ink: #2b3f6a;
+  --ck-muted-ink: #66739A;
+  --ck-line-height: 1.35;
+  /* "גדול מאוד" הוא המינימום הקריא — החלטת המשתמש לתצוגה הזו. */
+  --ck-font: 20px;
+  /* הכותרת כמו בוובאפ — החלטת המשתמש, ולא בגודל של הגוף. */
+  --ck-title-font: 13px;
+  --ck-title-weight: 600;
+
+  background: var(--color-background-secondary, Canvas);
+  color: var(--color-text-primary, CanvasText);
+  border: 1px solid rgba(0, 0, 0, .12);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .18);
+  padding-block: 12px 14px;
+  padding-inline: 14px;
+}
+
+.ck-paper.has-note-color {
+  color: var(--ck-ink);
+}
+
+.ck-title {
+  margin-block: 0 8px;
+  font-size: var(--ck-title-font);
+  font-weight: var(--ck-title-weight);
+  line-height: var(--ck-line-height);
+  overflow-wrap: anywhere;
+}
+
+.ck-paper.has-note-color .ck-title {
+  color: var(--ck-title-ink);
+}
+
+.ck-body {
+  font-size: var(--ck-font);
+  line-height: var(--ck-line-height);
+}
+
+/* שורת מקור אחת = אלמנט אחד עם ``dir="auto"`` — כמו במנוע של הפתק, שבו כל שורה מחליטה את
+   הכיוון שלה לפי האות החזקה הראשונה, ושורה באנגלית בתוך פתק עברי אינה מתהפכת. */
+.ck-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: calc(var(--ck-line-height) * 1em);
+}
+
+.ck-empty {
+  font-style: italic;
+}
+
+.ck-paper.has-note-color .ck-empty {
+  color: var(--ck-muted-ink);
+}
