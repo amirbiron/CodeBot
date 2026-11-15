@@ -34,6 +34,7 @@ except Exception:  # pragma: no cover
 
 from note_boards import (
     DEFAULT_BOARD_NAME,
+    board_order,
     ensure_default_board,
     list_boards,
     normalize_board_name,
@@ -86,7 +87,7 @@ def _board_response(doc: Dict[str, Any], note_count: Optional[int] = None) -> Di
         # ברירת מחדל ``False`` ולא מיגרציה: מסמכי לוח שנוצרו לפני השדה
         # פשוט אינם נעוצים, וזו התשובה הנכונה עבורם.
         'is_pinned': bool(doc.get('is_pinned', False)),
-        'order': int(doc.get('order') or 0),
+        'order': board_order(doc),
         'created_at': (doc.get('created_at').isoformat() if doc.get('created_at') else None),
         'updated_at': (doc.get('updated_at').isoformat() if doc.get('updated_at') else None),
     }
@@ -197,7 +198,7 @@ def create_board():
         # שוויון בין לוחות באותו שם.
         try:
             top = max(
-                (int(b.get('order') or 0) for b in db.note_boards.find({'user_id': user_id}, {'order': 1})),
+                (board_order(b) for b in db.note_boards.find({'user_id': user_id}, {'order': 1})),
                 default=-1,
             )
         except Exception:

@@ -5,8 +5,11 @@
 מצבים שקשה לייצר מול מסד אמיתי — למשל כתיבה שמדווחת הצלחה ולא נקלטה.
 """
 
+import pytest
+
 from note_boards import (
     DEFAULT_BOARD_NAME,
+    board_order,
     ensure_default_board,
     list_boards,
     normalize_board_name,
@@ -275,6 +278,43 @@ def test_same_name_keeps_creation_order():
 
     ids = [b["_id"] for b in list_boards(_StubDB(boards=_StubColl(docs)), 7)]
     assert ids == [2, 1]
+
+
+@pytest.mark.parametrize(
+    "stored, expected",
+    [
+        (7, 7),
+        ("7", 7),
+        (3.0, 3),
+        (None, 0),
+        ("", 0),
+        ("abc", 0),  # ValueError
+        (float("nan"), 0),  # ValueError
+        (float("inf"), 0),  # OverflowError
+        ([1], 0),  # TypeError
+        ({"a": 1}, 0),  # TypeError
+    ],
+)
+def test_board_order_is_zero_for_what_int_rejects(stored, expected):
+    """מה ש-``int`` מקבל עובר כמו קודם; מה שהוא זורק עליו — 0, ולא חריגה."""
+    assert board_order({"order": stored}) == expected
+
+
+def test_board_order_of_a_board_without_the_field_is_zero():
+    assert board_order({}) == 0
+
+
+def test_a_corrupted_order_does_not_break_the_list():
+    """מסמך עם ``order`` פגום אינו מפיל את הרשימה (עד היום — ``ValueError`` מתוך המיון). הערך הפגום נחשב 0:
+    בין שלושה לוחות באותו שם, שני הפגומים לפני זה שה-``order`` שלו 3, וביניהם לפי המזהה."""
+    docs = [
+        {"_id": 1, "user_id": 7, "name": "רעיונות", "order": "abc"},
+        {"_id": 2, "user_id": 7, "name": "רעיונות", "order": 3},
+        {"_id": 3, "user_id": 7, "name": "רעיונות", "order": float("inf")},
+    ]
+
+    ids = [b["_id"] for b in list_boards(_StubDB(boards=_StubColl(docs)), 7)]
+    assert ids == [1, 3, 2]
 
 
 # -- reattach_orphan_notes --

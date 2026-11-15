@@ -1275,6 +1275,34 @@ class TestRestoreNoteBoards:
         default_board = mock_db.db.note_boards.find_one({"user_id": 12345, "is_default": True})
         assert default_board["is_pinned"] is False
 
+    def test_an_order_int_rejects_does_not_hide_the_existing_boards(self, backup_service, mock_db):
+        """לוח קיים עם ``order`` ש-``int`` זורק עליו (אינסוף, ``OverflowError``) אינו עוצר את איסוף הלוחות
+        הקיימים. ``_safe_int`` הקודם לא תפס ``OverflowError``, וה-``except`` שסביב הלולאה עצר אותה באמצע: ``בית``,
+        שבא אחריו, לא נאסף, ולכן שוחזר שוב — לוח כפול. היום ``note_boards.board_order`` מחזיר 0."""
+        result = self._restore(
+            backup_service, mock_db,
+            [{"name": "בית", "is_default": False, "order": 1}],
+            existing=[
+                {"_id": "b1", "user_id": 12345, "name": "רעיונות", "order": float("inf")},
+                {"_id": "b2", "user_id": 12345, "name": "בית", "order": 1},
+            ],
+        )
+        assert result["restored"]["note_boards"] == 0, result["restored"]
+        assert mock_db.db.note_boards.names_inserted().count("בית") == 0
+
+
+def test_an_order_int_rejects_does_not_drop_the_board_export(backup_service, mock_db):
+    """ייצוא הלוחות שורד ``order`` ש-``int`` זורק עליו. עם ``_safe_int`` הקודם אינסוף זרק ``OverflowError``,
+    ה-``except`` של הייצוא החזיר רשימה ריקה, והגיבוי יצא **בלי אף לוח**. היום הלוח מיוצא עם ``order`` 0."""
+    mock_db.db.note_boards = _BoardsColl([
+        {"_id": "b1", "user_id": 12345, "name": "רעיונות", "order": float("inf")},
+        {"_id": "b2", "user_id": 12345, "name": "בית", "order": "abc"},
+    ])
+
+    exported = {b["name"]: b["order"] for b in backup_service._export_note_boards(12345)}
+
+    assert exported == {"רעיונות": 0, "בית": 0}
+
 
 def test_a_failed_board_import_does_not_abort_the_whole_restore(backup_service, mock_db, monkeypatch):
     """כשל ייבוא בשחזור הלוחות מתנוון ל-``errors``, ואינו מפיל את השחזור.
