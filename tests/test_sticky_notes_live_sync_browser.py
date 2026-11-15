@@ -41,7 +41,7 @@ STATIC_DIR = REPO_ROOT / "webapp" / "static"
 MIME = {".js": "application/javascript", ".css": "text/css", ".svg": "image/svg+xml"}
 STYLESHEETS = ("css/markdown-enhanced.css", "css/high-contrast.css", "css/dark-mode.css", "css/sticky-notes.css")
 SCRIPTS = ("js/admonition-icons.js", "js/utils/file-name.js", "js/utils/rtl-code.js", "js/utils/text-highlight.js",
-           "js/utils/visible-poll.js", "js/sticky-notes.js")
+           "js/utils/visible-poll.js", "js/sticky-md-render.js", "js/sticky-notes.js")
 
 BOARD = "b" * 24
 N1, N2, N3 = "1" * 24, "2" * 24, "3" * 24
