@@ -184,6 +184,24 @@ def test_list_reattaches_orphan_notes(client):
     assert client.db.sticky_notes.docs[0]["updated_at"] == "T0"
 
 
+def test_list_order_is_default_then_hebrew_then_english(client):
+    """הסדר שעמוד ``/boards`` מציג — העמוד בונה את הכרטיסים לפי סדר הרשימה מהראוט הזה. הלוחות נוצרים
+    כאן בסדר שונה מהמצופה, ולוח ברירת המחדל נוצר **אחרון** (בקריאה הראשונה לרשימה), ועדיין הוא ראשון."""
+    for name in ["To CC", "פריימר", "מCLAUDE.md", "amir bug patterns", "ארכיון"]:
+        assert client.post("/api/note-boards", json={"name": name}).status_code == 201
+
+    body = client.get("/api/note-boards").get_json()
+
+    assert [b["name"] for b in body["boards"]] == [
+        "לוח עבודה",
+        "ארכיון",
+        "מCLAUDE.md",
+        "פריימר",
+        "amir bug patterns",
+        "To CC",
+    ]
+
+
 # -- יצירה --
 
 def test_create_board(client):

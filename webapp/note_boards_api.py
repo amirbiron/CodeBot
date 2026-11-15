@@ -192,8 +192,9 @@ def create_board():
             return jsonify({'ok': False, 'error': 'board_quota_exceeded'}), 409
 
         # ``order`` נגזר מהמקסימום הקיים ולא מהספירה: אחרי מחיקת לוח
-        # מאמצע הרשימה, ספירה הייתה מייצרת ערך שכבר תפוס ושני לוחות היו
-        # מתחרים על אותו מקום במיון.
+        # מאמצע הרשימה, ספירה הייתה מייצרת ערך שכבר תפוס. ``order`` הוא
+        # סדר היצירה, ובמיון (``note_boards._board_sort_key``) הוא שובר
+        # שוויון בין לוחות באותו שם.
         try:
             top = max(
                 (int(b.get('order') or 0) for b in db.note_boards.find({'user_id': user_id}, {'order': 1})),

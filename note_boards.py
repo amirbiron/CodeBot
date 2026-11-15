@@ -23,8 +23,11 @@ Note Boards — לוחות פתקים, ולוח ברירת המחדל שאי א�
 from __future__ import annotations
 
 import logging
+import unicodedata
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+from webapp.file_name_display import has_hebrew
 
 logger = logging.getLogger(__name__)
 
@@ -95,14 +98,60 @@ def ensure_default_board(db: Any, user_id: int) -> Optional[str]:
     return str(confirmed.get("_id") or "") or None
 
 
+#: אות סופית ← אותה אות בצורתה הרגילה. בסדר הא'-ב' ‏ך היא כ', ‏ם היא מ' וכן הלאה; בטבלת יוניקוד כל
+#: סופית היא תו נפרד שיושב **לפני** הצורה הרגילה שלה (‏ך U+05DA, ‏כ U+05DB). בלי ההמרה ההשוואה נעצרת
+#: על הסופית ולא ממשיכה לתו שאחריה: "אםב" היה קודם ל"אמא", כשלפי הא'-ב' ההכרעה היא בין ה-ב' לבין ה-א'.
+_HEBREW_FINAL_TO_REGULAR = str.maketrans("ךםןףץ", "כמנפצ")
+
+
+def _board_sort_key(doc: Dict[str, Any]) -> Tuple[Any, ...]:
+    """מפתח המיון של לוח ב-:func:`list_boards` — הסדר שבו הלוחות מוצגים בכל מקום שקורא לה.
+
+    1. **לוח ברירת המחדל ראשון** (``is_default``), תמיד — הוא הלוח הראשי: היחיד שאי אפשר למחוק, והיעד של
+       הפתקים מלוח שנמחק (שניהם ב-``webapp/note_boards_api.delete_board``).
+    2. **הקבוצה, לפי האות הראשונה בשם**: עברית (:func:`webapp.file_name_display.has_hebrew`), אחריה כל
+       אות אחרת, ובסוף שם שאין בו אות בכלל. "אות" היא מה ש-``str.isalpha`` מקבל — הקטגוריות ``Lm``,
+       ``Lt``, ``Lu``, ``Ll`` ו-``Lo`` ביוניקוד (התיעוד של ``str.isalpha`` ב-Python 3.11) — ולכן אימוג'י,
+       ספרה או סימן בתחילת השם אינם נספרים: "📌 משימות" שייך לעברית, וממוין לפי ה-מ'. ומספיקה אות עברית
+       אחת בהתחלה: ``מCLAUDE.md`` שייך לעברית גם כשכל השאר באנגלית.
+    3. **השם, מהאות הראשונה והלאה, בהשוואה בסיסית**: בלי הבדל בין אותיות גדולות לקטנות, בלי ניקוד
+       ואקסנטים (פירוק ``NFKD`` והשמטת תווי צירוף, קטגוריה ``M``), ואות סופית כמו הרגילה
+       (:data:`_HEBREW_FINAL_TO_REGULAR`). בלי ``casefold`` כל האותיות הגדולות היו קודמות לקטנות,
+       ו-``amir`` היה נופל אחרי ``To CC``.
+    4. **שוברי שוויון**: השם המלא כפי שהוא, אחריו ``order`` (סדר היצירה), ואחריו המזהה — כך שגם שני
+       לוחות באותו שם בדיוק מוצגים תמיד באותו סדר.
+
+    הקירוב של שלב 3 — ‏NFKD, השמטת ``M`` ו-``casefold`` — הוא אותו קירוב שעושה ``_match_key`` ב-
+    ``services/docs_index_service.py``, אבל **בכוונה אינו נשען עליו**: שם הבעלים הוא הדפדפן (מה ש-Chromium
+    משווה כשהוא קופץ לטקסט בעמוד), וכל התאמה שלו לדפדפן הייתה משנה כאן את סדר הלוחות.
+    """
+    name = str(doc.get("name") or "")
+    first_letter = next((index for index, char in enumerate(name) if char.isalpha()), None)
+    if first_letter is None:
+        group, text = 2, name
+    else:
+        group, text = (0 if has_hebrew(name[first_letter]) else 1), name[first_letter:]
+    decomposed = unicodedata.normalize("NFKD", text)
+    base = "".join(char for char in decomposed if not unicodedata.category(char).startswith("M"))
+    primary = base.casefold().translate(_HEBREW_FINAL_TO_REGULAR)
+    return (
+        0 if doc.get("is_default") else 1,
+        group,
+        primary,
+        name,
+        int(doc.get("order") or 0),
+        str(doc.get("_id") or ""),
+    )
+
+
 def list_boards(db: Any, user_id: int) -> List[Dict[str, Any]]:
-    """לוחות המשתמש לפי סדר תצוגה. ברירת המחדל תמיד ראשונה."""
+    """לוחות המשתמש בסדר התצוגה — :func:`_board_sort_key`: ברירת המחדל ראשונה, ואחריה לפי השם."""
     coll = _boards_coll(db)
     if coll is None:
         return []
     cursor = coll.find({"user_id": int(user_id)})
     docs = [d for d in (list(cursor) if cursor is not None else []) if isinstance(d, dict)]
-    docs.sort(key=lambda d: (0 if d.get("is_default") else 1, int(d.get("order") or 0), str(d.get("name") or "")))
+    docs.sort(key=_board_sort_key)
     return docs
 
 

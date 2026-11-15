@@ -192,6 +192,91 @@ def test_default_board_sorts_first():
     assert names == ["ברירת מחדל", "א", "ב"]
 
 
+def _sorted_names(*boards):
+    """שמות הלוחות כפי ש-``list_boards`` מחזירה אותם. ``order`` נקבע לפי המיקום ברשימה — כלומר סדר
+    היצירה הוא הסדר שבו הלוחות כתובים בטסט, והוא בכוונה **שונה** מהסדר שמצופה בתוצאה."""
+    docs = [
+        {"_id": index + 1, "user_id": 7, "name": name, "order": index, **extra}
+        for index, (name, extra) in enumerate(boards)
+    ]
+    return [b["name"] for b in list_boards(_StubDB(boards=_StubColl(docs)), 7)]
+
+
+def test_hebrew_boards_first_then_english_by_abc():
+    """עברית בסדר הא'-ב', אחריה אנגלית בסדר ה-ABC — ולא סדר היצירה. ``מCLAUDE.md`` בעברית: מספיקה אות
+    עברית אחת בהתחלה. ``amir`` לפני ``Markdown_Ck``: בלי הבדל בין אותיות גדולות לקטנות."""
+    names = _sorted_names(
+        ("לוח עבודה", {"is_default": True}),
+        ("To CC", {}),
+        ("פריימר", {}),
+        ("מCLAUDE.md", {}),
+        ("amir bug patterns", {}),
+        ("ארכיון", {}),
+        ("Markdown_Ck", {}),
+        ("מודלים", {}),
+    )
+
+    assert names == [
+        "לוח עבודה",
+        "ארכיון",
+        "מCLAUDE.md",
+        "מודלים",
+        "פריימר",
+        "amir bug patterns",
+        "Markdown_Ck",
+        "To CC",
+    ]
+
+
+def test_default_board_stays_first_even_against_the_alphabet():
+    """לוח ברירת המחדל ראשון גם כשהשם שלו היה נופל אחרון — באנגלית, אחרי כל העברית."""
+    names = _sorted_names(("ארכיון", {}), ("Zebra", {"is_default": True}), ("בית", {}))
+
+    assert names == ["Zebra", "ארכיון", "בית"]
+
+
+def test_the_first_letter_decides_not_the_first_character():
+    """אימוג'י, ספרה או סימן בתחילת השם אינם אות: הקבוצה והמיון לפי האות הראשונה. שם בלי אף אות —
+    בסוף."""
+    names = _sorted_names(
+        ("🎉", {}),
+        ("2026 plan", {}),
+        ("📌 משימות", {}),
+        ("#ideas", {}),
+        ("123", {}),
+        ("בית", {}),
+    )
+
+    assert names == ["בית", "📌 משימות", "#ideas", "2026 plan", "123", "🎉"]
+
+
+def test_accents_and_niqqud_do_not_move_a_name():
+    """ניקוד ואקסנטים אינם אות נפרדת: ``École`` בין ``Delta`` ל-``Ezra``, ו-``שָׁלוֹם`` אחרי ``שלב``
+    (ב' לפני ו'). בלי ההשמטה é היה אחרי כל האנגלית, וסימני הניקוד — לפני כל אות."""
+    names = _sorted_names(("Ezra", {}), ("שָׁלוֹם", {}), ("École", {}), ("שלב", {}), ("Delta", {}))
+
+    assert names == ["שלב", "שָׁלוֹם", "Delta", "École", "Ezra"]
+
+
+def test_a_final_letter_sorts_as_the_regular_letter():
+    """ם היא מ': ההכרעה בין ``אםב`` ל-``אמא`` עוברת לאות השלישית, וא' לפני ב'. בלי ההמרה הסופית הייתה
+    נחשבת אות נפרדת שקודמת למ', ו-``אםב`` היה ראשון."""
+    names = _sorted_names(("אםב", {}), ("אמא", {}))
+
+    assert names == ["אמא", "אםב"]
+
+
+def test_same_name_keeps_creation_order():
+    """שני לוחות באותו שם בדיוק: ``order`` (סדר היצירה) מכריע ביניהם, ולכן הסדר קבוע בכל טעינה."""
+    docs = [
+        {"_id": 1, "user_id": 7, "name": "רעיונות", "order": 5},
+        {"_id": 2, "user_id": 7, "name": "רעיונות", "order": 2},
+    ]
+
+    ids = [b["_id"] for b in list_boards(_StubDB(boards=_StubColl(docs)), 7)]
+    assert ids == [2, 1]
+
+
 # -- reattach_orphan_notes --
 
 def test_orphan_notes_move_to_default():
