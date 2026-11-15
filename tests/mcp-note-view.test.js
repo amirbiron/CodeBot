@@ -116,10 +116,18 @@ function load(opts = {}) {
   const resizeListeners = [];
   const timers = [];
   const observed = [];
+  // הגדלת הטקסט של המנוע (WebView של אנדרואיד מכפיל כל גופן בגודל הגופן של המערכת): הגודל
+  // המחושב הוא הגודל שהאלמנט ביקש כפול ``zoom.text``. ``zoom.raw`` מחליף את התשובה כולה —
+  // לבדוק ערך שאינו מספר.
+  const zoom = { text: opts.textZoom || 1, raw: null };
   const win = {
     document,
     parent,
     innerWidth: 600,
+    getComputedStyle(el) {
+      if (zoom.raw !== null) return { fontSize: zoom.raw };
+      return { fontSize: `${parseFloat(el.style.fontSize || '16') * zoom.text}px` };
+    },
     addEventListener(type, fn) {
       if (type === 'message') listeners.push(fn);
       if (type === 'resize') resizeListeners.push(fn);
@@ -134,7 +142,7 @@ function load(opts = {}) {
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   const host = {
-    win, document, main, sent, created, timers, observed, parent,
+    win, document, main, sent, created, timers, observed, parent, zoom,
     deliver(data, source = parent) { for (const fn of listeners) fn({ source, data }); },
     methods() { return sent.map((s) => s.message.method || (s.message.error ? 'error' : 'result')); },
     last(method) { return [...sent].reverse().find((s) => s.message.method === method); },
@@ -211,10 +219,10 @@ console.log('\nרינדור הפתק');
   check('הצבע של הפתק על הנייר', paper.style.backgroundColor === '#ffeddb', paper.style.backgroundColor);
   check('has-note-color כשהצבע תקין', paper.className.indexOf('has-note-color') !== -1, paper.className);
   const title = paper.children[0];
-  check('הכותרת ב-h1 עם dir=auto', title.tagName === 'H1' && title.getAttribute('dir') === 'auto' && title.textContent === 'רשימת קניות', title.textContent);
+  check('הכותרת ב-h1, בלי dir — יורשת rtl כמו שם הפתק בוובאפ', title.tagName === 'H1' && title.getAttribute('dir') === null && title.textContent === 'רשימת קניות', [title.getAttribute('dir'), title.textContent]);
   const body = paper.children[1];
   check('שורה לכל שורת מקור', body.children.length === 4, body.children.length);
-  check('כל שורה עם dir=auto', body.children.every((r) => r.getAttribute('dir') === 'auto'), body.children.map((r) => r.getAttribute('dir')));
+  check('אף שורה בלי dir — כולן יורשות rtl, כמו בפתק בוובאפ', body.children.every((r) => r.getAttribute('dir') === null), body.children.map((r) => r.getAttribute('dir')));
   check('השורות בטקסט המקור, ושורה ריקה נושאת רווח קשיח',
     body.children.map((r) => r.textContent).join('|') === '# כותרת|\u00a0|English line|שורה בעברית',
     body.children.map((r) => r.textContent));
@@ -539,6 +547,55 @@ console.log('\nגלילה בכפתורים');
   host.resize();
   host.resize();
   check('תוכן שאינו נכנס — מוצגים, ונשארים בבדיקה חוזרת', host.find('ck-scroll-btns').hidden === false, host.find('ck-scroll-btns').hidden);
+}
+
+console.log('\nכיוון השורות — כמו בוובאפ');
+{
+  const host = load();
+  initialize(host);
+  host.deliver(toolResult({ ok: true, note: { title: 'Title in English', content: 'English first\nשורה בעברית\n', color: '#ffeddb' } }));
+  const lines = [];
+  for (const el of host.main.walk()) if (el.className.split(/\s+/).indexOf('ck-line') !== -1) lines.push(el);
+  check('אף שורה אינה נושאת dir — יורשת rtl מהדף', lines.length === 3 && lines.every((l) => l.getAttribute('dir') === null),
+    lines.map((l) => l.getAttribute('dir')));
+  check('גם הכותרת אינה נושאת dir', host.find('ck-title').getAttribute('dir') === null, host.find('ck-title').getAttribute('dir'));
+}
+
+console.log('\nהגדלת הטקסט של המערכת');
+{
+  const host = load();
+  const props = host.document.documentElement.style.props;
+  check('בלי הגדלה — המשתנה אינו מוצב', !('--ck-text-scale' in props), props);
+  const probes = host.document.body.children.filter((c) => c.tagName === 'SPAN');
+  check('אלמנט בדיקה אחד נוצר כבר בעלייה, לפני לחיצת היד — מוסתר, בגודל קבוע',
+    probes.length === 1 && host.sent.length === 1 && probes[0].style.display === 'none' && probes[0].style.fontSize === '100px',
+    [probes.length, host.sent.length]);
+}
+{
+  const host = load({ textZoom: 1.3 });
+  const props = host.document.documentElement.style.props;
+  check('הגדלה של 130% נמדדת כבר בעלייה, ונכנסת ל---ck-text-scale', props['--ck-text-scale'] === '1.3', props);
+  initialize(host);
+  host.deliver(toolResult(NOTE));
+  host.zoom.text = 1.15;
+  host.resize();
+  check('שינוי של ההגדלה נמדד שוב במדידת הגודל הבאה', props['--ck-text-scale'] === '1.15', props);
+  host.zoom.text = 1;
+  host.resize();
+  check('חזרה ל-100% — המשתנה יורד', !('--ck-text-scale' in props), props);
+  const probes = host.document.body.children.filter((c) => c.tagName === 'SPAN');
+  check('ובכל המדידות — אותו אלמנט בדיקה, לא חדש בכל פעם', probes.length === 1, probes.length);
+}
+{
+  for (const raw of ['', 'abc', '0px', '-100px', 'NaNpx']) {
+    const host = load({ textZoom: 1.3 });
+    host.zoom.raw = raw;
+    host.resize();
+    initialize(host);
+    host.resize();
+    const props = host.document.documentElement.style.props;
+    check(`גודל מחושב לא תקין (${JSON.stringify(raw)}) — הערך התקין האחרון נשאר`, props['--ck-text-scale'] === '1.3', props);
+  }
 }
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);

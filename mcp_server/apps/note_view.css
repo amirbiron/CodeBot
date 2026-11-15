@@ -20,6 +20,14 @@
    ``note_view.js`` מציב אותו רק אחרי בדיקת צורה ומוסיף ``has-note-color``. בלי צבע תקין
    הפתק נשאר בצבעי המארח — ולא בצהוב שהועתק לכאן מהפלטה, שהיה עותק שלישי שלה.
 
+   **הגדלת הטקסט של המערכת מנוטרלת.** WebView של אנדרואיד מגדיל כל גופן לפי גודל הגופן שנבחר
+   במערכת ("By default, scale the text size by the system font scale factor", ``AwSettings.java``
+   ב-Chromium), בזמן שהגובה הקבוע של התצוגה אינו גדל — ולכן נכנסות פחות שורות, והטקסט גדול מהפתק
+   בוובאפ. ההגדלה נכנסת לגודל המחושב של הגופן (``FontBuilder::GetComputedSizeFromSpecifiedSize``),
+   ו-``note_view.js`` מודד אותה ומעביר אותה כ-``--ck-text-scale``. **כל ``font-size`` כאן מחולק
+   בה**, כך שהגודל המחושב חוזר בדיוק לגודל של הוובאפ; בלי הגדלה המשתנה אינו מוצב, והחלוקה היא
+   ב-1. ``tests/test_mcp_note_view.py`` נכשל על ``font-size`` בקובץ שאינו עובר דרכה.
+
    **תכונות לוגיות בלבד** (``padding-inline``, ``margin-block``): הפתק בעברית, וכלל פיזי
    היה מזיח מהצד הלא נכון. החריג היחיד הוא השוליים הבטוחים של המארח, שהם פיזיים מטבעם — ראו
    ``#ck-note-root``.
@@ -93,7 +101,7 @@ html.ck-expanded #ck-note-root {
   margin: 0;
   padding-block: 8px;
   padding-inline: 4px;
-  font-size: var(--font-text-sm-size, 14px);
+  font-size: calc(var(--font-text-sm-size, 14px) / var(--ck-text-scale, 1));
   color: var(--color-text-secondary, GrayText);
 }
 
@@ -139,7 +147,7 @@ html.ck-expanded #ck-note-root {
 .ck-title {
   flex: none;
   margin-block: 0 8px;
-  font-size: var(--ck-title-font);
+  font-size: calc(var(--ck-title-font) / var(--ck-text-scale, 1));
   font-weight: var(--ck-title-weight);
   line-height: var(--ck-line-height);
   overflow-wrap: anywhere;
@@ -150,7 +158,7 @@ html.ck-expanded #ck-note-root {
 }
 
 .ck-body {
-  font-size: var(--ck-font);
+  font-size: calc(var(--ck-font) / var(--ck-text-scale, 1));
   line-height: var(--ck-line-height);
   flex: 0 1 auto;
   min-height: 0;
@@ -193,7 +201,7 @@ html.ck-expanded #ck-note-root {
   background: rgba(0, 0, 0, .06);
   color: inherit;
   font: inherit;
-  font-size: 16px;
+  font-size: calc(16px / var(--ck-text-scale, 1));
   line-height: 1;
   cursor: pointer;
 }
@@ -203,8 +211,8 @@ html.ck-expanded #ck-note-root {
   cursor: default;
 }
 
-/* שורת מקור אחת = אלמנט אחד עם ``dir="auto"`` — כמו במנוע של הפתק, שבו כל שורה מחליטה את
-   הכיוון שלה לפי האות החזקה הראשונה, ושורה באנגלית בתוך פתק עברי אינה מתהפכת. */
+/* שורת מקור אחת = אלמנט אחד, **בלי ``dir``**: היא יורשת ``rtl`` מהדף, כמו שורה בפתק בוובאפ —
+   גם כשהיא מתחילה באנגלית. ההסבר והמדידה ב-``render`` ב-``note_view.js``. */
 .ck-line {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
