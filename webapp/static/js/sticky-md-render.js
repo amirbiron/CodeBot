@@ -1421,5 +1421,8 @@
     MD_CONTAINER_OPEN_RE,
     MD_CONTAINER_CLOSE_RE,
     MD_DETAILS_TYPE,
+    // הסכימות שקישור מותר בהן. מי שפותח קישור מחוץ למנוע — התצוגה בתוך Claude, דרך המארח — בודק
+    // מולו, ולא מול עותק שלו.
+    MD_SAFE_LINK,
   });
 })();

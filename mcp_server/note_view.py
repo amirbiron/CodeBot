@@ -68,11 +68,40 @@ RESOURCE_NAME = "codekeeper_note_view"
 #: אין לדף מצלמה, מיקרופון או מיקום.
 RESOURCE_META: dict[str, Any] = {"ui": {"prefersBorder": False}}
 
-#: הקבצים שהדף נבנה מהם, ליד המודול הזה.
+#: הקבצים של התצוגה עצמה, ליד המודול הזה.
 _ASSETS_DIR = Path(__file__).with_name("apps")
+#: הנכסים של הוובאפ שהדף כולל — מנוע התצוגה של הפתק והעיצוב שלו. **השרת רץ מהריפו כולו**
+#: (הוא כבר מייבא ``sticky_notes_target`` משורש הריפו), ולכן הם קיימים לידו בפריסה.
+_WEBAPP_STATIC = Path(__file__).resolve().parent.parent / "webapp" / "static"
 _SHELL_FILE = "note_view.html"
-_STYLE_FILE = "note_view.css"
-_SCRIPT_FILE = "note_view.js"
+
+#: מה שנכנס לבלוק הסגנון ולבלוק הסקריפט, ובאיזה סדר: ``(שורש, נתיב)``, כש-``"apps"`` הוא
+#: :data:`_ASSETS_DIR` ו-``"webapp"`` הוא :data:`_WEBAPP_STATIC`.
+#:
+#: **אותם קבצים שהוובאפ טוען לפתק, ובסדר שבו הם מגיעים בלוח הפתקים**, כי זה מה שהופך את הפתק
+#: כאן לאותו פתק: העיצוב של המנוע (``sticky-md-render.css``), הבסיס של האלרט והבלוק המתקפל
+#: (``markdown-enhanced.css``), ואחריהם התצוגה, שמוסיפה רק את מה ששייך לה. בסקריפט — שמות הקבצים,
+#: המפה של האלרטים וזיהוי העברית שהמנוע קורא מ-``window``, המנוע, ואז התצוגה. עותק של הכללים או
+#: של הפרסר כאן היה ניב שלישי של "איך פתק נראה" (העמוד של המנוע, ``sticky-notes-md-engine-module``).
+#:
+#: **הסדר של הלוח, כי בוובאפ אין סדר אחד.** ``base.html`` טוען את ``markdown-enhanced.css`` אחרי
+#: הבלוק ``extra_css``, ולכן בלוח, בארכיון ובעמוד הקבצים הוא מגיע **אחרי** העיצוב של הפתק; בתצוגת
+#: קובץ Markdown העיצוב של הפתק נטען בגוף העמוד, כלומר **אחריו**. נמדד שזה לא משנה היום: כל כלל
+#: ב-``sticky-md-render.css`` תחום ב-``.sticky-note`` וגובר בספציפיות, וסגנון מחושב של פתקים
+#: מרונדרים יצא זהה בשני הסדרים. התצוגה הולכת אחרי הלוח, המשטח הראשי של הפתקים, כך שכלל עתידי
+#: שישווה בספציפיות יכריע כאן כמו שם. ``tests/test_mcp_note_view.py`` גוזר את הסדר הזה מהתבניות.
+STYLE_PARTS: tuple[tuple[str, str], ...] = (
+    ("webapp", "css/sticky-md-render.css"),
+    ("webapp", "css/markdown-enhanced.css"),
+    ("apps", "note_view.css"),
+)
+SCRIPT_PARTS: tuple[tuple[str, str], ...] = (
+    ("webapp", "js/utils/file-name.js"),
+    ("webapp", "js/admonition-icons.js"),
+    ("webapp", "js/utils/rtl-code.js"),
+    ("webapp", "js/sticky-md-render.js"),
+    ("apps", "note_view.js"),
+)
 
 #: הסימנים בשלד שבמקומם נכנסים הסגנון והסקריפט. כל אחד חייב להופיע בשלד **פעם אחת בדיוק**.
 STYLE_SLOT = "/*NOTE_VIEW_STYLE*/"
@@ -91,36 +120,47 @@ class NoteView:
         return f"{_URI_PREFIX}{self.version}.html"
 
 
-def _inline(shell: str, slot: str, body: str, closing_tag: str, source: str) -> str:
-    """מכניס את ``body`` במקום ``slot``, אחרי שתי בדיקות שבלעדיהן הדף נשבר בשקט.
+def _inline(shell: str, slot: str, parts: list[tuple[str, str]], closing_tag: str) -> str:
+    """מכניס את ``parts`` — ``(שם, תוכן)``, לפי הסדר — במקום ``slot``, אחרי שתי בדיקות שבלעדיהן
+    הדף נשבר בשקט.
 
     * ``slot`` מופיע בשלד פעם אחת בדיוק — אחרת הקוד היה נכנס פעמיים, או לא נכנס כלל.
-    * ``body`` אינו מכיל את התגית שסוגרת אותו (``</script`` / ``</style``, בלי תלות ברישיות):
+    * אף חלק אינו מכיל את התגית שסוגרת את הבלוק (``</script`` / ``</style``, בלי תלות ברישיות):
       הדפדפן סוגר את הבלוק בתגית הראשונה שהוא פוגש, גם בתוך מחרוזת, ושאר הקוד היה מוצג
-      כטקסט. ההכנסה היא ``str.replace`` עם ספירה אחת, ולכן שום תו ב-``body`` אינו מפורש.
+      כטקסט. הבדיקה היא לכל חלק בנפרד, כדי שהשגיאה תנקוב בקובץ. ההכנסה היא ``str.replace`` עם
+      ספירה אחת, ולכן שום תו בתוכן אינו מפורש.
+
+    כל חלק נפתח בהערה עם השם שלו — בכלי הפיתוח רואים מאיזה קובץ הגיעה כל שורה.
     """
     if shell.count(slot) != 1:
         raise RuntimeError(
             f"note view: {_SHELL_FILE} must contain {slot!r} exactly once, "
             f"found {shell.count(slot)}"
         )
-    if closing_tag in body.lower():
-        raise RuntimeError(f"note view: {source} contains {closing_tag!r}, which would end the inline block")
+    for name, body in parts:
+        if closing_tag in body.lower():
+            raise RuntimeError(f"note view: {name} contains {closing_tag!r}, which would end the inline block")
+    body = "\n".join(f"/* ---- {name} ---- */\n{text}" for name, text in parts)
     return shell.replace(slot, body, 1)
 
 
-def build_note_view(assets_dir: Path = _ASSETS_DIR) -> NoteView:
-    """בונה את הדף מהשלד, הסגנון והסקריפט, וגוזר ממנו את הגרסה שבכתובת.
+def build_note_view(assets_dir: Path = _ASSETS_DIR, webapp_static: Path = _WEBAPP_STATIC) -> NoteView:
+    """בונה את הדף מהשלד ומהחלקים שב-:data:`STYLE_PARTS` ו-:data:`SCRIPT_PARTS`, וגוזר ממנו את
+    הגרסה שבכתובת.
 
-    **הגרסה היא hash של הדף כולו כפי שהוא נשלח**, ולכן כל שינוי — בשלד, בסגנון או בסקריפט —
-    משנה את הכתובת בלי שמישהו יצטרך לזכור להעלות מספר. קורא קבצים: נקראת מ-``build_mcp``,
-    לעולם לא בזמן ייבוא. קובץ שאינו קיים הוא ``FileNotFoundError`` כמו שהוא — שגיאת פריסה.
+    **הגרסה היא hash של הדף כולו כפי שהוא נשלח**, ולכן כל שינוי — בשלד, בסגנון, בסקריפט, או
+    במנוע ובעיצוב שהוובאפ משתף — משנה את הכתובת בלי שמישהו יצטרך לזכור להעלות מספר. קורא
+    קבצים: נקראת מ-``build_mcp``, לעולם לא בזמן ייבוא. קובץ שאינו קיים הוא ``FileNotFoundError``
+    כמו שהוא — שגיאת פריסה, שעוצרת את עליית השרת.
     """
+    roots = {"apps": assets_dir, "webapp": webapp_static}
+
+    def read(parts: tuple[tuple[str, str], ...]) -> list[tuple[str, str]]:
+        return [(rel, (roots[root] / rel).read_text(encoding="utf-8")) for root, rel in parts]
+
     shell = (assets_dir / _SHELL_FILE).read_text(encoding="utf-8")
-    style = (assets_dir / _STYLE_FILE).read_text(encoding="utf-8")
-    script = (assets_dir / _SCRIPT_FILE).read_text(encoding="utf-8")
-    html = _inline(shell, STYLE_SLOT, style, "</style", _STYLE_FILE)
-    html = _inline(html, SCRIPT_SLOT, script, "</script", _SCRIPT_FILE)
+    html = _inline(shell, STYLE_SLOT, read(STYLE_PARTS), "</style")
+    html = _inline(html, SCRIPT_SLOT, read(SCRIPT_PARTS), "</script")
     version = hashlib.sha256(html.encode("utf-8")).hexdigest()[:VERSION_HEX_CHARS]
     return NoteView(html=html, version=version)
 

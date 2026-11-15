@@ -5,16 +5,20 @@
    עמוד "Transparent theming" בתיעוד של Claude). מה שנצבע הוא הפתק עצמו, בצבע שלו — כמו
    בוובאפ, שם הפתק נשאר בגוון הפסטל שלו גם בערכה כהה.
 
+   **ה-Markdown נראה כמו בפתק בוובאפ, כי הוא אותו קוד.** לפני הקובץ הזה ``note_view.py`` מכניס
+   לדף את ``markdown-enhanced.css`` ואת ``sticky-md-render.css`` של הוובאפ, כמו שהם, והנייר נושא
+   את המחלקה ``sticky-note`` שהם תחומים בה. משם מגיעים גם הדיו של הפתק (``--note-ink``,
+   ``--note-ink-muted``), והכותרת והפתק הריק קוראים אותו ישירות. כאן יש רק מה שאינו בקבצים האלה.
+
    **הדיו והגודל הם של הפתק בוובאפ, ולא של Claude.** על נייר פסטל קבוע, צבע טקסט שמגיע
-   מערכת הנושא של המארח היה יוצא בהיר על בהיר בערכה כהה. לכן על פתק צבוע הטקסט קבוע.
-   הערכים יושבים במשתנים שבראש ``.ck-paper``, וכל אחד מהם הוא עותק של ערך שהבעלים שלו
-   בוובאפ: הדיו של הגוף — ``color`` של ``.sticky-note-content`` ב-``sticky-notes.css``; דיו
-   הכותרת והדיו המעומעם — ``--note-ink`` ו-``--note-ink-muted`` ב-``sticky-md-render.css``; ריווח השורות — ``line-height``
-   של ``.sticky-note-content``; הגודל של הגוף — הטוקן ``--sticky-note-font`` של הגודל שבברירת
-   המחדל, ``NOTE_FONT_SIZE_DEFAULT`` ב-``webapp/app.py`` ("גדול מאוד" מנובמבר 2026); והגודל
-   והמשקל של הכותרת — ``font-size`` ו-``font-weight`` של ``.sticky-note-title``. הדף הזה אינו
-   טוען את ה-CSS של הוובאפ, ולכן ``tests/test_mcp_note_view.py`` קורא את שני המקורות ומשווה:
-   שינוי באחד בלי השני מפיל את ה-CI, ולא מתגלה בעין.
+   מערכת הנושא של המארח היה יוצא בהיר על בהיר בערכה כהה. לכן על פתק צבוע הטקסט קבוע. מה שהמכל
+   של התוכן בוובאפ (``.sticky-note-tasks`` ב-``sticky-notes.css``) נותן לתוכן, והקובץ ההוא אינו
+   בדף הזה, יושב כאן כעותק: הדיו של הגוף (``color``), ריווח השורות (``line-height``), שבירת
+   השורות (``white-space`` ו-``overflow-wrap``), והגודל — הטוקן ``--sticky-note-font`` של הגודל
+   שבברירת המחדל, ``NOTE_FONT_SIZE_DEFAULT`` ב-``webapp/app.py`` ("גדול מאוד" מנובמבר 2026). וגם
+   הגודל והמשקל של הכותרת — ``font-size`` ו-``font-weight`` של ``.sticky-note-title``.
+   ``tests/test_mcp_note_view.py`` קורא את שני המקורות ומשווה: שינוי באחד בלי השני מפיל את ה-CI,
+   ולא מתגלה בעין.
 
    **בלי עותק של הפלטה.** הצבע של הפתק מגיע מהשרת כבר מנורמל (``note_color_hex``), ו-
    ``note_view.js`` מציב אותו רק אחרי בדיקת צורה ומוסיף ``has-note-color``. בלי צבע תקין
@@ -23,10 +27,12 @@
    **הגדלת הטקסט של המערכת מנוטרלת.** WebView של אנדרואיד מגדיל כל גופן לפי גודל הגופן שנבחר
    במערכת ("By default, scale the text size by the system font scale factor", ``AwSettings.java``
    ב-Chromium), בזמן שהגובה הקבוע של התצוגה אינו גדל — ולכן נכנסות פחות שורות, והטקסט גדול מהפתק
-   בוובאפ. ההגדלה נכנסת לגודל המחושב של הגופן (``FontBuilder::GetComputedSizeFromSpecifiedSize``),
-   ו-``note_view.js`` מודד אותה ומעביר אותה כ-``--ck-text-scale``. **כל ``font-size`` כאן מחולק
-   בה**, כך שהגודל המחושב חוזר בדיוק לגודל של הוובאפ; בלי הגדלה המשתנה אינו מוצב, והחלוקה היא
-   ב-1. ``tests/test_mcp_note_view.py`` נכשל על ``font-size`` בקובץ שאינו עובר דרכה.
+   בוובאפ. ``note_view.js`` מודד את ההגדלה ומבטל אותה ב-``text-size-adjust`` על ``html``, שנכנס
+   לאותה מכפלה ואינו נוגע בגודל ש-``em`` נגזר ממנו — ולכן גם הריווחים של ה-Markdown נשארים של הוובאפ
+   (ההסבר המלא ב-``measureTextScale``). **מנוע שמתעלם מ-``text-size-adjust`` מקבל חלוקה:**
+   ``note_view.js`` מעביר את ההגדלה כ-``--ck-text-scale``, ו**כל ``font-size`` כאן מחולק בה**, כך
+   שהגופן חוזר לגודל של הוובאפ (וה-``em`` לא). בכל מקרה אחר המשתנה אינו מוצב, והחלוקה היא ב-1.
+   ``tests/test_mcp_note_view.py`` נכשל על ``font-size`` בקובץ שאינו עובר דרכה.
 
    **תכונות לוגיות בלבד** (``padding-inline``, ``margin-block``): הפתק בעברית, וכלל פיזי
    היה מזיח מהצד הלא נכון. החריג היחיד הוא השוליים הבטוחים של המארח, שהם פיזיים מטבעם — ראו
@@ -111,8 +117,6 @@ html.ck-expanded #ck-note-root {
 
 .ck-paper {
   --ck-ink: #222;
-  --ck-title-ink: #2b3f6a;
-  --ck-muted-ink: #66739A;
   --ck-line-height: 1.35;
   /* "גדול מאוד" הוא המינימום הקריא — החלטת המשתמש לתצוגה הזו. */
   --ck-font: 20px;
@@ -142,6 +146,12 @@ html.ck-expanded #ck-note-root {
 
 .ck-paper.has-note-color {
   color: var(--ck-ink);
+  /* **הנייר בהיר תמיד, ולכן גם ערכת הצבעים שלו.** ``:root`` מצהיר ``light dark`` בשביל המשטח של
+     המארח, ובערכה כהה של Claude הצ'קבוקס המושבת, פסי הגלילה וצבעי המערכת (``Canvas``) היו נצבעים
+     כהים — על נייר פסטל. נמדד: הצ'קבוקס יצא אפור בהיר (``rgb(170, 170, 170)``) במקום הכהה שבוובאפ.
+     ``light`` — "the element supports a light color scheme" (CSS Color Adjustment 1, ``color-scheme``).
+     ולא ``normal``: ערך זה פירושו "the page’s supported color schemes", כלומר שוב את של הדף. */
+  color-scheme: light;
 }
 
 .ck-title {
@@ -154,12 +164,15 @@ html.ck-expanded #ck-note-root {
 }
 
 .ck-paper.has-note-color .ck-title {
-  color: var(--ck-title-ink);
+  color: var(--note-ink);
 }
 
 .ck-body {
   font-size: calc(var(--ck-font) / var(--ck-text-scale, 1));
   line-height: var(--ck-line-height);
+  /* המנוע בונה שורה לכל שורת מקור, והשורה שוברת ושומרת רווחים לפי המכל — כמו ``.sticky-note-tasks``. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -211,18 +224,10 @@ html.ck-expanded #ck-note-root {
   cursor: default;
 }
 
-/* שורת מקור אחת = אלמנט אחד, **בלי ``dir``**: היא יורשת ``rtl`` מהדף, כמו שורה בפתק בוובאפ —
-   גם כשהיא מתחילה באנגלית. ההסבר והמדידה ב-``render`` ב-``note_view.js``. */
-.ck-line {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  min-height: calc(var(--ck-line-height) * 1em);
-}
-
 .ck-empty {
   font-style: italic;
 }
 
 .ck-paper.has-note-color .ck-empty {
-  color: var(--ck-muted-ink);
+  color: var(--note-ink-muted);
 }

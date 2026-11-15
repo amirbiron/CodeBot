@@ -6518,6 +6518,11 @@ check('מנוע: mixInto מסרב לדרוס שם שכבר קיים, וה-API ק
   R.mixInto(target);
   eq(typeof target._renderMarkdownView, 'function', 'על יעד נקי — המתודות מוצמדות');
   eq(Object.isFrozen(R), true, 'window.StickyMdRender קפוא');
+  // הכלל של הקישורים מיוצא כמו שהוא — אותו אובייקט שהפרסר בודק מולו, ולא עותק.
+  // ``instanceof RegExp`` אינו עובד בין הקשרים של ``vm``; התג של האובייקט כן.
+  eq(Object.prototype.toString.call(R.MD_SAFE_LINK), '[object RegExp]', 'MD_SAFE_LINK מיוצא');
+  eq(R.MD_SAFE_LINK.test('https://a.b') && R.MD_SAFE_LINK.test('HTTP://a.b'), true, 'http ו-https מותרים');
+  eq(R.MD_SAFE_LINK.test('javascript:alert(1)') || R.MD_SAFE_LINK.test('data:text/html,x'), false, 'סכימה אחרת לא');
   eq(StickyNotesManager.prototype._parseInline === R.Engine.prototype._parseInline, true, 'המנהל משתמש באותה פונקציה, לא בעותק');
 });
 
