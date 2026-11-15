@@ -2849,22 +2849,52 @@ def get_note(
     if not current.get("ok"):
         return current
 
-    note = dict(current.get("note") or {})
-    repo = is_repo_note(current.get("target"), note)
     if part == "all":
-        out: dict[str, Any] = {"ok": True, "note": note}
-        # היעד, בדיוק בארגומנטים שכלי הרשימה המתאים דורש — כמו פגיעת חיפוש;
-        # ו-``version`` שנקרא באותה קריאה תחומה כמו הגוף.
-        out.update({k: v for k, v in current.items() if k not in ("ok", "note")})
-        if repo and backend.repo_path_orphaned(
-            repo_name=str(note.get("repo_name") or ""), repo_path=str(note.get("repo_path") or "")
-        ):
-            out["orphaned"] = True
+        out = _note_with_target(backend, current)
     else:
         # בלי הגוף: מזהה, שם, והיעד — כדי שהקורא יידע על איזה פתק מדובר.
+        note = current.get("note") or {}
         out = {"ok": True, "note_id": nid, "title": note.get("title")}
         out.update({k: v for k, v in current.items() if k not in ("ok", "note", "version")})
     return _with_threads(backend, user_id, out, note_id=nid, part=part, thread_id=tid)
+
+
+def _note_with_target(backend: Any, current: dict[str, Any]) -> dict[str, Any]:
+    """הפתק ואיפה הוא יושב — מתשובה של :func:`_readable_note` שכבר עברה את השער.
+
+    **צורה אחת לשני כלים:** ``codekeeper_get_note`` (``part="all"``) ו-``codekeeper_show_note``
+    בונים את התשובה כאן, ולכן הפתק שהתצוגה ב-Claude מציגה הוא בדיוק הפתק שהקריאה מחזירה.
+    היעד חוזר בארגומנטים שכלי הרשימה המתאים דורש — כמו פגיעת חיפוש — ו-``version``, כשנקרא
+    (``with_version=True``), עובר כמו שהוא, מאותה קריאה תחומה כמו הגוף. פתק ריפו נושא
+    ``orphaned: true`` כשהנתיב כבר אינו בעץ המשוקף, באותו כלל של ``list_repo_notes``.
+    """
+    note = dict(current.get("note") or {})
+    out: dict[str, Any] = {"ok": True, "note": note}
+    out.update({k: v for k, v in current.items() if k not in ("ok", "note")})
+    if is_repo_note(current.get("target"), note) and backend.repo_path_orphaned(
+        repo_name=str(note.get("repo_name") or ""), repo_path=str(note.get("repo_path") or "")
+    ):
+        out["orphaned"] = True
+    return out
+
+
+def show_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> dict[str, Any]:
+    """פתק **אחד** להצגה בתוך Claude — הגוף של ``codekeeper_show_note`` (MCP App).
+
+    **אותו שער ואותה צורה כמו** ``codekeeper_get_note``: :func:`_readable_note` (בעלות במסנן,
+    פתק ריפו לאדמין בלבד, ``not_found`` אחיד שאינו מגלה שהמזהה קיים), ואחריו
+    :func:`_note_with_target`. ההבדל היחיד: **בלי שרשורים ובלי ``version``.** התצוגה מציגה
+    את הפתק בלבד, וזה גם מה שהמודל ולקוח שאינו מציג תצוגה מקבלים — הטקסט המלא של הפתק,
+    כפי שהמפרט של MCP Apps דורש מכלי שיש לו תצוגה. ``is_admin`` הוא חובה ובלי ברירת מחדל,
+    מאותה סיבה כמו ב-:func:`get_note` (K12 §3).
+    """
+    nid = _clean_note_id(note_id)
+    if nid is None:
+        return {"ok": False, "error": "invalid_note_id"}
+    current = _readable_note(backend, user_id, note_id=nid, is_admin=is_admin, with_version=False)
+    if not current.get("ok"):
+        return current
+    return _note_with_target(backend, current)
 
 
 # -- שרשורי תגובות על פתקים ----------------------------------------------------

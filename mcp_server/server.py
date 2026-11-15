@@ -59,7 +59,7 @@ from services import doc_sections
 # pull anything heavy into the MCP process at import.
 from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 
-from . import answer_fit, answer_size, docs_handlers, handlers, read_batch, repo_handlers
+from . import answer_fit, answer_size, docs_handlers, handlers, note_view, read_batch, repo_handlers
 from .backend import LEAN_NOTE_FIELDS, file_read_answer
 from .handlers import StrictInt, StrictLines
 from .limits import (
@@ -216,6 +216,7 @@ def build_instructions(
         "codekeeper_get_note_version.\n"
         "- Threads: codekeeper_comment_note comments on a note; codekeeper_get_note reads its "
         "threads.\n"
+        "- Show the user a note in the conversation: codekeeper_show_note.\n"
         "\n"
         + docs
         + "Failures: 502/503/dropped connection = mid-deploy; retry in a minute. "
@@ -3899,6 +3900,32 @@ def build_mcp(
             backend, user_id, note_id=note_id, is_admin=is_admin_user(user_id),
             part=part, thread_id=thread_id,
         )
+
+    # **MCP App: הפתק מוצג בתוך השיחה** (``mcp_server/note_view.py``). הדף נבנה כאן, ברישום ולא
+    # בייבוא, והכתובת שלו נושאת את הגרסה שלו — ה-docstring של המודול מסביר את שניהם. השער
+    # הוא של ``codekeeper_get_note`` ומאותו קוד (``handlers._readable_note``), ולכן גם הכלי
+    # הזה אינו ב-``_ADMIN_TOOLS``.
+    note_page = note_view.build_note_view()
+    note_view.register_note_view(mcp, note_page)
+
+    @mcp.tool(
+        name="codekeeper_show_note",
+        description=(
+            "Show ONE sticky note to the user inside the conversation — its title, color and "
+            "body, in a view that hosts supporting MCP Apps render next to your reply. Use it "
+            "when the user asks to see or open a note, or to show a note after you changed it. "
+            "To read a note for yourself, to edit it, or to see its comment threads, use "
+            "codekeeper_get_note: this tool returns the same note (content, title, color, where "
+            "it sits) without threads or version, so a client that shows no view still gets the "
+            "full text. A note you do not own answers not_found, and so does a note on a "
+            "mirrored repository unless you are the admin."
+        ),
+        annotations=_READ_ONLY_TOOL,
+        meta=note_view.tool_meta(note_page),
+    )
+    def show_note(ctx: Context, note_id: str) -> dict:
+        user_id = current_user_id(ctx)
+        return handlers.show_note(backend, user_id, note_id=note_id, is_admin=is_admin_user(user_id))
 
     # **השער של הפתק הוא של ``codekeeper_get_note``, ומאותו קוד** (``handlers._readable_note``):
     # פתק של משתמש אחר, ופתק ריפו למי שאינו אדמין, עונים ``not_found`` ושום דבר לא נכתב.
