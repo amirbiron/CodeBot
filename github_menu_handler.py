@@ -20,7 +20,7 @@ from io import BytesIO
 from typing import Any, Dict, Optional
 from http_sync import request as _http_sync_request
 import errno
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from i18n.strings_he import BTN_BACKUP_ZIPS
 
@@ -42,10 +42,13 @@ def http_request(method, url, **kwargs):
     return _http_sync_request(method, url, **kwargs)
 
 try:
-    from github import Github, GithubException
+    from github import Github, GithubException, RateLimitExceededException
     from github.InputGitTreeElement import InputGitTreeElement
 except ModuleNotFoundError:  # pragma: no cover - optional dependency in minimal/test envs
     class GithubException(Exception):  # type: ignore
+        """Placeholder raised when PyGithub is missing."""
+
+    class RateLimitExceededException(GithubException):  # type: ignore
         """Placeholder raised when PyGithub is missing."""
 
     class Github:  # type: ignore
@@ -169,9 +172,13 @@ MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 # handler שמחכה להורדה תוקע את כל הבוט, לכל המשתמשים, עד שהיא נגמרת. ה-handler
 # רק מתחיל את העבודה ב-``application.create_task`` וחוזר מיד; ראו ``_start_zip_job``.
 #
-# תקרת זמן לעבודה כולה — הורדה ואריזה. נבדקת בין חתיכה לחתיכה של ההורדה ובין
-# קובץ לקובץ באריזה, ולכן קריאה בודדת שלא עונה מוגבלת בנוסף ב-timeout של
-# הבקשה עצמה (``_download_repo_archive``).
+# תקרת זמן להורדה ולאריזה — השלבים שאורכם גדל עם גודל הריפו. נבדקת בין חתיכה
+# לחתיכה של ההורדה ובין קובץ לקובץ באריזה; קריאה בודדת שלא עונה מוגבלת בנוסף
+# ב-timeout של הבקשה עצמה (``_download_repo_archive``). שאר השלבים מוגבלים כל
+# אחד בעצמו, ולכן גם הם לא מחזיקים את התור בלי סוף: הקריאות ל-GitHub API נשלחות
+# בלי retry (``_zip_github_client``), השמירה במונגו מוגבלת ב-``socketTimeoutMS``
+# לכל פעולה (``database/manager.py``), והשליחה לטלגרם ב-timeouts של PTB לכל
+# בקשה (``_apply_ptb_timeouts`` ב-``main.py``).
 ZIP_JOB_DEADLINE_SECONDS = 600
 # כמה אריזות רצות במקביל בכל הבוט. כשההורדה רצה בתוך ה-handler הן רצו אחת-אחת,
 # כי תור העדכונים חיכה; מספר גדול יותר הוא החלטה על זיכרון השרת, שלא נמדדה.
@@ -184,6 +191,7 @@ ZIP_JOB_ALREADY_RUNNING_TEXT = "⏳ כבר מכין לך ZIP. חכה שהוא י
 ZIP_JOB_QUEUE_WAIT_TEXT = "⏳ אריזה אחרת רצה כרגע בבוט. אתחיל מיד כשהיא תסתיים."
 ZIP_JOB_QUEUE_TIMEOUT_TEXT = "⌛ הבוט עסוק באריזה אחרת כבר זמן רב. נסה שוב בעוד כמה דקות."
 ZIP_JOB_TIMEOUT_TEXT = "⌛ ההורדה מ-GitHub לקחה יותר מדי זמן ונעצרה. נסה שוב מאוחר יותר."
+ZIP_JOB_RATE_LIMIT_TEXT = "⏳ GitHub מגביל כרגע את מספר הבקשות. נסה שוב בעוד כמה דקות."
 TELEGRAM_SAFE_TEXT_LIMIT = 4000
 TELEGRAM_TRUNCATION_NOTICE = "\n\n(✂️ חלק מהטקסט קוצר כדי לעמוד במגבלת טלגרם)"
 
@@ -279,6 +287,20 @@ def _zip_progress_text(label_html: str, progress: _ZipJobProgress) -> str:
             f"{format_bytes(progress.downloaded_bytes)}"
         )
     return f"⏳ מתחבר ל-GitHub כדי לארוז את <code>{label_html}</code>…"
+
+
+def _github_ref_page_url(full_name: str, ref: str) -> str:
+    """עמוד הענף (או התג) ב-GitHub — קישור קבוע, בלי טוקן.
+
+    זה הקישור שנותנים למשתמש כשהגיבוי גדול מדי לשליחה בטלגרם, במקום קישור הארכיון
+    מ-``get_archive_link``: לריפו פרטי הקישור ההוא זמני ופג אחרי חמש דקות (תיעוד
+    ה-REST של zipball), ועלול לשאת טוקן. מעמוד הענף מורידים ZIP ב-Code ← Download ZIP
+    (תיעוד GitHub, "Downloading source code archives"). ה-ref עובר ``quote``: שם ענף
+    יכול להכיל ``#`` או ``%``, שבלי קידוד היו שוברים את הקישור; ``/`` נשאר, כי שם ענף
+    כמו ``feature/x`` הוא חלק מהנתיב. ``share_folder_link`` בונה כתובת באותה צורה
+    לתצוגה כטקסט, ולכן שם היא לא מקודדת.
+    """
+    return f"https://github.com/{full_name}/tree/{quote(ref, safe='/')}"
 
 
 def _zip_entry_is_symlink(info) -> bool:
@@ -1058,7 +1080,8 @@ class GitHubMenuHandler:
         חתיכה לחתיכה, ולכן קריאה בודדת שלא עונה מוגבלת בנוסף ב-``timeout`` של הבקשה.
         ``progress`` — ``_ZipJobProgress`` שמתעדכן במספר הבייטים שירדו.
 
-        מחזירה dict עם ``zip_path``, ``url``, ``content_length`` ו-``too_big_for_telegram``.
+        מחזירה dict עם ``zip_path``, ``content_length`` ו-``too_big_for_telegram``. כתובת
+        הארכיון לא חוזרת: היא לא מוצגת למשתמש ולא נרשמת (ראו למטה, ו-``_github_ref_page_url``).
         כשל לפני יצירת הקובץ הזמני מתפשט כמו שהוא; כשל אחריה נעטף ב-``_ZipBackupError``
         שנושאת את ``zip_path``, כדי שהקורא ינקה אותו.
 
@@ -1146,7 +1169,6 @@ class GitHubMenuHandler:
 
         return {
             "zip_path": zip_path,
-            "url": url,
             "content_length": content_length,
             "too_big_for_telegram": too_big_for_telegram,
         }
@@ -1165,7 +1187,6 @@ class GitHubMenuHandler:
 
         archive = self._download_repo_archive(repo, ref, deadline_ts=deadline_ts, progress=progress)
         zip_path = archive["zip_path"]
-        url = archive["url"]
         content_length = archive["content_length"]
         too_big_for_telegram = archive["too_big_for_telegram"]
 
@@ -1253,7 +1274,6 @@ class GitHubMenuHandler:
             "total_bytes": total_bytes,
             "too_big_for_telegram": too_big_for_telegram,
             "metadata": metadata,
-            "url": url,
             "content_length": content_length,
         }
 
@@ -1416,7 +1436,7 @@ class GitHubMenuHandler:
         try:
             async with self._zip_job_slot(query):
                 deadline_ts = time.monotonic() + ZIP_JOB_DEADLINE_SECONDS
-                g = Github(token)
+                g = self._zip_github_client(token)
                 # g.get_repo מבצע קריאת רשת חוסמת — נריץ אותה ב-thread כדי לא לחסום את הלולאה
                 repo = await asyncio.to_thread(g.get_repo, repo_name)
                 # הענף שהמשתמש בחר בדפדפן — אותה נגזרת כמו ב-show_repo_browser.
@@ -1465,11 +1485,40 @@ class GitHubMenuHandler:
             )
 
     @staticmethod
-    async def _report_zip_job_error(query, repo_name: str, err: BaseException) -> None:
-        """כשל לא צפוי באריזת תיקייה: לוג מלא, אירוע, והודעה שמחליפה את ההתקדמות.
+    def _zip_github_client(token: str):
+        """לקוח PyGithub למשימת ה-ZIP: בלי retry, כדי שלא יחזיק את התור.
 
-        הטקסט עובר ``redact_bot_token`` לפני כל יעד: חריגה של ``requests`` מצמידה
-        את הכתובת, ולריפו פרטי זה קישור זמני של GitHub (``_download_repo_archive``).
+        ה-retry של ברירת המחדל (``Github.default_retry = GithubRetry()``) ממתין כשמכסת
+        הקריאות נגמרת — לפי ``GithubRetry.increment``, "לפחות עד X-RateLimit-Reset",
+        כלומר עד שעה — ובזמן הזה החוט מחזיק את המקום בתור ואת הסימון של המשתמש,
+        הרבה אחרי ``ZIP_JOB_DEADLINE_SECONDS``. עם ``retry=None``, ‏PyGithub 2.8.1 מעביר
+        ל-``HTTPAdapter`` את ``requests.adapters.DEFAULT_RETRIES``
+        (``Requester.HTTPSRequestsConnectionClass``), ו-requests הופך אותו ל-
+        ``Retry(0, read=False)``: אין ניסיון חוזר ואין המתנה, וכל בקשה מוגבלת ב-timeout
+        של הלקוח (``Consts.DEFAULT_TIMEOUT``). מכסה שנגמרה מגיעה כ-
+        ``RateLimitExceededException``, והמשתמש מקבל ``ZIP_JOB_RATE_LIMIT_TEXT``.
+        """
+        return Github(token, retry=None)
+
+    @staticmethod
+    def _zip_failure_text(err: BaseException, prefix: str) -> str:
+        """הטקסט למשתמש כשהאריזה נכשלה, כ-HTML.
+
+        מכסה של GitHub שנגמרה מזוהה לפי הסיווג של PyGithub
+        (``RateLimitExceededException``, שאליה ``Requester.createException`` ממפה 403
+        של מכסה), ולא לפי קוד הסטטוס: 403 הוא גם הרשאה חסרה. כל השאר: ``prefix``
+        ואחריו טקסט החריגה אחרי ``redact_bot_token`` — חריגה של ``requests`` מצמידה את
+        הכתובת, ולריפו פרטי זה קישור זמני של GitHub (``_download_repo_archive``).
+        """
+        if isinstance(err, RateLimitExceededException):
+            return ZIP_JOB_RATE_LIMIT_TEXT
+        return f"{prefix}{safe_html_escape(redact_bot_token(err))}"
+
+    @classmethod
+    async def _report_zip_job_error(cls, query, repo_name: str, err: BaseException) -> None:
+        """כשל באריזת תיקייה שאין לו הודעה משלו: לוג מלא, אירוע, והודעה שמחליפה את ההתקדמות.
+
+        טקסט החריגה עובר ``redact_bot_token`` לפני כל יעד — ראו ``_zip_failure_text``.
         """
         safe = redact_bot_token(err)
         logger.error("Error creating ZIP: %s", safe, exc_info=err)
@@ -1481,7 +1530,7 @@ class GitHubMenuHandler:
             # טלמטריה היא best-effort ולא חלק מהחוזה מול המשתמש
             logger.debug("emit github_zip_create_error failed: %s", e_metric)
         await TelegramUtils.safe_edit_message_text(
-            query, f"❌ שגיאה בהכנת ZIP: {safe_html_escape(safe)}", parse_mode="HTML"
+            query, cls._zip_failure_text(err, "❌ שגיאה בהכנת ZIP: "), parse_mode="HTML"
         )
 
     @asynccontextmanager
@@ -1494,6 +1543,11 @@ class GitHubMenuHandler:
         (``Lib/asyncio/locks.py``, ענף ה-``CancelledError``).
         """
         slots = self._zip_jobs_slots
+        # אין כאן מרוץ בין הבדיקה לתפיסה: ``acquire`` בודק את אותו ``locked()`` ותופס
+        # בלי להשהות כשיש היתר פנוי (``Lib/asyncio/locks.py``), וכשאין עריכה גם אין
+        # בדרך נקודה שבה הלולאה מריצה משימה אחרת — ``__aenter__`` של ``asyncio.timeout``
+        # לא מחכה לכלום (``Lib/asyncio/timeouts.py``, 3.11). ההודעה מוצגת רק כשאין
+        # היתר; אם היתר מתפנה בזמן העריכה, התפיסה מיידית ושורת ההתקדמות מחליפה אותה.
         if slots.locked():
             await TelegramUtils.safe_edit_message_text(query, ZIP_JOB_QUEUE_WAIT_TEXT)
         try:
@@ -1730,7 +1784,10 @@ class GitHubMenuHandler:
             total_bytes = result["total_bytes"]
             too_big_for_telegram = result["too_big_for_telegram"]
             metadata = result["metadata"]
-            url = result["url"]
+            # לגיבוי שלא נשלח בטלגרם נותנים את עמוד הענף ב-GitHub ולא את קישור הארכיון:
+            # ההוא זמני לריפו פרטי ועלול לשאת טוקן (``_github_ref_page_url``).
+            ref_page = safe_html_escape(_github_ref_page_url(repo.full_name, current_ref))
+            ref_label = safe_html_escape(current_ref)
 
             self._cache_recent_backup(
                 context,
@@ -1757,8 +1814,9 @@ class GitHubMenuHandler:
             )
             date_str = _dt.now(_tz.utc).strftime('%d-%m-%y %H.%M')
             filename = f"BKP zip {repo.name} v{version_number} - {date_str}.zip"
+            # הכיתוב עובר כ-HTML (ה-``Defaults`` של הבוט), ושם ענף יכול להכיל ``<`` או ``&``
             caption = (
-                f"📦 ריפו מלא, ענף {current_ref} — {format_bytes(total_bytes)}.\n"
+                f"📦 ריפו מלא, ענף {ref_label} — {format_bytes(total_bytes)}.\n"
                 "💾 נשמר ברשימת הגיבויים."
             )
             if not too_big_for_telegram and total_bytes <= MAX_ZIP_TOTAL_BYTES:
@@ -1768,11 +1826,14 @@ class GitHubMenuHandler:
                 except Exception as e_send:
                     logger.warning("sending repo ZIP failed: %s", redact_bot_token(e_send))
                     await query.message.reply_text(
-                        f"⚠️ שליחת הקובץ נכשלה. להורדה ישירה מ‑GitHub: {url}"
+                        "⚠️ שליחת הקובץ נכשלה, אבל הגיבוי נשמר ברשימת הגיבויים.\n"
+                        f"להורדה ישירה מ‑GitHub: <a href=\"{ref_page}\">הענף {ref_label}</a>, ושם Code ← Download ZIP.",
+                        parse_mode="HTML",
                     )
             else:
                 await query.message.reply_text(
-                    f"✅ הגיבוי נשמר ({format_bytes(total_bytes)}). להורדה ישירה מ‑GitHub: <a href=\"{url}\">קישור</a>",
+                    f"✅ הגיבוי נשמר ברשימת הגיבויים ({format_bytes(total_bytes)}), אבל הוא גדול מדי לשליחה בטלגרם.\n"
+                    f"להורדה ישירה מ‑GitHub: <a href=\"{ref_page}\">הענף {ref_label}</a>, ושם Code ← Download ZIP.",
                     parse_mode="HTML",
                 )
             outcome = "ok"
@@ -1821,7 +1882,7 @@ class GitHubMenuHandler:
                 # טלמטריה היא best-effort ולא חלק מהחוזה מול המשתמש
                 logger.debug("emit github_zipball_fetch_error failed: %s", e_metric)
             await TelegramUtils.safe_edit_message_text(
-                query, f"❌ שגיאה בהורדת ZIP של הריפו: {safe_html_escape(safe)}", parse_mode="HTML"
+                query, self._zip_failure_text(e, "❌ שגיאה בהורדת ZIP של הריפו: "), parse_mode="HTML"
             )
         finally:
             # ניקוי הקובץ הזמני דרך helper בטוח (מוחק רק נתיב תחת tempdir, ומרשם

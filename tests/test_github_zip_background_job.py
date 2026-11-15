@@ -87,10 +87,12 @@ def _handler(monkeypatch, repo, *, path="skills/logo"):
     handler = gh.GitHubMenuHandler()
     handler.get_user_session = lambda uid: {"selected_repo": repo.full_name}
     handler.get_user_token = lambda uid: "t"
+    # הארגומנטים של כל לקוח PyGithub שנבנה — כדי לבדוק איך המשימה בונה אותו
+    handler.github_client_kwargs = []
 
     class _Gh:
         def __init__(self, *a, **k):
-            pass
+            handler.github_client_kwargs.append(k)
 
         def get_repo(self, _):
             return repo
@@ -152,6 +154,16 @@ async def _click(handler, query, ctx):
 
 
 # ------------------------------------------------- הבוט לא נתקע
+
+
+class _BackupsView:
+    """``backup_handler`` מזויף ב-``bot_data``: רושם שהמעבר לרשימת הגיבויים קרה."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def _show_backups_list(self, update, context, page=1):
+        self.calls += 1
 
 
 class _BackupManager:
@@ -522,7 +534,8 @@ async def test_full_repo_download_uses_the_selected_branch(monkeypatch):
     handler = _handler(monkeypatch, repo, path="")
     install_archive_http(monkeypatch, gh, repo)
     monkeypatch.setattr(gh, "backup_manager", _BackupManager())
-    ctx = make_context(user_data={"browse_ref": "dev"})
+    backups_view = _BackupsView()
+    ctx = make_context(user_data={"browse_ref": "dev"}, bot_data={"backup_handler": backups_view})
     query = _Query("download_zip:")
 
     await _click(handler, query, ctx)
@@ -530,6 +543,8 @@ async def test_full_repo_download_uses_the_selected_branch(monkeypatch):
 
     assert repo.archive_refs == ["dev"]
     assert query.message.docs and "dev" in query.message.docs[-1]["caption"]
+    # ההודעה של שורת ההתקדמות מתחלפת ברשימת הגיבויים — המסלול הרגיל, לא החלופה שלו
+    assert backups_view.calls == 1, "המעבר לרשימת הגיבויים לא קרה"
 
 
 @pytest.mark.asyncio
@@ -583,3 +598,143 @@ def test_pending_zip_path_rejects_unsafe_tokens(isolated_pending_dir):
     for bad in ("", "../x", "a/b", "a\\b", ".."):
         with pytest.raises(ValueError):
             utils.pending_zip_path(bad)
+
+# ------------------------------------------------- ריוויו: GitHub API, קישור, harness
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["skills/logo", ""], ids=["folder", "full-repo"])
+async def test_github_client_has_no_retry_that_waits_for_the_rate_limit(monkeypatch, path):
+    """הלקוח של המשימה נבנה בלי retry.
+
+    ה-retry של ברירת המחדל ב-PyGithub ממתין עד איפוס המכסה — עד שעה — ובזמן הזה
+    המשימה מחזיקה את המקום בתור ואת הסימון של המשתמש, הרבה אחרי תקרת הזמן.
+    """
+    import github_menu_handler as gh
+
+    repo = _default_repo()
+    handler = _handler(monkeypatch, repo, path=path)
+    install_archive_http(monkeypatch, gh, repo)
+    monkeypatch.setattr(gh, "backup_manager", _BackupManager())
+    ctx = make_context(bot_data={"backup_handler": _BackupsView()})
+
+    await _click(handler, _Query(f"download_zip:{path}"), ctx)
+    await ctx.application.drain()
+
+    assert handler.github_client_kwargs, "לא נבנה לקוח PyGithub"
+    assert all("retry" in k and k["retry"] is None for k in handler.github_client_kwargs), handler.github_client_kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["skills/logo", ""], ids=["folder", "full-repo"])
+async def test_rate_limit_gets_its_own_message(monkeypatch, path):
+    """מכסה שנגמרה ⇒ הודעה שאומרת לנסות שוב, ולא שגיאה גולמית של 403.
+
+    הזיהוי לפי ``RateLimitExceededException`` של PyGithub ולא לפי קוד הסטטוס: 403
+    הוא גם הרשאה חסרה, ושם ההודעה הזו הייתה שולחת לחכות לשווא.
+    """
+    import github_menu_handler as gh
+
+    repo = _default_repo()
+    handler = _handler(monkeypatch, repo, path=path)
+
+    def _rate_limited(archive_format, ref=None):
+        raise gh.RateLimitExceededException(403, {"message": "API rate limit exceeded for user"}, None)
+
+    repo.get_archive_link = _rate_limited
+    ctx = make_context()
+    query = _Query(f"download_zip:{path}")
+
+    await _click(handler, query, ctx)
+    await ctx.application.drain()
+
+    assert query.edits[-1] == gh.ZIP_JOB_RATE_LIMIT_TEXT, query.edits
+    assert USER not in handler._zip_jobs_in_flight
+
+
+@pytest.mark.asyncio
+async def test_permission_403_is_not_reported_as_a_rate_limit(monkeypatch):
+    """403 שאינו מכסה (הרשאה חסרה) מקבל את הודעת השגיאה הרגילה, לא "נסה שוב בעוד כמה דקות"."""
+    import github_menu_handler as gh
+
+    repo = _default_repo()
+    handler = _handler(monkeypatch, repo)
+
+    def _forbidden(archive_format, ref=None):
+        raise gh.GithubException(403, {"message": "Resource not accessible by integration"}, None)
+
+    repo.get_archive_link = _forbidden
+    ctx = make_context()
+    query = _Query("download_zip:x")
+
+    await _click(handler, query, ctx)
+    await ctx.application.drain()
+
+    assert query.edits[-1] != gh.ZIP_JOB_RATE_LIMIT_TEXT
+    assert "❌" in (query.edits[-1] or "")
+
+
+class _TokenArchiveRepo(FakeArchiveRepo):
+    """ריפו שמחזיר קישור ארכיון עם טוקן בשאילתה, כמו קישור זמני של ריפו פרטי."""
+
+    SECRET = "SECRETtok3n"
+
+    def get_archive_link(self, archive_format, ref=None):
+        self.archive_refs.append(ref)
+        return f"https://codeload.github.com/{self.full_name}/legacy.zip/refs/heads/x?token={self.SECRET}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["too_big_for_telegram", "send_failed"])
+async def test_backup_not_sent_links_to_the_branch_page_not_the_archive(monkeypatch, case):
+    """גיבוי שלא נשלח בטלגרם מקבל קישור לעמוד הענף ב-GitHub, בלי טוקן ובלי תפוגה.
+
+    קישור הארכיון של ריפו פרטי זמני (חמש דקות) ועלול לשאת טוקן. ענף עם ``#``
+    מקודד, אחרת הקישור היה נקטע בו.
+    """
+    import github_menu_handler as gh
+
+    ref = "fix#1"
+    repo = _TokenArchiveRepo({ref: zipball_bytes({"a.txt": b"a"})})
+    handler = _handler(monkeypatch, repo, path="")
+    monkeypatch.setattr(gh, "http_request", lambda method, url, **kw: FakeArchiveResponse(repo.archives[ref]))
+    monkeypatch.setattr(gh, "backup_manager", _BackupManager())
+    ctx = make_context(user_data={"browse_ref": ref}, bot_data={"backup_handler": _BackupsView()})
+    query = _Query("download_zip:")
+    if case == "too_big_for_telegram":
+        monkeypatch.setattr(gh, "MAX_ZIP_TOTAL_BYTES", 1)
+    else:
+        async def _send_fails(*a, **k):
+            raise RuntimeError("telegram upload failed")
+
+        query.message.reply_document = _send_fails
+
+    await _click(handler, query, ctx)
+    await ctx.application.drain()
+
+    texts = " ".join(query.message.texts)
+    assert repo.SECRET not in texts and "codeload" not in texts, texts
+    assert 'href="https://github.com/o/r/tree/fix%231"' in texts, texts
+    assert "Download ZIP" in texts
+
+
+@pytest.mark.asyncio
+async def test_harness_drain_waits_for_every_task_before_raising():
+    """``drain`` לא מחזיר שליטה בזמן שמשימה אחרת עוד רצה, וזורק את הכשל אחרי שכולן נגמרו."""
+    app = make_context().application
+    slow_done = asyncio.Event()
+
+    async def _fails_fast():
+        raise RuntimeError("boom")
+
+    async def _slow():
+        await asyncio.sleep(0.05)
+        slow_done.set()
+
+    app.create_task(_fails_fast())
+    app.create_task(_slow())
+    with pytest.raises(RuntimeError, match="boom"):
+        await app.drain()
+    assert slow_done.is_set(), "drain החזיר שליטה בזמן שמשימה אחרת עוד רצה"
+    with pytest.raises(RuntimeError, match="boom"):
+        await app.drain()

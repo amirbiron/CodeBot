@@ -20,7 +20,8 @@ async def test_zip_create_error_emits_event_and_counter(monkeypatch):
         def get_contents(self, path):
             raise RuntimeError("boom")
     class _Github:
-        def __init__(self, token):
+        # המשימה בונה את הלקוח עם retry=None (``_zip_github_client``)
+        def __init__(self, token, **kwargs):
             pass
         def get_repo(self, name):
             return _Repo()

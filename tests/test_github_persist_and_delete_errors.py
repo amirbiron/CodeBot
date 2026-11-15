@@ -21,7 +21,8 @@ async def test_github_zip_persist_error_emits(monkeypatch, tmp_path):
     # ריפו שמגיש zipball עם תיקייה אחת וקובץ אחד בתוכה
     repo = FakeArchiveRepo({"main": zipball_bytes({"folder/f.txt": b"abc"})}, name="repo", full_name="owner/repo")
     class _GH:
-        def __init__(self, token):
+        # המשימה בונה את הלקוח עם retry=None (``_zip_github_client``)
+        def __init__(self, token, **kwargs):
             pass
         def get_repo(self, name):
             return repo

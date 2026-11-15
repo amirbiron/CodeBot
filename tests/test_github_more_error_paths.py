@@ -20,7 +20,8 @@ async def test_zipball_fetch_error_emits_and_counts(monkeypatch):
         def get_archive_link(self, *a, **k):
             return "https://example.invalid/archive.zip"
     class _GH:
-        def __init__(self, token):
+        # המשימה בונה את הלקוח עם retry=None (``_zip_github_client``)
+        def __init__(self, token, **kwargs):
             pass
         def get_repo(self, name):
             return _Repo()

@@ -42,9 +42,18 @@ class FakeApplication:
         return task
 
     async def drain(self, timeout: float = 5.0) -> None:
-        """מחכה לכל המשימות שנוצרו עד עכשיו, וזורק את הכשל הראשון אם היה."""
-        if self.tasks:
-            await asyncio.wait_for(asyncio.gather(*self.tasks), timeout=timeout)
+        """מחכה שכל המשימות שנוצרו עד עכשיו יסתיימו, ואז זורק את הכשל הראשון אם היה.
+
+        ``return_exceptions=True`` כדי שכשל של משימה אחת לא יחזיר שליטה לטסט בזמן
+        שמשימה אחרת עוד רצה — אז היא הייתה ממשיכה אחרי סוף הטסט. הכשל לא נבלע: הוא
+        נזרק אחרי שכולן הסתיימו, גם בקריאה חוזרת ל-``drain``.
+        """
+        if not self.tasks:
+            return
+        results = await asyncio.wait_for(asyncio.gather(*self.tasks, return_exceptions=True), timeout=timeout)
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
 
 
 def make_context(**extra):
