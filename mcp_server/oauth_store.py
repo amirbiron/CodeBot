@@ -19,7 +19,7 @@ import secrets
 from datetime import datetime, timedelta, UTC
 from typing import Any
 
-from pymongo.errors import PyMongoError
+from pymongo.errors import ConnectionFailure, PyMongoError
 
 from .token_store import hash_token
 
@@ -80,16 +80,36 @@ class OAuthStore:
 
         A failure stays non-fatal — the store works without indexes, and an index
         failure must not stop the server from booting — but it is no longer a single
-        WARNING for the lot. A ``unique`` or TTL index that is missing is a promise that
-        quietly stopped holding (``amir-bug-patterns``, ``BY-STACK/mongodb.md`` pattern 9),
-        so it is logged at ERROR with the collection, the keys and the options;
-        ``subject``, the one performance index, at WARNING. Only ``PyMongoError`` — the
-        base of every pymongo failure, network and command alike (``pymongo/errors.py``,
-        pymongo 4.15.3) — means "the database refused or did not answer"; anything else
-        here is a bug and propagates.
+        WARNING for the lot. Two kinds of failure, told apart by pymongo's own hierarchy
+        (``pymongo/errors.py``, pymongo 4.15.3):
 
-        Declared in the constructor, so ``save_token`` / ``save_code`` / ``create_txn``,
-        the only writers to these collections, always pass through it first.
+        * **The server answered and refused this index** — ``OperationFailure`` and the
+          rest of ``PyMongoError`` outside ``ConnectionFailure`` (existing duplicates that
+          block a ``unique``, an ``IndexOptionsConflict``). The next index may well
+          succeed, so the loop moves on. A ``unique`` or TTL index that is missing is a
+          promise that quietly stopped holding (``amir-bug-patterns``,
+          ``BY-STACK/mongodb.md`` pattern 9), so it is logged at ERROR with the
+          collection, the keys and the options; ``subject``, the one performance index,
+          at WARNING.
+        * **The database did not answer** — ``ConnectionFailure``, whose subclasses
+          include ``ServerSelectionTimeoutError``, ``AutoReconnect`` and
+          ``NetworkTimeout``. Every remaining call would wait out the same
+          server-selection timeout (``serverSelectionTimeoutMS``, from
+          ``MONGODB_SERVER_SELECTION_TIMEOUT_MS`` in ``config.py``), turning one wait at
+          boot into one per index. So the loop stops, with one ERROR line that names
+          every index it did not get to. They are asked for again the next time an ``OAuthStore`` is built —
+          the next boot of the service.
+
+        Anything that is not a ``PyMongoError`` is a bug, and it propagates.
+
+        **Every write to these four collections is a method of this class** —
+        ``save_client`` (an upsert), ``create_txn``, ``save_code`` and ``save_token``
+        (inserts), ``revoke_token`` (an update), ``delete_txn`` and ``delete_code``
+        (deletes) — so each one runs on an instance whose constructor has already asked
+        for the indexes. Nothing outside this module names the collections:
+        :func:`subject_has_live_token`, the one reader outside the class, lives here too.
+        ``test_nothing_outside_the_store_names_its_collections``
+        (``tests/test_mcp_oauth_store.py``) keeps it that way.
         """
         declared = (
             ("mcp_oauth_clients", self._clients, "client_id", {"unique": True}),
@@ -102,9 +122,18 @@ class OAuthStore:
             ("mcp_oauth_codes", self._codes, "expires_at", {"expireAfterSeconds": 0}),
             (TOKENS_COLLECTION, self._tokens, "expires_at", {"expireAfterSeconds": 0}),
         )
-        for name, collection, keys, options in declared:
+        for position, (name, collection, keys, options) in enumerate(declared):
             try:
                 collection.create_index(keys, **options)
+            except ConnectionFailure:
+                not_attempted = ", ".join(f"{n} {k} {o}" for n, _, k, o in declared[position:])
+                logger.error(
+                    "oauth_index_failed: database unreachable — not attempted: %s; "
+                    "the store keeps working without them, and the next boot asks again",
+                    not_attempted,
+                    exc_info=True,
+                )
+                return
             except PyMongoError:
                 is_schema = "unique" in options or "expireAfterSeconds" in options
                 logger.log(
