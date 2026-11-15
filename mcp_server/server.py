@@ -3920,7 +3920,10 @@ def build_mcp(
             "mirrored repository unless you are the admin."
         ),
         annotations=_READ_ONLY_TOOL,
-        meta=note_view.tool_meta(note_page),
+        # שני ה-``meta`` יחד: הקישור לתצוגה, ותקרת התשובה — אותה הצהרה של ``codekeeper_get_note``,
+        # כי גוף הפתק המלא יוצא כאן כטקסט, ובלעדיה Claude Code שומר פתק ארוך לקובץ במקום להקשר.
+        # הכלי עומד בה בלי חיתוך: גוף חסום ב-``MAX_NOTE_CHARS``, בלי שרשורים, רחוק מ-``OUTPUT_BYTE_BUDGET``.
+        meta={**note_view.tool_meta(note_page), **answer_size.declared_size_meta()},
     )
     def show_note(ctx: Context, note_id: str) -> dict:
         user_id = current_user_id(ctx)

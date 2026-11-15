@@ -27,7 +27,8 @@ from mcp.shared.exceptions import McpError  # noqa: E402
 from mcp.shared.memory import create_connected_server_and_client_session  # noqa: E402
 
 import mcp_server.server as srv  # noqa: E402
-from mcp_server import analytics, handlers, note_view  # noqa: E402
+from mcp_server import analytics, answer_size, handlers, note_view  # noqa: E402
+from sticky_notes_target import MAX_NOTE_CHARS, MAX_NOTE_TITLE  # noqa: E402
 
 _REPO = Path(__file__).resolve().parent.parent
 _USER = 7
@@ -122,7 +123,8 @@ async def test_the_tool_points_at_a_resource_the_server_serves_as_an_mcp_app(pro
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
         tool = next(t for t in (await session.list_tools()).tools if t.name == "codekeeper_show_note")
         uri = tool.meta["ui"]["resourceUri"]
-        assert tool.meta == {"ui": {"resourceUri": uri}, "ui/resourceUri": uri}
+        assert tool.meta == {"ui": {"resourceUri": uri}, "ui/resourceUri": uri,
+                             **answer_size.declared_size_meta()}
         assert uri == expected.uri and uri.startswith("ui://")
         assert tool.annotations.readOnlyHint is True
 
@@ -165,12 +167,38 @@ async def test_the_tool_answers_with_the_full_note_as_text(production_like_mcp):
     mcp, backend, _sent = production_like_mcp
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
         result = await session.call_tool(
-            "codekeeper_show_note", {"note_id": _NOTE_ID, "context": "showing a note to the user"}
+            "codekeeper_show_note", {"note_id": _NOTE_ID}
         )
     answer = json.loads(result.content[0].text)
     assert answer == {"ok": True, **backend.answer}
     assert result.structuredContent is None
     assert backend.calls == [("get_note", _USER, _NOTE_ID, False)]
+
+
+async def test_the_largest_possible_note_fits_the_declared_ceiling_whole(production_like_mcp):
+    """הכלי מצהיר על תקרת התשובה (כמו ``codekeeper_get_note``), ועומד בה בלי חיתוך גם במקרה הגרוע.
+
+    כל שדה שחסום בכותבים — בתקרה שלו, ובתו בקרה, שהוא הכי יקר כ-JSON (``\\u0001``, שישה בתים
+    לתו): הגוף ב-``MAX_NOTE_CHARS``, הכותרת ב-``MAX_NOTE_TITLE``, ו-``anchor_text`` ב-256 (החיתוך
+    ב-``webapp/sticky_notes_api.py``). התשובה עוברת את הרשת של ``AdminAwareFastMCP.call_tool``
+    בלי ``answer_too_large``, והפתק חוזר שלם.
+    """
+    mcp, backend, _sent = production_like_mcp
+    heavy = "\x01"
+    backend.answer = {
+        "ok": True,
+        "note": {"id": _NOTE_ID, "title": heavy * MAX_NOTE_TITLE, "content": heavy * MAX_NOTE_CHARS,
+                 "anchor_text": heavy * 256, "color": "#ffffcc"},
+        "target": "board",
+        "board_id": _BOARD_ID,
+    }
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        result = await session.call_tool("codekeeper_show_note", {"note_id": _NOTE_ID})
+    sent = len(result.content[0].text.encode("utf-8"))
+    answer = json.loads(result.content[0].text)
+    assert answer["ok"] is True, answer.get("error")
+    assert answer["note"]["content"] == heavy * MAX_NOTE_CHARS
+    assert sent < answer_size.OUTPUT_BYTE_BUDGET
 
 
 async def test_through_the_tool_a_repo_note_is_still_hidden_from_a_non_admin(production_like_mcp):
@@ -182,7 +210,7 @@ async def test_through_the_tool_a_repo_note_is_still_hidden_from_a_non_admin(pro
     backend.answer = _repo_note_answer()
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
         result = await session.call_tool(
-            "codekeeper_show_note", {"note_id": _NOTE_ID, "context": "showing a note to the user"}
+            "codekeeper_show_note", {"note_id": _NOTE_ID}
         )
     assert json.loads(result.content[0].text) == {"ok": False, "error": "not_found"}
 
@@ -197,8 +225,7 @@ async def test_neither_the_note_nor_the_page_reaches_posthog(production_like_mcp
     mcp, _backend, about_to_send = production_like_mcp
     view = note_view.build_note_view()
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
-        await session.call_tool("codekeeper_show_note",
-                                {"note_id": _NOTE_ID, "context": "showing a note to the user"})
+        await session.call_tool("codekeeper_show_note", {"note_id": _NOTE_ID})
         await session.read_resource(view.uri)
     await analytics._drain()
 
@@ -373,5 +400,11 @@ def test_the_view_copies_the_ink_spacing_and_default_size_of_a_webapp_note():
     assert _css_value(paper, "--ck-line-height") == _css_value(content, "line-height")
     assert _css_value(paper, "--ck-title-ink").lower() == _css_value(note, "--note-ink").lower()
     assert _css_value(paper, "--ck-muted-ink").lower() == _css_value(note, "--note-ink-muted").lower()
-    for selector in (".ck-title", ".ck-body"):
-        assert _css_value(_css_block(view_css, selector), "font-size") == "var(--ck-font)", selector
+    assert _css_value(_css_block(view_css, ".ck-body"), "font-size") == "var(--ck-font)"
+    # הכותרת כמו בוובאפ — החלטת המשתמש — ולא בגודל של הגוף.
+    webapp_title = _css_block(webapp_css, ".sticky-note-title")
+    view_title = _css_block(view_css, ".ck-title")
+    assert _css_value(paper, "--ck-title-font") == _css_value(webapp_title, "font-size")
+    assert _css_value(paper, "--ck-title-weight") == _css_value(webapp_title, "font-weight")
+    assert _css_value(view_title, "font-size") == "var(--ck-title-font)"
+    assert _css_value(view_title, "font-weight") == "var(--ck-title-weight)"

@@ -195,9 +195,9 @@ def test_the_view_renders_the_note_under_the_spec_default_csp(chromium_executabl
     assert directions["# כותרת בעברית"] == "rtl"
     assert directions["English line first"] == "ltr"
     assert directions["שורה בעברית עם English באמצע"] == "rtl"
-    # "גדול מאוד" — 20px — גם לכותרת וגם לכל שורה
-    assert state["titleSize"] == "20px"
+    # הגוף ב"גדול מאוד" (20px), והכותרת כמו בוובאפ (13px) — הערכים שהטסט של ה-CSS משווה לוובאפ
     assert {line["size"] for line in state["lines"]} == {"20px"}
+    assert state["titleSize"] == "13px"
     # הדף שקוף, והערכה של המארח הוחלה
     assert state["bodyBg"] == "rgba(0, 0, 0, 0)" and state["htmlBg"] == "rgba(0, 0, 0, 0)"
     assert state["theme"] == "dark" and state["scheme"] == "dark"
