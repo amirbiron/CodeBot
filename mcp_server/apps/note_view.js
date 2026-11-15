@@ -15,7 +15,24 @@
      3. המארח שולח ``ui/notifications/tool-input`` ואחריה ``ui/notifications/tool-result`` —
         ``CallToolResult`` רגיל. הכלי שלנו מחזיר רק טקסט (JSON), כמו כל כלי בשרת, ולכן
         הפתק נקרא מבלוק הטקסט הראשון.
-     4. ``ui/notifications/host-context-changed`` — עדכון חלקי של ההקשר (ערכה בהירה/כהה).
+     4. ``ui/notifications/host-context-changed`` — עדכון **חלקי** של ההקשר: ערכה, מצב תצוגה,
+        גודל המסגרת. המפרט: "the View SHOULD merge received fields with its current context
+        state", וה-SDK ממזג רדוד (``{ ...this._hostContext, ...params }`` ב-``src/app.ts``). הדף
+        שומר את ההקשר הממוזג ב-``hostContext`` ומסדר את עצמו לפיו.
+
+   **הגובה והגלילה.** הנוסחה של הגובה יושבת ב-``note_view.css``, וההסבר שם. כאן — מה שמזין
+   אותה: ``containerDimensions`` של המארח (המפרט, "Container Dimensions": ``maxHeight`` — הדף
+   קובע את הגובה עד התקרה; ``height`` — המארח קובע, והדף ממלא), השוליים הבטוחים
+   (``safeAreaInsets``), והכפתורים ▲▼ שגוללים את גוף הפתק ב-``SCROLL_STEP_RATIO`` מהגובה הגלוי.
+   כפתור "מסך מלא" מופיע רק כשהמארח מונה ``fullscreen`` ב-``availableDisplayModes`` וכשהדף עוד
+   לא שם — "View MUST check if the requested mode is in ``availableDisplayModes`` from host
+   context before requesting a mode change" (המפרט, "Display Modes").
+
+   **דיווח הגודל אינו תלוי רק בשינוי תוכן.** ``ResizeObserver`` על ``html`` ו-``body`` רואה
+   שינוי בתוכן, אבל לא מסגרת שהמארח משנה בלי שהתוכן זז: גובה התוכן נשאר כשהיה, ולכן שום אלמנט
+   לא משנה גודל. נמדד בכרום לפני התיקון: המארח הציב למסגרת גובה ישן של 700px מעל תוכן של 116px,
+   והדף שתק — שטח מת מתחת לפתק, כמו שנראה ב-Claude אחרי פתיחה מחדש של האפליקציה. לכן הדף מדווח
+   תמיד בעלייה, ובכל ``resize`` של החלון שלו (כלומר של המסגרת) — גם כשהמספר זהה לדיווח הקודם.
 
    **מקור ההודעה נבדק לפני כל דבר** (``event.source === window.parent``), בדיוק כמו
    ``PostMessageTransport`` ב-SDK. הודעה ממקור אחר נזרקת בלי קריאה בשדות שלה.
@@ -32,8 +49,14 @@
   /** ``LATEST_PROTOCOL_VERSION`` ב-``src/spec.types.ts`` של ext-apps — הגרסה של המפרט היציב. */
   var PROTOCOL_VERSION = '2026-01-26';
   var APP_INFO = { name: 'codekeeper-note-view', version: '1.0.0' };
-  /** הדף מציג פתק בתוך השיחה בלבד. המפרט מחייב להצהיר על כל מצב תצוגה שהדף תומך בו. */
-  var APP_CAPABILITIES = { availableDisplayModes: ['inline'] };
+  /** המפרט מחייב להצהיר על כל מצב תצוגה שהדף תומך בו: בתוך השיחה, ובמסך מלא (שבו המארח נותן
+   *  מסגרת בגובה קבוע, והגוף נגלל בתוכה). */
+  var APP_CAPABILITIES = { availableDisplayModes: ['inline', 'fullscreen'] };
+  /** כל לחיצה על ▲ או ▼ מזיזה שלושה רבעים מהגובה הגלוי, ולא עמוד שלם, כדי שהשורות האחרונות
+   *  שנקראו יישארו על המסך (החלטת המשתמש). */
+  var SCROLL_STEP_RATIO = 0.75;
+  /** השדות של ``safeAreaInsets`` במפרט — פיזיים, ולכן גם המשתנים ב-CSS. */
+  var SAFE_AREA_SIDES = ['top', 'right', 'bottom', 'left'];
 
   var INIT_DEADLINE_MS = 10000;
   var RESULT_DEADLINE_MS = 120000;
@@ -54,6 +77,12 @@
     return value !== null && typeof value === 'object' && !Array.isArray(value);
   }
 
+  /** מספר מהמארח, לפני שהוא נכנס ל-CSS: מספר אמיתי, סופי, ובטווח. ``NaN`` עובר כל השוואה
+   *  כ-``false``, ולכן ``isFinite`` קודם (``amir-bug-patterns`` U3, סעיף 4). */
+  function isLength(value, allowZero) {
+    return typeof value === 'number' && isFinite(value) && (allowZero ? value >= 0 : value > 0);
+  }
+
   function NoteView(win) {
     this.win = win;
     this.doc = win.document;
@@ -63,7 +92,13 @@
     this.rendered = false;
     this.lastWidth = 0;
     this.lastHeight = 0;
+    // הדיווח הראשון יוצא תמיד, וכך גם הראשון אחרי כל שינוי של המסגרת — ראו ``watchSize``.
+    this.forceReport = true;
     this.sizeScheduled = false;
+    /** ההקשר של המארח, ממוזג מתשובת ``ui/initialize`` ומכל ``host-context-changed``. */
+    this.hostContext = {};
+    /** הפתק המוצג והכפתורים שלו — ``null`` כשמוצגת הודעה במקום פתק. */
+    this.view = null;
     this.initTimer = null;
     this.resultTimer = null;
     this.onMessage = this.onMessage.bind(this);
@@ -91,8 +126,11 @@
         return;
       }
       self.initialized = true;
-      self.applyHostContext(result.hostContext);
+      // **``initialized`` לפני כל דבר אחר שהדף שולח** — כמו ``App.connect`` ב-SDK, ששולח אותו
+      // מיד אחרי התשובה. ``applyHostContext`` מסדר את הדף לפי המסגרת ומודד גודל, ומדידה שהייתה
+      // רצה לפניו הייתה שולחת ``size-changed`` למארח שעוד לא קיבל ``initialized``.
       self.notify('ui/notifications/initialized');
+      self.applyHostContext(result.hostContext);
       self.watchSize();
       // **רק אם התוצאה עוד לא הגיעה.** המפרט אוסר על המארח לשלוח לפני ``initialized``, אבל
       // מארח שלא יקפיד היה מקבל כאן טיימר שדורס פתק שכבר מוצג. מכאן והלאה ``settle`` מבטל אותו.
@@ -187,6 +225,23 @@
 
   NoteView.prototype.applyHostContext = function (context) {
     if (!isObject(context)) return;
+    // מיזוג רדוד, כמו ה-SDK: שדה שהגיע מחליף את הקודם כולו, ושדה שלא הגיע נשאר.
+    var merged = {};
+    var oldKeys = Object.keys(this.hostContext);
+    for (var o = 0; o < oldKeys.length; o += 1) merged[oldKeys[o]] = this.hostContext[oldKeys[o]];
+    var newKeys = Object.keys(context);
+    for (var n = 0; n < newKeys.length; n += 1) merged[newKeys[n]] = context[newKeys[n]];
+    this.hostContext = merged;
+    // הודעה על מסגרת או מצב תצוגה היא שינוי של המסגרת — הדיווח הבא יוצא גם אם המספר לא זז.
+    if (Object.prototype.hasOwnProperty.call(context, 'containerDimensions')
+        || Object.prototype.hasOwnProperty.call(context, 'displayMode')) {
+      this.forceReport = true;
+    }
+    this.applyTheme(context);
+    this.layout();
+  };
+
+  NoteView.prototype.applyTheme = function (context) {
     var docEl = this.doc.documentElement;
     if (context.theme === 'light' || context.theme === 'dark') {
       docEl.setAttribute('data-theme', context.theme);
@@ -214,9 +269,98 @@
     }
   };
 
+  // -- מסגרת: גובה, שוליים בטוחים, מסך מלא ---------------------------------------------
+
+  /** מעביר ל-CSS את מה שהמארח אמר על המסגרת. אין כאן חישוב גובה — הנוסחה ב-``note_view.css``. */
+  NoteView.prototype.layout = function () {
+    var docEl = this.doc.documentElement;
+    var ctx = this.hostContext;
+    var dims = isObject(ctx.containerDimensions) ? ctx.containerDimensions : {};
+    var fill = isLength(dims.height, false);
+    docEl.classList.toggle('ck-fill', fill);
+    // במסך מלא בלי גובה קבוע הגובה הקבוע של השיחה אינו חל — ראו ``ck-expanded`` ב-CSS.
+    docEl.classList.toggle('ck-expanded', !fill && ctx.displayMode === 'fullscreen');
+    if (!fill && isLength(dims.maxHeight, false)) {
+      docEl.style.setProperty('--ck-host-max', dims.maxHeight + 'px');
+    } else {
+      docEl.style.removeProperty('--ck-host-max');
+    }
+    var insets = isObject(ctx.safeAreaInsets) ? ctx.safeAreaInsets : {};
+    for (var i = 0; i < SAFE_AREA_SIDES.length; i += 1) {
+      var side = SAFE_AREA_SIDES[i];
+      if (isLength(insets[side], true)) docEl.style.setProperty('--ck-safe-' + side, insets[side] + 'px');
+      else docEl.style.removeProperty('--ck-safe-' + side);
+    }
+    this.updateControls();
+    if (this.initialized) this.scheduleSize();
+  };
+
+  NoteView.prototype.canFullscreen = function () {
+    var modes = this.hostContext.availableDisplayModes;
+    return Array.isArray(modes) && modes.indexOf('fullscreen') !== -1
+      && this.hostContext.displayMode !== 'fullscreen';
+  };
+
+  NoteView.prototype.requestFullscreen = function () {
+    if (!this.initialized || !this.canFullscreen()) return;
+    var self = this;
+    // **שום דבר לא מוחזק בזמן ההמתנה** — אין דגל ואין כפתור מושבת, ולכן אין צורך בתקרת זמן
+    // (``wait-without-own-deadline``, ה-False positive הראשון: בקשה חד-פעמית שהמשתמש יזם).
+    // Claude מסרב לבקשה בלי לחיצה טרייה בדף, ולכן היא נשלחת רק מתוך ה-``click``.
+    this.request('ui/request-display-mode', { mode: 'fullscreen' }, function (error, result) {
+      // סירוב או שגיאה: הדף לא זז, הכפתור נשאר, והמשתמש יכול ללחוץ שוב. אין למי לדווח —
+      // המצב על המסך הוא הדיווח.
+      // "Host MUST return the resulting mode (whether updated or not)", ובסירוב המארח מחזיר את
+      // המצב הנוכחי. רק ``fullscreen`` משנה כאן משהו — הכפתור נעלם מיד, והגודל החדש מגיע אחר כך
+      // ב-``host-context-changed``.
+      if (error || !isObject(result) || result.mode !== 'fullscreen') return;
+      self.applyHostContext({ displayMode: 'fullscreen' });
+    });
+  };
+
+  // -- גלילה בכפתורים ------------------------------------------------------------
+
+  /** מי מהכפתורים מוצג. ▲▼ רק כשהגוף לא נכנס בגובה שהיה לו בלי שורת הגלילה. */
+  NoteView.prototype.updateControls = function () {
+    var v = this.view;
+    if (!v) return;
+    var expandShown = this.canFullscreen();
+    v.expand.hidden = !expandShown;
+    // שלב 1: השורה מוצגת לפי מה שכבר ידוע. שלב 2: האם הגוף גולש, **בגובה שהיה לו בלי ▲▼** —
+    // כשהשורה מוצגת רק בגללם, הגובה שלה חוזר לגוף. כך ההחלטה אינה תלויה במצב הקודם של
+    // הכפתורים, ואין הבהוב בין "גולש" ל"לא גולש".
+    v.bar.hidden = !(expandShown || !v.group.hidden);
+    var reclaim = (!v.bar.hidden && !expandShown) ? v.bar.offsetHeight : 0;
+    var overflow = v.body.scrollHeight > v.body.clientHeight + reclaim + 1;
+    v.group.hidden = !overflow;
+    v.bar.hidden = !(expandShown || overflow);
+    this.updateScrollButtons();
+  };
+
+  NoteView.prototype.updateScrollButtons = function () {
+    var v = this.view;
+    if (!v) return;
+    var b = v.body;
+    // סובלנות של פיקסל: ``scrollTop`` שבור במסכים עם יחס פיקסלים שאינו שלם.
+    v.up.disabled = b.scrollTop <= 0;
+    v.down.disabled = b.scrollTop + b.clientHeight >= b.scrollHeight - 1;
+  };
+
+  NoteView.prototype.scrollStep = function (direction) {
+    var v = this.view;
+    if (!v) return;
+    var step = Math.max(1, Math.round(v.body.clientHeight * SCROLL_STEP_RATIO));
+    // בלי ``behavior``: הרכות נקבעת ב-``scroll-behavior`` של ``.ck-body`` (ב-CSS, עם החריג של
+    // ``prefers-reduced-motion``). **הכרעה סטטית על היעדר יכולת:** WebView ישן בלי ``scrollBy``
+    // על אלמנט מקבל את אותה גלילה דרך ``scrollTop``.
+    if (typeof v.body.scrollBy === 'function') v.body.scrollBy({ top: direction * step });
+    else v.body.scrollTop += direction * step;
+  };
+
   // -- גודל (``setupSizeChangedNotifications`` ב-SDK) ------------------------------------
 
   NoteView.prototype.measureAndReport = function () {
+    this.updateControls();
     var docEl = this.doc.documentElement;
     // כמו ה-SDK: גובה התוכן נמדד עם ``height: max-content`` זמני — ``fit-content`` היה נחתך
     // בגובה ה-viewport — והרוחב נלקח מ-``innerWidth``, בלי למדוד רוחב תוכן.
@@ -225,7 +369,9 @@
     var height = Math.ceil(docEl.getBoundingClientRect().height);
     docEl.style.height = original;
     var width = Math.ceil(this.win.innerWidth);
-    if (width !== this.lastWidth || height !== this.lastHeight) {
+    var force = this.forceReport;
+    this.forceReport = false;
+    if (force || width !== this.lastWidth || height !== this.lastHeight) {
       this.lastWidth = width;
       this.lastHeight = height;
       this.notify('ui/notifications/size-changed', { width: width, height: height });
@@ -247,6 +393,13 @@
   NoteView.prototype.watchSize = function () {
     var self = this;
     this.scheduleSize();
+    // **כל שינוי של המסגרת מדווח, גם כשהמספר לא זז** — ראו את ההערה בראש הקובץ. אין כאן
+    // לולאה: המארח מציב את הגובה שדווח, ומסגרת שכבר בגובה הזה אינה משנה גודל ואינה יורה
+    // ``resize`` נוסף. גם מארח שחותך לתקרה משלו מקבל דיווח אחד נוסף, ולא יותר.
+    this.win.addEventListener('resize', function () {
+      self.forceReport = true;
+      self.scheduleSize();
+    });
     // **הכרעה סטטית על היעדר יכולת, לא נפילה על כשל:** בלי ``ResizeObserver`` הגודל נמדד פעם
     // אחת עכשיו ופעם אחת אחרי כל רינדור (``render``).
     if (typeof this.win.ResizeObserver === 'function') {
@@ -266,6 +419,7 @@
     p.textContent = text;
     host.textContent = '';
     host.appendChild(p);
+    this.view = null;
     if (this.initialized) this.scheduleSize();
   };
 
@@ -349,10 +503,49 @@
       }
     }
     paper.appendChild(body);
+    paper.appendChild(this.buildControls(body));
     host.textContent = '';
     host.appendChild(paper);
     this.settle();
+    this.updateControls();
     if (this.initialized) this.scheduleSize();
+  };
+
+  /** שורת הכפתורים בתחתית הפתק. כולם מוסתרים עד ש-``updateControls`` מחליט אחרת. */
+  NoteView.prototype.buildControls = function (body) {
+    var self = this;
+    var doc = this.doc;
+    var button = function (className, text, label) {
+      var b = doc.createElement('button');
+      b.setAttribute('type', 'button');
+      b.className = 'ck-btn ' + className;
+      b.textContent = text;
+      if (label) {
+        b.setAttribute('aria-label', label);
+        b.setAttribute('title', label);
+      }
+      return b;
+    };
+    var bar = doc.createElement('div');
+    bar.className = 'ck-controls';
+    var expand = button('ck-expand', 'מסך מלא', null);
+    var group = doc.createElement('span');
+    group.className = 'ck-scroll-btns';
+    var up = button('ck-up', '▲', 'גלילה למעלה');
+    var down = button('ck-down', '▼', 'גלילה למטה');
+    group.appendChild(up);
+    group.appendChild(down);
+    bar.appendChild(expand);
+    bar.appendChild(group);
+    bar.hidden = true;
+    expand.hidden = true;
+    group.hidden = true;
+    expand.addEventListener('click', function () { self.requestFullscreen(); });
+    up.addEventListener('click', function () { self.scrollStep(-1); });
+    down.addEventListener('click', function () { self.scrollStep(1); });
+    body.addEventListener('scroll', function () { self.updateScrollButtons(); });
+    this.view = { body: body, bar: bar, expand: expand, group: group, up: up, down: down };
+    return bar;
   };
 
   // **מתחיל תמיד, בלי לשאול אם הדף בתוך מסגרת** — כמו ``App.connect`` ב-SDK, שמתחבר ל-

@@ -37,6 +37,21 @@ function check(name, condition, actual) {
 class FakeStyle {
   constructor() { this.props = {}; this.height = ''; this.backgroundColor = ''; this.colorScheme = ''; }
   setProperty(key, value) { this.props[key] = value; }
+  removeProperty(key) { delete this.props[key]; }
+}
+
+/** ``classList`` מעל ``className`` — מה שהדף קורא (``toggle``) ומה שהבדיקות שואלות (``contains``). */
+class FakeClassList {
+  constructor(el) { this.el = el; }
+  list() { return this.el.className.split(/\s+/).filter(Boolean); }
+  contains(name) { return this.list().indexOf(name) !== -1; }
+  toggle(name, force) {
+    const has = this.contains(name);
+    const want = force === undefined ? !has : !!force;
+    if (want && !has) this.el.className = this.list().concat(name).join(' ');
+    if (!want && has) this.el.className = this.list().filter((c) => c !== name).join(' ');
+    return want;
+  }
 }
 
 class FakeElement {
@@ -47,8 +62,21 @@ class FakeElement {
     this.className = '';
     this.id = '';
     this.style = new FakeStyle();
+    this.classList = new FakeClassList(this);
     this._text = '';
+    this.listeners = {};
+    this.hidden = false;
+    this.disabled = false;
+    // מדדי גלילה — הבדיקות מציבות אותם ביד; הפריסה האמיתית נבדקת בכרום.
+    this.scrollTop = 0;
+    this.clientHeight = 0;
+    this.scrollHeight = 0;
+    this.offsetHeight = 0;
+    this.scrolls = [];
   }
+  addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
+  dispatch(type) { for (const fn of this.listeners[type] || []) fn({ type }); }
+  scrollBy(options) { this.scrolls.push(options); this.scrollTop += options.top; }
   set textContent(value) { this.children = []; this._text = String(value); }
   get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); }
   appendChild(child) { this.children.push(child); return child; }
@@ -85,13 +113,17 @@ function load(opts = {}) {
   const sent = [];
   const parent = { postMessage(message, target) { sent.push({ message: JSON.parse(JSON.stringify(message)), target }); } };
   const listeners = [];
+  const resizeListeners = [];
   const timers = [];
   const observed = [];
   const win = {
     document,
     parent,
     innerWidth: 600,
-    addEventListener(type, fn) { if (type === 'message') listeners.push(fn); },
+    addEventListener(type, fn) {
+      if (type === 'message') listeners.push(fn);
+      if (type === 'resize') resizeListeners.push(fn);
+    },
     setTimeout(fn, ms) { timers.push({ fn, ms, cleared: false }); return timers.length; },
     clearTimeout(handle) { if (timers[handle - 1]) timers[handle - 1].cleared = true; },
   };
@@ -107,6 +139,13 @@ function load(opts = {}) {
     methods() { return sent.map((s) => s.message.method || (s.message.error ? 'error' : 'result')); },
     last(method) { return [...sent].reverse().find((s) => s.message.method === method); },
     fire(ms) { for (const t of timers) if (t.ms === ms && !t.cleared) t.fn(); },
+    /** המארח משנה את המסגרת — מה שהדפדפן מודיע עליו ב-``resize`` של החלון שבתוכה. */
+    resize() { for (const fn of resizeListeners) fn({ type: 'resize' }); },
+    find(cls) {
+      for (const el of html.walk()) if (el.className.split(/\s+/).indexOf(cls) !== -1) return el;
+      return null;
+    },
+    sizes() { return sent.filter((s) => s.message.method === 'ui/notifications/size-changed'); },
   };
   return host;
 }
@@ -137,7 +176,7 @@ console.log('\nלחיצת היד הראשונה');
     JSON.stringify(Object.keys(first.message.params).sort()) === JSON.stringify(['appCapabilities', 'appInfo', 'protocolVersion']),
     first.message.params);
   check('protocolVersion הוא של המפרט היציב', first.message.params.protocolVersion === '2026-01-26', first.message.params.protocolVersion);
-  check('הדף מצהיר על inline בלבד', JSON.stringify(first.message.params.appCapabilities) === JSON.stringify({ availableDisplayModes: ['inline'] }), first.message.params.appCapabilities);
+  check('הדף מצהיר על inline ועל fullscreen', JSON.stringify(first.message.params.appCapabilities) === JSON.stringify({ availableDisplayModes: ['inline', 'fullscreen'] }), first.message.params.appCapabilities);
   check('לפני תשובה — שום הודעה נוספת', host.sent.length === 1, host.methods());
   initialize(host);
   const methods = host.methods();
@@ -240,7 +279,7 @@ console.log('\nפתק ריק');
   initialize(host);
   host.deliver(toolResult({ ok: true, note: { title: '', content: '', color: '#ffffcc' } }));
   const paper = host.main.children[0];
-  check('בלי כותרת ריקה', paper.children.length === 1, paper.children.length);
+  check('בלי כותרת ריקה', !paper.children.some((c) => c.className === 'ck-title'), paper.children.map((c) => c.className));
   check('הודעת "הפתק ריק"', host.main.textContent.indexOf('הפתק ריק') !== -1, host.main.textContent);
 }
 
@@ -329,6 +368,177 @@ console.log('\nמדידת גודל עם ResizeObserver');
   host.deliver(toolResult(NOTE));
   const after = host.methods().filter((m) => m === 'ui/notifications/size-changed').length;
   check('גודל שלא השתנה אינו נשלח שוב', after === before, [before, after]);
+}
+
+function hostContextChanged(params) {
+  return { jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params };
+}
+
+console.log('\nהמסגרת מהמארח — containerDimensions');
+{
+  const host = load();
+  initialize(host, { containerDimensions: { width: 600, maxHeight: 500 } });
+  const docEl = host.document.documentElement;
+  check('maxHeight נכנס ל---ck-host-max בפיקסלים', docEl.style.props['--ck-host-max'] === '500px', docEl.style.props);
+  check('בלי height — אין ck-fill', !docEl.classList.contains('ck-fill'), docEl.className);
+  host.deliver(hostContextChanged({ containerDimensions: { width: 800, height: 600 } }));
+  check('height קבוע — ck-fill, ובלי תקרה', docEl.classList.contains('ck-fill') && !('--ck-host-max' in docEl.style.props), [docEl.className, docEl.style.props]);
+  host.deliver(hostContextChanged({ containerDimensions: { width: 600, maxHeight: 450 } }));
+  check('חזרה למסגרת גמישה — ck-fill יורד והתקרה החדשה נכנסת',
+    !docEl.classList.contains('ck-fill') && docEl.style.props['--ck-host-max'] === '450px', [docEl.className, docEl.style.props]);
+  check('בתוך השיחה — בלי ck-expanded', !docEl.classList.contains('ck-expanded'), docEl.className);
+  host.deliver(hostContextChanged({ displayMode: 'fullscreen', containerDimensions: { width: 800, maxHeight: 6000 } }));
+  check('מסך מלא בגובה גמיש — ck-expanded, עם התקרה של המארח',
+    docEl.classList.contains('ck-expanded') && !docEl.classList.contains('ck-fill') && docEl.style.props['--ck-host-max'] === '6000px',
+    [docEl.className, docEl.style.props]);
+  host.deliver(hostContextChanged({ containerDimensions: { width: 800, height: 600 } }));
+  check('מסך מלא בגובה קבוע — ck-fill בלבד', docEl.classList.contains('ck-fill') && !docEl.classList.contains('ck-expanded'), docEl.className);
+  host.deliver(hostContextChanged({ displayMode: 'inline', containerDimensions: { width: 600, maxHeight: 450 } }));
+  check('חזרה לשיחה — שתי המחלקות יורדות', !docEl.classList.contains('ck-fill') && !docEl.classList.contains('ck-expanded'), docEl.className);
+}
+{
+  // הערכים עוברים בלי JSON, כמו ב-postMessage, ולכן גם NaN ו-Infinity מגיעים לדף.
+  const bad = ['500', -1, 0, null, Infinity, NaN, {}, [500], true];
+  for (const value of bad) {
+    const host = load();
+    initialize(host, { containerDimensions: { width: 600, maxHeight: value, height: value } });
+    const docEl = host.document.documentElement;
+    check(`ערך פגום (${Array.isArray(value) ? '[500]' : String(value)}) — לא נכנס ל-CSS`,
+      !('--ck-host-max' in docEl.style.props) && !docEl.classList.contains('ck-fill'), [docEl.className, docEl.style.props]);
+  }
+  const host = load();
+  initialize(host, { containerDimensions: 'tall' });
+  check('containerDimensions שאינו אובייקט — מתעלמים', !('--ck-host-max' in host.document.documentElement.style.props), host.document.documentElement.style.props);
+}
+
+console.log('\nעדכון חלקי של ההקשר מתמזג');
+{
+  const host = load();
+  initialize(host, { containerDimensions: { width: 600, maxHeight: 500 }, availableDisplayModes: ['inline', 'fullscreen'], displayMode: 'inline' });
+  host.deliver(toolResult(NOTE));
+  host.deliver(hostContextChanged({ theme: 'dark' }));
+  const docEl = host.document.documentElement;
+  check('הודעה על ערכה בלבד שומרת את התקרה', docEl.style.props['--ck-host-max'] === '500px', docEl.style.props);
+  check('ואת "מסך מלא"', host.find('ck-expand').hidden === false, host.find('ck-expand').hidden);
+  check('והערכה עצמה חלה', docEl.getAttribute('data-theme') === 'dark', docEl.getAttribute('data-theme'));
+}
+
+console.log('\nשוליים בטוחים');
+{
+  const host = load();
+  initialize(host, { safeAreaInsets: { top: 0, right: 12, bottom: 48, left: -3 } });
+  const props = host.document.documentElement.style.props;
+  check('0 נכנס — זה ערך תקין', props['--ck-safe-top'] === '0px', props);
+  check('ימין ומטה נכנסים בפיקסלים', props['--ck-safe-right'] === '12px' && props['--ck-safe-bottom'] === '48px', props);
+  check('שלילי נזרק', !('--ck-safe-left' in props), props);
+  host.deliver(hostContextChanged({ safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 } }));
+  check('עדכון מחליף את הקודם', props['--ck-safe-bottom'] === '0px' && props['--ck-safe-left'] === '0px', props);
+}
+
+console.log('\nכפתור "מסך מלא"');
+{
+  const host = load();
+  initialize(host, { availableDisplayModes: ['inline'] });
+  host.deliver(toolResult(NOTE));
+  check('המארח מונה inline בלבד — אין כפתור', host.find('ck-expand').hidden === true, host.find('ck-expand').hidden);
+  host.find('ck-expand').dispatch('click');
+  check('ולחיצה (שלא אמורה להיות אפשרית) אינה שולחת בקשה', !host.last('ui/request-display-mode'), host.methods());
+}
+{
+  const host = load();
+  initialize(host, {});
+  host.deliver(toolResult(NOTE));
+  check('המארח לא מונה מצבים בכלל — אין כפתור', host.find('ck-expand').hidden === true, host.find('ck-expand').hidden);
+}
+{
+  const host = load();
+  initialize(host, { availableDisplayModes: ['inline', 'fullscreen'], displayMode: 'inline' });
+  host.deliver(toolResult(NOTE));
+  const expand = host.find('ck-expand');
+  check('המארח מונה fullscreen — הכפתור מוצג', expand.hidden === false, expand.hidden);
+  check('והשורה שלו מוצגת גם כשהפתק קצר', host.find('ck-controls').hidden === false, host.find('ck-controls').hidden);
+  expand.dispatch('click');
+  const req = host.last('ui/request-display-mode');
+  check('לחיצה שולחת ui/request-display-mode עם mode: fullscreen',
+    req && JSON.stringify(req.message.params) === JSON.stringify({ mode: 'fullscreen' }) && req.message.id !== undefined, req && req.message);
+  host.deliver({ jsonrpc: '2.0', id: req.message.id, result: { mode: 'inline' } });
+  check('המארח סירב (החזיר inline) — הכפתור נשאר', expand.hidden === false, expand.hidden);
+  expand.dispatch('click');
+  const err = host.last('ui/request-display-mode');
+  host.deliver({ jsonrpc: '2.0', id: err.message.id, error: { code: -32000, message: 'nope' } });
+  check('שגיאה מהמארח — הכפתור נשאר', expand.hidden === false, expand.hidden);
+  expand.dispatch('click');
+  const ok = host.last('ui/request-display-mode');
+  host.deliver({ jsonrpc: '2.0', id: ok.message.id, result: { mode: 'fullscreen' } });
+  check('המארח אישר — הכפתור נעלם', expand.hidden === true, expand.hidden);
+  host.deliver(hostContextChanged({ displayMode: 'inline' }));
+  check('חזרה לשיחה — הכפתור חוזר', expand.hidden === false, expand.hidden);
+  host.deliver(hostContextChanged({ displayMode: 'fullscreen' }));
+  check('host-context-changed למסך מלא — הכפתור נעלם', expand.hidden === true, expand.hidden);
+}
+{
+  const host = load();
+  initialize(host, { availableDisplayModes: ['inline', 'fullscreen'], displayMode: 'inline' });
+  host.deliver(toolResult(NOTE));
+  host.find('ck-expand').dispatch('click');
+  const req = host.last('ui/request-display-mode');
+  host.deliver({ jsonrpc: '2.0', id: req.message.id, result: { mode: 'sidebar' } });
+  check('מצב שאינו במפרט בתשובה — לא נכנס להקשר', host.find('ck-expand').hidden === false, host.find('ck-expand').hidden);
+}
+
+console.log('\nשינוי מסגרת מדווח גם בלי שינוי תוכן');
+{
+  const host = load();
+  initialize(host);
+  host.deliver(toolResult(NOTE));
+  const before = host.sizes().length;
+  host.resize();
+  const after = host.sizes();
+  check('resize של המסגרת — דיווח נוסף, גם כשהגודל זהה', after.length === before + 1, [before, after.length]);
+  check('והדיווח הוא הגודל הנוכחי', after[after.length - 1].message.params.height === 240, after[after.length - 1].message.params);
+  host.deliver(hostContextChanged({ containerDimensions: { width: 600, maxHeight: 700 } }));
+  check('הודעה על המסגרת — דיווח נוסף', host.sizes().length === before + 2, host.sizes().length);
+  host.deliver(hostContextChanged({ theme: 'light' }));
+  check('הודעה על ערכה בלבד — בלי דיווח של אותו גודל', host.sizes().length === before + 2, host.sizes().length);
+}
+
+console.log('\nגלילה בכפתורים');
+{
+  const host = load();
+  initialize(host, { availableDisplayModes: ['inline'] });
+  host.deliver(toolResult(NOTE));
+  check('פתק שנכנס בגובה — בלי שורת כפתורים', host.find('ck-controls').hidden === true, host.find('ck-controls').hidden);
+  const body = host.find('ck-body');
+  body.clientHeight = 200;
+  body.scrollHeight = 1000;
+  host.resize();
+  const up = host.find('ck-up');
+  const down = host.find('ck-down');
+  check('פתק ארוך — ▲▼ מוצגים', host.find('ck-scroll-btns').hidden === false && host.find('ck-controls').hidden === false,
+    [host.find('ck-scroll-btns').hidden, host.find('ck-controls').hidden]);
+  check('בראש הפתק ▲ מושבת ו-▼ פעיל', up.disabled === true && down.disabled === false, [up.disabled, down.disabled]);
+  check('לכפתורים יש תווית בעברית', up.getAttribute('aria-label') === 'גלילה למעלה' && down.getAttribute('aria-label') === 'גלילה למטה',
+    [up.getAttribute('aria-label'), down.getAttribute('aria-label')]);
+  down.dispatch('click');
+  check('▼ גולל שלושה רבעים מהגובה הגלוי', body.scrolls.length === 1 && body.scrolls[0].top === 150, body.scrolls);
+  check('בלי behavior — הרכות נקבעת ב-CSS', !('behavior' in body.scrolls[0]), body.scrolls[0]);
+  up.dispatch('click');
+  check('▲ גולל אותו צעד למעלה', body.scrolls.length === 2 && body.scrolls[1].top === -150, body.scrolls);
+  body.scrollTop = 800;
+  body.dispatch('scroll');
+  check('בתחתית ▼ מושבת ו-▲ פעיל', down.disabled === true && up.disabled === false, [up.disabled, down.disabled]);
+
+  // השורה מוצגת רק בגלל ▲▼: הגובה שלה חוזר לגוף כשמחליטים אם הוא גולש.
+  body.scrollTop = 0;
+  host.find('ck-controls').offsetHeight = 52;
+  body.scrollHeight = 240;
+  host.resize();
+  check('תוכן שנכנס כשהשורה מוסתרת — ▲▼ נעלמים', host.find('ck-scroll-btns').hidden === true && host.find('ck-controls').hidden === true,
+    [host.find('ck-scroll-btns').hidden, host.find('ck-controls').hidden]);
+  body.scrollHeight = 260;
+  host.resize();
+  host.resize();
+  check('תוכן שאינו נכנס — מוצגים, ונשארים בבדיקה חוזרת', host.find('ck-scroll-btns').hidden === false, host.find('ck-scroll-btns').hidden);
 }
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);

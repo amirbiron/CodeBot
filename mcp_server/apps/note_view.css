@@ -21,9 +21,26 @@
    הפתק נשאר בצבעי המארח — ולא בצהוב שהועתק לכאן מהפלטה, שהיה עותק שלישי שלה.
 
    **תכונות לוגיות בלבד** (``padding-inline``, ``margin-block``): הפתק בעברית, וכלל פיזי
-   היה מזיח מהצד הלא נכון. */
+   היה מזיח מהצד הלא נכון. החריג היחיד הוא השוליים הבטוחים של המארח, שהם פיזיים מטבעם — ראו
+   ``#ck-note-root``.
 
-:root { color-scheme: light dark; }
+   **הגובה: נוסחה אחת, כאן.** בתוך השיחה Claude חותך תצוגה שגבוהה מהתקרה שלו ("The host also caps
+   inline height and clips content that exceeds it", עמוד "Design guidelines"), ובמגע גרירה אנכית
+   בתוך התצוגה גוללת את השיחה ולא את הפתק. לכן הדף מגביל את עצמו: ``max-height`` של
+   ``#ck-note-root`` הוא הקטן מבין ``--ck-cap`` לבין התקרה שהמארח מודיע עליה
+   (``containerDimensions.maxHeight``, ש-``note_view.js`` מעביר כ-``--ck-host-max``), וגוף הפתק
+   נגלל בתוכו — בגלגלת, או בכפתורים ▲▼ שמופיעים רק כשהפתק ארוך מהגובה. ``note_view.js`` אינו
+   מחשב גובה בעצמו: הוא מעביר ערכים מהמארח, והנוסחה כולה כאן (``amir-bug-patterns`` H7, "שתי
+   נוסחאות לאותו מימד"). ומאותה סיבה אין כאן ``overflow: hidden``: גוף שלא נכנס נגלל, ולא נעלם.
+   מסגרת בגובה קבוע (``containerDimensions.height``, במסך מלא ובחלונית הצד) מקבלת ``ck-fill``:
+   הפתק ממלא אותה, והגוף נגלל. ומסך מלא בגובה גמיש מקבל ``ck-expanded`` — ראו שם. */
+
+:root {
+  color-scheme: light dark;
+  /* הגובה הקבוע של התצוגה — עותק של ``NEW_NOTE_H`` ב-``sticky-notes.js``, הגובה של פתק חדש
+     בוובאפ במסך רחב (החלטת המשתמש). ``tests/test_mcp_note_view.py`` משווה בין השניים. */
+  --ck-cap: 380px;
+}
 
 html, body {
   margin: 0;
@@ -36,7 +53,40 @@ body {
 }
 
 #ck-note-root {
-  padding: 4px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  max-height: min(var(--ck-cap), var(--ck-host-max, var(--ck-cap)));
+  /* **פיזי בכוונה.** ``safeAreaInsets`` של המארח הם ``top/right/bottom/left`` — השורה של ההודעה
+     בתחתית המסך והחריץ בצד הם במקום פיזי, בלי קשר לכיוון הטקסט. "Design guidelines" של Claude
+     מבקש להחיל אותם כריפוד של המכל הראשי, ובמצב בלי מסגרת (``prefersBorder: false``) זה הכרחי. */
+  padding-top: calc(4px + var(--ck-safe-top, 0px));
+  padding-right: calc(4px + var(--ck-safe-right, 0px));
+  padding-bottom: calc(4px + var(--ck-safe-bottom, 0px));
+  padding-left: calc(4px + var(--ck-safe-left, 0px));
+}
+
+html.ck-fill,
+html.ck-fill body {
+  height: 100%;
+}
+
+html.ck-fill #ck-note-root {
+  height: 100%;
+  max-height: none;
+}
+
+html.ck-fill .ck-paper {
+  flex-grow: 1;
+}
+
+/* **מסך מלא בגובה גמיש** — מארח שמשאיר ``maxHeight`` גם שם, כמו ``basic-host`` של ext-apps
+   (``containerDimensions: { width, maxHeight: 6000 }``, "Height stays flexible ... so the view can
+   keep driving it"). ``--ck-cap`` הוא הגובה של התצוגה **בתוך השיחה**, ובמסך מלא, שנפתח בדיוק כדי
+   לקרוא יותר, הוא אינו חל: הפתק גדל עד התקרה של המארח. מארח שנותן גובה קבוע (Claude, לפי
+   "Display modes") מקבל ``ck-fill``, ו-``note_view.js`` אינו מדליק את שתי המחלקות יחד. */
+html.ck-expanded #ck-note-root {
+  max-height: var(--ck-host-max, none);
 }
 
 .ck-status {
@@ -69,6 +119,17 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, .18);
   padding-block: 12px 14px;
   padding-inline: 14px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  /* בלי זה פריט flex אינו מתכווץ מתחת לגובה התוכן שלו, והתקרה של ``#ck-note-root`` הייתה נחצית. */
+  min-height: 0;
+}
+
+/* ``hidden`` של הדפדפן הוא ``display: none`` ברמת ה-UA, ו-``display`` של כלל כאן היה דורס אותו. */
+.ck-paper [hidden] {
+  display: none;
 }
 
 .ck-paper.has-note-color {
@@ -76,6 +137,7 @@ body {
 }
 
 .ck-title {
+  flex: none;
   margin-block: 0 8px;
   font-size: var(--ck-title-font);
   font-weight: var(--ck-title-weight);
@@ -90,6 +152,55 @@ body {
 .ck-body {
   font-size: var(--ck-font);
   line-height: var(--ck-line-height);
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* הכפתורים ▲▼ קוראים ל-``scrollBy`` בלי ``behavior``, כלומר ``auto`` — שפירושו הערך המחושב
+     של ``scroll-behavior`` כאן (CSSOM View). גלילה רכה היא החלטת המשתמש, ומי שביקש פחות תנועה
+     במערכת מקבל קפיצה. */
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ck-body {
+    scroll-behavior: auto;
+  }
+}
+
+/* שורת הכפתורים בתחתית הפתק: "מסך מלא" בתחילת השורה, ▲▼ בסופה. */
+.ck-controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block-start: 8px;
+}
+
+.ck-scroll-btns {
+  display: flex;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+
+/* 44 על 44 לפחות — "Make every tap target at least 44pt" (Claude, "Design guidelines"). */
+.ck-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding-block: 0;
+  padding-inline: 12px;
+  border: 1px solid rgba(0, 0, 0, .18);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .06);
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ck-btn:disabled {
+  opacity: .4;
+  cursor: default;
 }
 
 /* שורת מקור אחת = אלמנט אחד עם ``dir="auto"`` — כמו במנוע של הפתק, שבו כל שורה מחליטה את
