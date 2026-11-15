@@ -41,8 +41,12 @@ class _Update:
 
 class _Context:
     def __init__(self):
+        from _github_zip_harness import FakeApplication
+
         self.user_data = {}
         self.bot_data = {}
+        # הורדת ZIP רצה כמשימת רקע (``_start_zip_job``)
+        self.application = FakeApplication()
 
 
 @pytest.mark.asyncio
@@ -101,5 +105,6 @@ async def test_download_zip_root_uses_http_request(monkeypatch):
     ctx = _Context()
 
     await h.handle_menu_callback(update, ctx)
+    await ctx.application.drain()
 
     assert calls["n"] >= 1

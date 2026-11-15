@@ -120,34 +120,28 @@ def test_gds_create_repo_grouped_zip_bytes_uses_level_9(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_github_menu_handler_folder_zip_uses_level_9(monkeypatch):
+async def test_github_menu_handler_folder_zip_uses_level_9(monkeypatch, tmp_path):
     import github_menu_handler as gh
+    import utils
+    from _github_zip_harness import FakeArchiveRepo, install_archive_http, make_context, zipball_bytes
+
+    # הארכיון שנארז נכתב לתיקיית ה-ZIP הממתין; בטסט הזה היא של הטסט בלבד
+    monkeypatch.setattr(utils, "_pending_zip_dir", lambda: tmp_path)
 
     handler = gh.GitHubMenuHandler()
     handler.get_user_session = lambda uid: {"selected_repo": "o/r"}
     handler.get_user_token = lambda uid: "t"
 
-    class _Item:
-        def __init__(self, t, name, size=0, data=b""):
-            self.type = t
-            self.name = name
-            self.path = name
-            self.size = size
-            self.decoded_content = data
-
-    class _Repo:
-        name = "r"
-        full_name = "o/r"
-        def get_contents(self, path, ref=None):
-            return [_Item('file', 'a.txt', len(b'a'), b'a')]
+    repo = FakeArchiveRepo({"main": zipball_bytes({"folder/a.txt": b"a"})})
 
     class _Gh:
         def __init__(self, *a, **k):
             pass
         def get_repo(self, _):
-            return _Repo()
+            return repo
 
     monkeypatch.setattr(gh, "Github", _Gh)
+    install_archive_http(monkeypatch, gh, repo)
 
     captured = _capture_zipfile(monkeypatch, gh)
 
@@ -167,14 +161,20 @@ async def test_github_menu_handler_folder_zip_uses_level_9(monkeypatch):
             return None
 
     upd = types.SimpleNamespace(callback_query=_Q(), effective_user=types.SimpleNamespace(id=5))
-    ctx = types.SimpleNamespace(user_data={})
+    ctx = make_context()
 
     # force folder path flow
     monkeypatch.setattr(handler, "_get_path_from_cb", lambda context, data, prefix: "folder", raising=True)
     await handler.handle_menu_callback(upd, ctx)
+    await ctx.application.drain()
 
     # הזיפ נבנה בכתיבה אחת עם compresslevel=9. אין יותר פתיחה שנייה במצב 'a':
     # metadata.json לא מוזרק כאן — הגיבוי מקבל אותו מ-save_backup_bytes, ולסקיל
     # קובץ זר בשורש הארכיון פוסל אותו כסקיל תקין.
     assert any(c["mode"] == 'w' and c["compresslevel"] == 9 for c in captured["calls"])
-    assert not any(c["mode"] == 'a' for c in captured["calls"]) 
+    assert not any(c["mode"] == 'a' for c in captured["calls"])
+    # וכל רשומה נדחסה בפועל — לא רק שהארכיון נפתח עם הרמה הנכונה
+    token = next(iter(ctx.user_data["ghzip_pending"]))
+    with _real_zipfile.ZipFile(ctx.user_data["ghzip_pending"][token]["path"]) as zf:
+        assert zf.namelist() == ["folder/a.txt"]
+        assert all(i.compress_type == _real_zipfile.ZIP_DEFLATED for i in zf.infolist()) 

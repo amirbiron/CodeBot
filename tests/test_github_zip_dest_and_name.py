@@ -8,9 +8,9 @@
    קובץ זר שהופך אותו ללא-תקין כסקיל להתקנה בקלוד.
 3. השם נבנה בפורמט של גיבוי (``BKP zip skills v1 - ...``) במקום שם התיקייה.
 
-הטסטים כתובים בדפוס של ``test_github_zip_spool_to_disk.py``: סטאבים ידניים
-במקום MagicMock, ``monkeypatch.setattr(gh, "Github", ...)``, ו-``wait_for``
-כדי שלולאה תקועה תיכשל במקום להיתלות.
+האריזה רצה כמשימת רקע ומורידה zipball אחד של הריפו, ולכן הטסטים מגישים
+ארכיון (``tests/_github_zip_harness.py``) ומחכים למשימה (``_pack``). הסטאבים
+ידניים, בלי MagicMock, ו-``wait_for`` דואג שלולאה תקועה תיכשל במקום להיתלות.
 """
 
 import asyncio
@@ -19,6 +19,8 @@ import zipfile
 from io import BytesIO
 
 import pytest
+
+from _github_zip_harness import FakeArchiveRepo, install_archive_http, make_context, zipball_bytes
 
 USER = 5
 REPO = "o/r"
@@ -42,42 +44,21 @@ def isolated_pending_dir(tmp_path, monkeypatch):
         leftover.unlink()
 
 
-class _Item:
-    def __init__(self, t, name, path, size=0, data=b""):
-        self.type = t
-        self.name = name
-        self.path = path
-        self.size = size
-        self.decoded_content = data
+def _archive(marker: bytes) -> bytes:
+    """ריפו עם התיקייה הנארזת, תת-תיקייה בתוכה, ושכנה ששמה מתחיל באותן אותיות."""
+    return zipball_bytes(
+        {
+            "skills/logo-designer/SKILL.md": marker,
+            "skills/logo-designer/references/guide.md": b"gg",
+            "skills/logo-designer-old/SKILL.md": b"old",
+            "README.md": b"readme",
+        }
+    )
 
 
-class _Repo:
+def _repo() -> FakeArchiveRepo:
     """ריפו מזויף עם שני ענפים שתוכנם שונה, כדי שבחירת ref תהיה נצפית."""
-
-    name = "r"
-    full_name = REPO
-    default_branch = "main"
-
-    def __init__(self):
-        self.refs_seen = []
-
-    def get_contents(self, path, ref=None):
-        self.refs_seen.append(ref)
-        marker = b"dev" if ref == "dev" else b"main"
-        if path == "skills/logo-designer":
-            return [
-                _Item("file", "SKILL.md", "skills/logo-designer/SKILL.md", 6, marker),
-                _Item("dir", "references", "skills/logo-designer/references"),
-            ]
-        if path == "skills/logo-designer/references":
-            return [
-                _Item("file", "guide.md", "skills/logo-designer/references/guide.md", 2, b"gg")
-            ]
-        if path.endswith("SKILL.md"):
-            return _Item("file", "SKILL.md", path, 6, marker)
-        if path.endswith("guide.md"):
-            return _Item("file", "guide.md", path, 2, b"gg")
-        return []
+    return FakeArchiveRepo({"main": _archive(b"main"), "dev": _archive(b"dev")}, full_name=REPO)
 
 
 class _Msg:
@@ -121,7 +102,7 @@ def _make(monkeypatch, *, browse_ref=None, path="skills/logo-designer"):
     handler.get_user_session = lambda uid: {"selected_repo": REPO}
     handler.get_user_token = lambda uid: "t"
 
-    repo = _Repo()
+    repo = _repo()
 
     class _Gh:
         def __init__(self, *a, **k):
@@ -131,6 +112,7 @@ def _make(monkeypatch, *, browse_ref=None, path="skills/logo-designer"):
             return repo
 
     monkeypatch.setattr(gh, "Github", _Gh)
+    install_archive_http(monkeypatch, gh, repo)
     monkeypatch.setattr(handler, "_get_path_from_cb", lambda c, d, p: path)
 
     query = _Query("download_zip:x")
@@ -139,14 +121,20 @@ def _make(monkeypatch, *, browse_ref=None, path="skills/logo-designer"):
         effective_user=types.SimpleNamespace(id=USER),
         effective_message=query.message,
     )
-    ctx = types.SimpleNamespace(user_data={}, bot_data={})
+    ctx = make_context()
     if browse_ref:
         ctx.user_data["browse_ref"] = browse_ref
     return handler, upd, ctx, repo
 
 
-async def _pack(handler, upd, ctx):
+async def _run(handler, upd, ctx):
+    """לחיצה על כפתור ההורדה, והמתנה למשימת הרקע שהיא מתחילה."""
     await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=5.0)
+    await ctx.application.drain()
+
+
+async def _pack(handler, upd, ctx):
+    await _run(handler, upd, ctx)
     return next(iter(ctx.user_data["ghzip_pending"]))
 
 
@@ -168,6 +156,11 @@ async def _send_text(handler, upd, ctx, text):
     return await asyncio.wait_for(handler.handle_text_input(msg_upd, ctx), timeout=5.0)
 
 
+def _packed_bytes(ctx, token):
+    with open(ctx.user_data["ghzip_pending"][token]["path"], "rb") as f:
+        return f.read()
+
+
 # ---------------------------------------------------------------- הענף
 
 
@@ -179,17 +172,18 @@ async def test_packing_uses_the_selected_branch(monkeypatch):
     התוכן פשוט היה של ענף אחר.
     """
     handler, upd, ctx, repo = _make(monkeypatch, browse_ref="dev")
-    await _pack(handler, upd, ctx)
+    token = await _pack(handler, upd, ctx)
 
-    assert repo.refs_seen, "לא בוצעה שום קריאה ל-get_contents"
-    assert set(repo.refs_seen) == {"dev"}, f"נקראו ref-ים לא צפויים: {set(repo.refs_seen)}"
+    assert repo.archive_refs == ["dev"], f"נקראו ref-ים לא צפויים: {repo.archive_refs}"
+    packed = zipfile.ZipFile(BytesIO(_packed_bytes(ctx, token)))
+    assert packed.read("logo-designer/SKILL.md") == b"dev"
 
 
 @pytest.mark.asyncio
 async def test_default_branch_used_when_nothing_selected(monkeypatch):
     handler, upd, ctx, repo = _make(monkeypatch)
     await _pack(handler, upd, ctx)
-    assert set(repo.refs_seen) == {"main"}
+    assert repo.archive_refs == ["main"]
 
 
 @pytest.mark.asyncio
@@ -202,12 +196,10 @@ async def test_selected_branch_recorded_in_metadata(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stale_ref_does_not_fall_back_to_another_branch(monkeypatch):
-    """ref שגוי לא נופל בשקט לענף אחר.
+    """ref שגוי לא נופל בשקט לענף אחר, ומסתיים בהודעת שגיאה ולא בהצעה לשמור.
 
-    ה-fallback ל-``TypeError`` נועד רק לחתימה שלא מקבלת ``ref``; 404 חייב
-    להישאר 404. הבדיקה היא על **מה נקרא בפועל** ולא רק על התוצאה, כי
-    ``walk_and_zip`` בולע חריגות ומדלג — ולכן ספירת קבצים לבדה תעבור בשני
-    המקרים ולא תוכיח כלום.
+    הבדיקה היא על **מה נקרא בפועל**: בקשת ארכיון אחת, עם ה-ref שנבחר, ושום
+    בקשה בלעדיו.
     """
     import github_menu_handler as gh
 
@@ -215,32 +207,23 @@ async def test_stale_ref_does_not_fall_back_to_another_branch(monkeypatch):
 
     calls = []
 
-    def _boom(path, ref=None):
+    def _boom(archive_format, ref=None):
         calls.append(ref)
         raise gh.GithubException(404, {"message": "No commit found for the ref"}, None)
 
-    repo.get_contents = _boom
-    # לא _pack: עם 0 קבצים הזרימה נעצרת לפני שאלת היעד ואין ghzip_pending
-    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=5.0)
+    repo.get_archive_link = _boom
+    await _run(handler, upd, ctx)
 
-    assert calls, "לא בוצעה שום קריאה"
-    assert all(r == "no-such-branch" for r in calls), (
-        f"נעשתה קריאה בלי ה-ref שנבחר — נפילה שקטה לענף אחר: {calls}"
-    )
+    assert calls == ["no-such-branch"], f"נעשתה קריאה בלי ה-ref שנבחר — נפילה שקטה לענף אחר: {calls}"
+    assert not ctx.user_data.get("ghzip_pending"), "הוצע לשמור ארכיון שלא קיים"
+    assert "❌" in (upd.callback_query.edits[-1] or "")
 
 
 @pytest.mark.asyncio
-async def test_empty_archive_is_reported_instead_of_offered(monkeypatch):
-    """ref/נתיב שלא קיימים ⇒ הודעת שגיאה, לא הצעה לשמור ארכיון ריק."""
-    import github_menu_handler as gh
-
-    handler, upd, ctx, repo = _make(monkeypatch, browse_ref="no-such-branch")
-
-    def _boom(path, ref=None):
-        raise gh.GithubException(404, {"message": "No commit found for the ref"}, None)
-
-    repo.get_contents = _boom
-    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=5.0)
+async def test_missing_folder_is_reported_instead_of_offered(monkeypatch):
+    """נתיב שלא קיים בענף ⇒ הודעת שגיאה, לא הצעה לשמור ארכיון ריק."""
+    handler, upd, ctx, _ = _make(monkeypatch, path="skills/no-such-folder")
+    await _run(handler, upd, ctx)
 
     assert not ctx.user_data.get("ghzip_pending"), "הוצע לשמור ארכיון ריק"
     assert any("לא נמצאו קבצים" in (t or "") for t in upd.callback_query.edits)
@@ -257,7 +240,7 @@ async def test_all_files_too_large_says_so(monkeypatch):
 
     handler, upd, ctx, repo = _make(monkeypatch)
     monkeypatch.setattr(gh, "MAX_INLINE_FILE_BYTES", 1)  # כל קובץ חורג
-    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=5.0)
+    await _run(handler, upd, ctx)
 
     assert not ctx.user_data.get("ghzip_pending")
     edits = " ".join(t or "" for t in upd.callback_query.edits)
@@ -291,28 +274,37 @@ async def test_archive_cap_skips_are_counted(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_github_calls_do_not_block_the_event_loop(monkeypatch):
-    """קריאות PyGithub הסינכרוניות רצות ב-thread ולא על ה-event loop.
+    """קריאות הרשת (PyGithub והורדת הארכיון) רצות ב-thread ולא על ה-event loop.
 
-    הלולאה עוברת על כל קובץ בנפרד, אז קריאה חוסמת אחת מספיקה כדי לעכב את
-    שאר עדכוני הבוט לאורך כל האריזה.
+    קריאה חוסמת אחת על הלולאה מספיקה כדי לעכב את כל שאר הבוט — עדכונים,
+    משימות מתוזמנות — לאורך כל ההורדה.
     """
     import threading
+
+    import github_menu_handler as gh
 
     handler, upd, ctx, repo = _make(monkeypatch)
     main_thread = threading.get_ident()
     seen = []
 
-    original = repo.get_contents
+    original_link = repo.get_archive_link
 
-    def _tracked(path, ref=None):
-        seen.append(threading.get_ident())
-        return original(path, ref=ref)
+    def _tracked_link(archive_format, ref=None):
+        seen.append(("link", threading.get_ident()))
+        return original_link(archive_format, ref=ref)
 
-    repo.get_contents = _tracked
+    repo.get_archive_link = _tracked_link
+    original_http = gh.http_request
+
+    def _tracked_http(method, url, **kwargs):
+        seen.append(("http", threading.get_ident()))
+        return original_http(method, url, **kwargs)
+
+    monkeypatch.setattr(gh, "http_request", _tracked_http)
     await _pack(handler, upd, ctx)
 
-    assert seen, "לא בוצעה שום קריאה"
-    assert all(t != main_thread for t in seen), "קריאת רשת חוסמת רצה על ה-event loop"
+    assert {kind for kind, _ in seen} == {"link", "http"}, seen
+    assert all(t != main_thread for _, t in seen), "קריאת רשת חוסמת רצה על ה-event loop"
 
 
 # ---------------------------------------------------- metadata.json והיעד
@@ -470,30 +462,30 @@ async def test_failed_send_does_not_double_save(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_file_cap_checked_before_fetching_content(monkeypatch):
-    """אחרי שהגענו לתקרת הקבצים לא מושכים עוד תוכן מהרשת.
+async def test_file_cap_checked_before_reading_content(monkeypatch):
+    """אחרי שהגענו לתקרת הקבצים לא פורסים עוד תוכן מהארכיון.
 
-    כל קובץ עולה קריאת רשת והשהיית rate-limit; משיכה אחרי התקרה מבזבזת
-    דקות ומכסת API על תוכן שנזרק מיד.
+    התקרה קיימת כדי להגביל עבודה וזיכרון; פריסה של קובץ שנזרק מיד אחריה
+    מבזבזת את שניהם.
     """
     import github_menu_handler as gh
 
     monkeypatch.setattr(gh, "MAX_ZIP_FILES", 1)
-    handler, upd, ctx, repo = _make(monkeypatch)
+    handler, upd, ctx, _ = _make(monkeypatch)
 
-    fetched = []
-    original = repo.get_contents
+    read_names = []
+    real_zipfile = zipfile.ZipFile
 
-    def _tracked(path, ref=None):
-        fetched.append(path)
-        return original(path, ref=ref)
+    class _TrackingZipFile(real_zipfile):
+        def read(self, name, pwd=None):
+            read_names.append(getattr(name, "filename", name))
+            return super().read(name, pwd)
 
-    repo.get_contents = _tracked
+    monkeypatch.setattr(gh.zipfile, "ZipFile", _TrackingZipFile, raising=False)
     token = await _pack(handler, upd, ctx)
 
     assert ctx.user_data["ghzip_pending"][token]["skipped_limits"] >= 1
-    # הקובץ השני לא נמשך בכלל — רק הליסטינג של התיקיות ושליפת הקובץ הראשון
-    assert fetched.count("skills/logo-designer/references/guide.md") == 0
+    assert len(read_names) == 1, f"נפרסו קבצים אחרי התקרה: {read_names}"
 
 
 @pytest.mark.asyncio

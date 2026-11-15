@@ -2,6 +2,7 @@ import types
 import pytest
 
 import github_menu_handler as gh
+from _github_zip_harness import make_context
 
 
 @pytest.mark.asyncio
@@ -61,11 +62,10 @@ async def test_zipball_fetch_error_emits_and_counts(monkeypatch):
     class _Update:
         callback_query = _Query()
         effective_user = types.SimpleNamespace(id=1)
-    class _Ctx:
-        user_data = {}
-        bot_data = {}
-
-    await handler.handle_menu_callback(_Update(), _Ctx())
+    ctx = make_context()
+    await handler.handle_menu_callback(_Update(), ctx)
+    # ההורדה רצה כמשימת רקע; האירוע נרשם בתוכה
+    await ctx.application.drain()
 
     assert any(e[0] == "github_zipball_fetch_error" for e in events["evts"]) and any(e[0] == "errors_total_inc" for e in events["evts"]) 
 

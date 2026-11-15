@@ -2,6 +2,8 @@ import types
 import pytest
 import asyncio
 
+from _github_zip_harness import FakeApplication
+
 
 class _Msg:
     def __init__(self):
@@ -38,6 +40,8 @@ class _Ctx:
     def __init__(self):
         self.user_data = {}
         self.bot_data = {}
+        # הורדת ZIP רצה כמשימת רקע (``_start_zip_job``)
+        self.application = FakeApplication()
 
 
 @pytest.mark.asyncio
@@ -88,7 +92,7 @@ async def test_download_zip_repo_error_does_not_open_backups_list(monkeypatch):
         full_name = "o/r"
         name = "r"
 
-        def get_archive_link(self, _):
+        def get_archive_link(self, _fmt, ref=None):
             return "https://example.com/archive.zip"
 
     class _Gh:
@@ -129,6 +133,7 @@ async def test_download_zip_repo_error_does_not_open_backups_list(monkeypatch):
 
     # Run
     await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
+    await ctx.application.drain()
 
     # Expect an error edit and that backup list wasn't invoked
     assert any(str(e).startswith("❌ שגיאה בהורדת ZIP של הריפו:") for e in upd.callback_query.edits)

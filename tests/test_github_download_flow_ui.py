@@ -361,8 +361,12 @@ async def test_download_zip_of_root_sends_backup_and_summary(monkeypatch):
 
     class Context:
         def __init__(self):
+            from _github_zip_harness import FakeApplication
+
             self.user_data = {}
             self.bot_data = {}
+            # הורדת ZIP רצה כמשימת רקע (``_start_zip_job``)
+            self.application = FakeApplication()
 
     # Stub requests.get to return a tiny valid zip bytes
     import io, zipfile
@@ -393,6 +397,7 @@ async def test_download_zip_of_root_sends_backup_and_summary(monkeypatch):
         await asyncio.wait_for(handler.handle_menu_callback(upd2, ctx2), timeout=2.0)
         upd2.callback_query.data = "download_zip:"
         await asyncio.wait_for(handler.handle_menu_callback(upd2, ctx2), timeout=2.0)
+        await ctx2.application.drain()
         assert upd2.callback_query.message.docs, "ZIP not sent"
 
 
@@ -400,7 +405,7 @@ async def test_download_zip_of_root_sends_backup_and_summary(monkeypatch):
         full_name = "o/r"
         name = "r"
         default_branch = "main"
-        def get_archive_link(self, _):
+        def get_archive_link(self, _fmt, ref=None):
             return "https://example.com/archive.zip"
         def get_contents(self, path="", ref=None):
             # דפדפן דורש מתוד זה; נחזיר רשימה ריקה לצורך הטסט
@@ -442,6 +447,7 @@ async def test_download_zip_of_root_sends_backup_and_summary(monkeypatch):
     await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
     upd.callback_query.data = "download_zip:"
     await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
+    await ctx.application.drain()
 
     # Assert doc sent and summary text appended
     assert upd.callback_query.message.docs, "ZIP not sent"

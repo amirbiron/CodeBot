@@ -7,6 +7,8 @@ import errno
 
 import pytest
 
+from _github_zip_harness import FakeApplication
+
 
 @pytest.mark.asyncio
 async def test_zipball_large_sends_link_no_doc(monkeypatch):
@@ -39,7 +41,7 @@ async def test_zipball_large_sends_link_no_doc(monkeypatch):
         full_name = "o/r"
         name = "r"
         default_branch = "main"
-        def get_archive_link(self, _):
+        def get_archive_link(self, _fmt, ref=None):
             return "https://example.com/archive.zip"
 
     class _Gh:
@@ -77,6 +79,8 @@ async def test_zipball_large_sends_link_no_doc(monkeypatch):
     class _Ctx:
         user_data = {}
         bot_data = {}
+        # ההורדה רצה כמשימת רקע; מחכים לה אחרי הלחיצה
+        application = FakeApplication()
 
     # Monkeypatch deps
     monkeypatch.setattr(gh, "Github", _Gh)
@@ -90,7 +94,9 @@ async def test_zipball_large_sends_link_no_doc(monkeypatch):
             return []
     monkeypatch.setattr(gh, "backup_manager", _BM())
 
-    await asyncio.wait_for(handler.handle_menu_callback(_Upd(), _Ctx()), timeout=2.0)
+    ctx = _Ctx()
+    await asyncio.wait_for(handler.handle_menu_callback(_Upd(), ctx), timeout=2.0)
+    await ctx.application.drain()
 
     # For large files — expect link/text, not a document
     assert not _Upd.callback_query.message.docs
@@ -128,7 +134,7 @@ async def test_zipball_persist_enospc_emits_and_message(monkeypatch):
         full_name = "o/r"
         name = "r"
         default_branch = "main"
-        def get_archive_link(self, _):
+        def get_archive_link(self, _fmt, ref=None):
             return "https://example.com/archive.zip"
 
     class _Gh:
@@ -159,7 +165,9 @@ async def test_zipball_persist_enospc_emits_and_message(monkeypatch):
             self.data = "download_zip:"
             self.message = _Msg()
             self.from_user = types.SimpleNamespace(id=79)
-        async def edit_message_text(self, *a, **k):
+            self.edits = []
+        async def edit_message_text(self, text=None, *a, **k):
+            self.edits.append(text)
             return None
         async def answer(self, *a, **k):
             return None
@@ -171,6 +179,8 @@ async def test_zipball_persist_enospc_emits_and_message(monkeypatch):
     class _Ctx:
         user_data = {}
         bot_data = {}
+        # ההורדה רצה כמשימת רקע; מחכים לה אחרי הלחיצה
+        application = FakeApplication()
 
     monkeypatch.setattr(gh, "Github", _Gh)
     monkeypatch.setattr(gh.requests, "get", _req_get)
@@ -183,9 +193,12 @@ async def test_zipball_persist_enospc_emits_and_message(monkeypatch):
             return []
     monkeypatch.setattr(gh, "backup_manager", _BM())
 
-    await asyncio.wait_for(handler.handle_menu_callback(_Upd(), _Ctx()), timeout=2.0)
+    ctx = _Ctx()
+    await asyncio.wait_for(handler.handle_menu_callback(_Upd(), ctx), timeout=2.0)
+    await ctx.application.drain()
 
     # Expect ENOSPC user-facing message
-    assert any("אין מקום" in t for t in _Upd.callback_query.message.texts)
+    # ההודעה הידידותית מחליפה את שורת ההתקדמות, כדי שלא יישאר "מוריד…" על המסך
+    assert any(t and "אין מקום" in t for t in _Upd.callback_query.edits)
     # Expect persist error event with code ENOSPC
     assert any(e[0] == "github_zip_persist_error" and e[2].get("code") == "ENOSPC" for e in events["evts"]) or True

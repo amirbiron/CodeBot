@@ -91,6 +91,7 @@ Mocking HTTP ב‑github_menu_handler
 - עבור הורדות/GET (למשל zipball): עדיף לבצע monkeypatch על ``gh.requests.get`` במקום על ``requests.get`` הגלובלי.
 - עבור קריאות non‑GET (POST/PUT/DELETE): בצעו monkeypatch על ``gh._http_sync_request``.
 - אין יציאה לרשת בזמן טסטים – תמיד למקבש (monkeypatch) את הקריאות.
+- **לחיצה על הורדת ZIP (``download_zip:``) מתחילה משימת רקע ולא מסיימת את העבודה.** ה-handler קורא ל-``context.application.create_task`` וחוזר מיד (``GitHubMenuHandler._start_zip_job``), ולכן טסט צריך ``application`` מדומה, ולחכות למשימה לפני שהוא בודק תוצאה. ``tests/_github_zip_harness.py`` נותן את שניהם: ``make_context()`` ו-``FakeApplication.drain()``, שזורק את החריגה של המשימה אם הייתה. באותו קובץ יש גם ``zipball_bytes``, שבונה ארכיון במבנה שנמדד על zipball אמיתי של GitHub, ו-``install_archive_http``, שמגיש אותו דרך ``gh.http_request``.
 
 דוגמה – Mock ל‑GET דרך ה‑shim:
 

@@ -3,6 +3,7 @@ import sys
 import pytest
 
 import github_menu_handler as gh
+from _github_zip_harness import FakeApplication
 
 
 @pytest.mark.asyncio
@@ -50,6 +51,8 @@ async def test_zip_create_error_emits_event_and_counter(monkeypatch):
     class _Ctx:
         user_data = {"upload_target_branch": "main", "upload_target_folder": None}
         bot_data = {}
+        # ההורדה רצה כמשימת רקע; מחכים לה אחרי הלחיצה
+        application = FakeApplication()
 
     # capture events and counter increments
     events = {"evts": []}
@@ -77,10 +80,12 @@ async def test_zip_create_error_emits_event_and_counter(monkeypatch):
     # locate method that handles callback data; common name is on_callback_query or similar
     # We'll invoke the class method "on_callback_query" if exists else simulate narrow path
     # Route via the public callback handler used in tests
+    ctx = _Ctx()
     if hasattr(handler, "handle_menu_callback"):
-        await handler.handle_menu_callback(_Update(), _Ctx())
+        await handler.handle_menu_callback(_Update(), ctx)
     elif hasattr(handler, "on_callback_query"):
-        await handler.on_callback_query(_Update(), _Ctx())
+        await handler.on_callback_query(_Update(), ctx)
+    await ctx.application.drain()
 
     # assert event or at least counter emitted for zip error
     assert any(e[0] in ("github_zip_create_error", "errors_total_inc") for e in events["evts"]) or True
