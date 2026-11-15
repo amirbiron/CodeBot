@@ -111,7 +111,13 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     #   של שדות הסינון ב-webapp/templates/files.html.
     # - הפיד והפוש בדשבורד: .timeline-item, .timeline-group, .timeline-badge-*, .status-*
     #   ב-webapp/templates/dashboard.html.
-    # - שורת החיפוש בתצוגת ה-Markdown: .md-search-capsule ב-webapp/templates/md_preview.html.
+    # - שורת החיפוש בתצוגת ה-Markdown: .md-search-capsule ב-webapp/templates/md_preview.html, ובתצוגת הקוד
+    #   .search-capsule ב-webapp/templates/view_file.html.
+    # - "שולחן עבודה" בעמוד הקבצים: .workspace-btn ב-webapp/templates/base.html.
+    # - הכפתורים שמעל העורך: .btn-switch-editor ו-.btn-editor-clip ב-webapp/static/css/codemirror-custom.css,
+    #   ו-.md-toolbar-trigger ב-webapp/static/css/markdown-toolbar.css.
+    # - סרגל החיפוש ומלבני הפרטים בתצוגת הקוד: .editor-toolbar, .search-capsule, .icon-btn, .search-count,
+    #   .divider, .fullscreen-btn ו-.meta-item ב-webapp/templates/view_file.html.
     "--form-field-border-override",
     "--form-field-bg-override",
     "--form-field-focus-border-override",
@@ -120,6 +126,21 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     "--timeline-badge-text-override",
     "--status-pill-text-override",
     "--md-search-capsule-border-override",
+    "--workspace-btn-bg-override",
+    "--workspace-btn-border-override",
+    "--editor-btn-text-override",
+    "--editor-btn-bg-override",
+    "--editor-btn-border-override",
+    "--editor-btn-hover-bg-override",
+    "--editor-switch-btn-bg-override",
+    "--editor-switch-btn-hover-bg-override",
+    "--code-toolbar-bg-override",
+    "--code-toolbar-border-override",
+    "--code-toolbar-hover-bg-override",
+    "--code-toolbar-text-override",
+    "--code-search-capsule-bg-override",
+    "--code-search-capsule-focus-border-override",
+    "--file-meta-item-bg-override",
 
     # Level 3 - צבעי המסמך (תצוגת ה-Markdown והתצוגה החיה)
     # התצוגה המרונדרת של VS Code צובעת כותרות והדגשה ב-editor.foreground, בלי מפתח משלהן, ולכן אין להם מקור

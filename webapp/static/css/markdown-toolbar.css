@@ -28,7 +28,8 @@
   background: rgba(100, 200, 150, 0.15);
   border: 1px solid rgba(100, 200, 150, 0.4);
   border-radius: 6px;
-  color: var(--text-color, #e0e0e0);
+  /* וו דריסה לערכה מיובאת בהירה, משותף לכפתורים שמעל העורך — ראו .btn-switch-editor ב-codemirror-custom.css. */
+  color: var(--editor-btn-text-override, var(--text-color, #e0e0e0));
   cursor: pointer;
   transition: all 0.2s ease;
 }

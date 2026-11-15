@@ -27,10 +27,13 @@
 .editor-switcher { display:flex; flex-direction:column; align-items: stretch; gap:.5rem; margin:.5rem 0; padding:.65rem; background: rgba(255,255,255,0.05); border-radius:8px; }
 .editor-switcher-row { display:flex; justify-content:flex-start; align-items:center; gap:clamp(.5rem,1.5vw,1.25rem); flex-wrap:nowrap; width:100%; min-height:48px; }
 .editor-switcher-actions { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; flex:1 1 auto; min-width:0; }
-.btn-switch-editor { padding:.5rem 1rem; background: rgba(100,100,255,0.2); border:1px solid rgba(100,100,255,0.5); border-radius:6px; color:#fff; cursor:pointer; }
+/* ווי דריסה לערכה מיובאת בהירה (theme-variables-light-import-hooks ב-docs/webapp/custom_themes_guide.rst): הכפתורים
+   האלה צבועים לרקע כהה — טקסט לבן ורקע וגבול לבנים שקופים — ובערכה מיובאת בהירה הם לא נראים. כל וו נקרא בכלל שצובע
+   היום, עם fallback לערך שנצבע בו. --editor-btn-text-override צובע גם את כפתור ה-MD (markdown-toolbar.css). */
+.btn-switch-editor { padding:.5rem 1rem; background: var(--editor-switch-btn-bg-override, rgba(100,100,255,0.2)); border:1px solid var(--editor-btn-border-override, rgba(100,100,255,0.5)); border-radius:6px; color: var(--editor-btn-text-override, #fff); cursor:pointer; }
 .btn-switch-editor i { margin-inline-end:.35rem; }
 .editor-switcher .btn-switch-editor { min-width: fit-content; }
-.btn-switch-editor:hover { background: rgba(100,100,255,0.3); }
+.btn-switch-editor:hover { background: var(--editor-switch-btn-hover-bg-override, rgba(100,100,255,0.3)); }
 /* קבוצת הכפתורים בנויה משתי יחידות (``addSwitcherButton`` ב-``editor-manager.js``). הראשונה — "בטל", "בצע שוב",
    "בחר הכל" ו"העתק" — כולם באותו גובה: כפתור שיש בו רק אייקון נמתח לגובה של כפתור עם טקסט (``align-items``
    נשאר ``stretch``). השנייה — "הדבק", התא של ההודעות וסרגל ה-MD — לא נשברת: כשהשורה צרה היא יורדת לשורה הבאה
@@ -40,8 +43,8 @@
 .editor-clipboard-actions { --editor-clip-gap:.5rem; display:flex; align-items:center; gap:var(--editor-clip-gap); flex-wrap:wrap; flex:1 1 auto; min-width:0; }
 .editor-clip-head { display:flex; gap:var(--editor-clip-gap); flex-wrap:wrap; min-width:0; }
 .editor-clip-tail { display:flex; align-items:center; gap:var(--editor-clip-gap); flex:1 1 auto; min-width:max-content; align-self:stretch; }
-.btn-editor-clip { padding:.35rem .75rem; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; font-size:.85rem; display:flex; align-items:center; gap:.35rem; cursor:pointer; transition: background .2s ease, border-color .2s ease; }
-.btn-editor-clip:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); }
+.btn-editor-clip { padding:.35rem .75rem; border-radius:6px; border:1px solid var(--editor-btn-border-override, rgba(255,255,255,0.25)); background: var(--editor-btn-bg-override, rgba(255,255,255,0.08)); color: var(--editor-btn-text-override, #fff); font-size:.85rem; display:flex; align-items:center; gap:.35rem; cursor:pointer; transition: background .2s ease, border-color .2s ease; }
+.btn-editor-clip:hover { background: var(--editor-btn-hover-bg-override, rgba(255,255,255,0.15)); border-color: var(--editor-btn-border-override, rgba(255,255,255,0.4)); }
 .btn-editor-clip:disabled { opacity:.6; cursor:not-allowed; }
 /* "בטל" ו"בצע שוב" (``.btn-editor-history`` ב-``editor-manager.js``) — אייקון בלי טקסט. בעמוד מימין לשמאל "אחורה"
    הוא ימינה, ולכן החצים בתמונת ראי: החץ של "בטל" פונה ימינה. ``html[dir="rtl"]`` ולא ``:dir(rtl)`` — התקדים

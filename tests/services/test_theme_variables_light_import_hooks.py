@@ -1,10 +1,13 @@
-"""ווי הדריסה לערכה מיובאת בהירה: שדות טופס, הפיד והפוש בדשבורד, ושורת החיפוש בתצוגת ה-Markdown.
+"""ווי הדריסה לערכה מיובאת בהירה: שדות טופס, הפיד והפוש בדשבורד, שורת החיפוש, "שולחן עבודה", הכפתורים
+שמעל העורך, וסרגל החיפוש ומלבני הפרטים בתצוגת הקוד.
 
 כל ערכה מיובאת מקבלת את העיצוב של הערכות הכהות, וזה נשאר כך בכוונה. כמה רכיבים צבועים שם בצבעים
-קבועים לרקע כהה — לבן שקוף לגבולות ולרקעים, טקסט כמעט לבן בתגים — ובערכה מיובאת בהירה הם לא נראים:
-השדות בעמודי העריכה וההעלאה ושדות הסינון בעמוד הקבצים, הבלוקים, התגים והבאדג' של הפוש בדשבורד,
-והגבול של שורת החיפוש בתצוגת ה-Markdown. כל אחד מהם קורא עכשיו וו דריסה בכלל שצובע אותו היום, וערכה
-בהירה מצהירה עליו בבלוק ``variables`` שלה.
+קבועים לרקע כהה — לבן שקוף לגבולות ולרקעים, טקסט כמעט לבן בתגים ובכפתורים — ובערכה מיובאת בהירה הם
+לא נראים: השדות בעמודי העריכה וההעלאה ושדות הסינון בעמוד הקבצים, הבלוקים, התגים והבאדג' של הפוש
+בדשבורד, הגבול של שורת החיפוש בתצוגת ה-Markdown ובתצוגת הקוד, הכפתורים שמעל העורך, וסרגל החיפוש
+ומלבני הפרטים בתצוגת הקוד. "שולחן עבודה" בעמוד הקבצים צבוע במעבר צבע שמסתיים ב-``--secondary``, שהמייבא
+אינו לוקח מקובץ VS Code. כל אחד מהם קורא עכשיו וו דריסה בכלל שצובע אותו היום, וערכה בהירה מצהירה עליו
+בבלוק ``variables`` שלה.
 
 הבדיקות טקסטואליות, כמו אלה של שאר ווי הדריסה: הן שומרות על החוזה — רשימה לבנה, בלי ברירת מחדל בשום
 מקום, ו-fallback שהוא בדיוק מה שנצבע היום — ולא מודדות את המפל מחדש. בדיקת הייבוא עוברת דרך ה-endpoint
@@ -39,6 +42,21 @@ ITEM_BORDER = "--timeline-item-border-override"
 BADGE_TEXT = "--timeline-badge-text-override"
 PILL_TEXT = "--status-pill-text-override"
 CAPSULE_BORDER = "--md-search-capsule-border-override"
+WORKSPACE_BG = "--workspace-btn-bg-override"
+WORKSPACE_BORDER = "--workspace-btn-border-override"
+EDITOR_BTN_TEXT = "--editor-btn-text-override"
+EDITOR_BTN_BG = "--editor-btn-bg-override"
+EDITOR_BTN_BORDER = "--editor-btn-border-override"
+EDITOR_BTN_HOVER_BG = "--editor-btn-hover-bg-override"
+EDITOR_SWITCH_BG = "--editor-switch-btn-bg-override"
+EDITOR_SWITCH_HOVER_BG = "--editor-switch-btn-hover-bg-override"
+CODE_TOOLBAR_BG = "--code-toolbar-bg-override"
+CODE_TOOLBAR_BORDER = "--code-toolbar-border-override"
+CODE_TOOLBAR_HOVER_BG = "--code-toolbar-hover-bg-override"
+CODE_TOOLBAR_TEXT = "--code-toolbar-text-override"
+CODE_CAPSULE_BG = "--code-search-capsule-bg-override"
+CODE_CAPSULE_FOCUS_BORDER = "--code-search-capsule-focus-border-override"
+META_ITEM_BG = "--file-meta-item-bg-override"
 TOKENS = (
     FIELD_BORDER,
     FIELD_BG,
@@ -48,13 +66,35 @@ TOKENS = (
     BADGE_TEXT,
     PILL_TEXT,
     CAPSULE_BORDER,
+    WORKSPACE_BG,
+    WORKSPACE_BORDER,
+    EDITOR_BTN_TEXT,
+    EDITOR_BTN_BG,
+    EDITOR_BTN_BORDER,
+    EDITOR_BTN_HOVER_BG,
+    EDITOR_SWITCH_BG,
+    EDITOR_SWITCH_HOVER_BG,
+    CODE_TOOLBAR_BG,
+    CODE_TOOLBAR_BORDER,
+    CODE_TOOLBAR_HOVER_BG,
+    CODE_TOOLBAR_TEXT,
+    CODE_CAPSULE_BG,
+    CODE_CAPSULE_FOCUS_BORDER,
+    META_ITEM_BG,
 )
+#: משתנה הביניים של המסגרת של "שולחן עבודה" — לא וו. ראו ``WORKSPACE_HOOKS``.
+WORKSPACE_RING = "--workspace-btn-ring"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FILE_EDITOR_CSS = REPO_ROOT / "webapp/static/css/file-editor.css"
 FILES_HTML = REPO_ROOT / "webapp/templates/files.html"
 DASHBOARD_HTML = REPO_ROOT / "webapp/templates/dashboard.html"
 MD_PREVIEW_HTML = REPO_ROOT / "webapp/templates/md_preview.html"
+BASE_HTML = REPO_ROOT / "webapp/templates/base.html"
+CODEMIRROR_CUSTOM_CSS = REPO_ROOT / "webapp/static/css/codemirror-custom.css"
+MARKDOWN_TOOLBAR_CSS = REPO_ROOT / "webapp/static/css/markdown-toolbar.css"
+VIEW_FILE_HTML = REPO_ROOT / "webapp/templates/view_file.html"
+CUSTOM_THEMES_GUIDE = REPO_ROOT / "docs/webapp/custom_themes_guide.rst"
 
 #: מה שכל כלל צבע לפני הווו (``main`` ב-2a3dec3c). ה-fallback חייב להיות בדיוק הערך הזה, אחרת ערכה
 #: שאינה מצהירה — כל ערכה מובנית, וכל ערכה מיובאת כהה — זזה.
@@ -75,6 +115,61 @@ DASHBOARD_HOOKS = {
     (".status-warning", "color"): f"var({PILL_TEXT}, #fef3c7)",
     (".status-danger", "color"): f"var({PILL_TEXT}, #fecaca)",
     (".status-neutral", "color"): f"var({PILL_TEXT}, #e2e8f0)",
+}
+#: "שולחן עבודה" (``.workspace-btn`` ב-``base.html``). הגבול נשאר ``none`` — גבול היה מגדיל את הכפתור בכל ערכה —
+#: והמסגרת היא ``box-shadow`` דרך משתנה ביניים בלי fallback: כשהווו אינו מוגדר, המשתנה לא תקף (W3C
+#: css-variables-1, סעיף 3.1), ו-``box-shadow`` נופל ל-``none``, הערך של הכלל עד היום.
+WORKSPACE_HOOKS = {
+    (".workspace-btn", "background"): (
+        f"var({WORKSPACE_BG}, linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%))"
+    ),
+    (".workspace-btn", "border"): "none",
+    (".workspace-btn", WORKSPACE_RING): f"inset 0 0 0 1px var({WORKSPACE_BORDER})",
+    (".workspace-btn", "box-shadow"): f"var({WORKSPACE_RING}, none)",
+}
+#: הכפתורים שמעל העורך — "עורך פשוט"/"עורך מתקדם", "בטל", "בצע שוב", "בחר הכל", "העתק" ו"הדבק".
+EDITOR_HOOKS = {
+    (".btn-switch-editor", "background"): f"var({EDITOR_SWITCH_BG}, rgba(100,100,255,0.2))",
+    (".btn-switch-editor", "border"): f"1px solid var({EDITOR_BTN_BORDER}, rgba(100,100,255,0.5))",
+    (".btn-switch-editor", "color"): f"var({EDITOR_BTN_TEXT}, #fff)",
+    (".btn-switch-editor:hover", "background"): f"var({EDITOR_SWITCH_HOVER_BG}, rgba(100,100,255,0.3))",
+    (".btn-editor-clip", "border"): f"1px solid var({EDITOR_BTN_BORDER}, rgba(255,255,255,0.25))",
+    (".btn-editor-clip", "background"): f"var({EDITOR_BTN_BG}, rgba(255,255,255,0.08))",
+    (".btn-editor-clip", "color"): f"var({EDITOR_BTN_TEXT}, #fff)",
+    (".btn-editor-clip:hover", "background"): f"var({EDITOR_BTN_HOVER_BG}, rgba(255,255,255,0.15))",
+    (".btn-editor-clip:hover", "border-color"): f"var({EDITOR_BTN_BORDER}, rgba(255,255,255,0.4))",
+}
+#: כפתור ה-MD באותה שורה, בקובץ אחר.
+MD_TRIGGER_HOOKS = {
+    (".md-toolbar-trigger", "color"): f"var({EDITOR_BTN_TEXT}, var(--text-color, #e0e0e0))",
+}
+#: סרגל החיפוש ומלבני הפרטים בתצוגת הקוד (``view_file.html``). הגבול של שורת החיפוש קורא את הווו של שורת
+#: החיפוש בתצוגת ה-Markdown — אותו רכיב בשני עותקים.
+VIEW_FILE_HOOKS = {
+    (".editor-toolbar", "background"): f"var({CODE_TOOLBAR_BG}, rgba(255, 255, 255, 0.08))",
+    (".editor-toolbar", "border"): f"1px solid var({CODE_TOOLBAR_BORDER}, rgba(255, 255, 255, 0.18))",
+    (".search-capsule", "background"): f"var({CODE_CAPSULE_BG}, rgba(0, 0, 0, 0.25))",
+    (".search-capsule", "border"): f"1px solid var({CAPSULE_BORDER}, transparent)",
+    (".search-capsule:focus-within", "border-color"): (
+        f"var({CODE_CAPSULE_FOCUS_BORDER}, rgba(255, 255, 255, 0.5))"
+    ),
+    (".search-capsule:focus-within", "background"): f"var({CODE_CAPSULE_BG}, rgba(0, 0, 0, 0.4))",
+    (".search-count", "color"): f"var({CODE_TOOLBAR_TEXT}, rgba(255, 255, 255, 0.85))",
+    (".divider", "background"): f"var({CODE_TOOLBAR_BORDER}, rgba(255, 255, 255, 0.25))",
+    (".icon-btn", "color"): f"var({CODE_TOOLBAR_TEXT}, rgba(255, 255, 255, 0.9))",
+    (".icon-btn:hover", "background"): f"var({CODE_TOOLBAR_HOVER_BG}, rgba(255, 255, 255, 0.15))",
+    (".icon-btn:focus-visible", "background"): f"var({CODE_TOOLBAR_HOVER_BG}, rgba(255, 255, 255, 0.15))",
+    (".fullscreen-btn", "border"): f"1px solid var({CODE_TOOLBAR_BORDER}, rgba(255, 255, 255, 0.25))",
+    (".fullscreen-btn", "background"): f"var({CODE_TOOLBAR_BG}, rgba(255, 255, 255, 0.12))",
+    (".fullscreen-btn:hover", "background"): f"var({CODE_TOOLBAR_HOVER_BG}, rgba(255, 255, 255, 0.22))",
+    (".fullscreen-btn:hover", "border-color"): f"var({CODE_TOOLBAR_BORDER}, rgba(255, 255, 255, 0.4))",
+    (".fullscreen-btn:focus-visible", "background"): (
+        f"var({CODE_TOOLBAR_HOVER_BG}, rgba(255, 255, 255, 0.22))"
+    ),
+    (".fullscreen-btn:focus-visible", "border-color"): (
+        f"var({CODE_TOOLBAR_BORDER}, rgba(255, 255, 255, 0.4))"
+    ),
+    (".meta-item", "background"): f"var({META_ITEM_BG}, rgba(255,255,255,0.05))",
 }
 #: שדות הסינון בעמוד הקבצים — צבועים רק ב-``style`` שבתגית, ולכן הווו נקרא שם.
 FILES_FILTER_FIELDS = ('input type="text" name="q"', 'select name="lang"', 'select name="sort"')
@@ -179,6 +274,39 @@ def test_dashboard_has_no_unhooked_badge_or_pill_variant():
     assert not offenders, "\n".join(offenders)
 
 
+def test_workspace_button_reads_the_tokens_with_todays_values():
+    """הרקע — מעבר הצבע של היום כ-fallback; הגבול נשאר ``none``; המסגרת דרך משתנה ביניים."""
+    rules = css_rules(template_css(BASE_HTML))
+    for (selector, prop), expected in WORKSPACE_HOOKS.items():
+        assert _declaration(rules, selector, prop) == expected, (selector, prop)
+
+
+def test_workspace_ring_is_not_a_theme_token():
+    """משתנה הביניים אינו ברשימה הלבנה: ערכה שהייתה קובעת אותו ישירות הייתה עוקפת את ``inset 0 0 0 1px``."""
+    assert WORKSPACE_RING not in ALLOWED_VARIABLES_WHITELIST
+
+
+def test_editor_buttons_read_the_tokens_with_todays_fallbacks():
+    """``.btn-switch-editor`` ו-``.btn-editor-clip`` ב-``codemirror-custom.css``, כולל הריחוף."""
+    rules = css_rules(CODEMIRROR_CUSTOM_CSS.read_text(encoding="utf-8"))
+    for (selector, prop), expected in EDITOR_HOOKS.items():
+        assert _declaration(rules, selector, prop) == expected, (selector, prop)
+
+
+def test_md_trigger_reads_the_editor_text_token():
+    """כפתור ה-MD יושב באותה שורה, ולכן קורא את אותו וו טקסט, עם הצבע שצבע עד היום כ-fallback."""
+    rules = css_rules(MARKDOWN_TOOLBAR_CSS.read_text(encoding="utf-8"))
+    for (selector, prop), expected in MD_TRIGGER_HOOKS.items():
+        assert _declaration(rules, selector, prop) == expected, (selector, prop)
+
+
+def test_code_view_toolbar_and_meta_read_the_tokens_with_todays_fallbacks():
+    """סרגל החיפוש, שורת החיפוש (גם בפוקוס), הכפתורים שבה, "מסך מלא" ומלבני הפרטים ב-``view_file.html``."""
+    rules = css_rules(template_css(VIEW_FILE_HTML))
+    for (selector, prop), expected in VIEW_FILE_HOOKS.items():
+        assert _declaration(rules, selector, prop) == expected, (selector, prop)
+
+
 def test_search_capsule_reads_the_token_with_the_general_rules_border():
     """ה-fallback של הגבול הוא הצבע שהכלל הכללי ``.md-search-capsule`` צובע — כך שהוא לא זז."""
     rules = css_rules(template_css(MD_PREVIEW_HTML))
@@ -224,12 +352,42 @@ DOCUMENTED_VARIABLES = {
     BADGE_TEXT: "#2b3f6a",
     PILL_TEXT: "#2b3f6a",
     CAPSULE_BORDER: "rgba(110, 78, 68, 0.3)",
+    WORKSPACE_BG: "rgba(224, 218, 211, 0.55)",
+    WORKSPACE_BORDER: "rgba(110, 78, 68, 0.3)",
+    EDITOR_BTN_TEXT: "#2b3f6a",
+    EDITOR_BTN_BG: "rgba(255, 253, 249, 0.6)",
+    EDITOR_BTN_BORDER: "rgba(110, 78, 68, 0.3)",
+    EDITOR_BTN_HOVER_BG: "rgba(110, 78, 68, 0.12)",
+    EDITOR_SWITCH_BG: "#e4dcc8",
+    EDITOR_SWITCH_HOVER_BG: "#d2b493",
+    CODE_TOOLBAR_BG: "rgba(224, 218, 211, 0.55)",
+    CODE_TOOLBAR_BORDER: "rgba(110, 78, 68, 0.3)",
+    CODE_TOOLBAR_HOVER_BG: "rgba(110, 78, 68, 0.12)",
+    CODE_TOOLBAR_TEXT: "#2b3f6a",
+    CODE_CAPSULE_BG: "rgba(248, 246, 241, 0.25)",
+    CODE_CAPSULE_FOCUS_BORDER: "#6e4e44",
+    META_ITEM_BG: "rgba(255, 253, 249, 0.6)",
 }
+
+
+def _documented_example():
+    """בלוק ה-JSON הראשון בסעיף ``theme-variables-light-import-hooks`` ב-``custom_themes_guide.rst``, כפי שהוא כתוב."""
+    text = CUSTOM_THEMES_GUIDE.read_text(encoding="utf-8")
+    section = text.split(".. _theme-variables-light-import-hooks:", 1)[1]
+    block = re.search(r"\.\. code-block:: json\n\n((?:   .*\n|\n)+)", section)
+    assert block, "אין בלוק JSON בסעיף"
+    return json.loads("\n".join(line[3:] for line in block.group(1).splitlines()))
+
+
+def test_the_documented_example_declares_exactly_these_tokens():
+    """הדוגמה בתיעוד והמילון כאן הם אותה דוגמה — ושום וו לא נשמט ממנה."""
+    assert _documented_example()["variables"] == DOCUMENTED_VARIABLES
+    assert set(DOCUMENTED_VARIABLES) == set(TOKENS)
 
 
 def test_documented_example_passes_validation():
     """הדוגמה שבתיעוד (``custom_themes_guide.rst``) עוברת את הוולידציה כפי שהיא כתובה."""
-    ok, error = validate_theme_json(json.dumps(_theme(DOCUMENTED_VARIABLES)))
+    ok, error = validate_theme_json(json.dumps(_documented_example()))
     assert ok, error
 
 
