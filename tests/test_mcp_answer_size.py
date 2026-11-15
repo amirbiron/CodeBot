@@ -64,6 +64,7 @@ DECLARING = frozenset({
     "codekeeper_list_notes",
     "codekeeper_list_board_notes",
     "codekeeper_get_note",
+    "codekeeper_show_note",
     "codekeeper_docs_get_section",
     "codekeeper_read_batch",
 })
@@ -467,8 +468,12 @@ async def test_the_declaration_the_client_sees_is_the_registration_and_the_net_h
         declaring = {name for name, meta in listed.items()
                      if (meta or {}).get(answer_size.DECLARED_SIZE_KEY) is not None}
         assert declaring == DECLARING
+        # הערך, ולא ה-``_meta`` כולו: לכלי מותר לשאת מפתחות משלו לצד ההצהרה — ``codekeeper_show_note``
+        # נושא גם את הקישור לתצוגה שלו (``note_view.tool_meta``). שה-``_meta`` שהלקוח רואה הוא
+        # בדיוק הרישום — הלולאה שלמעלה.
         for name in declaring:
-            assert listed[name] == answer_size.declared_size_meta(), name
+            assert {answer_size.DECLARED_SIZE_KEY: listed[name][answer_size.DECLARED_SIZE_KEY]} \
+                == answer_size.declared_size_meta(), name
 
         tool = mcp._tool_manager.get_tool("codekeeper_get_file")
         monkeypatch.setattr(tool, "meta", {answer_size.DECLARED_SIZE_KEY: 50})
