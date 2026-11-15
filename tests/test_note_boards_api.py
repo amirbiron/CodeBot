@@ -184,6 +184,41 @@ def test_list_reattaches_orphan_notes(client):
     assert client.db.sticky_notes.docs[0]["updated_at"] == "T0"
 
 
+def test_list_order_is_default_then_hebrew_then_english(client):
+    """הסדר שעמוד ``/boards`` מציג — העמוד בונה את הכרטיסים לפי סדר הרשימה מהראוט הזה. הלוחות נוצרים
+    כאן בסדר שונה מהמצופה, ולוח ברירת המחדל נוצר **אחרון**: יצירת לוח (POST) אינה יוצרת אותו, וה-GET הוא
+    שיוצר אותו (``ensure_default_board`` ב-``list_user_boards``). ועדיין הוא ראשון."""
+    for name in ["To CC", "פריימר", "מCLAUDE.md", "amir bug patterns", "ארכיון"]:
+        assert client.post("/api/note-boards", json={"name": name}).status_code == 201
+    # ההנחה שהטסט נשען עליה, כבדיקה ולא רק כהסבר: עד ה-GET אין לוח ברירת מחדל.
+    assert not any(d.get("is_default") for d in client.db.note_boards.docs)
+
+    body = client.get("/api/note-boards").get_json()
+
+    assert [b["name"] for b in body["boards"]] == [
+        "לוח עבודה",
+        "ארכיון",
+        "מCLAUDE.md",
+        "פריימר",
+        "amir bug patterns",
+        "To CC",
+    ]
+
+
+def test_a_corrupted_order_does_not_break_the_list_route(client):
+    """לוח עם ``order`` ש-``int`` זורק עליו אינו מפיל את ``/api/note-boards``. עד היום — 500, ועמוד ``/boards``
+    בלי אף לוח, בגלל מסמך אחד: ההמרה נכשלה גם במיון (``list_boards``) וגם בתשובה (``_board_response``)."""
+    client.db.note_boards.docs.extend([
+        {"_id": 1, "user_id": 7, "name": "לוח עבודה", "is_default": True, "order": 0},
+        {"_id": 2, "user_id": 7, "name": "רעיונות", "is_default": False, "order": "abc"},
+    ])
+
+    res = client.get("/api/note-boards")
+
+    assert res.status_code == 200
+    assert [(b["name"], b["order"]) for b in res.get_json()["boards"]] == [("לוח עבודה", 0), ("רעיונות", 0)]
+
+
 # -- יצירה --
 
 def test_create_board(client):
