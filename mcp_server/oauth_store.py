@@ -19,6 +19,8 @@ import secrets
 from datetime import datetime, timedelta, UTC
 from typing import Any
 
+from pymongo.errors import PyMongoError
+
 from .token_store import hash_token
 
 logger = logging.getLogger(__name__)
@@ -66,23 +68,53 @@ class OAuthStore:
         self._ensure_indexes()
 
     def _ensure_indexes(self) -> None:
-        try:
-            self._clients.create_index("client_id", unique=True)
-            self._txns.create_index("txn_id", unique=True)
-            self._codes.create_index("code_hash", unique=True)
-            self._tokens.create_index("token_hash", unique=True)
-            self._tokens.create_index("subject")
-            # TTL: let Mongo reap expired rows automatically (we also guard on
-            # read via _expired). expireAfterSeconds=0 => delete once expires_at
-            # is in the past. Keeps codes/txns/tokens collections self-cleaning.
-            self._txns.create_index("expires_at", expireAfterSeconds=0)
-            self._codes.create_index("expires_at", expireAfterSeconds=0)
-            self._tokens.create_index("expires_at", expireAfterSeconds=0)
-        except Exception:
-            # Best-effort: index creation must never break the service (the store
-            # still works without indexes). But don't swallow silently — a failure
-            # on the unique/TTL indexes is worth seeing in logs to diagnose drift.
-            logger.warning("OAuth store index creation failed (non-fatal)", exc_info=True)
+        """Declare the store's indexes, **each one on its own**.
+
+        The ``expires_at`` TTL indexes are what the privacy policy at ``/privacy``
+        (``webapp/templates/privacy.html``, the ``mcp`` section) means by "Expired token
+        records are deleted automatically" — every reader here also checks ``_expired``,
+        so for correctness they are hygiene, but for that promise they are the mechanism.
+        Until now one ``try`` held all eight calls, so a failure on any of them (a
+        ``unique`` index that existing duplicates block, say) skipped every call after it,
+        the TTL indexes included.
+
+        A failure stays non-fatal — the store works without indexes, and an index
+        failure must not stop the server from booting — but it is no longer a single
+        WARNING for the lot. A ``unique`` or TTL index that is missing is a promise that
+        quietly stopped holding (``amir-bug-patterns``, ``BY-STACK/mongodb.md`` pattern 9),
+        so it is logged at ERROR with the collection, the keys and the options;
+        ``subject``, the one performance index, at WARNING. Only ``PyMongoError`` — the
+        base of every pymongo failure, network and command alike (``pymongo/errors.py``,
+        pymongo 4.15.3) — means "the database refused or did not answer"; anything else
+        here is a bug and propagates.
+
+        Declared in the constructor, so ``save_token`` / ``save_code`` / ``create_txn``,
+        the only writers to these collections, always pass through it first.
+        """
+        declared = (
+            ("mcp_oauth_clients", self._clients, "client_id", {"unique": True}),
+            ("mcp_oauth_txns", self._txns, "txn_id", {"unique": True}),
+            ("mcp_oauth_codes", self._codes, "code_hash", {"unique": True}),
+            (TOKENS_COLLECTION, self._tokens, "token_hash", {"unique": True}),
+            (TOKENS_COLLECTION, self._tokens, "subject", {}),
+            # TTL: Mongo deletes a row once its ``expires_at`` is in the past.
+            ("mcp_oauth_txns", self._txns, "expires_at", {"expireAfterSeconds": 0}),
+            ("mcp_oauth_codes", self._codes, "expires_at", {"expireAfterSeconds": 0}),
+            (TOKENS_COLLECTION, self._tokens, "expires_at", {"expireAfterSeconds": 0}),
+        )
+        for name, collection, keys, options in declared:
+            try:
+                collection.create_index(keys, **options)
+            except PyMongoError:
+                is_schema = "unique" in options or "expireAfterSeconds" in options
+                logger.log(
+                    logging.ERROR if is_schema else logging.WARNING,
+                    "oauth_index_failed: %s %s %s — not created; the store keeps working without it",
+                    name,
+                    keys,
+                    options,
+                    exc_info=True,
+                )
 
     # -- clients (Dynamic Client Registration) ----------------------------
     def save_client(self, client: dict) -> None:

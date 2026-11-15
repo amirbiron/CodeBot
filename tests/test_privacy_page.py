@@ -287,10 +287,10 @@ def test_connector_tokens_are_stored_only_as_a_hash_and_expire_out_of_the_databa
     assert "Expired token records are deleted automatically." in section
 
 
-def test_posthog_gets_no_user_identity_and_the_assistant_is_not_asked_for_its_intent(monkeypatch):
-    """העמוד אומר שהאירועים לא נושאים את מזהה המשתמש, ושהמחבר לא מבקש מהסוכן לתאר על מה עובדים.
+def test_posthog_gets_no_user_identity_and_no_intent_option(monkeypatch):
+    """העמוד אומר שהאירועים לא נושאים את מזהה המשתמש, ושהמחבר לא מוסיף לכלים פרמטר שמבקש מהסוכן לתאר את הקריאה.
 
-    שניהם הם אופציות של ``posthog.mcp`` ש-``instrument_mcp_server`` מעביר: בלי ``identify`` ה-``distinct_id`` הוא מזהה הסשן ואין פרופיל (``_posthog_events.py``, posthog 7.45.3); ו-``context=False`` — ברירת המחדל של ה-SDK היא ``True``, ולכן הבדיקה היא על ``is False`` ולא על "לא הועבר". כאן נלכדות האופציות שהשרת באמת מעביר.
+    שניהם הם אופציות של ``posthog.mcp`` ש-``instrument_mcp_server`` מעביר: בלי ``identify`` ה-``distinct_id`` הוא מזהה הסשן ואין פרופיל (``_posthog_events.py``, posthog 7.45.3); ו-``context=False`` — ברירת המחדל של ה-SDK היא ``True``, ולכן הבדיקה היא על ``is False`` ולא על "לא הועבר". כאן נלכדות האופציות שהשרת באמת מעביר. הפרמטר היחיד שכן מבקש תיאור משימה הוא ``working_on`` של תגובה על פתק — :func:`test_the_only_task_description_the_connector_asks_for_is_working_on_on_a_comment`.
     """
     pytest.importorskip("mcp")
     posthog_mcp = pytest.importorskip("posthog.mcp")
@@ -314,9 +314,7 @@ def test_posthog_gets_no_user_identity_and_the_assistant_is_not_asked_for_its_in
     assert options.context is False
     assert options.intent_fallback is None
 
-    section = _mcp_section()
-    assert "It does not include your CodeKeeper user ID" in section
-    assert "it does not ask the assistant to describe what you are working on" in section
+    assert "It does not include your CodeKeeper user ID" in _mcp_section()
 
 
 class _NoBody:
@@ -326,8 +324,8 @@ class _NoBody:
         raise AssertionError("a tool body ran while only the tool list was needed")
 
 
-def test_the_connector_has_no_tool_that_deletes(monkeypatch):
-    """העמוד אומר שלמחבר אין דרך למחוק קבצים, פתקים או אוספים. כאן נבנה השרת האמיתי, עם כלי האדמין, ושמות כל הכלים הרשומים נבדקים.
+def _registered_tools(monkeypatch) -> list:
+    """הכלים שהשרת האמיתי רושם (``build_mcp``), כולל כלי האדמין.
 
     ``ENVIRONMENT=production``: בלי קונפיגורציית PostHog, ``instrument_mcp_server`` זורק מחוץ לפרודקשן — כמו ב-``tests/test_mcp_pre_parse_json.py``.
     """
@@ -335,8 +333,32 @@ def test_the_connector_has_no_tool_that_deletes(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     import mcp_server.server as srv
 
-    mcp = srv.build_mcp(_NoBody(), repo_backend=_NoBody())
-    names = {tool.name for tool in mcp._tool_manager.list_tools()}
+    return srv.build_mcp(_NoBody(), repo_backend=_NoBody())._tool_manager.list_tools()
+
+
+def test_the_only_task_description_the_connector_asks_for_is_working_on_on_a_comment(monkeypatch):
+    """העמוד אומר שהמחבר מבקש מהסוכן לתאר את המשימה במקום אחד בלבד: ``working_on`` בתגובה על פתק, עד ``MAX_WORKING_ON_CHARS`` תווים, והמשפט נשמר עם התגובה.
+
+    כאן נבדקות הסכימות של כל הכלים הרשומים: ``working_on`` רק ב-``codekeeper_comment_note``, ו-``context`` (מה ש-``posthog.mcp`` מזריק כשהאופציה דלוקה) באף כלי. הבדיקה היא לפי שם הפרמטר: פרמטר חדש בשם אחר שמבקש תיאור משימה לא ייתפס כאן, ומי שמוסיף כזה צריך לעדכן את העמוד ואת הטסט.
+    """
+    from note_threads import MAX_WORKING_ON_CHARS
+
+    tools = _registered_tools(monkeypatch)
+    asking = {tool.name for tool in tools if "working_on" in (tool.parameters.get("properties") or {})}
+    injected = {tool.name for tool in tools if "context" in (tool.parameters.get("properties") or {})}
+
+    assert asking == {"codekeeper_comment_note"}, asking
+    assert injected == set(), injected
+
+    section = _mcp_section()
+    assert "The connector asks the assistant to describe its task in one place only: when the assistant comments on a sticky note" in section
+    assert f"up to {MAX_WORKING_ON_CHARS} characters, what it is working on" in section
+    assert "and with the sentence the assistant wrote about what it is working on" in section
+
+
+def test_the_connector_has_no_tool_that_deletes(monkeypatch):
+    """העמוד אומר שלמחבר אין דרך למחוק קבצים, פתקים או אוספים. כאן נבנה השרת האמיתי, עם כלי האדמין, ושמות כל הכלים הרשומים נבדקים."""
+    names = {tool.name for tool in _registered_tools(monkeypatch)}
 
     # הרשימה האמיתית, ולא רשימה ריקה שעוברת כל בדיקה
     assert {"codekeeper_save_file", "codekeeper_update_note", "codekeeper_list_repos"} <= names
