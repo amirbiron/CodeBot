@@ -408,3 +408,25 @@ def test_the_view_copies_the_ink_spacing_and_default_size_of_a_webapp_note():
     assert _css_value(paper, "--ck-title-weight") == _css_value(webapp_title, "font-weight")
     assert _css_value(view_title, "font-size") == "var(--ck-title-font)"
     assert _css_value(view_title, "font-weight") == "var(--ck-title-weight)"
+
+
+def _new_note_height() -> int:
+    """``NEW_NOTE_H`` מ-``sticky-notes.js`` — הגובה של פתק חדש בוובאפ, הבעלים של הגובה הקבוע בתצוגה."""
+    js = (_REPO / "webapp" / "static" / "js" / "sticky-notes.js").read_text(encoding="utf-8")
+    found = re.findall(r"\bNEW_NOTE_H\s*=\s*(\d+)\b", js)
+    assert len(found) == 1, found
+    return int(found[0])
+
+
+def test_the_fixed_height_of_the_view_is_the_height_of_a_new_webapp_note():
+    """הגובה הקבוע של התצוגה (``--ck-cap``) הוא הגובה של פתק חדש בוובאפ — החלטת המשתמש.
+
+    הדף אינו טוען את ה-JS של הוובאפ, ולכן המספר משוכפל ב-``note_view.css``. אם ``NEW_NOTE_H``
+    ישתנה, הטסט ייפול, וההחלטה אם התצוגה עוברת איתו חוזרת למשתמש.
+    """
+    view_css = (_REPO / "mcp_server" / "apps" / "note_view.css").read_text(encoding="utf-8")
+    assert _css_value(_css_block(view_css, ":root"), "--ck-cap") == f"{_new_note_height()}px"
+    # התקרה חלה דרך הנוסחה האחת, ולא דרך ערך שני שהוקלד במקום אחר.
+    assert _css_value(_css_block(view_css, "#ck-note-root"), "max-height") == (
+        "min(var(--ck-cap), var(--ck-host-max, var(--ck-cap)))"
+    )
