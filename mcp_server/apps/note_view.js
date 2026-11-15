@@ -57,8 +57,11 @@
   var SCROLL_STEP_RATIO = 0.75;
   /** השדות של ``safeAreaInsets`` במפרט — פיזיים, ולכן גם המשתנים ב-CSS. */
   var SAFE_AREA_SIDES = ['top', 'right', 'bottom', 'left'];
-  /** הגודל שאלמנט הבדיקה מבקש — ``measureTextScale`` מחלק בו את הגודל המחושב. */
+  /** הגודל שאלמנטי הבדיקה מבקשים — ``probeScale`` מחלק בו את הגודל המחושב. */
   var TEXT_PROBE_PX = 100;
+  /** כמה רחוק מ-1 היחס שנשאר אחרי הפיצוי יכול להיות ועדיין להיחשב "בוטל". 130% כפול 76.9231% אינו
+   *  יוצא 1 בדיוק בחשבון עשרוני, ולכן לא משווים בשוויון. */
+  var TEXT_SCALE_EPSILON = 0.005;
 
   var INIT_DEADLINE_MS = 10000;
   var RESULT_DEADLINE_MS = 120000;
@@ -103,7 +106,12 @@
     this.view = null;
     /** ההגדלה של המערכת שנמדדה אחרונה — ראו ``measureTextScale``. */
     this.textScale = 1;
-    this.textProbe = null;
+    /** שני אלמנטי הבדיקה של ``probeScale``: ``raw`` מודד את ההגדלה, ``effect`` את מה שנשאר ממנה. */
+    this.textProbes = { raw: null, effect: null };
+    /** ``hostCapabilities`` מתשובת ``ui/initialize`` — ``openLinks`` מכריע אם קישור נפתח. */
+    this.hostCapabilities = {};
+    /** הצופה על הגודל (``watchSize``); הוא צופה גם בתוכן של הפתק, ולכן הוא נשמר. */
+    this.sizeObserver = null;
     this.initTimer = null;
     this.resultTimer = null;
     this.onMessage = this.onMessage.bind(this);
@@ -133,6 +141,7 @@
         return;
       }
       self.initialized = true;
+      self.hostCapabilities = isObject(result.hostCapabilities) ? result.hostCapabilities : {};
       // **``initialized`` לפני כל דבר אחר שהדף שולח** — כמו ``App.connect`` ב-SDK, ששולח אותו
       // מיד אחרי התשובה. ``applyHostContext`` מסדר את הדף לפי המסגרת ומודד גודל, ומדידה שהייתה
       // רצה לפניו הייתה שולחת ``size-changed`` למארח שעוד לא קיבל ``initialized``.
@@ -366,8 +375,9 @@
 
   // -- הגדלת הטקסט של המערכת ---------------------------------------------------
 
-  /** מודד בכמה המנוע מגדיל טקסט, ומעביר את היחס ל-CSS (``--ck-text-scale``), שמחלק בו כל גופן.
-
+  /** מודד בכמה המנוע מגדיל טקסט, ומבטל את ההגדלה — דרך ``text-size-adjust`` על ``html``, ואם המנוע
+   *  אינו מכבד אותו, בחלוקה של כל גופן ב-CSS (``--ck-text-scale``).
+   *
    *  **למה מדידה, ומה היא מודדת.** WebView של אנדרואיד מכפיל כל גופן בגודל הגופן של המערכת
    *  (``AwSettings.java``: "By default, scale the text size by the system font scale factor"), דרך
    *  ``TextZoomFactor`` של המסגרת. ב-Blink ההכפלה נכנסת לגודל המחושב
@@ -376,30 +386,62 @@
    *  ``TEXT_PROBE_PX`` מדווח בדיוק ``TEXT_PROBE_PX`` כפול ההגדלה — בלי לנחש לפי מכשיר, ובלי שום
    *  שינוי בדסקטופ ובווב, שם היחס 1. זום של כל העמוד אינו נכנס ליחס, ובצדק: הוא מגדיל גם את הגובה.
    *
-   *  **``display: none``** — לגודל מחושב אין צורך בפריסה, ואלמנט שאינו נפרס אינו משפיע על הגובה
-   *  שהדף מדווח. הגודל שלו קבוע ואינו עובר דרך ``--ck-text-scale``, כדי שהמדידה לא תמדוד את התיקון.
+   *  **למה ``text-size-adjust`` ולא חלוקה של הגופנים.** ``em`` נגזר מהגודל **שלפני** ההגדלה:
+   *  ``CSSToLengthConversionData::FontSizes`` לוקח את ``SpecifiedFontSize()``, ו-``TextZoomFactor``
+   *  נכנס רק לגודל המחושב. חלוקה של ``font-size`` מחזירה את הגופן לגודל של הוובאפ, אבל מקטינה את
+   *  ה-``em`` באותו יחס — וכל הריווחים של ה-Markdown (שוליים, ריפוד וגובה מינימלי של שורה, שכולם
+   *  ב-``em``) יוצאים צפופים. ``text-size-adjust`` נכנס **לאותה מכפלה** כמו ``TextZoomFactor``
+   *  (``zoom_factor *= builder.GetTextSizeAdjust().Multiplier()``, באותה פונקציה), ולכן ``100% / יחס``
+   *  מבטל את ההגדלה בלי לגעת בגודל המבוקש — והפתק זהה לוובאפ, גופן וריווח. WebView מכבד את התכונה
+   *  כברירת מחדל ("The modern approach is for CSS to always honor text-size-adjust", ``aw_settings.cc``).
+   *  הקבצים של Chromium נקראו בענף main ב-15.11.2026, והשרשרת כולה נמדדת בכרום 153 על
+   *  ``TextZoomFactor`` האמיתי (``test_the_system_text_zoom_is_measured_and_undone``).
+   *
+   *  **ואם המנוע אינו מכבד אותו** — WebView ישן, שבו התכונה חלה רק כשהאפליקציה בחרה
+   *  ``TEXT_AUTOSIZING`` — הבדיקה שאחרי ההצבה מגלה שההגדלה נשארה, והדף חוזר לחלוקה: הגופן בגודל של
+   *  הוובאפ, והריווחים צפופים כמו לפני השינוי הזה. זו הכרעה על היעדר יכולת של המנוע, שקבועה לאורך
+   *  חיי הדף, ולא נפילה על כשל (``silent-fallback-to-worse-path``, "היעדר יכולת מול כשל").
    *
    *  נקרא בעלייה ובכל מדידת גודל. שינוי של גודל הגופן במערכת בזמן שהתצוגה פתוחה משנה את גובה
    *  התוכן, ו-``ResizeObserver`` מוביל לכאן; פתק ארוך, שגובהו נעצר בתקרה, יתעדכן במדידה הבאה. */
   NoteView.prototype.measureTextScale = function () {
-    var probe = this.textProbe;
+    var scale = this.probeScale('raw');
+    // ערך שאינו מספר חיובי אינו מגיע מדפדפן אמיתי (אלמנט מחובר תמיד מקבל גודל בפיקסלים). אם
+    // בכל זאת — הפתק נשאר בגודל של הוובאפ בלי פיצוי, שהוא ברירת המחדל של התצוגה, ולא נכנס ל-CSS
+    // ערך לא תקין, שהיה מחזיר את כל הגופנים לגודל ההתחלתי של הדפדפן.
+    if (!isLength(scale, false) || scale === this.textScale) return;
+    this.textScale = scale;
+    var style = this.doc.documentElement.style;
+    style.removeProperty('--ck-text-scale');
+    if (scale === 1) {
+      style.removeProperty('text-size-adjust');
+      return;
+    }
+    style.setProperty('text-size-adjust', (100 / scale) + '%');
+    var left = this.probeScale('effect');
+    if (isLength(left, false) && Math.abs(left - 1) <= TEXT_SCALE_EPSILON) return;
+    style.removeProperty('text-size-adjust');
+    style.setProperty('--ck-text-scale', String(scale));
+  };
+
+  /** היחס בין הגודל המחושב של אלמנט בדיקה לגודל שהוא מבקש. ``raw`` מצהיר ``text-size-adjust: auto``,
+   *  כלומר "בלי התאמה" (``FontBuilder`` מדלג על המכפיל כשהערך ``auto``), ולכן אינו יורש את הפיצוי
+   *  ומודד את ההגדלה של המנוע כמו שהיא — גם אחרי שהפיצוי הוצב. ``effect`` יורש מ-``html`` ומודד מה
+   *  נשאר אחרי הפיצוי. **``display: none``** — לגודל מחושב אין צורך בפריסה, ואלמנט שאינו נפרס אינו
+   *  משפיע על הגובה שהדף מדווח. הגודל קבוע ואינו עובר דרך ``--ck-text-scale``, כדי שהמדידה לא
+   *  תמדוד את התיקון. */
+  NoteView.prototype.probeScale = function (which) {
+    var probe = this.textProbes[which];
     if (!probe) {
       probe = this.doc.createElement('span');
       probe.setAttribute('aria-hidden', 'true');
       probe.style.display = 'none';
       probe.style.fontSize = TEXT_PROBE_PX + 'px';
+      if (which === 'raw') probe.style.setProperty('text-size-adjust', 'auto');
       this.doc.body.appendChild(probe);
-      this.textProbe = probe;
+      this.textProbes[which] = probe;
     }
-    var scale = parseFloat(this.win.getComputedStyle(probe).fontSize) / TEXT_PROBE_PX;
-    // ערך שאינו מספר חיובי אינו מגיע מדפדפן אמיתי (אלמנט מחובר תמיד מקבל גודל בפיקסלים). אם
-    // בכל זאת — הפתק נשאר בגודל של הוובאפ בלי פיצוי, שהוא ברירת המחדל של התצוגה, ולא נכנס ל-CSS
-    // ``calc`` לא תקין, שהיה מחזיר את כל הגופנים לגודל ההתחלתי של הדפדפן.
-    if (!isLength(scale, false) || scale === this.textScale) return;
-    this.textScale = scale;
-    var docEl = this.doc.documentElement;
-    if (scale === 1) docEl.style.removeProperty('--ck-text-scale');
-    else docEl.style.setProperty('--ck-text-scale', String(scale));
+    return parseFloat(this.win.getComputedStyle(probe).fontSize) / TEXT_PROBE_PX;
   };
 
   // -- גודל (``setupSizeChangedNotifications`` ב-SDK) ------------------------------------
@@ -452,6 +494,8 @@
       var observer = new this.win.ResizeObserver(function () { self.scheduleSize(); });
       observer.observe(this.doc.documentElement);
       observer.observe(this.doc.body);
+      this.sizeObserver = observer;
+      if (this.view) observer.observe(this.view.content);
     }
   };
 
@@ -465,8 +509,14 @@
     p.textContent = text;
     host.textContent = '';
     host.appendChild(p);
-    this.view = null;
+    this.forgetView();
     if (this.initialized) this.scheduleSize();
+  };
+
+  /** הפתק המוצג יוצא מהמסך: הצופה מפסיק לצפות בתוכן שלו, והכפתורים שלו כבר אינם. */
+  NoteView.prototype.forgetView = function () {
+    if (this.sizeObserver && this.view) this.sizeObserver.unobserve(this.view.content);
+    this.view = null;
   };
 
   /** הפתק מתוך ``CallToolResult``, או ``{error}`` — בלי לזרוק על שום צורה שמגיעה מבחוץ. */
@@ -517,8 +567,24 @@
     var doc = this.doc;
     var host = this.root();
     if (!host) return;
+    var md = this.win.StickyMdRender;
+    // **הכרעה סטטית על היעדר יכולת, במקום אחד:** ``build_note_view`` מכניס את המנוע לדף, ו-
+    // ``tests/test_mcp_note_view.py`` בודק שהוא שם. דף בלעדיו הוא דף שנבנה לא נכון, והמשתמש
+    // רואה את זה במילים — לא פתק ריק, ולא חריגה שמשאירה "טוען…". **כל מה שהתצוגה לוקחת מהמנוע
+    // נבדק כאן:** ``render`` לבנייה, ו-``MD_SAFE_LINK`` לקישורים. והאובייקט שנבדק הוא זה שהקישורים
+    // נשפטים מולו (``onLinkClick`` מקבל אותו), כך שבזמן הלחיצה אין בדיקה שנייה ואין קריאה שנייה של
+    // ``window`` — מנוע שעבר את הבדיקה הזו הוא המנוע של כל מה שקורה בפתק עד הרינדור הבא.
+    if (!md || typeof md.render !== 'function' || !md.MD_SAFE_LINK || typeof md.MD_SAFE_LINK.test !== 'function') {
+      this.settle();
+      this.showStatus('התצוגה של הפתק לא נטענה במלואה, ולכן הפתק לא מוצג.', true);
+      return;
+    }
+    this.forgetView();
     var paper = doc.createElement('article');
-    paper.className = 'ck-paper';
+    // ``sticky-note`` — כמו הפתק בוובאפ. ``sticky-md-render.css`` תוחם בו את הכללים של הקישור, האלרט
+    // והבלוק המתקפל, ומצהיר עליו את הטוקנים שהתוכן קורא (הדיו של הפתק ביניהם). המחלקה אינה מביאה
+    // איתה את השלד של הפתק בלוח: הוא ב-``sticky-notes.css``, שהדף הזה אינו כולל.
+    paper.className = 'ck-paper sticky-note';
     if (typeof note.color === 'string' && HEX_COLOR_RE.test(note.color)) {
       paper.style.backgroundColor = note.color;
       paper.className += ' has-note-color';
@@ -531,33 +597,74 @@
     }
     var body = doc.createElement('div');
     body.className = 'ck-body';
+    var self = this;
+    body.addEventListener('click', function (event) { self.onLinkClick(event, md); });
+    // **התוכן עטוף, ובכוונה.** ``ck-body`` הוא מכל הגלילה, ובגובה הקבוע הוא אינו משנה גודל כשהתוכן
+    // שבתוכו גדל — בלוק מתקפל שנפתח, גופן שנטען. ``ResizeObserver`` על ``ck-content`` רואה את
+    // זה, ולכן ▲▼ מופיעים ונעלמים לפי התוכן ולא רק לפי המסגרת.
+    var content = doc.createElement('div');
+    content.className = 'ck-content';
+    body.appendChild(content);
     if (note.content === '') {
       var empty = doc.createElement('div');
-      empty.className = 'ck-line ck-empty';
+      empty.className = 'ck-empty';
       empty.textContent = 'הפתק ריק.';
-      body.appendChild(empty);
+      content.appendChild(empty);
     } else {
-      var lines = note.content.split('\n');
-      for (var i = 0; i < lines.length; i += 1) {
-        var row = doc.createElement('div');
-        row.className = 'ck-line';
-        // **בלי ``dir``** — השורה יורשת ``rtl`` מה-``<html>``, כמו בפתק בוובאפ. נמדד שם בכרום:
-        // בתיבת הטקסט ובתצוגה כל שורה ``direction: rtl`` בלי תכונת ``dir``, גם שורה שמתחילה
-        // באנגלית, והיא מיושרת לימין. ``dir="auto"`` במנוע יושב רק על קוד בשורה ועל תאי טבלה
-        // (``fillInlineCode`` ו-``sticky-md-cell`` ב-``sticky-md-render.js``). כל שורה היא עדיין אלמנט משלה,
-        // ולכן פסקה משלה לאלגוריתם ה-bidi — כמו שורה בתיבת הטקסט, ש-``unicode-bidi`` שלה ``normal``.
-        // שורה ריקה נושאת רווח קשיח, כדי שתתפוס גובה של שורה כמו בפתק.
-        row.textContent = lines[i] === '' ? '\u00a0' : lines[i];
-        body.appendChild(row);
-      }
+      // **אותו מנוע ואותם כללים כמו בפתק בוובאפ**, במצב קריאה בלבד: בלי היסטים, צ'קבוקס מושבת,
+      // ובלי כפתור העתקה. השורות יורשות ``rtl`` מהדף, כמו בפתק, ורק קוד בשורה ותאי טבלה מכריעים
+      // כיוון לפי התוכן (``dir="auto"`` במנוע). התוכן נבנה עם ``createElement`` ו-``textContent``
+      // בלבד — המנוע אינו כותב טקסט של משתמש דרך HTML (העמוד של המנוע, ``sticky-notes-render-untrusted``).
+      md.render(content, note.content);
+      this.titleLinks(content);
     }
     paper.appendChild(body);
     paper.appendChild(this.buildControls(body));
+    this.view.content = content;
     host.textContent = '';
     host.appendChild(paper);
+    if (this.sizeObserver) this.sizeObserver.observe(content);
     this.settle();
     this.updateControls();
     if (this.initialized) this.scheduleSize();
+  };
+
+  // -- קישורים -------------------------------------------------------------------
+
+  /** הכתובת של כל קישור מופיעה כשמרחפים מעליו — גם כשהמארח אינו פותח קישורים, ואז היא כל מה
+   *  שהמשתמש יכול לעשות איתו. */
+  NoteView.prototype.titleLinks = function (el) {
+    var kids = el.children || [];
+    for (var i = 0; i < kids.length; i += 1) {
+      var kid = kids[i];
+      if (kid.tagName === 'A' && /(^|\s)sticky-md-link(\s|$)/.test(kid.className)) {
+        kid.setAttribute('title', kid.getAttribute('href') || '');
+      }
+      this.titleLinks(kid);
+    }
+  };
+
+  NoteView.prototype.canOpenLinks = function () {
+    return isObject(this.hostCapabilities.openLinks);
+  };
+
+  /** לחיצה על קישור בפתק. **הדפדפן לעולם אינו מנווט בעצמו:** ``target="_blank"`` של המנוע אינו
+   *  נפתח במסגרת מבודדת, וב-WebView של המובייל ניווט היה מחליף את התצוגה עצמה. במקומו — בקשה
+   *  מהמארח, ``ui/open-link`` (המפרט, "Requests"), כשהמארח מודיע שהוא תומך בה (``openLinks``).
+   *  ב-Claude, בקונקטור מותאם, המשתמש מאשר בחלון לפני שהקישור נפתח (התיעוד של Claude, "Open
+   *  external links from MCP Apps"). ``md`` — המנוע שבנה את הקישור, כפי ש-``render`` בדק אותו. */
+  NoteView.prototype.onLinkClick = function (event, md) {
+    var target = event && event.target;
+    var link = target && typeof target.closest === 'function' ? target.closest('a.sticky-md-link') : null;
+    if (!link) return;
+    event.preventDefault();
+    var url = link.getAttribute('href');
+    // הכלל של המנוע עצמו (``MD_SAFE_LINK``), ולא עותק שלו: המנוע כבר יצר קישור רק לכתובת שעברה
+    // אותו, והבדיקה כאן היא הגבול שלפני מה שנשלח החוצה.
+    if (!this.canOpenLinks() || typeof url !== 'string' || !md.MD_SAFE_LINK.test(url)) return;
+    // **שום דבר לא מוחזק בזמן ההמתנה** (``wait-without-own-deadline``, ה-False positive הראשון):
+    // אין דגל ואין קישור מושבת. סירוב, ביטול של המשתמש או שגיאה — הקישור נשאר, ואפשר ללחוץ שוב.
+    this.request('ui/open-link', { url: url }, function () {});
   };
 
   /** שורת הכפתורים בתחתית הפתק. כולם מוסתרים עד ש-``updateControls`` מחליט אחרת. */

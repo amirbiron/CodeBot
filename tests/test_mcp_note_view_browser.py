@@ -22,6 +22,7 @@ import pytest
 
 from _browser_harness import WAIT_S, poll
 from mcp_server import note_view
+from sticky_notes_target import NOTE_COLORS
 
 #: ברירת המחדל של המפרט כשהמשאב אינו מצהיר על ``ui.csp``: "If `ui.csp` is omitted, Host MUST use"
 #: (``specification/2026-01-26/apps.mdx``, "Host Behavior").
@@ -158,7 +159,7 @@ def test_the_view_renders_the_note_under_the_spec_default_csp(chromium_executabl
             state = view.evaluate("""() => {
                 const paper = document.querySelector('.ck-paper');
                 const title = paper.querySelector('.ck-title');
-                const lines = [...paper.querySelectorAll('.ck-line')];
+                const lines = [...paper.querySelectorAll('.ck-content > .sticky-task-line')];
                 return {
                     title: title.textContent,
                     titleSize: getComputedStyle(title).fontSize,
@@ -168,7 +169,7 @@ def test_the_view_renders_the_note_under_the_spec_default_csp(chromium_executabl
                         range.selectNodeContents(l);
                         const run = range.getBoundingClientRect();
                         const box = l.getBoundingClientRect();
-                        return {text: l.textContent, dir: getComputedStyle(l).direction,
+                        return {text: l.textContent, cls: l.className, dir: getComputedStyle(l).direction,
                                 attr: l.getAttribute('dir'), size: getComputedStyle(l).fontSize,
                                 rightGap: Math.round(box.right - run.right)};
                     }),
@@ -195,10 +196,11 @@ def test_the_view_renders_the_note_under_the_spec_default_csp(chromium_executabl
     # לחיצת היד, בסדר של המפרט
     assert received[:2] == ["ui/initialize", "ui/notifications/initialized"], received
     assert "response" in received, received  # התשובה ל-ping, שהיא המחסום
-    # הפתק — כותרת, שורה לכל שורת מקור, וצבע הנייר
+    # הפתק — כותרת, שורה לכל שורת מקור (המנוע: הכותרת כותרת, והתג של המשתמש טקסט), וצבע הנייר
     assert state["title"] == "רשימה " + _EVIL
     texts = [line["text"] for line in state["lines"]]
-    assert texts == ["# כותרת בעברית", " ", "English line first", "שורה בעברית עם English באמצע", _EVIL]
+    assert texts == ["כותרת בעברית", " ", "English line first", "שורה בעברית עם English באמצע", _EVIL]
+    assert "sticky-md-h1" in state["lines"][0]["cls"].split(), state["lines"][0]
     assert state["paperBg"] == "rgb(255, 237, 219)"
     assert state["paperInk"] == "rgb(34, 34, 34)"
     # כל שורה יורשת rtl מהדף, כמו בפתק בוובאפ — גם שורה שמתחילה באנגלית, והיא מיושרת לימין.
@@ -209,8 +211,9 @@ def test_the_view_renders_the_note_under_the_spec_default_csp(chromium_executabl
     assert abs(english["rightGap"]) <= 1, english
     assert state["titleDir"] == "rtl"
     assert state["dirAttrs"] == ["HTML"], state["dirAttrs"]
-    # הגוף ב"גדול מאוד" (20px), והכותרת כמו בוובאפ (13px) — הערכים שהטסט של ה-CSS משווה לוובאפ
-    assert {line["size"] for line in state["lines"]} == {"20px"}
+    # הגוף ב"גדול מאוד" (20px), והכותרת כמו בוובאפ (13px) — הערכים שהטסט של ה-CSS משווה לוובאפ.
+    # שורת כותרת של Markdown בגודל שלה; ההשוואה המלאה לפתק בלוח — ``test_the_markdown_looks_like_*``.
+    assert {line["size"] for line in state["lines"] if "is-text" in line["cls"].split()} == {"20px"}
     assert state["titleSize"] == "13px"
     # הדף שקוף, והערכה של המארח הוחלה
     assert state["bodyBg"] == "rgba(0, 0, 0, 0)" and state["htmlBg"] == "rgba(0, 0, 0, 0)"
@@ -235,6 +238,33 @@ _LONG = {"ok": True, "note": {"id": "c" * 24, "title": "פתק ארוך", "color
 _SHORT = {"ok": True, "note": {"id": "d" * 24, "title": "קצר", "color": "#d7f5dd",
                                "content": "שורה אחת\nשורה שתיים"}}
 
+#: הקורפוס של ה-Markdown: כל סוג שורה שהמנוע מרנדר בפתק — כותרות, הדגשות, קוד בשורה, מרקר,
+#: קישורים (וכתובת חשופה, שהמנוע משאיר טקסט — רק ``[טקסט](כתובת)`` הוא קישור), ציטוט, קו מפריד, רשימות מקוננות, משימות, בלוקי קוד (גם בעברית ובלי שפה), טבלה עם יישור
+#: ושם קובץ בתא, אלרטים בשני התחבירים, ובלוק מתקפל עם אלרט בתוכו.
+_MD_CORPUS = "\n\n".join([
+    "# כותרת ראשית\n## כותרת משנה\n### שלישית\nטקסט **מודגש** ו*נטוי* ו~~מחוק~~ ו`קוד בשורה` ו==מרקר==.\n"
+    "קישור: [אתר](https://example.com/page) ו-[עוד אחד](https://example.org), וכתובת חשופה https://example.net\n"
+    "> ציטוט בעברית\n---\nEnglish line `code` here",
+    "- פריט\n  - פריט מקונן\n    - עמוק\n- [ ] משימה פתוחה\n- [x] משימה סגורה\n  - [ ] תת-משימה\n1. ממוספר\n2. שני",
+    "```python\nprint('שלום')\nx = 1\n```\n```\nשורה בעברית בבלוק\nעוד שורה בעברית\n```",
+    "| עמודה | Column |\n|:--|--:|\n| תא | `push_api.py:569` |\n| 12 | שורה |",
+    "> [!NOTE]\n> הערה עם `קוד`\n\n> [!WARNING]\n> אזהרה\n\n> [!TIP]\n> טיפ\n\n> [!IMPORTANT]\n> חשוב\n\n> [!CAUTION]\n> זהירות",
+    "::: note כותרת\nתוכן הערה\n:::\n::: danger\nסכנה\n:::\n::: success\nהצלחה\n:::\n::: question\nשאלה\n:::",
+    "::: details פרטים נוספים\nתוכן מוסתר עם **הדגשה**\n::: note\nאלרט בתוך details\n:::\n:::\nאחרי",
+])
+_MD = {"ok": True, "note": {"id": "e" * 24, "title": "Markdown", "color": NOTE_COLORS["yellow"]["hex"],
+                            "color_id": "yellow", "content": _MD_CORPUS}}
+#: פתק קצר שנכנס בגובה, עם בלוק מתקפל שארוך ממנו כשהוא נפתח.
+_MD_DETAILS = {"ok": True, "note": {"id": "f" * 24, "title": "מתקפל", "color": NOTE_COLORS["blue_light"]["hex"],
+                                    "content": "שורה לפני\n::: details לחצו לפתיחה\n"
+                                               + "\n".join(f"שורה מוסתרת {i}" for i in range(1, 31)) + "\n:::"}}
+#: פתק ארוך מהגובה, עם בלוק מתקפל בסופו — כשגוללים עד הסוף ופותחים אותו, רק התוכן גדל: הגוף כבר
+#: בגובה הקבוע, והדף כולו אינו משנה גודל.
+_MD_DETAILS_LONG = {"ok": True, "note": {"id": "8" * 24, "title": "מתקפל בסוף", "color": NOTE_COLORS["ivory"]["hex"],
+                                         "content": "\n".join(f"שורה גלויה {i}" for i in range(1, 31))
+                                         + "\n::: details לחצו לפתיחה\n"
+                                         + "\n".join(f"שורה מוסתרת {i}" for i in range(1, 21)) + "\n:::"}}
+
 #: מקרה לכל בדיקה: הפתק, ההקשר שהמארח מוסר בלחיצת היד, ורוחב המסגרת. הצורה של
 #: ``containerDimensions`` בתוך השיחה — ``width`` ו-``maxHeight`` — היא מה ש-Claude מוסר שם
 #: (עמוד "Display modes" בתיעוד של Claude, נקרא ב-15.11.2026).
@@ -254,7 +284,23 @@ _CASES = {
     "short-safe-area": (_SHORT, {"containerDimensions": {"width": 600, "maxHeight": 900},
                                  "availableDisplayModes": ["inline"], "displayMode": "inline",
                                  "safeAreaInsets": {"top": 0, "right": 0, "bottom": 48, "left": 0}}, 600),
+    "md": (_MD, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                 "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
+    "md-links": (_MD, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                       "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
+    "md-dark": (_MD, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                      "availableDisplayModes": ["inline"], "displayMode": "inline", **_HOST_CONTEXT}, 600),
+    "md-zoomed": (_MD, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                        "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
+    "md-details": (_MD_DETAILS, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                                 "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
+    "md-details-long": (_MD_DETAILS_LONG, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                                           "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
 }
+
+#: ``hostCapabilities`` שהמארח מוסר בלחיצת היד, כשהוא אינו ריק. ``openLinks`` — "Host supports opening
+#: external URLs" (``specification/2026-01-26/apps.mdx``, ``HostCapabilities``).
+_CAPS = {"md-links": {"openLinks": {}}}
 
 #: מארח שמחיל כל ``size-changed`` על המסגרת — מה שהמפרט מחייב במסגרת גמישה ("hosts MUST listen
 #: for ``ui/notifications/size-changed`` ... and update the iframe dimensions accordingly"). על
@@ -271,16 +317,29 @@ const HOST_CONTEXT = %(context)s;
 const iframe = document.getElementById('view');
 window.sizes = [];
 window.modeRequests = [];
+window.openLinks = [];
 window.fixedFrame = false;
+// מחסום: ``ping`` הלוך-חזור. הודעות מאותה מסגרת מגיעות בסדר שנשלחו, ולכן כשהתשובה כאן — כל מה
+// שהדף שלח לפניה כבר הגיע.
+window.barrier = () => {
+  window.barrierDone = false;
+  iframe.contentWindow.postMessage({jsonrpc: '2.0', id: 'barrier', method: 'ping', params: {}}, '*');
+};
 window.addEventListener('message', (event) => {
   if (event.source !== iframe.contentWindow) return;
   const m = event.data;
   const view = iframe.contentWindow;
   if (m.method === 'ui/initialize') {
     view.postMessage({jsonrpc: '2.0', id: m.id, result: {protocolVersion: '2026-01-26',
-      hostInfo: {name: 'test-host', version: '1'}, hostCapabilities: {}, hostContext: HOST_CONTEXT}}, '*');
+      hostInfo: {name: 'test-host', version: '1'}, hostCapabilities: %(caps)s, hostContext: HOST_CONTEXT}}, '*');
   } else if (m.method === 'ui/notifications/initialized') {
     view.postMessage({jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: NOTE_RESULT}, '*');
+  } else if (m.method === 'ui/open-link') {
+    // התשובה של המפרט להצלחה: ``result: {}  // Empty result on success`` ("Requests (View → Host)").
+    window.openLinks.push(m.params);
+    view.postMessage({jsonrpc: '2.0', id: m.id, result: {}}, '*');
+  } else if (m.id === 'barrier') {
+    window.barrierDone = true;
   } else if (m.method === 'ui/notifications/size-changed') {
     window.sizes.push(m.params);
     if (!window.fixedFrame) iframe.style.height = m.params.height + 'px';
@@ -313,6 +372,7 @@ def frame_host():
             "note": note_json, "context": json.dumps(context), "width": width,
             "view": _ZOOMED_VIEW_PATH if name.endswith("-zoomed") else "/view.html",
             "fixed_fullscreen": "false" if name.endswith("-flexible") else "true",
+            "caps": json.dumps(_CAPS.get(name, {})),
         }
 
     class Handler(BaseHTTPRequestHandler):
@@ -348,28 +408,45 @@ def frame_host():
         server.server_close()
 
 
-#: **הגדלת הטקסט של WebView, בכרום של שולחן העבודה.** אנדרואיד מגדיל כל גופן ב-WebView לפי גודל
-#: הגופן של המערכת (``AwSettings.java`` ב-Chromium), דרך ``TextZoomFactor`` של המסגרת, שאין לו פקודה
-#: ב-DevTools. ``text-size-adjust`` נכנס לאותה מכפלה בדיוק — ``FontBuilder::GetComputedSizeFromSpecifiedSize``
-#: מכפיל את שניהם באותו ``zoom_factor`` — והוא פעיל רק כש-``textSizeAdjustEnabled`` דלוק, ולכן הדפדפן
-#: של הבדיקה עולה עם ``--blink-settings``. הדף עצמו אינו משתנה: רק כלל אחד על ``html`` נוסף לו, כמו
-#: מכפלה שהמנוע מוסיף מבחוץ.
+#: **הגדלת הטקסט של WebView, בכרום של שולחן העבודה — דרך ``TextZoomFactor`` האמיתי.** אנדרואיד
+#: מגדיל כל גופן ב-WebView לפי גודל הגופן של המערכת (``AwSettings.java``), דרך ``TextZoomFactor`` של
+#: המסגרת. ל-DevTools אין פקודה בשבילו, אבל ל-Blink יש מסלול שקובע אותו מתוך הדף: כש-
+#: ``scaleAllFontsIfNoMetaTextScaleTag`` דלוק, הוספה או הסרה של ``<meta name="text-scale">`` קוראת ל-
+#: ``frame->SetTextZoomFactor(GetSettings()->GetAccessibilityFontScaleFactor())``
+#: (``Document::SetTextScaleMetaTagPresent``), ו-``LocalFrame::SetTextZoomFactor`` מאפס את הגורם רק
+#: כשהתגית קיימת. לכן הדפדפן עולה עם שתי ההגדרות, והדף מקבל בראשו סקריפט שמוסיף את התגית ומסיר
+#: אותה — ומשם המסגרת מוגדלת ב-``_TEXT_ZOOM``, בדיוק במנגנון של WebView. ``textSizeAdjustEnabled`` —
+#: מה ש-WebView מודרני מציב ("The modern approach is for CSS to always honor text-size-adjust",
+#: ``aw_settings.cc``); ``_TEXT_ZOOM_ARGS_OLD`` בלעדיו, כמו WebView ישן שמתעלם מהתכונה.
 _TEXT_ZOOM = 1.3
 _ZOOMED_VIEW_PATH = "/view-zoomed.html"
-_TEXT_ZOOM_ARGS = ["--blink-settings=textSizeAdjustEnabled=true"]
+_ZOOM_SETTINGS = f"scaleAllFontsIfNoMetaTextScaleTag=true,accessibilityFontScaleFactor={_TEXT_ZOOM}"
+_TEXT_ZOOM_ARGS = [f"--blink-settings={_ZOOM_SETTINGS},textSizeAdjustEnabled=true"]
+_TEXT_ZOOM_ARGS_OLD = [f"--blink-settings={_ZOOM_SETTINGS}"]
+_ZOOM_FLIP = ("<script>(function () { var m = document.createElement('meta'); m.name = 'text-scale';"
+              " m.content = 'scale'; document.head.appendChild(m); m.remove(); })();</script>")
 
 
 def _zoomed(html):
+    # ה-``<head>`` של השלד — הראשון בדף, לפני כל חלק שנכנס לתוכו (המנוע של הוובאפ מכיל את המחרוזת).
+    # הסקריפט ראשון, כדי שהמסגרת תהיה מוגדלת כבר כשהדף מודד בעלייה, כמו ב-WebView.
     marker = "<head>"
-    assert html.count(marker) == 1
-    return html.replace(marker, f"{marker}<style>html{{text-size-adjust:{round(_TEXT_ZOOM * 100)}%}}</style>")
+    at = html.index(marker) + len(marker)
+    assert "/* ---- " not in html[:at], "the first <head> is not the shell's"
+    return html[:at] + _ZOOM_FLIP + html[at:]
 
 
-def _open(pw, chromium_executable, url, *, reduced_motion=None, args=None):
+def _launch(pw, chromium_executable, args=None):
     launch = {"args": args} if args else {}
-    browser = (pw.chromium.launch(executable_path=chromium_executable, **launch)
-               if chromium_executable else pw.chromium.launch(**launch))
+    return (pw.chromium.launch(executable_path=chromium_executable, **launch)
+            if chromium_executable else pw.chromium.launch(**launch))
+
+
+def _open(pw, chromium_executable, url, *, reduced_motion=None, args=None, console=None):
+    browser = _launch(pw, chromium_executable, args)
     page = browser.new_page(device_scale_factor=1, viewport={"width": 1000, "height": 1000})
+    if console is not None:
+        page.on("console", lambda msg: console.append(f"{msg.type}: {msg.text}"))
     if reduced_motion:
         page.emulate_media(reduced_motion=reduced_motion)
     page.goto(url)
@@ -641,31 +718,312 @@ def test_flexible_fullscreen_drops_the_conversation_height(chromium_executable, 
     assert full["last"]["height"] == state["doc"], (full, state)
 
 
-def test_the_system_text_zoom_is_measured_and_undone(chromium_executable, frame_host):
+@pytest.mark.parametrize("webview", ["modern", "old"])
+def test_the_system_text_zoom_is_measured_and_undone(chromium_executable, frame_host, webview):
     """WebView שמגדיל כל גופן ב-130% (גודל הגופן של המערכת באנדרואיד): הדף מודד את ההגדלה ומבטל
     אותה, והפתק בגודל של הוובאפ — גוף, כותרת וכפתורים. לפני התיקון הגוף יצא 26px, ובגובה הקבוע
-    נכנסו פחות שורות. נבדק גם שהאמולציה עצמה פעילה: בלעדיה הבדיקה הייתה עוברת על כלום."""
+    נכנסו פחות שורות.
+
+    **WebView מודרני** מכבד ``text-size-adjust``, והפיצוי עובר דרכו: גם הגופן וגם מה שנגזר ממנו ב-
+    ``em`` (הגובה המינימלי של שורה, 1.35em) כמו בוובאפ. **WebView ישן** מתעלם מהתכונה, והדף חוזר
+    לחלוקה של הגופנים: הגופן כמו בוובאפ, וה-``em`` נשאר של הגודל שלפני ההגדלה — המגבלה שבגללה
+    החלוקה אינה הדרך הראשית. נבדק גם שהאמולציה עצמה פעילה: בלעדיה הבדיקה הייתה עוברת על כלום."""
     from playwright.sync_api import sync_playwright
     from test_mcp_note_view import _new_note_height
 
+    args = _TEXT_ZOOM_ARGS if webview == "modern" else _TEXT_ZOOM_ARGS_OLD
     with sync_playwright() as pw:
-        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/long-zoomed.html", args=_TEXT_ZOOM_ARGS)
+        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/long-zoomed.html", args=args)
         try:
             settled = _settled(page, view, "the frame took the reported height")
             state = view.evaluate("""() => {
+                // ``auto`` — בלי לרשת את הפיצוי, כלומר ההגדלה של המסגרת כמו שהיא.
                 const probe = document.createElement('span');
-                probe.style.fontSize = '100px';
+                probe.style.cssText = 'font-size: 100px; text-size-adjust: auto';
                 document.body.appendChild(probe);
                 const zoomed = getComputedStyle(probe).fontSize;
                 probe.remove();
+                const root = getComputedStyle(document.documentElement);
+                const line = getComputedStyle(document.querySelector('.ck-content .sticky-task-line'));
                 const size = (sel) => getComputedStyle(document.querySelector(sel)).fontSize;
-                return {zoomed, scale: getComputedStyle(document.documentElement).getPropertyValue('--ck-text-scale').trim(),
-                        line: size('.ck-line'), title: size('.ck-title'), button: size('.ck-down')};
+                return {zoomed, scale: root.getPropertyValue('--ck-text-scale').trim(), adjust: root.textSizeAdjust,
+                        line: line.fontSize, lineMin: line.minHeight, title: size('.ck-title'), button: size('.ck-down')};
             }""")
         finally:
             browser.close()
 
     assert state["zoomed"] == f"{round(100 * _TEXT_ZOOM)}px", state  # האמולציה פעילה
     assert (state["line"], state["title"], state["button"]) == ("20px", "13px", "16px"), state
-    assert state["scale"] and float(state["scale"]) == _TEXT_ZOOM, state
+    if webview == "modern":
+        assert state["adjust"].endswith("%") and abs(float(state["adjust"][:-1]) - 100 / _TEXT_ZOOM) < 1e-3, state
+        assert state["scale"] == "", state
+        assert state["lineMin"] == "27px", state  # 1.35em של 20px — כמו בוובאפ
+    else:
+        assert state["adjust"] == "auto", state
+        assert float(state["scale"]) == _TEXT_ZOOM, state
+        assert state["lineMin"] != "27px", state  # המגבלה של החלוקה: ה-em של הגודל שלפני ההגדלה
     assert settled["last"]["height"] == _new_note_height(), settled
+
+
+# ===========================================================================
+# ה-Markdown — אותו פתק כמו בוובאפ
+# ===========================================================================
+
+#: מה שמודד את המכל ולא את הסגנון: רוחב וגובה מחושבים, ונקודות מוצא שנגזרות מהם. התצוגה והפתק
+#: בלוח ברוחב שונה, וההבדל הזה אינו "פתק אחר".
+_GEOMETRY = ("width", "height", "inline-size", "block-size", "transform-origin", "perspective-origin")
+
+#: הסגנון המחושב של כל אלמנט מתחת לשורש התוכן, בסדר המסמך, עם ``::before``, ``::after`` ו-
+#: ``::marker``. ``font-family`` שזהה לזה של השורש נרשם כ"עובר בירושה": הגופן של הגוף הוא של
+#: המשטח (בתצוגה — של Claude, ``--font-sans``), ומה שנבדק הוא שהתוכן אינו מחליף אותו אלא איפה
+#: שהמנוע מחליף אותו (קוד). ``skip`` — אלמנטים שקיימים רק בצד אחד, בכוונה.
+_DUMP = """([selector, geometry, skip]) => {
+  const root = document.querySelector(selector);
+  const rootFont = getComputedStyle(root).fontFamily;
+  const omit = new Set(geometry);
+  const read = (cs) => { const o = {};
+    for (let i = 0; i < cs.length; i++) { const p = cs[i]; if (omit.has(p) || p.startsWith('--')) continue;
+      const v = cs.getPropertyValue(p); o[p] = (p === 'font-family' && v === rootFont) ? '<inherited>' : v; }
+    return o; };
+  const pseudo = (el, which) => { const cs = getComputedStyle(el, which);
+    return (cs.content === 'none' || cs.content === 'normal') ? null : read(cs); };
+  const out = [];
+  const walk = (el, path) => {
+    const cs = getComputedStyle(el);
+    out.push({path, tag: el.tagName, cls: typeof el.className === 'string' ? el.className : '',
+              s: read(cs), before: pseudo(el, '::before'), after: pseudo(el, '::after'),
+              marker: cs.display === 'list-item' ? read(getComputedStyle(el, '::marker')) : null});
+    [...el.children].filter((kid) => !skip.some((sel) => kid.matches(sel)))
+      .forEach((kid, i) => walk(kid, path + '/' + i));
+  };
+  [...root.children].forEach((kid, i) => walk(kid, String(i)));
+  // ערכת הצבעים שבשימוש, ולא הערך המוצהר: צבעי המערכת נפתרים לפיה ("Effects of the Used Color
+  // Scheme", CSS Color Adjustment 1).
+  const probe = document.createElement('span');
+  probe.style.cssText = 'color: CanvasText; background-color: Canvas';
+  root.appendChild(probe);
+  const scheme = [getComputedStyle(probe).color, getComputedStyle(probe).backgroundColor];
+  probe.remove();
+  return {elements: out, scheme, paper: getComputedStyle(root.closest('.sticky-note')).backgroundColor};
+}"""
+
+#: **מה שקיים רק בלוח, בכוונה.** כפתור ההעתקה של בלוק קוד — מחוץ לתחום של התצוגה (``read-only``
+#: במנוע אינו בונה אותו).
+_WEBAPP_ONLY = [".sticky-md-code-copy"]
+
+#: **ההבדלים שמכוונים, ולמה.** כל אחד מהם חייב גם להופיע בהשוואה — אחרת הרשימה התיישנה ומסתירה
+#: מקום שבו אין הבדל בכלל. ``(מאפיין, בתצוגה, בלוח)``:
+_INTENDED = {
+    # ``.sticky-note-tasks { cursor: text }`` ב-``sticky-notes.css`` — "הרמז שאפשר ללחוץ ולחזור
+    # לעריכה". התצוגה לקריאה בלבד, ואין לאן לחזור.
+    ("cursor", "auto", "text"): "the board hints that a click returns to editing",
+    # ``.sticky-task-box[disabled] { cursor: progress }`` ב-``sticky-notes.css``: בלוח צ'קבוקס מושבת
+    # פירושו "שמירה ממתינה". בתצוגה הוא מושבת כי היא לקריאה בלבד, ואין שם שמירה.
+    ("cursor", "default", "progress"): "on the board a disabled checkbox means a save is pending",
+    # הלוח אינו מצהיר על ערכת צבעים כלל (``normal``), והנייר בתצוגה מצהיר ``light`` כי הדף כולו
+    # ``light dark``. מה שקובע הוא הערכה שבשימוש — ``scheme`` — והיא נבדקת בנפרד, שווה בשני הצדדים.
+    ("color-scheme", "light", "normal"): "the board declares no scheme; the paper declares light",
+}
+
+
+def _webapp_note(pw, chromium_executable, monkeypatch, content, color_id):
+    """אותו תוכן, כפי שהלוח בוובאפ מציג אותו: ``sticky-notes.js`` האמיתי, מול ה-blueprint האמיתי
+    ודמה של המסד (``tests/test_sticky_notes_live_sync_browser.py``), בגודל הטקסט של ברירת המחדל
+    ועם קבצי העיצוב בסדר של הלוח."""
+    flask = pytest.importorskip("flask")
+    import test_sticky_notes_live_sync_browser as live
+    from _notes_mongo_fake import USER, make_client
+    from test_mcp_note_view import _board_load_order
+    from webapp.app import NOTE_FONT_SIZE_DEFAULT
+
+    monkeypatch.setattr(live, "STYLESHEETS", tuple(s for s in _board_load_order(".css") if s in live.STYLESHEETS))
+    client = make_client(monkeypatch, flask)
+    client.db.note_boards.docs.append({"_id": live.BOARD, "user_id": USER, "name": "לוח"})
+    client.pages = []
+    note_id = "9" * 24
+    client.db.sticky_notes.docs.append(live._doc(note_id, content, color=color_id, width=560, height=700))
+    # כמו ``_note_fonts_head.html``: המחלקה של הגודל על ``<html>``, ו"רגיל" הוא היעדר מחלקה.
+    size_class = "" if NOTE_FONT_SIZE_DEFAULT == "normal" else f"sticky-font-{NOTE_FONT_SIZE_DEFAULT}"
+    script = f"document.addEventListener('DOMContentLoaded', () => document.documentElement.classList.add('{size_class}'))"
+    browser = _launch(pw, chromium_executable)
+    try:
+        lp = live.LivePage(browser, client, live.BOARD_MANAGER, before_goto=lambda p: p.add_init_script(script))
+        try:
+            lp.wait_note(note_id)
+            # **הצ'קבוקס במצב של התצוגה — מושבת** (המנוע במצב קריאה בלבד). זה מצב של ה-DOM, לא
+            # עיצוב, ובלעדיו ההשוואה הייתה מודדת את ההבדל בין פקד פעיל למושבת.
+            lp.page.evaluate("(sel) => document.querySelectorAll(sel).forEach((box) => { box.disabled = true; })",
+                             lp.sel(note_id, ".sticky-task-box"))
+            dump = lp.page.evaluate(_DUMP, [lp.sel(note_id, ".sticky-note-tasks"), list(_GEOMETRY), _WEBAPP_ONLY])
+            assert not lp.errors, lp.errors
+        finally:
+            lp.close()
+    finally:
+        browser.close()
+    return dump
+
+
+def _style_diffs(view, webapp, extra=None):
+    """כל מאפיין שבו אלמנט בתצוגה שונה מהאלמנט המקביל בלוח — אחרי שהמבנה עצמו זהה. ההבדלים
+    שב-``_INTENDED`` מוחזרים בנפרד, כדי שהבדיקה תוודא שהם באמת שם."""
+    shape = lambda dump: [(e["path"], e["tag"], e["cls"]) for e in dump["elements"]]  # noqa: E731
+    assert shape(view) == shape(webapp), "the engine built a different structure"
+    diffs = []
+    for mine, theirs in zip(view["elements"], webapp["elements"]):
+        for part in ("s", "before", "after", "marker"):
+            a, b = mine[part] or {}, theirs[part] or {}
+            if (mine[part] is None) != (theirs[part] is None):
+                diffs.append((mine["path"], mine["cls"], part, "exists" if mine[part] else None,
+                              "exists" if theirs[part] else None))
+                continue
+            diffs += [(mine["path"], mine["cls"], part + ":" + prop, a.get(prop), b.get(prop))
+                      for prop in sorted(set(a) | set(b)) if a.get(prop) != b.get(prop)]
+    intended = {key: 0 for key in {**_INTENDED, **(extra or {})}}
+    real = []
+    for diff in diffs:
+        key = (diff[2].split(":", 1)[1], diff[3], diff[4])
+        if key in intended:
+            intended[key] += 1
+        else:
+            real.append(diff)
+    return real, intended
+
+
+@pytest.mark.parametrize("case", ["md", "md-dark", "md-zoomed"])
+def test_the_markdown_looks_like_the_same_note_on_the_board(chromium_executable, frame_host, monkeypatch, case):
+    """כל אלמנט שהמנוע בונה בתצוגה מקבל **אותו סגנון מחושב** כמו האלמנט המקביל בפתק בלוח — מאפיין
+    מול מאפיין, כולל ``::before``/``::after``/``::marker``. הלוח הוא הקוד האמיתי של הוובאפ, לא עמוד
+    שנבנה ביד לבדיקה. נבדק גם בערכה הכהה של המארח (הנייר בצבע קבוע, ולכן התוכן אינו משתנה), וגם
+    בהגדלת הטקסט של אנדרואיד (הפיצוי חל על כל ה-Markdown, לא רק על הגוף). ולצד זה — אפס הפרות CSP:
+    הסגנון והמנוע שנכנסו לדף רצים תחת ברירת המחדל של המפרט."""
+    from playwright.sync_api import sync_playwright
+
+    note = _CASES[case][0]["note"]
+    console: list[str] = []
+    with sync_playwright() as pw:
+        webapp = _webapp_note(pw, chromium_executable, monkeypatch, note["content"], note["color_id"])
+        zoomed = case.endswith("-zoomed")
+        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/{case}.html",
+                                    args=_TEXT_ZOOM_ARGS if zoomed else None, console=console)
+        try:
+            _settled(page, view, "the frame took the reported height")
+            mine = view.evaluate(_DUMP, [".ck-content", list(_GEOMETRY), []])
+            zoom = view.evaluate("""() => { const probe = document.createElement('span');
+                probe.style.cssText = 'font-size: 100px; text-size-adjust: auto'; document.body.appendChild(probe);
+                const raw = getComputedStyle(probe).fontSize; probe.remove();
+                return {raw, adjust: getComputedStyle(document.documentElement).textSizeAdjust}; }""")
+        finally:
+            browser.close()
+
+    extra = {}
+    if zoomed:  # האמולציה פעילה, אחרת ההשוואה הייתה עוברת על כלום
+        assert zoom["raw"] == f"{round(100 * _TEXT_ZOOM)}px", zoom
+        # הפיצוי עצמו: ``text-size-adjust`` שעובר בירושה לכל אלמנט, ובלוח הוא ``auto``.
+        extra[("text-size-adjust", zoom["adjust"], "auto")] = "the compensation for the system text zoom"
+    assert len(mine["elements"]) > 80, len(mine["elements"])
+    assert mine["paper"] == webapp["paper"]
+    assert mine["scheme"] == webapp["scheme"] == ["rgb(0, 0, 0)", "rgb(255, 255, 255)"], (mine["scheme"], webapp["scheme"])
+    diffs, intended = _style_diffs(mine, webapp, extra)
+    assert not diffs, "\n".join(map(repr, diffs[:60])) + f"\n... {len(diffs)} in total"
+    assert all(intended.values()), intended
+    assert not [line for line in console if "Content Security Policy" in line or "Refused to" in line], console
+
+
+_LINKS = """() => [...document.querySelectorAll('.ck-content a.sticky-md-link')]
+    .map((a) => ({href: a.getAttribute('href'), title: a.getAttribute('title')}))"""
+
+
+def _click_links(page, view):
+    """לוחץ על כל קישור בפתק, ומחכה למחסום — מה שהדף שלח בעקבות הלחיצות כבר אצל המארח."""
+    links = view.locator(".ck-content a.sticky-md-link")
+    for i in range(links.count()):
+        links.nth(i).click()
+    page.evaluate("() => window.barrier()")
+    poll(page, "() => window.barrierDone === true", "the view answered the ping after the clicks")
+    return page.evaluate("() => window.openLinks")
+
+
+@pytest.mark.parametrize("case,expected", [
+    # המארח מודיע ``openLinks`` — כל לחיצה היא בקשה אחת, עם הכתובת כמו שהיא בפתק.
+    ("md-links", [{"url": "https://example.com/page"}, {"url": "https://example.org"}]),
+    # המארח אינו מודיע — הקישור אינו עושה דבר, והכתובת שבריחוף היא כל מה שיש.
+    ("md", []),
+])
+def test_a_link_goes_through_the_host_and_the_view_never_navigates(chromium_executable, frame_host, case, expected):
+    """קישור בפתק: ``ui/open-link`` כשהמארח תומך, ושום דבר כשלא — ובשני המקרים הדפדפן אינו מנווט
+    ואינו מנסה לפתוח חלון (``target="_blank"`` של המנוע במסגרת בלי ``allow-popups`` היה נחסם עם
+    הודעה בקונסול). הכתובת מופיעה בריחוף על כל קישור."""
+    from playwright.sync_api import sync_playwright
+
+    console: list[str] = []
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/{case}.html", console=console)
+        try:
+            _settled(page, view, "the frame took the reported height")
+            links = view.evaluate(_LINKS)
+            opened = _click_links(page, view)
+            still_here = view.evaluate("() => location.pathname + '|' + !!document.querySelector('.ck-paper')")
+            frames = [f.url for f in page.frames]
+        finally:
+            browser.close()
+
+    assert links == [{"href": "https://example.com/page", "title": "https://example.com/page"},
+                     {"href": "https://example.org", "title": "https://example.org"}], links
+    assert opened == expected
+    assert still_here == "/view.html|true", still_here
+    assert len(frames) == 2, frames
+    assert not [line for line in console if "Blocked opening" in line or "Not allowed to navigate" in line], console
+
+
+def test_opening_a_folded_block_brings_the_scroll_buttons(chromium_executable, frame_host):
+    """פתק קצר עם בלוק מתקפל: סגור — אין ▲▼, כי הכול נכנס. נפתח — הוא ארוך מהגובה, ו-▲▼ מופיעים.
+    גוף הפתק בגובה קבוע ואינו משנה גודל כשהתוכן שבתוכו גדל, ולכן רק צפייה בתוכן עצמו
+    (``.ck-content``) רואה את זה."""
+    from playwright.sync_api import sync_playwright
+    from test_mcp_note_view import _new_note_height
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/md-details.html")
+        try:
+            _settled(page, view, "the frame took the reported height")
+            closed = view.evaluate(_BODY_STATE)
+            view.locator(".ck-content summary").click()
+            poll(view, "() => getComputedStyle(document.querySelector('.ck-scroll-btns')).display !== 'none'",
+                 "the scroll buttons appeared after the block opened")
+            settled = _settled(page, view, "the frame took the reported height after the block opened")
+            opened = view.evaluate(_BODY_STATE)
+        finally:
+            browser.close()
+
+    assert closed["scroll"] is False and closed["scrollHeight"] <= closed["clientHeight"], closed
+    assert opened["scroll"] is True and opened["down"] is False and opened["up"] is True, opened
+    assert opened["scrollHeight"] > opened["clientHeight"], opened
+    assert settled["last"]["height"] == _new_note_height(), settled
+
+
+def test_a_folded_block_opened_at_the_bottom_enables_scrolling_down(chromium_executable, frame_host):
+    """פתק ארוך, גלול עד הסוף (▼ מושבת), ובלוק מתקפל בתחתית. פתיחת הבלוק מוסיפה תוכן מתחת למה
+    שרואים — ו-▼ חייב לחזור לפעול. **זה המקרה שרק הצפייה בתוכן רואה:** הגוף כבר בגובה הקבוע,
+    ולכן לא הוא, לא ``body`` ולא ``html`` משנים גודל. בפתק קצר (הבדיקה הקודמת) גם הדף כולו גדל,
+    והצפייה הישנה הייתה רואה אותו בלי קשר."""
+    from playwright.sync_api import sync_playwright
+    from test_mcp_note_view import _new_note_height
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/md-details-long.html")
+        try:
+            settled = _settled(page, view, "the frame took the reported height")
+            # עד הסוף, דרך ``scrollTop`` (בלי ``smooth``): אירוע הגלילה מעדכן את הכפתורים.
+            view.evaluate("() => { const b = document.querySelector('.ck-body'); b.style.scrollBehavior = 'auto'; b.scrollTop = b.scrollHeight; }")
+            poll(view, "() => document.querySelector('.ck-down').disabled === true", "▼ is disabled at the bottom")
+            bottom = view.evaluate(_BODY_STATE)
+            view.locator(".ck-content summary").click()
+            poll(view, "() => document.querySelector('.ck-down').disabled === false", "▼ works again after the block opened")
+            opened = view.evaluate(_BODY_STATE)
+        finally:
+            browser.close()
+
+    assert settled["last"]["height"] == _new_note_height(), settled
+    assert bottom["scroll"] is True and bottom["down"] is True, bottom
+    assert opened["scrollHeight"] > bottom["scrollHeight"] and opened["clientHeight"] == bottom["clientHeight"], (bottom, opened)
+    assert opened["doc"] == bottom["doc"], (bottom, opened)  # הדף לא שינה גודל — רק התוכן

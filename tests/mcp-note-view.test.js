@@ -75,11 +75,24 @@ class FakeElement {
     this.scrolls = [];
   }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
-  dispatch(type) { for (const fn of this.listeners[type] || []) fn({ type }); }
+  dispatch(type, extra) {
+    const event = Object.assign({ type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }, extra || {});
+    for (const fn of this.listeners[type] || []) fn(event);
+    return event;
+  }
   scrollBy(options) { this.scrolls.push(options); this.scrollTop += options.top; }
   set textContent(value) { this.children = []; this._text = String(value); }
   get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); }
-  appendChild(child) { this.children.push(child); return child; }
+  appendChild(child) { this.children.push(child); child.parentNode = this; return child; }
+  /** ``closest`` לבורר בצורה ``tag.class`` או ``.class`` — מה שהדף שואל. */
+  closest(selector) {
+    const m = /^([a-z]*)\.([\w-]+)$/i.exec(selector);
+    for (let el = this; el; el = el.parentNode) {
+      if (!el.tagName) continue;
+      if (m && (!m[1] || el.tagName === m[1].toUpperCase()) && el.className.split(/\s+/).indexOf(m[2]) !== -1) return el;
+    }
+    return null;
+  }
   setAttribute(key, value) { this.attrs[key] = String(value); if (key === 'id') this.id = String(value); }
   getAttribute(key) { return Object.prototype.hasOwnProperty.call(this.attrs, key) ? this.attrs[key] : null; }
   getBoundingClientRect() { return { height: 240, width: 600 }; }
@@ -117,16 +130,22 @@ function load(opts = {}) {
   const timers = [];
   const observed = [];
   // הגדלת הטקסט של המנוע (WebView של אנדרואיד מכפיל כל גופן בגודל הגופן של המערכת): הגודל
-  // המחושב הוא הגודל שהאלמנט ביקש כפול ``zoom.text``. ``zoom.raw`` מחליף את התשובה כולה —
-  // לבדוק ערך שאינו מספר.
-  const zoom = { text: opts.textZoom || 1, raw: null };
+  // המחושב הוא הגודל שהאלמנט ביקש כפול ``zoom.text``, וכפול ``text-size-adjust`` כשהוא אינו
+  // ``auto`` — של האלמנט עצמו, או שירש מ-``html`` — באותה מכפלה, כמו ב-``FontBuilder`` של Blink.
+  // ``zoom.tsa: false`` — מנוע שאינו מכבד את התכונה (WebView ישן). ``zoom.raw`` מחליף את התשובה
+  // כולה — לבדוק ערך שאינו מספר.
+  const zoom = { text: opts.textZoom || 1, raw: null, tsa: opts.tsa !== false };
   const win = {
     document,
     parent,
     innerWidth: 600,
     getComputedStyle(el) {
       if (zoom.raw !== null) return { fontSize: zoom.raw };
-      return { fontSize: `${parseFloat(el.style.fontSize || '16') * zoom.text}px` };
+      let factor = zoom.text;
+      const own = el.style.props['text-size-adjust'];
+      const adjust = own !== undefined ? own : html.style.props['text-size-adjust'];
+      if (zoom.tsa && adjust !== undefined && adjust !== 'auto') factor *= parseFloat(adjust) / 100;
+      return { fontSize: `${parseFloat(el.style.fontSize || '16') * factor}px` };
     },
     addEventListener(type, fn) {
       if (type === 'message') listeners.push(fn);
@@ -135,14 +154,51 @@ function load(opts = {}) {
     setTimeout(fn, ms) { timers.push({ fn, ms, cleared: false }); return timers.length; },
     clearTimeout(handle) { if (timers[handle - 1]) timers[handle - 1].cleared = true; },
   };
+  const unobserved = [];
   if (opts.resizeObserver) {
-    win.ResizeObserver = class { constructor(cb) { this.cb = cb; } observe(el) { observed.push(el); } };
+    win.ResizeObserver = class {
+      constructor(cb) { this.cb = cb; }
+      observe(el) { observed.push(el); }
+      unobserve(el) { unobserved.push(el); }
+    };
+  }
+  // **דמה של מנוע התצוגה**, בחוזה שלו: ``render(container, text)`` מנקה את המכל ובונה אותו מהטקסט,
+  // רק עם ``createElement`` ו-``textContent``. שורה שכולה ``[תווית](כתובת)`` הופכת לקישור, כמו במנוע.
+  // המנוע האמיתי נבדק בדפדפן (``tests/test_mcp_note_view_browser.py``) ובבדיקות שלו; כאן — מה שהדף
+  // עושה סביבו. ``opts.engineOmit`` — מנוע שחסר בו חלק מהחוזה (דף שנבנה עם מנוע אחר).
+  const mdCalls = [];
+  if (!opts.noEngine) {
+    const engine = {
+      MD_SAFE_LINK: /^https?:\/\//i,
+      render(container, text) {
+        mdCalls.push({ container, text });
+        container.textContent = '';
+        for (const line of String(text).split('\n')) {
+          const row = document.createElement('div');
+          row.className = 'sticky-task-line';
+          const link = /^\[([^\]]+)\]\((\S+)\)$/.exec(line);
+          if (link) {
+            const a = document.createElement('a');
+            a.className = 'sticky-md-link';
+            a.setAttribute('href', link[2]);
+            a.textContent = link[1];
+            row.appendChild(a);
+          } else {
+            row.textContent = line;
+          }
+          container.appendChild(row);
+        }
+        return container;
+      },
+    };
+    for (const key of opts.engineOmit || []) delete engine[key];
+    win.StickyMdRender = Object.freeze(engine);
   }
   const sandbox = { window: win, JSON, Object, Array, Math, String };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   const host = {
-    win, document, main, sent, created, timers, observed, parent, zoom,
+    win, document, main, sent, created, timers, observed, unobserved, parent, zoom, mdCalls,
     deliver(data, source = parent) { for (const fn of listeners) fn({ source, data }); },
     methods() { return sent.map((s) => s.message.method || (s.message.error ? 'error' : 'result')); },
     last(method) { return [...sent].reverse().find((s) => s.message.method === method); },
@@ -158,9 +214,10 @@ function load(opts = {}) {
   return host;
 }
 
-function initialize(host, hostContext) {
+function initialize(host, hostContext, hostCapabilities) {
   const init = host.sent[0].message;
-  host.deliver({ jsonrpc: '2.0', id: init.id, result: { protocolVersion: '2026-01-26', hostInfo: { name: 'test-host', version: '1' }, hostCapabilities: {}, hostContext: hostContext || {} } });
+  host.deliver({ jsonrpc: '2.0', id: init.id, result: { protocolVersion: '2026-01-26', hostInfo: { name: 'test-host', version: '1' },
+    hostCapabilities: hostCapabilities === undefined ? {} : hostCapabilities, hostContext: hostContext || {} } });
 }
 
 function toolResult(answer, extra = {}) {
@@ -218,14 +275,18 @@ console.log('\nרינדור הפתק');
   check('הפתק נבנה כ-article.ck-paper', paper && paper.tagName === 'ARTICLE' && paper.className.indexOf('ck-paper') === 0, paper && paper.className);
   check('הצבע של הפתק על הנייר', paper.style.backgroundColor === '#ffeddb', paper.style.backgroundColor);
   check('has-note-color כשהצבע תקין', paper.className.indexOf('has-note-color') !== -1, paper.className);
+  check('הנייר נושא sticky-note — המחלקה שהעיצוב המשותף תחום בה', paper.className.split(' ').indexOf('sticky-note') !== -1, paper.className);
   const title = paper.children[0];
   check('הכותרת ב-h1, בלי dir — יורשת rtl כמו שם הפתק בוובאפ', title.tagName === 'H1' && title.getAttribute('dir') === null && title.textContent === 'רשימת קניות', [title.getAttribute('dir'), title.textContent]);
   const body = paper.children[1];
-  check('שורה לכל שורת מקור', body.children.length === 4, body.children.length);
-  check('אף שורה בלי dir — כולן יורשות rtl, כמו בפתק בוובאפ', body.children.every((r) => r.getAttribute('dir') === null), body.children.map((r) => r.getAttribute('dir')));
-  check('השורות בטקסט המקור, ושורה ריקה נושאת רווח קשיח',
-    body.children.map((r) => r.textContent).join('|') === '# כותרת|\u00a0|English line|שורה בעברית',
-    body.children.map((r) => r.textContent));
+  const content = body.children[0];
+  check('ck-body עוטף ck-content אחד', body.className === 'ck-body' && body.children.length === 1 && content.className === 'ck-content',
+    [body.className, body.children.map((c) => c.className)]);
+  check('המנוע נקרא פעם אחת, על ck-content, עם הטקסט של הפתק כמו שהוא',
+    host.mdCalls.length === 1 && host.mdCalls[0].container === content && host.mdCalls[0].text === NOTE.note.content,
+    host.mdCalls.map((c) => [c.container.className, c.text]));
+  check('מה שהמנוע בנה הוא התוכן', content.children.length === 4 && content.children[0].className === 'sticky-task-line',
+    content.children.map((c) => c.className));
   check('אחרי רינדור — מדידת גודל נוספת', host.methods().filter((m) => m === 'ui/notifications/size-changed').length >= 1, host.methods());
 }
 
@@ -247,7 +308,7 @@ console.log('\nצבע שאינו בצורה של השרת');
     initialize(host);
     host.deliver(toolResult({ ok: true, note: { title: null, content: 'x', color } }));
     const paper = host.main.children[0];
-    check(`צבע ${JSON.stringify(color)} אינו מוצב`, paper.style.backgroundColor === '' && paper.className === 'ck-paper', [paper.style.backgroundColor, paper.className]);
+    check(`צבע ${JSON.stringify(color)} אינו מוצב`, paper.style.backgroundColor === '' && paper.className === 'ck-paper sticky-note', [paper.style.backgroundColor, paper.className]);
   }
 }
 
@@ -549,52 +610,168 @@ console.log('\nגלילה בכפתורים');
   check('תוכן שאינו נכנס — מוצגים, ונשארים בבדיקה חוזרת', host.find('ck-scroll-btns').hidden === false, host.find('ck-scroll-btns').hidden);
 }
 
-console.log('\nכיוון השורות — כמו בוובאפ');
+console.log('\nכיוון — הדף אינו מוסיף dir משלו');
 {
   const host = load();
   initialize(host);
   host.deliver(toolResult({ ok: true, note: { title: 'Title in English', content: 'English first\nשורה בעברית\n', color: '#ffeddb' } }));
-  const lines = [];
-  for (const el of host.main.walk()) if (el.className.split(/\s+/).indexOf('ck-line') !== -1) lines.push(el);
-  check('אף שורה אינה נושאת dir — יורשת rtl מהדף', lines.length === 3 && lines.every((l) => l.getAttribute('dir') === null),
-    lines.map((l) => l.getAttribute('dir')));
-  check('גם הכותרת אינה נושאת dir', host.find('ck-title').getAttribute('dir') === null, host.find('ck-title').getAttribute('dir'));
+  // הכיוון של השורות הוא של המנוע ושל הדף (``<html dir="rtl">``), ונמדד בדפדפן. כאן — שהעטיפה של
+  // הדף אינה מכריעה כיוון בעצמה, ולא מסתירה את מה שהשורות יורשות.
+  const own = ['ck-paper', 'ck-title', 'ck-body', 'ck-content'].map((c) => host.find(c));
+  check('לנייר, לכותרת, לגוף ולתוכן אין dir', own.every((el) => el && el.getAttribute('dir') === null), own.map((el) => el && el.getAttribute('dir')));
+}
+
+console.log('\nבלי המנוע');
+{
+  const host = load({ noEngine: true });
+  initialize(host);
+  host.deliver(toolResult(NOTE));
+  check('הודעה ברורה במקום פתק ריק או "טוען…"', host.main.textContent.indexOf('לא נטענה במלואה') !== -1 && host.main.children[0].className === 'ck-status is-error',
+    host.main.textContent);
+  host.fire(120000);
+  check('והודעת "לא הגיע" אינה דורסת אותה אחר כך', host.main.textContent.indexOf('לא נטענה במלואה') !== -1, host.main.textContent);
+}
+{
+  // כל מה שהתצוגה צריכה מהמנוע נבדק במקום אחד, לפני הרינדור — ולא רק מה שהרינדור עצמו קורא.
+  for (const missing of ['render', 'MD_SAFE_LINK']) {
+    const host = load({ engineOmit: [missing] });
+    initialize(host, {}, { openLinks: {} });
+    host.deliver(toolResult({ ok: true, note: { title: 'x', content: '[אתר](https://example.com)', color: '#ffffcc' } }));
+    check(`מנוע בלי ${missing} — הודעה, ולא פתק שהקישור בו היה זורק בלחיצה`,
+      host.main.textContent.indexOf('לא נטענה במלואה') !== -1 && !host.find('ck-paper') && host.mdCalls.length === 0,
+      [host.main.textContent, host.mdCalls.length]);
+  }
+}
+
+console.log('\nקישורים');
+{
+  const host = load();
+  initialize(host, {}, { openLinks: {} });
+  host.deliver(toolResult({ ok: true, note: { title: 'x', content: 'שורה\n[אתר](https://example.com/a?b=1)', color: '#ffffcc' } }));
+  const link = host.find('sticky-md-link');
+  check('לקישור יש title עם הכתובת', link && link.getAttribute('title') === 'https://example.com/a?b=1', link && link.getAttribute('title'));
+  const ev = host.find('ck-body').dispatch('click', { target: link });
+  check('הלחיצה אינה מנווטת בעצמה (preventDefault)', ev.defaultPrevented === true, ev.defaultPrevented);
+  const req = host.last('ui/open-link');
+  check('ui/open-link נשלח עם הכתובת', req && JSON.stringify(req.message.params) === JSON.stringify({ url: 'https://example.com/a?b=1' }) && req.message.id !== undefined,
+    req && req.message);
+  host.deliver({ jsonrpc: '2.0', id: req.message.id, error: { code: -32000, message: 'cancelled' } });
+  check('סירוב או ביטול — הקישור נשאר, בלי הודעה', host.find('sticky-md-link') === link && host.main.textContent.indexOf('אתר') !== -1, host.main.textContent);
+  const inner = host.find('sticky-task-line');
+  const other = host.find('ck-body').dispatch('click', { target: inner });
+  check('לחיצה שאינה על קישור — לא נבלמת ולא נשלח דבר', other.defaultPrevented === false
+    && host.sent.filter((m) => m.message.method === 'ui/open-link').length === 1, other.defaultPrevented);
+  link.setAttribute('href', 'javascript:alert(1)');
+  host.find('ck-body').dispatch('click', { target: link });
+  check('כתובת שאינה http/https אינה נשלחת', host.sent.filter((m) => m.message.method === 'ui/open-link').length === 1,
+    host.sent.filter((m) => m.message.method === 'ui/open-link').length);
+}
+{
+  // הקישור נשפט מול המנוע שבנה אותו — זה שנבדק לפני הרינדור — ולא מול מה שיש ב-``window`` ברגע הלחיצה.
+  const host = load();
+  initialize(host, {}, { openLinks: {} });
+  host.deliver(toolResult({ ok: true, note: { title: 'x', content: '[אתר](https://example.com/b)', color: '#ffffcc' } }));
+  host.win.StickyMdRender = undefined;
+  let thrown = null;
+  try {
+    host.find('ck-body').dispatch('click', { target: host.find('sticky-md-link') });
+  } catch (err) {
+    thrown = err;
+  }
+  const req = host.last('ui/open-link');
+  check('הלחיצה אינה קוראת שוב את window — הבקשה נשלחת, בלי חריגה',
+    thrown === null && req && req.message.params.url === 'https://example.com/b', [thrown && String(thrown), req && req.message]);
+}
+{
+  for (const caps of [{}, { openLinks: true }, { openLinks: null }, null, 'x']) {
+    const host = load();
+    initialize(host, {}, caps);
+    host.deliver(toolResult({ ok: true, note: { title: 'x', content: '[אתר](https://example.com)', color: '#ffffcc' } }));
+    const link = host.find('sticky-md-link');
+    const ev = host.find('ck-body').dispatch('click', { target: link });
+    check(`המארח אינו מודיע על openLinks (${JSON.stringify(caps)}) — אין בקשה, וגם אין ניווט`,
+      !host.last('ui/open-link') && ev.defaultPrevented === true, [host.methods(), ev.defaultPrevented]);
+  }
+}
+
+console.log('\nצופה הגודל רואה את התוכן');
+{
+  const host = load({ resizeObserver: true });
+  initialize(host);
+  host.deliver(toolResult(NOTE));
+  const first = host.find('ck-content');
+  check('אחרי רינדור — הצופה צופה ב-ck-content', host.observed.indexOf(first) !== -1, host.observed.map((e) => e.className || e.tagName));
+  host.deliver(toolResult({ ok: true, note: { title: 'y', content: 'אחר', color: '#ffffcc' } }));
+  const second = host.find('ck-content');
+  check('פתק חדש — הצופה מפסיק לצפות בתוכן הקודם ומתחיל בחדש', second !== first && host.unobserved.indexOf(first) !== -1 && host.observed.indexOf(second) !== -1,
+    [host.unobserved.length, host.observed.length]);
+}
+{
+  // התוצאה מגיעה לפני התשובה ל-``ui/initialize`` (מארח שאינו מקפיד): הצופה, שנוצר אחר כך, צופה גם בתוכן שכבר מוצג.
+  const host = load({ resizeObserver: true });
+  host.deliver(toolResult(NOTE));
+  initialize(host);
+  check('תוכן שכבר מוצג כשהצופה נוצר — נצפה', host.observed.indexOf(host.find('ck-content')) !== -1, host.observed.map((e) => e.className || e.tagName));
 }
 
 console.log('\nהגדלת הטקסט של המערכת');
+const adjustOf = (host) => host.document.documentElement.style.props['text-size-adjust'];
+const probesOf = (host) => host.document.body.children.filter((c) => c.tagName === 'SPAN');
 {
   const host = load();
   const props = host.document.documentElement.style.props;
-  check('בלי הגדלה — המשתנה אינו מוצב', !('--ck-text-scale' in props), props);
-  const probes = host.document.body.children.filter((c) => c.tagName === 'SPAN');
-  check('אלמנט בדיקה אחד נוצר כבר בעלייה, לפני לחיצת היד — מוסתר, בגודל קבוע',
-    probes.length === 1 && host.sent.length === 1 && probes[0].style.display === 'none' && probes[0].style.fontSize === '100px',
-    [probes.length, host.sent.length]);
+  check('בלי הגדלה — לא פיצוי ולא חלוקה', adjustOf(host) === undefined && !('--ck-text-scale' in props), props);
+  const probes = probesOf(host);
+  check('אלמנט בדיקה אחד נוצר כבר בעלייה, לפני לחיצת היד — מוסתר, בגודל קבוע, ואינו יורש את הפיצוי',
+    probes.length === 1 && host.sent.length === 1 && probes[0].style.display === 'none' && probes[0].style.fontSize === '100px'
+      && probes[0].style.props['text-size-adjust'] === 'auto',
+    [probes.length, host.sent.length, probes[0] && probes[0].style.props]);
 }
 {
+  // מנוע שמכבד ``text-size-adjust`` — WebView מודרני.
   const host = load({ textZoom: 1.3 });
   const props = host.document.documentElement.style.props;
-  check('הגדלה של 130% נמדדת כבר בעלייה, ונכנסת ל---ck-text-scale', props['--ck-text-scale'] === '1.3', props);
+  const near = (value, expected) => value !== undefined && /%$/.test(value) && Math.abs(parseFloat(value) - expected) < 1e-9;
+  check('הגדלה של 130% נמדדת כבר בעלייה, ומבוטלת ב-text-size-adjust של 100/1.3 אחוז', near(adjustOf(host), 100 / 1.3), props);
+  check('והגופנים אינם מחולקים — ה-em נשאר של הוובאפ', !('--ck-text-scale' in props), props);
   initialize(host);
   host.deliver(toolResult(NOTE));
   host.zoom.text = 1.15;
   host.resize();
-  check('שינוי של ההגדלה נמדד שוב במדידת הגודל הבאה', props['--ck-text-scale'] === '1.15', props);
+  check('שינוי של ההגדלה נמדד שוב במדידת הגודל הבאה — מול ההגדלה עצמה, לא מול מה שנשאר אחרי הפיצוי',
+    near(adjustOf(host), 100 / 1.15), props);
   host.zoom.text = 1;
   host.resize();
-  check('חזרה ל-100% — המשתנה יורד', !('--ck-text-scale' in props), props);
-  const probes = host.document.body.children.filter((c) => c.tagName === 'SPAN');
-  check('ובכל המדידות — אותו אלמנט בדיקה, לא חדש בכל פעם', probes.length === 1, probes.length);
+  check('חזרה ל-100% — הפיצוי יורד', adjustOf(host) === undefined && !('--ck-text-scale' in props), props);
+  check('ובכל המדידות — אותם שני אלמנטי בדיקה, לא חדשים בכל פעם', probesOf(host).length === 2, probesOf(host).length);
 }
 {
-  for (const raw of ['', 'abc', '0px', '-100px', 'NaNpx']) {
-    const host = load({ textZoom: 1.3 });
-    host.zoom.raw = raw;
-    host.resize();
-    initialize(host);
-    host.resize();
-    const props = host.document.documentElement.style.props;
-    check(`גודל מחושב לא תקין (${JSON.stringify(raw)}) — הערך התקין האחרון נשאר`, props['--ck-text-scale'] === '1.3', props);
+  // מנוע שאינו מכבד ``text-size-adjust`` — הבדיקה שאחרי ההצבה מגלה שההגדלה נשארה.
+  const host = load({ textZoom: 1.3, tsa: false });
+  const props = host.document.documentElement.style.props;
+  check('מנוע שמתעלם מ-text-size-adjust — חלוקה של הגופנים ב-1.3, והפיצוי שלא עבד אינו נשאר',
+    props['--ck-text-scale'] === '1.3' && adjustOf(host) === undefined, props);
+  initialize(host);
+  host.deliver(toolResult(NOTE));
+  host.zoom.text = 1.15;
+  host.resize();
+  check('שינוי של ההגדלה — החלוקה מתעדכנת', props['--ck-text-scale'] === '1.15' && adjustOf(host) === undefined, props);
+  host.zoom.text = 1;
+  host.resize();
+  check('חזרה ל-100% — שום דבר אינו מוצב', !('--ck-text-scale' in props) && adjustOf(host) === undefined, props);
+}
+{
+  for (const tsa of [true, false]) {
+    for (const raw of ['', 'abc', '0px', '-100px', 'NaNpx']) {
+      const host = load({ textZoom: 1.3, tsa });
+      const before = JSON.stringify(host.document.documentElement.style.props);
+      host.zoom.raw = raw;
+      host.resize();
+      initialize(host);
+      host.resize();
+      const after = JSON.stringify(host.document.documentElement.style.props);
+      check(`גודל מחושב לא תקין (${JSON.stringify(raw)}, tsa=${tsa}) — הפיצוי התקין האחרון נשאר`, before === after && before !== '{}', [before, after]);
+    }
   }
 }
 

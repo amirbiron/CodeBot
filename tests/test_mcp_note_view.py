@@ -291,10 +291,24 @@ def test_show_note_is_get_note_without_threads_and_version(monkeypatch):
 # ===========================================================================
 
 
-def _copy_assets(tmp_path: Path) -> Path:
-    target = tmp_path / "apps"
-    shutil.copytree(_REPO / "mcp_server" / "apps", target)
-    return target
+def _copy_assets(tmp_path: Path) -> tuple[Path, Path]:
+    """עותק של כל מה שהדף נבנה ממנו: הקבצים של התצוגה, והחלקים של הוובאפ (בלבד) באותו מבנה."""
+    apps = tmp_path / "apps"
+    shutil.copytree(_REPO / "mcp_server" / "apps", apps)
+    webapp = tmp_path / "static"
+    for root, rel in note_view.STYLE_PARTS + note_view.SCRIPT_PARTS:
+        if root == "webapp":
+            (webapp / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(_REPO / "webapp" / "static" / rel, webapp / rel)
+    return apps, webapp
+
+
+def _part_path(apps: Path, webapp: Path, root: str, rel: str) -> Path:
+    return (apps if root == "apps" else webapp) / rel
+
+
+#: כל קובץ שהדף נבנה ממנו: השלד, וכל חלק של הסגנון ושל הסקריפט.
+_ALL_PARTS = [("apps", "note_view.html")] + list(note_view.STYLE_PARTS) + list(note_view.SCRIPT_PARTS)
 
 
 def test_the_version_is_the_hash_of_the_page_as_sent():
@@ -305,17 +319,17 @@ def test_the_version_is_the_hash_of_the_page_as_sent():
     assert "ck-note-root" in view.html
 
 
-@pytest.mark.parametrize("name", ["note_view.html", "note_view.css", "note_view.js"])
-def test_any_change_to_any_part_changes_the_address(tmp_path, name):
-    """הכתובת משתנה עם כל קובץ שהדף נבנה ממנו — אחרת מארח שמחזיק את הדף בקאש לפי כתובת היה
-    מגיש את הישן (``stale-asset-cache-policy``)."""
-    assets = _copy_assets(tmp_path)
-    before = note_view.build_note_view(assets)
-    path = assets / name
+@pytest.mark.parametrize("root,rel", _ALL_PARTS)
+def test_any_change_to_any_part_changes_the_address(tmp_path, root, rel):
+    """הכתובת משתנה עם כל קובץ שהדף נבנה ממנו — גם המנוע והעיצוב שהוובאפ משתף — אחרת מארח שמחזיק
+    את הדף בקאש לפי כתובת היה מגיש את הישן (``stale-asset-cache-policy``)."""
+    apps, webapp = _copy_assets(tmp_path)
+    before = note_view.build_note_view(apps, webapp)
+    path = _part_path(apps, webapp, root, rel)
     text = path.read_text(encoding="utf-8")
-    marker = "<!-- changed -->" if name.endswith(".html") else "/* changed */"
+    marker = "<!-- changed -->" if rel.endswith(".html") else "/* changed */"
     path.write_text(text + "\n" + marker + "\n", encoding="utf-8")
-    after = note_view.build_note_view(assets)
+    after = note_view.build_note_view(apps, webapp)
     assert after.version != before.version
 
 
@@ -324,27 +338,68 @@ def test_any_change_to_any_part_changes_the_address(tmp_path, name):
     ("note_view.html", note_view.SCRIPT_SLOT, None),
 ])
 def test_a_shell_without_exactly_one_slot_stops_the_server(tmp_path, name, slot, body):
-    assets = _copy_assets(tmp_path)
-    shell = (assets / name).read_text(encoding="utf-8")
-    (assets / name).write_text(shell.replace(slot, ""), encoding="utf-8")
+    apps, webapp = _copy_assets(tmp_path)
+    shell = (apps / name).read_text(encoding="utf-8")
+    (apps / name).write_text(shell.replace(slot, ""), encoding="utf-8")
     with pytest.raises(RuntimeError, match="exactly once"):
-        note_view.build_note_view(assets)
-    (assets / name).write_text(shell.replace(slot, slot + slot), encoding="utf-8")
+        note_view.build_note_view(apps, webapp)
+    (apps / name).write_text(shell.replace(slot, slot + slot), encoding="utf-8")
     with pytest.raises(RuntimeError, match="exactly once"):
-        note_view.build_note_view(assets)
+        note_view.build_note_view(apps, webapp)
 
 
-@pytest.mark.parametrize("name,closing", [
-    ("note_view.js", "</ScRiPt>"),
-    ("note_view.css", "</STYLE>"),
-])
-def test_code_that_would_close_its_own_block_stops_the_server(tmp_path, name, closing):
-    """``</script`` בתוך הסקריפט סוגר את הבלוק בדפדפן, בכל רישיות — ושאר הקוד היה מוצג כטקסט."""
-    assets = _copy_assets(tmp_path)
-    path = assets / name
+@pytest.mark.parametrize("root,rel,closing",
+    [(r, p, "</STYLE>") for r, p in note_view.STYLE_PARTS] + [(r, p, "</ScRiPt>") for r, p in note_view.SCRIPT_PARTS])
+def test_code_that_would_close_its_own_block_stops_the_server(tmp_path, root, rel, closing):
+    """``</script`` בתוך הסקריפט סוגר את הבלוק בדפדפן, בכל רישיות — ושאר הקוד היה מוצג כטקסט. כל
+    חלק נבדק, גם אלה של הוובאפ, והשגיאה נוקבת בקובץ."""
+    apps, webapp = _copy_assets(tmp_path)
+    path = _part_path(apps, webapp, root, rel)
     path.write_text(path.read_text(encoding="utf-8") + f"\n/* {closing} */\n", encoding="utf-8")
-    with pytest.raises(RuntimeError, match="would end the inline block"):
-        note_view.build_note_view(assets)
+    with pytest.raises(RuntimeError, match=re.escape(rel) + ".*would end the inline block"):
+        note_view.build_note_view(apps, webapp)
+
+
+def _board_load_order(suffix: str) -> list[str]:
+    """הנכסים של הוובאפ בסיומת ``suffix``, בסדר שבו הם מגיעים לדפדפן בלוח הפתקים.
+
+    ``note_board.html`` יורש מ-``base.html`` (דרך ``base_boards.html``), ולכן הסדר בעמוד הוא הסדר
+    של התבנית הבסיסית, כשבמקום כל ``{% block X %}`` נכנס התוכן של הבלוק בלוח. זה מה שהפונקציה
+    עושה — בלי מנוע תבניות, רק לפי מיקום בטקסט, ורק לבלוקים שהלוח ממלא.
+    """
+    base = (_REPO / "webapp" / "templates" / "base.html").read_text(encoding="utf-8")
+    board = (_REPO / "webapp" / "templates" / "note_board.html").read_text(encoding="utf-8")
+    assert '{% extends "base_boards.html" %}' in board
+    assert '{% extends "base.html" %}' in (_REPO / "webapp" / "templates" / "base_boards.html").read_text(encoding="utf-8")
+    pattern = re.compile(r"filename='([^']+" + re.escape(suffix) + r")'")
+    blocks = dict(re.findall(r"{% block (\w+) %}(.*?){% endblock %}", board, flags=re.S))
+    order: list[str] = []
+    for piece in re.split(r"({% block \w+ %}{% endblock %})", base):
+        name = re.fullmatch(r"{% block (\w+) %}{% endblock %}", piece)
+        order += pattern.findall(blocks.get(name.group(1), "") if name else piece)
+    return order
+
+
+def test_the_page_holds_every_part_in_the_order_the_board_loads_them():
+    """הדף כולל את המנוע והעיצוב של הוובאפ כמו שהם, ובסדר שבו לוח הפתקים טוען אותם.
+
+    ``note_view.css`` ו-``note_view.js`` אחרונים: התצוגה מוסיפה על העיצוב המשותף ולא להפך, והסקריפט
+    שלה קורא למנוע. הסדר של החלקים מהוובאפ נגזר מהתבניות (ההסבר ליד ``STYLE_PARTS``), כדי שתבנית
+    שתשנה אותו תפיל כאן ולא תיפרד מהתצוגה בשקט.
+    """
+    view = note_view.build_note_view()
+    for kind, parts in (("style", note_view.STYLE_PARTS), ("script", note_view.SCRIPT_PARTS)):
+        positions = [view.html.index(f"/* ---- {rel} ---- */") for _root, rel in parts]
+        assert positions == sorted(positions), kind
+        assert parts[-1][0] == "apps" and all(root == "webapp" for root, _rel in parts[:-1]), kind
+        for root, rel in parts:
+            text = (_REPO / ("mcp_server/apps" if root == "apps" else "webapp/static") / rel).read_text(encoding="utf-8")
+            assert text in view.html, rel
+    for suffix, parts in ((".css", note_view.STYLE_PARTS), (".js", note_view.SCRIPT_PARTS)):
+        ours = [rel for root, rel in parts if root == "webapp"]
+        board = _board_load_order(suffix)
+        assert set(ours) <= set(board), (ours, board)
+        assert [rel for rel in board if rel in ours] == ours, board
 
 
 def test_importing_the_module_reads_no_file(monkeypatch):
@@ -390,18 +445,25 @@ def test_the_view_copies_the_ink_spacing_and_default_size_of_a_webapp_note():
     view_css = (_REPO / "mcp_server" / "apps" / "note_view.css").read_text(encoding="utf-8")
     paper = _css_block(view_css, ".ck-paper")
     content = _css_block(webapp_css, ".sticky-note-content")
-    # הדיו של הפתק מוצהר בקובץ העיצוב של המנוע, שנטען לפני ``sticky-notes.css`` בכל תבנית.
-    ink_css = (_REPO / "webapp" / "static" / "css" / "sticky-md-render.css").read_text(encoding="utf-8")
-    note = _css_block(ink_css, ".sticky-note")
+    # המכל של התוכן בוובאפ — מה שהמנוע בונה לתוכו, והקובץ שלו אינו בדף של התצוגה.
+    tasks = _css_block(webapp_css, ".sticky-note-tasks")
+    view_body = _css_block(view_css, ".ck-body")
     size_selector = ":root" if NOTE_FONT_SIZE_DEFAULT == "normal" else f":root.sticky-font-{NOTE_FONT_SIZE_DEFAULT}"
     size = _css_block(webapp_css, size_selector)
 
     assert NOTE_FONT_SIZE_DEFAULT == "xlarge"
     assert _css_value(paper, "--ck-font") == _css_value(size, "--sticky-note-font") == "20px"
-    assert _css_value(paper, "--ck-ink").lower() == _css_value(content, "color").lower()
-    assert _css_value(paper, "--ck-line-height") == _css_value(content, "line-height")
-    assert _css_value(paper, "--ck-title-ink").lower() == _css_value(note, "--note-ink").lower()
-    assert _css_value(paper, "--ck-muted-ink").lower() == _css_value(note, "--note-ink-muted").lower()
+    assert _css_value(paper, "--ck-ink").lower() == _css_value(content, "color").lower() == _css_value(tasks, "color").lower()
+    assert _css_value(paper, "--ck-line-height") == _css_value(content, "line-height") == _css_value(tasks, "line-height")
+    # שבירת השורות של התוכן — כמו המכל בוובאפ, שהשורות של המנוע יורשות ממנו.
+    assert _css_value(view_body, "white-space") == _css_value(tasks, "white-space") == "pre-wrap"
+    assert _css_value(view_body, "overflow-wrap") == _css_value(tasks, "overflow-wrap")
+    # הדיו של הכותרת ושל הפתק הריק — הטוקנים עצמם, מהעיצוב המשותף שבדף, ולא עותק שלהם.
+    assert _css_value(_css_block(view_css, ".ck-paper.has-note-color .ck-title"), "color") == "var(--note-ink)"
+    assert _css_value(_css_block(view_css, ".ck-paper.has-note-color .ck-empty"), "color") == "var(--note-ink-muted)"
+    assert ("webapp", "css/sticky-md-render.css") in note_view.STYLE_PARTS
+    shared = (_REPO / "webapp" / "static" / "css" / "sticky-md-render.css").read_text(encoding="utf-8")
+    assert "--note-ink:" in _css_block(shared, ".sticky-note") and "--note-ink-muted:" in _css_block(shared, ".sticky-note")
     assert _css_value(_css_block(view_css, ".ck-body"), "font-size") == "calc(var(--ck-font) / var(--ck-text-scale, 1))"
     # הכותרת כמו בוובאפ — החלטת המשתמש — ולא בגודל של הגוף.
     webapp_title = _css_block(webapp_css, ".sticky-note-title")
