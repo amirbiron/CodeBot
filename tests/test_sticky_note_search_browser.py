@@ -99,6 +99,8 @@ def build_page(notes, *, theme=None, with_module=True, file_mode=False, md_html=
     scripts = ["js/admonition-icons.js", "js/utils/file-name.js", "js/utils/rtl-code.js"]
     if with_module:
         scripts.append(MODULE)
+    # מנוע התצוגה לפני המודול, כמו בכל תבנית (``sticky-md-render.js``).
+    scripts.append("js/sticky-md-render.js")
     scripts.append("js/sticky-notes.js")
     tags = "\n".join(f'<script src="/{s}"></script>' for s in scripts)
     host = (f'<div id="md-content">{md_html}</div>' if file_mode

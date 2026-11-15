@@ -64,6 +64,9 @@
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
+<!-- מנוע התצוגה של הפתק (sticky-md-render.js) — לפני sticky-notes.js ואחרי התלויות שהוא קורא מ-window, ובלי defer:
+     המודול קורא ממנו בטעינה. ההסבר בראש הקובץ. -->
+<script src="{{ url_for('static', filename='js/sticky-md-render.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/note-cards.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/notes-archive.js') }}?v={{ static_version }}"></script>
