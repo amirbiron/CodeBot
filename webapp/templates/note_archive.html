@@ -19,6 +19,8 @@
 {% endblock %}
 
 {% block extra_css %}
+{# עיצוב ה-Markdown של הפתק — הזוג של ``sticky-md-render.js``. לפני ``sticky-notes.css``: קודם התוכן, ואחריו הפתק שמארח אותו. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-md-render.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/note-boards.css') }}?v={{ static_version }}">
 {# הכרטיס והשכבה של הפתק הפתוח — הרכיב המשותף עם עמוד הקבצים. #}

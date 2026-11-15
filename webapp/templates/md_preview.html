@@ -3771,6 +3771,8 @@ function goBackTwoSteps(ev){
   } catch(_) { }
 })();
 </script>
+{# עיצוב ה-Markdown של הפתק — הזוג של ``sticky-md-render.js``. לפני ``sticky-notes.css``: קודם התוכן, ואחריו הפתק שמארח אותו. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-md-render.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
 <!-- הטוסט המשותף — ההודעה אחרי העברת פתק לארכיון (``_notify`` ב-sticky-notes.js). -->
 <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}?v={{ static_version }}">

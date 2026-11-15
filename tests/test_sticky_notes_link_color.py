@@ -38,7 +38,9 @@ from _css_rules import (
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CSS_DIR = REPO_ROOT / "webapp/static/css"
-STICKY_CSS = CSS_DIR / "sticky-notes.css"
+#: כללי הקישור והטוקן ``--note-link`` — בקובץ העיצוב של המנוע, שנטען צמוד לפני ``sticky-notes.css`` בכל
+#: תבנית, ולכן ביחס לקבצי הערכות הוא יושב בדיוק במקום של ``sticky-notes.css``.
+STICKY_CSS = CSS_DIR / "sticky-md-render.css"
 
 #: הגוון נבחר בעין על הפתקים. הבדיקה מקבעת את ההחלטה, ולא תוצאה של חישוב ניגודיות.
 NOTE_LINK = "#777abc"
@@ -79,7 +81,7 @@ def test_every_colour_on_the_link_reads_the_token():
         if "color" in decls
     }
     # בלי כלל כזה, כל הבדיקות בקובץ היו עוברות בלי לבדוק דבר.
-    assert colours, "אף כלל ב-sticky-notes.css אינו צובע את הקישור"
+    assert colours, f"אף כלל ב-{STICKY_CSS.name} אינו צובע את הקישור"
     assert set(colours.values()) == {"var(--note-link) !important"}, colours
 
 

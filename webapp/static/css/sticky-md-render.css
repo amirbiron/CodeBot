@@ -1,0 +1,536 @@
+/* מנוע התצוגה של הפתק — העיצוב. **זוג של ``sticky-md-render.js``**: הקובץ ההוא בונה את תצוגת
+ * הפתק מטקסט המקור, וזה מעצב את מה שהוא בונה. שניהם משותפים לכל מי שמרנדר Markdown של פתק: הפתק
+ * עצמו (שלושת המשטחים — לוח, קובץ md ודפדפן הריפו), התצוגה של פתק בתוך Claude (שרת ה-MCP), והתגובות
+ * בשרשורים כשיחוברו.
+ *
+ * **הועבר מ-``sticky-notes.css`` כמו שהוא, בנובמבר 2026**, בסקריפט ולא בהקלדה — כמו שהמנוע הועבר
+ * מ-``sticky-notes.js``. אף בורר ואף ערך לא השתנו; כלל אחד התפצל: ``.sticky-task-box`` עבר לכאן בלי
+ * ה-``cursor``, שנשאר בפתק כי הוא חלק מהאינטראקציה שלו. בפתק לא השתנה דבר: הסגנון המחושב של כל אלמנט
+ * בפתקים מרונדרים נמדד לפני ההעברה ואחריה, והוא זהה (העמוד "מנוע הרינדור והמארקדאון של הפתק").
+ * ההערות עברו עם הכללים שהן מסבירות; חלקן מזכירות את ``sticky-notes.js`` כמקום של המנוע, שהיה
+ * נכון כשנכתבו — היום המנוע ב-``sticky-md-render.js``.
+ *
+ * **מה כאן ומה לא:** כאן — מה שמעצב את תוצר המנוע: שורות ומשימות, Markdown בשורה, כותרות, ציטוטים,
+ * רשימות, בלוק קוד, טבלאות, אלרטים ובלוק מתקפל, והטוקנים שכל אלה קוראים (כולל הדיו של הפתק). ב-
+ * ``sticky-notes.css`` נשארו המכל (``.sticky-note-tasks``) והשלד של הפתק, כפתור ההעתקה של בלוק
+ * קוד (שהפתק המארח מספק — העמוד של המנוע, ``sticky-notes-md-engine-module``), מצבי האינטראקציה (``cursor`` של
+ * הצ'קבוקס, "שמירה ממתינה", לחיצה), כתב היד וכלי ה-MD.
+ *
+ * **הבורר ``.sticky-note`` נשאר בכללים שתחומים בו**, ומשטח שמרנדר כאן נושא את המחלקה הזו על הנייר.
+ * שינוי הבורר היה משנה גם את הסדר שבו כללים שווי-ספציפיות מכריעים, ובלי צורך.
+ *
+ * **נטען לפני ``sticky-notes.css``**, עם ``?v=``. הבדיקות: ``tests/sticky-notes-target.test.js``
+ * (החיווט בכל התבניות) ו-``GUARDED`` ב-``tests/test_static_cache_busting.py``. */
+
+/* דיו הפתק — **קבוע, ולא של הערכה.**
+ *
+ * רקע הפתק הוא צהוב קשיח שאינו משתנה עם הערכה, ולכן כל צבע טקסט שיירש
+ * מהערכה יוצא שגוי בדיוק באותה מידה שהרקע לא השתנה. נמדד: שם הפתק הגיע
+ * לניגודיות 1.03:1 ב-classic ו-ocean (לבן על צהוב בהיר — בלתי נראה),
+ * 1.18–1.50 בשאר הכהות, ורק בערכה הבהירה היחידה הוא היה קריא.
+ *
+ * הגוון אינו המצאה: הוא ``editor.foreground`` של ערכת ``Pen Paper Coffee``,
+ * שהיא הערכה היחידה שבה השם נראה טוב — ובדיוק מהסיבה הזו. הרצת הפרסר
+ * האמיתי (``services/theme_parser_service.parse_vscode_theme``) על ה-JSON
+ * שלה מראה ש-``editor.foreground: #2b3f6a`` הופך ל-``--text-primary``,
+ * וזה מה שהשם ירש שם. כחול דיו של עט על נייר — 10.10:1 מול צהוב הפתק,
+ * הרבה מעל הסף המחמיר של WCAG AAA (7:1).
+ *
+ * (``--text-secondary`` בערכה הזו הוא דווקא ``#616161``, נפילה גנרית — אין
+ * לה ``sideBar.foreground`` כלל. כלומר לא הוא זה שנראה טוב.)
+ *
+ * ``--note-ink-muted`` הוא לפקד שאינו זמין, באותה משפחת גוון. 4.00:1 —
+ * מעל הסף לרכיבי ממשק (1.4.11) עם מרווח, כלומר **נראה**, אבל חלש דיו
+ * כדי לומר "אי אפשר ללחוץ".
+ */
+.sticky-note{
+  --note-ink: #2b3f6a;
+  --note-ink-muted: #66739A;
+  /* צבע הקישורים בפתק. **הגוון נבחר בכוונה, בבדיקה בעין על הפתקים** — לא
+     בחישוב ניגודיות, ואין להחליף אותו בגלל חישוב כזה. למה הכלל שצובע בו
+     צריך גם ``!important`` וגם ``.sticky-note`` לפניו — ליד ``.sticky-md-link``. */
+  --note-link: #777abc;
+}
+
+/* ---------- צ'קבוקסים ושורות בתוך פתק ---------- */
+
+/* שורה שאינה משימה — הטקסט הרגיל של הפתק. היא נשארת גלויה, וזה כל
+   ההבדל בין "יש כאן צ'קבוקס" לבין "כל שאר הפתק נעלם". */
+.sticky-task-line { min-height: 1.35em; }
+
+.sticky-task {
+  display: flex;
+  align-items: flex-start;
+  gap: .4rem;
+  padding: .1rem 0;
+}
+
+.sticky-task-box { margin-top: .25rem; flex: 0 0 auto; }
+
+.sticky-task-box:checked + .sticky-task-text {
+  text-decoration: line-through;
+  opacity: .6;
+}
+
+/* ---------- מארקדאון קליל בפתקים ---------- */
+/* הצבעים נגזרים מהטוקנים שכבר מוגדרים על ``.sticky-note`` —
+   ``--note-ink``/``--note-ink-muted``, ולקישור ``--note-link`` — דיו קבוע,
+   בלתי תלוי בערכה, בדיוק כמו שם הפתק. */
+
+/* אינליין */
+.sticky-md-bold   { font-weight: 700; }
+.sticky-md-italic { font-style: italic; }
+.sticky-md-strike { text-decoration: line-through; opacity: .7; }
+/* **בלי ``direction`` ובלי ``unicode-bidi``.** הכיוון של קוד בשורה הוא ``dir="auto"``, שנכתב
+   על האלמנט ב-``_appendInlineSegments`` (``sticky-notes.js``), והבידוד מגיע מגיליון הסגנון של
+   הדפדפן לכל אלמנט עם ``dir``. הצהרה כאן הייתה גוברת על שניהם בשקט — כך היה עד נובמבר 2026,
+   כשהכלל כפה ``direction: ltr`` ושם קובץ בעברית הוצג הפוך. ``tests/sticky-notes-target.test.js``
+   נכשל על כל אחת מהשתיים. */
+.sticky-md-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .92em;
+  background: color-mix(in srgb, var(--note-ink, #2b3f6a) 12%, transparent);
+  padding: .05em .3em; border-radius: 4px;
+}
+/* קישור — ``--note-link``, אותו צבע בכל ערכה ובכל מצב.
+ *
+ * **קבצי הערכות צובעים ``a`` כאלמנט, וגברו על הכלל שהיה כאן:**
+ * ``[data-theme="dark"] a`` ב-``dark-mode.css`` (וכמותו ``dim``, ``nebula``,
+ * ``custom`` ו-``shared:``) צובע ב-``--primary``, ו-``[data-theme="high-contrast"] a``
+ * ב-``high-contrast.css`` צובע צהוב — בלתי נראה על הנייר.
+ *
+ * **``!important`` לבדו אינו מספיק כאן, בשונה מ-``.sticky-md-mark``.** שם
+ * כללי הערכה אינם ``!important``, ולכן כל הצהרה חשובה מנצחת אותם. כאן הכלל
+ * של ``high-contrast`` הוא ``!important`` בעצמו, ובין שתי הצהרות חשובות מאותו
+ * מקור מכריעה הספציפיות (CSS Cascade 5, §6.1): ``.sticky-md-link`` לבדו הוא
+ * (0,1,0) ומפסיד ל-(0,1,1) של ``[data-theme] a``. ``.sticky-note`` לפניו
+ * מעלה ל-(0,2,0), ו-``:hover``/``:focus`` מקבלים בורר משלהם כי ``a:hover`` ו-
+ * ``a:focus`` של ``high-contrast`` הם (0,2,1), גם הם ``!important``.
+ * ``.sticky-note`` הוא גם האלמנט שמצהיר על הטוקן, ולכן אין fallback
+ * ב-``var()``: עותק שני של הצבע היה נראה כמו ברירת המחדל בלי להיות היא.
+ *
+ * **ההכרעה בספציפיות ולא בסדר הטעינה, כי הסדר אינו אחיד.** ``note_board.html``
+ * (ב-``extra_css``) ו-``repo/base_repo.html`` (ב-``extra_head``) טוענים את
+ * הקובץ הזה לפני קבצי הערכות שב-``base.html``, ו-``md_preview.html`` טוען אותו
+ * בגוף העמוד, אחריהם. בספציפיות שווה הצבע היה תלוי במשטח.
+ *
+ * ``tests/test_sticky_notes_link_color.py`` גוזר את כללי ה-``a`` מקבצי הערכות
+ * ודורש שכל אחד מהם יפסיד כאן — גם כלל שעוד לא נכתב, כמו ``a:visited``. */
+.sticky-note .sticky-md-link,
+.sticky-note .sticky-md-link:hover,
+.sticky-note .sticky-md-link:focus { color: var(--note-link) !important; }
+.sticky-md-link { text-decoration: underline; }
+
+/* ריחוף: הקו מתעבה, ושום דבר אחר אינו משתנה — בכל ערכה.
+ *
+ * ``opacity: 1`` מבטל את ה-``opacity`` של ``a:hover`` ב-``dark-mode.css``,
+ * שהבהיר את הקישור רק בערכות שהוא חל עליהן. ``!important`` על העובי, כי
+ * ``[data-theme="high-contrast"] a`` כותב ``text-decoration`` כקיצור
+ * ``!important``, והקיצור מאפס גם את ``text-decoration-thickness`` (CSS Text
+ * Decoration 4; ב-BCD ‏``css.properties.text-decoration.includes_thickness``:
+ * כרומיום 87, ‏Firefox 70, ‏Safari 26.2). בלעדיו הריחוף בערכה הזו לא הראה
+ * כלום. */
+.sticky-note .sticky-md-link:hover { opacity: 1; text-decoration-thickness: 2px !important; }
+
+/* ``==מרקר==``.
+ *
+ * **חריגה מכוונת מדפוס הבית.** שאר אלמנטי המארקדאון כאן נגזרים
+ * מ-``--note-ink`` ב-``color-mix``, אבל מדידה הראתה שזה נכשל דווקא כאן:
+ * ``color-mix(ink 20%)`` יוצא ``#d5d9b8`` — מרחק 60 בלבד מרקע הפתק
+ * (``#FFFFCC``), ומרחק 24 מרקע הקוד האינליני (``#e6e8c0``). כלומר מרקר
+ * שבקושי נראה, ושמתבלבל עם ``code``. הגוון שנבחר נותן 112 ו-93.
+ *
+ * **למה דווקא ``#ff8fc4`` ולא ורוד רך.** ורוד בהיר (``#ffb3d1``) נבלע
+ * בצהוב של הנייר — בליטות 76 בלבד. ורוד רווי יותר בולט, אבל מתחתיו
+ * הניגודיות מול הדיו צונחת: ``#ff7fb8`` כבר ב-4.44:1, מתחת לסף AA.
+ * ``#ff8fc4`` הוא הגבול. הערך בפועל הוא ``#ff9ac9`` — אותו גוון
+ * מולבן, שמרכך את הבליטות מ-112 ל-101 ומשפר את הניגודיות
+ * ל-5.30:1. עדיין הרבה מעל ה-76 של ורוד רך שנבלע בנייר.
+ *
+ * הצבע יושב בטוקן רכיב (Level 3), אבל **לא כדי שערכה תדרוס אותו** —
+ * ההפך: ה-``!important`` למטה קיים בדיוק כדי לחסום ערכות, כי הנייר של
+ * הפתק קבוע וכל צבע שיירש מהערכה יוצא שגוי (ראו ההערה בראש הקובץ).
+ * הטוקן הוא מקום אחד ומוסמך לערך, בצורה ש-``theming_and_css`` מגדיר
+ * לצבע ייחודי לרכיב — ערך ברירת המחדל חי ברכיב עצמו.
+ */
+.sticky-note { --sticky-mark-bg: #ff9ac9; --sticky-mark-line: #df76a8; }
+.sticky-md-mark {
+  /* **``!important`` כאן אינו עצלנות — הוא הדרך היחידה שנשארה.**
+   * לאפליקציה יש כללי ערכה שמכוונים ל-``mark`` כאלמנט:
+   * ``mark { color: #FFFFFF }`` ו-``:root[data-theme="classic"] mark``.
+   * הצורה השנייה היא (0,2,1) בספציפיות, כלומר היא מנצחת כל בורר מחלקה
+   * סביר של הרכיב — וכל ניסיון לנצח אותה בשרשור מחלקות היה קושר את
+   * הכלל למבנה ה-DOM ונשבר בעריכה הבאה.
+   *
+   * הכשל שזה מונע נמדד: לבן על המרקר הוא **1.51:1** — בלתי קריא. זו
+   * בדיוק המחלקה שההערה בראש הקובץ מתעדת (שם הפתק ב-1.03:1), ומאותה
+   * סיבה: רקע הפתק קבוע, ולכן טקסט שיורש מהערכה יוצא שגוי.
+   */
+  background: var(--sticky-mark-bg, #ff9ac9) !important;
+  color: var(--note-ink, #2b3f6a) !important;
+
+  /* **הקו התחתון נדרס, לא מאופס.** ``markdown-enhanced.css`` נותן לכל
+   * ``mark`` קו ענברי (``1.5px solid #FFBF00``) שאינו שייך לפלטת הפתק.
+   * הוא לא בוטל אלא הוחלף בגוון כהה של המרקר עצמו: הקו הוא מה שנותן את
+   * מראה משיחת המרקר, וגם מה שסוגר את הקופסה מלמטה. */
+  border-bottom: 2px solid var(--sticky-mark-line, #df76a8) !important;
+
+  /* **אותן מידות בדיוק כמו ``.sticky-md-code``, וזו החלטה שנמדדה.**
+   *
+   * הניסיון הראשון היה ``padding: .14em .18em`` עם ``margin: -.14em 0``.
+   * שתי ההנחות שם היו שגויות:
+   *
+   * 1. **המרג'ין לא עשה כלום.** מרג'ין אנכי על אלמנט inline אינו משתתף
+   *    בחישוב תיבת השורה. נמדד: גובה המרקר 21.1px איתו ובלעדיו, וגובה
+   *    המכל 44.6px בשני המקרים.
+   * 2. **הריפוד האנכי גולש לשורות השכנות.** הוא מצויר אבל אינו מגדיל את
+   *    תיבת השורה. בפתק תיבת השורה היא 17px סביב גופן של 14px, כלומר
+   *    תקציב של פחות מ-1.5px לכל צד — ובגודל הזה כל ריפוד גולש:
+   *    ``.05em`` נותן מרווח של ‎-0.4px בין מרקרים בשורות עוקבות.
+   *
+   * **מה שקונה את הריפוד הוא דווקא ``font-size: .92em``.** זה בדיוק מה
+   * שהקוד האינליני עושה, וזו הסיבה שהוא מסתדר עם ריפוד ואנחנו לא:
+   * גופן קטן יותר מפנה מקום בתוך אותה תיבת שורה. נמדד:
+   *
+   *   ריפוד 0, גופן מלא          → גובה 16.2, מרווח +0.8
+   *   ריפוד .05em, גופן מלא      → גובה 17.4, מרווח ‎-0.4  ✗
+   *   ריפוד .05em, גופן .92em    → גובה 16.5, מרווח +0.5  ✓
+   *   ``code`` לשם השוואה        → גובה 14.7, מרווח +2.3
+   *
+   * הגופן עצמו **אינו** מוחלף למונוספייס — רק המידות. ההבדל בגודל כמעט
+   * אינו מורגש, בדיוק כפי שהוא אינו מורגש בקוד האינליני. */
+  font-size: .92em;
+  padding: .05em .3em;
+  border-radius: 2px;
+}
+
+/* כותרות — גודל ומשקל, בלי קפיצות ענק שיאכלו את הפתק הקטן */
+.sticky-md-h { font-weight: 700; line-height: 1.25; margin: .15em 0 .05em; }
+.sticky-md-h1 { font-size: 1.25em; }
+.sticky-md-h2 { font-size: 1.12em; }
+.sticky-md-h3 { font-size: 1.02em; opacity: .9; }
+
+/* ציטוט — קו בצד והזחה קטנה */
+.sticky-md-quote {
+  border-inline-start: 3px solid color-mix(in srgb, var(--note-ink, #2b3f6a) 40%, transparent);
+  padding-inline-start: .5rem;
+  color: var(--note-ink-muted, #66739A);
+  font-style: italic;
+}
+
+/* קו מפריד */
+.sticky-md-hr { padding: .2em 0; }
+.sticky-md-rule {
+  border: 0; height: 1px;
+  background: color-mix(in srgb, var(--note-ink, #2b3f6a) 30%, transparent);
+  margin: 0;
+}
+
+/* רשימה — תבליט/מספר בצד, גוף מוזח */
+.sticky-md-li { display: flex; align-items: flex-start; gap: .35rem; }
+.sticky-md-bullet {
+  flex: 0 0 auto; color: var(--note-ink-muted, #66739A);
+  font-variant-numeric: tabular-nums; min-width: 1.1em;
+}
+.sticky-md-li-body { flex: 1 1 auto; min-width: 0; }
+
+/* קינון — הזחה לפי עומק.
+ *
+ * המחלקה יושבת על ``.sticky-task-line``, האלמנט המשותף לשורת רשימה
+ * ולשורת צ'קבוקס כאחת, ולכן כלל אחד מכסה את שתיהן. ``- [ ] תת-משימה``
+ * מוזחת מקבלת בדיוק את ההזחה של ``- תת-פריט`` מוזח.
+ *
+ * ``padding-inline-start`` ולא ``padding-left``: הפתקים בעברית, וההזחה
+ * חייבת ללכת פנימה מהצד שבו הטקסט מתחיל. אותה צורה שבה
+ * ``.sticky-md-quote`` כבר עובד.
+ *
+ * הרמות נעצרות ב-5 (``MD_MAX_LIST_DEPTH`` ב-sticky-notes.js). הפתק צר,
+ * והזחה בלתי מוגבלת דוחקת את הטקסט לרצועה של תו-תו. */
+.sticky-note { --sticky-li-indent: 1.1em; }
+.sticky-task-line.is-depth-1 { padding-inline-start: calc(1 * var(--sticky-li-indent)); }
+.sticky-task-line.is-depth-2 { padding-inline-start: calc(2 * var(--sticky-li-indent)); }
+.sticky-task-line.is-depth-3 { padding-inline-start: calc(3 * var(--sticky-li-indent)); }
+.sticky-task-line.is-depth-4 { padding-inline-start: calc(4 * var(--sticky-li-indent)); }
+.sticky-task-line.is-depth-5 { padding-inline-start: calc(5 * var(--sticky-li-indent)); }
+
+/* בלוק קוד — כל שורה מונו, ורצף שורות מקבל רקע משותף.
+   הגדר עצמה (``\`\`\``) נשארת גלויה, כי כל שורת מקור היא שורת תצוגה. */
+/* בלוק קוד — עוטפת אחת, כותרת עם שם השפה וכפתור העתקה, וגוף.
+
+   **שורות הגדר עצמן אינן מוצגות**, ולכן גם אין יותר ``.is-fence``:
+   שורת הפתיחה הפכה לכותרת, ושורת הסגירה נצרכת בלי אלמנט. הפינות
+   העגולות עברו לעוטפת, ולכן הן פשוט תמיד נכונות — הסלקטור הקודם ניסה
+   לזהות "תחילת רצף" לפי השכן, ותיקון אחד שם כבר נדרש בעבר.
+
+   הצבעים נגזרים מ-``--note-ink``/``--note-ink-muted`` כמו כל שאר הפתק,
+   ולא מטוקני הערכה: ``docs/webapp/theming_and_css.rst`` מציין את
+   הפתקים כחריג שנשאר Hardcoded בכוונה. */
+.sticky-md-code-block {
+  border-radius: 6px;
+  overflow: hidden;
+  margin-block: .3em;
+  background: color-mix(in srgb, var(--note-ink, #2b3f6a) 8%, transparent);
+}
+
+/* הכותרת היא **שורת המקור של הגדר הפותחת** ונושאת את ההיסט שלה, ולכן
+   היא גם היעד של לחיצה שמחזירה לעריכה. ``direction: ltr`` כי תוכנה —
+   שם שפה וכפתור — אינו טקסט עברי. */
+.sticky-md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .4rem;
+  direction: ltr;
+  padding: .1rem .45rem;
+  background: color-mix(in srgb, var(--note-ink, #2b3f6a) 7%, transparent);
+}
+
+.sticky-md-code-lang {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .75em;
+  letter-spacing: .02em;
+  color: var(--note-ink-muted, #66739A);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sticky-md-pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .88em; direction: ltr; unicode-bidi: embed;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  padding: 0 .45rem;
+}
+/* בלוק קוד בלי תג שפה שרובו עברית — מיושר לימין, בדיוק כמו בתצוגת
+   המסמכים. את המחלקה מחיל ``_appendCodeBlock``, שמכריע לפי
+   ``RtlCode.isHebrewMajority``.
+
+   **הצהרה אחת בלבד, ובמכוון.** גרסת המסמכים מוסיפה גם
+   ``text-align: right``, כי שם כלל הבסיס מצהיר ``text-align: left``.
+   כאן אין הצהרת ``text-align`` על השורה ולא על אף אב, ולכן הערך נשאר
+   ``start`` ועוקב אחרי ``direction`` מאליו. נמדד בכרומיום: עם השורה
+   ובלעדיה הטקסט נוחת באותו פיקסל בדיוק (מרחק ‎-0.7 מקצה ימין בשני
+   המקרים), כלומר היא שורה שאף מוטציה אינה יכולה להפיל.
+
+   **‏``unicode-bidi: embed`` נשאר** ואינו עובר ל-``plaintext``: זה האחרון
+   מכריע לכל שורה בנפרד לפי התו החזק הראשון שלה, וזו בדיוק ההכרעה
+   הפר-שורתית שהיחס על הבלוק כולו בא להחליף.
+
+   בלי ``!important``: ‏(0,3,0) מול (0,1,0), ולכן ההכרעה אינה תלויה בסדר. */
+.sticky-md-code-block.rtl-code .sticky-md-pre { direction: rtl; }
+/* מרווח בקצוות הגוף, כדי שהשורה הראשונה והאחרונה לא יידבקו לכותרת
+   ולקצה. ``padding`` על העוטפת היה מרחיק גם את הכותרת מהקצה שלה. */
+.sticky-md-code-body { padding-block: .2em; }
+
+/* ── טבלאות מארקדאון בפתק ──────────────────────────────────────────
+   העטיפה היא שנגללת, לא הטבלה: ``.sticky-note-tasks`` הוא
+   ``overflow-y: auto`` בלבד, ולכן טבלה רחבה הייתה דוחפת את הפתק. זה גם
+   מה שמנטרל את הנימוק המקורי להחרגת טבלאות ("רחבות מדי לפתק").
+
+   **בלי ``scrollbar-gutter: stable``.** הכלל ההוא נוגע לפס גלילה **אנכי**,
+   שב-RTL יושב משמאל ומזיז תוכן כשהוא מופיע. העוטף כאן גולל אופקית בלבד,
+   ופס הגלילה שלו יושב למטה ואינו מזיז דבר לצדדים — ונמדד שהוא גוזל
+   15px מהרוחב השמיש של כל טבלה תמורת גאטר שלעולם אינו מתמלא. */
+.sticky-md-table-wrap {
+  overflow-x: auto;
+  margin-block: .3em;
+}
+
+.sticky-md-table {
+  border-collapse: collapse;
+  /* ``max-content`` בלי ``max-width``: טבלה צרה לא נמתחת לרוחב הפתק,
+     ורחבה שומרת על צורתה ונגללת בתוך העטיפה. ``max-width: 100%`` היה
+     חוסם בדיוק את זה — הטבלה הייתה נדחסת לרוחב הפתק והעמודות מתמעכות,
+     וזה נמדד. */
+  width: max-content;
+  font-size: .95em;
+}
+
+/* תכונות לוגיות ולא פיזיות — הן מתהפכות מאליהן ב-RTL. */
+.sticky-md-cell {
+  border: 1px solid var(--note-ink-muted, #66739A);
+  padding-block: .18em;
+  padding-inline: .45em;
+  /* הקונטיינר הוא ``pre-wrap``; בתא זה היה משמר רווחי יישור מהמקור. */
+  white-space: normal;
+  vertical-align: top;
+}
+
+.sticky-md-table thead .sticky-md-cell {
+  font-weight: 700;
+  /* ``color-mix`` נמנע בכוונה: הפתקים הם חריג מתועד מערכת הנושא ואין להם
+     טוקן רקע משלהם, ולכן ההדגשה היא במשקל ובשקיפות ולא בצבע חדש. */
+  background: rgba(0, 0, 0, .045);
+}
+
+/* התאים נושאים ``dir="auto"`` מה-JS: הדפדפן מכריע כיוון לפי התו החזק
+   הראשון, ולכן תא עברי נשאר RTL ותא של מספר או מזהה קוד מוצג LTR.
+   ``text-align: start`` מתיישר לפי הכיוון שהוכרע לתא, ולא לפי הפתק. */
+.sticky-md-cell { text-align: start; }
+
+/* ---------- בלוקי אלרט (admonitions) ----------
+
+   **אין כאן פלטה.** הצבעים, הגבול והכותרת מגיעים מ-``.admonition`` ו-
+   ``.admonition-<type>`` ב-``markdown-enhanced.css``, שנטען ב-``base.html``
+   ולכן זמין בכל שלושת המשטחים שמציגים פתקים — לוח, קובץ Markdown, ודפדפן
+   הריפו. זו הסיבה שאלרט בפתק נראה **בדיוק** כמו אלרט בתצוגת המסמך: זה אותו
+   קוד, לא העתק שלו. פלטה שנייה עם אותם ערכים הייתה נסחפת מהראשונה בדיוק
+   כמו שתי מחלקות עם אותם כללים.
+
+   מה שכן חי כאן: הכיול לפתק. הפתק צר בהרבה מעמוד מסמך, והמידות של תצוגת
+   המסמך גוזלות בו את רוב הרוחב. */
+.sticky-note .admonition {
+  padding: .4rem .5rem;
+  border-radius: 6px;
+  /* **שתי תכונות לוגיות ולא קיצור אחד, וזו החלטה שנמדדה.**
+
+     ``markdown-enhanced.css`` מותח את האלרט אל מחוץ לשוליים במסכים צרים
+     (``margin: 0.75rem -0.5rem`` ב-``max-width: 768px``). בעמוד שלם זה
+     נכון; בפתק זה מוציא אותו אל מחוץ לגבול הפתק. הסלקטור כאן ספציפי
+     יותר, ולכן הוא גובר גם בתוך ה-media query בלי ``!important``.
+
+     הגרסה הראשונה כתבה ``margin: .35em 0`` **ואחריו** ``margin-inline: 0``
+     כ"ביטול מפורש". מדידה בכרומיום הראתה שהשורה השנייה חסרת השפעה: הקיצור
+     כבר איפס את הצדדים, והסרתה לא שינתה פיקסל. שורה שאי אפשר להפיל היא
+     שורה שאף בדיקה אינה מכסה.
+
+     הפיצול הופך אותה לנושאת משקל: ``margin-block`` דורס רק את הציר האנכי,
+     ולכן בלי ``margin-inline`` הצדדים **נופלים חזרה** ל-``-0.5rem`` של
+     כלל המובייל — המפל פועל לכל תכונה בנפרד, גם כשהמקור הוא קיצור.
+
+     נמדד בכרומיום, פתק ברוחב 260 בתוך אזור תצוגה של 390: עם השורה
+     ``margin-right``/``margin-left`` הם ``0px`` והאלרט כולו בתוך הפתק;
+     בלעדיה הם ``-8px`` כל אחד, והאלרט חוצה את הגבול השמאלי של הפתק ב-6.3
+     פיקסלים. באזור תצוגה של 1024 אין הבדל כלל — שם ה-media query אינו
+     חל, וזה מה שהופך את הבדיקה במסך צר לבדיקה היחידה שמסוגלת ליפול. */
+  margin-block: .35em;
+  margin-inline: 0;
+}
+
+/* אלרט מקונן — מרווח קטן פנימה, ובלי מרווח כפול בקצה התחתון */
+.sticky-note .admonition-content > .admonition { margin-block-end: .25em; }
+.sticky-note .admonition-content > .admonition:last-child { margin-block-end: 0; }
+
+/* הכותרת היא גם שורת המקור של ``::: note``, ולכן היא נושאת
+   ``sticky-task-line`` ומקבלת ממנה ``min-height``. */
+.sticky-note .admonition-title {
+  font-size: .92em;
+  margin-bottom: .25rem;
+  gap: .35rem;
+}
+
+.sticky-note .admonition-content { font-size: 1em; }
+
+/* האייקון והתווית הם שני ילדים של כותרת ``flex``. ההפרדה אינה קוסמטית:
+   האייקון הוא היחיד שנכתב כ-HTML, והתווית היא היחידה שיכולה לשאת טקסט של
+   משתמש. ראו ``_appendAlertIcon`` ב-sticky-notes.js. */
+.sticky-md-alert-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+.sticky-note .admonition-title svg { width: .95em; height: .95em; }
+
+/* ``min-width: 0`` כדי שכותרת ארוכה תישבר בתוך הפתק במקום למתוח אותו —
+   אותה סיבה בדיוק כמו ב-``.sticky-md-li-body``. */
+.sticky-md-alert-label { min-width: 0; overflow-wrap: anywhere; }
+
+/* ---------- בלוק מתקפל (``::: details``) ----------
+
+   ``.markdown-details``, ``.markdown-summary`` ו-``.details-content``
+   מוגדרות ב-``markdown-enhanced.css`` שנטען ב-``base.html``, ולכן המבנה
+   והמידות בפתק הם אותו קוד בדיוק כמו בתצוגת המסמך. שתי המלכודות שכאן
+   נובעות בדיוק מזה.
+
+   **המלכודת הראשונה — המידות.** אותו כלל מובייל תופס את שתי המחלקות
+   יחד: ``.markdown-details, .admonition { margin: 0.75rem -0.5rem; }``.
+   הכיול למטה מבטל אותו, ומנומק שם.
+
+   **המלכודת השנייה — הצבעים, וזו היתה טעות.** הגרסה הראשונה של הסעיף
+   הזה כתבה "גם כאן אין פלטה" והסיקה שאין מה לעשות. ההיסק שגוי, והוא
+   סתר את ההערה שבראש הקובץ הזה: הפתק הוא **אי בהיר קשיח בתוך עמוד
+   מוערך**, ולכן כל רכיב שמוצג בתוכו וקורא טוקן ערכה מקבל ערך שנבחר
+   לרקע אחר לגמרי. בערכה כהה התוצאה היתה קופסה שחורה על נייר צהוב,
+   ובתוכה הטקסט ``#222`` של התצוגה — כהה על כהה.
+
+   **האלרט שרד, אבל לא כי העיקרון עבד** — כלליו ב-``markdown-enhanced.css``
+   אינם משתמשים ב-``var()`` כלל, אלא בצבע ליטרלי לכל סוג. הבלוק המתקפל
+   הוא הרכיב הראשון שמוצג בפתק ו**כן** קורא טוקני ערכה, ולכן הראשון
+   שנשבר. הנימוק המלא ב-``docs/dev/sticky_notes_extending_markdown.rst``. */
+
+/* **הפתק מספק ערך לכל ששת הטוקנים שהרכיב קורא.**
+ *
+ * זו אינה המרה של הפתק ל-``var()`` — ``theming_and_css.rst`` אוסר אותה
+ * במפורש בסעיף החריגים, והפתק נשאר קשיח. הכיוון הפוך: משטח קשיח **נותן**
+ * ערכים לרכיב שיושב בתוכו. אותו דפוס בדיוק כמו ``--sticky-mark-*``
+ * שלמעלה, ומאותו נימוק.
+ *
+ * **ואין כאן קרב ספציפיות.** הצהרת הערכה יושבת על ``<html>`` והצהרתנו על
+ * ``.sticky-note`` — שני אלמנטים שונים — ולכן ההכרעה היא ירושה, והאב
+ * הקרוב מנצח. זו גם הסיבה שאין כאן ``!important``: בשונה מ-``mark``, אין
+ * בריפו שום כלל ערכה שמכוון ל-``details``/``summary`` כאלמנטים.
+ *
+ * **השמות שייכים ל-``markdown-enhanced.css``** ואין בהם קידומת שמסמנת
+ * זאת. שינוי שם שם מחזיר את הפתק לכהה בלי שאיש יבין למה — ולכן יש הערה
+ * מקבילה שם, ובדיקה שסורקת את הכללים שם ודורשת שכל טוקן שהם קוראים
+ * יקבל ערך כאן.
+ *
+ * **שקיפות ולא צבע**, כדי שהערך ירכיב נכון מעל כל נייר: הפתק מקבל את
+ * צבעו inline מ-``note.color``, ו-``dark-mode.css`` מחליף אותו ב-``#fff9c4``
+ * בערכות הכהות. הדיו הוא טקסט בלבד — ``--note-ink`` קבוע ואינו עוקב אחרי
+ * צבע הנייר, ולכן הוא אינו מתאים לרקעים.
+ *
+ * **``--summary-bg`` שטוח ולא גרדיאנט, וזו החלטה עיצובית ולא המרת ערך.**
+ * בכל שמונת בלוקי הערכה הוא ``linear-gradient(to right, <צבע>, transparent)``,
+ * כלומר רצועה שדוהה לרוחב. בפתק ברוחב ~260 פיקסלים דהייה כזו אינה נקראת
+ * כרצועת כותרת אלא כמריחה לא אחידה, ורקע שטוח שומר על השורה כפס מובחן.
+ * מי שירצה להחזיר את האופי — ``linear-gradient(to right, rgba(0,0,0,.06), transparent)``.
+ */
+.sticky-note {
+  --details-bg: transparent;
+  --details-border: rgba(0, 0, 0, 0.12);
+  --details-hover: rgba(0, 0, 0, 0.10);
+  --summary-bg: rgba(0, 0, 0, 0.06);
+  --summary-color: var(--note-ink, #2b3f6a);
+  --summary-arrow-color: var(--note-ink-muted, #66739A);
+}
+
+.sticky-note .markdown-details {
+  /* **שתי תכונות לוגיות ולא קיצור, מאותו נימוק שנמדד אצל האלרט.** קיצור
+     ``margin`` היה מאפס את הצדדים בעצמו והופך את ``margin-inline`` לשורה
+     מתה — שורה שאף מוטציה אינה יכולה להפיל. בפיצול היא נושאת משקל: המפל
+     פועל לכל תכונה בנפרד, ולכן בלי ``margin-inline`` הצדדים נופלים חזרה
+     ל-``-0.5rem`` של כלל המובייל והבלוק חוצה את גבול הפתק. */
+  margin-block: .35em;
+  margin-inline: 0;
+  border-radius: 6px;
+}
+
+/* ה-``summary`` הוא גם שורת המקור של ``::: details``, ולכן הוא נושא
+   ``sticky-task-line``. הריפוד של תצוגת המסמך (``0.75rem 1rem``) גוזל
+   בפתק צר את רוב הרוחב.
+
+   **אין כאן ``overflow-wrap``, וזו החלטה שנמדדה ולא השמטה.** הגרסה
+   הראשונה כתבה אותו כאן בהיקש מ-``.sticky-md-alert-label``, ומדידה
+   בכרומיום הראתה שהוא חסר השפעה מוחלטת: ``.sticky-note-tasks`` כבר
+   מצהיר ``overflow-wrap: anywhere`` וההצהרה יורשת. כותרת של 140 תווים
+   רצופים בפתק ברוחב 260 יצאה בגובה 131 פיקסלים עם השורה **ובלעדיה**,
+   ו-``scrollWidth`` של התצוגה נשאר שווה ל-``clientWidth`` בשני המקרים.
+   ‏``min-width: 0`` נמדד באותה ריצה ואף הוא חסר השפעה — ה-``summary``
+   אינו פריט flex אלא בלוק בתוך ``<details>``. שורה שאי אפשר להפיל היא
+   שורה שאף בדיקה אינה מכסה, ולכן שתיהן ירדו. */
+.sticky-note .markdown-summary {
+  padding: .3rem .5rem;
+  font-size: .92em;
+  gap: .35rem;
+}
+
+.sticky-note .details-content { padding: .4rem .5rem; font-size: 1em; }
+
+/* בלוק מתקפל מקונן — אותו מרווח בדיוק שהאלרט המקונן מקבל, ומאותה סיבה. */
+.sticky-note .admonition-content > .markdown-details,
+.sticky-note .details-content > .markdown-details,
+.sticky-note .details-content > .admonition { margin-block-end: .25em; }
+.sticky-note .admonition-content > .markdown-details:last-child,
+.sticky-note .details-content > .markdown-details:last-child,
+.sticky-note .details-content > .admonition:last-child { margin-block-end: 0; }
