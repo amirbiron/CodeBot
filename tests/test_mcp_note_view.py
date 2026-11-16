@@ -37,8 +37,15 @@ _BOARD_ID = "b" * 24
 _BODY_MARKER = "גוף-הפתק-שאסור-שיגיע-לאנליטיקה"
 
 
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+_BODY = "# " + _BODY_MARKER + "\nשורה שנייה"
+
+
 class _NoteBackend:
-    """backend שמחזיק פתק אחד ורושם כל קריאה. ``get_note`` מחזיר את הצורה של ``ProductionBackend``."""
+    """backend שמחזיק פתק אחד ורושם כל קריאה. ``get_note`` ו-``update_note`` בצורה של ``ProductionBackend``."""
 
     def __init__(self, answer=None, orphaned=False):
         self.calls = []
@@ -48,9 +55,10 @@ class _NoteBackend:
             "note": {
                 "id": _NOTE_ID,
                 "title": "רשימה",
-                "content": "# " + _BODY_MARKER + "\nשורה שנייה",
+                "content": _BODY,
                 "color": "#ffeddb",
                 "color_id": "orange_light",
+                "content_sha256": _sha(_BODY),
             },
             "target": "board",
             "board_id": _BOARD_ID,
@@ -59,6 +67,11 @@ class _NoteBackend:
     def get_note(self, user_id, *, note_id, with_version=False):
         self.calls.append(("get_note", user_id, note_id, with_version))
         return self.answer
+
+    def update_note(self, user_id, *, note_id, fields, expected_content=None):
+        self.calls.append(("update_note", user_id, note_id, expected_content))
+        body = fields["content"]
+        return {"ok": True, "note": {**self.answer["note"], "content": body, "content_sha256": _sha(body)}}
 
     def repo_path_orphaned(self, *, repo_name, repo_path):
         self.calls.append(("repo_path_orphaned", repo_name, repo_path))
@@ -170,7 +183,8 @@ async def test_the_tool_answers_with_the_full_note_as_text(production_like_mcp):
             "codekeeper_show_note", {"note_id": _NOTE_ID}
         )
     answer = json.loads(result.content[0].text)
-    assert answer == {"ok": True, **backend.answer}
+    # ``editable`` — ה-session בזיכרון אינו נושא טוקן, ולכן אין הרשאת כתיבה.
+    assert answer == {"ok": True, **backend.answer, "editable": False}
     assert result.structuredContent is None
     assert backend.calls == [("get_note", _USER, _NOTE_ID, False)]
 
@@ -240,6 +254,29 @@ async def test_neither_the_note_nor_the_page_reaches_posthog(production_like_mcp
     assert "ck-note-root" not in wire
 
 
+async def test_the_body_of_a_save_from_the_view_never_reaches_posthog(production_like_mcp, monkeypatch):
+    """השמירה מהתצוגה נושאת את כל גוף הפתק כארגומנט — והוא אינו בשום אירוע שהיה נשלח, גם לא
+    בתשובה (שמחזירה את הפתק השמור). דרך החיווט של הייצור, כמו הטסט שלמעלה."""
+    import mcp.server.auth.middleware.auth_context as auth_context
+    from types import SimpleNamespace
+
+    mcp, backend, about_to_send = production_like_mcp
+    monkeypatch.setattr(auth_context, "get_access_token", lambda: SimpleNamespace(scopes=["read", "write"]))
+    sent_body = "נשמר-מהתצוגה " + _BODY_MARKER
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        result = await session.call_tool("codekeeper_note_view_save", {
+            "note_id": _NOTE_ID, "content": sent_body, "expected_content_sha256": _sha(_BODY)})
+    await analytics._drain()
+
+    assert json.loads(result.content[0].text)["ok"] is True
+    assert ("update_note", _USER, _NOTE_ID, _BODY) in backend.calls
+    calls = [e for e in about_to_send if e.get("event") == "$mcp_tool_call"]
+    assert [c["properties"]["$mcp_tool_name"] for c in calls] == ["codekeeper_note_view_save"]
+    assert "$mcp_parameters" not in calls[0]["properties"] and "$mcp_response" not in calls[0]["properties"]
+    wire = json.dumps(about_to_send, ensure_ascii=False, default=str)
+    assert _BODY_MARKER not in wire and "נשמר-מהתצוגה" not in wire
+
+
 # ===========================================================================
 # השער — אותו של codekeeper_get_note
 # ===========================================================================
@@ -248,14 +285,14 @@ async def test_neither_the_note_nor_the_page_reaches_posthog(production_like_mcp
 def test_an_invalid_note_id_never_reaches_the_backend():
     backend = _NoteBackend()
     for bad in ("", "xyz", "a" * 25, None, 5):
-        assert handlers.show_note(backend, _USER, note_id=bad, is_admin=True) == {
+        assert handlers.show_note(backend, _USER, note_id=bad, is_admin=True, can_write=True) == {
             "ok": False, "error": "invalid_note_id"}
     assert backend.calls == []
 
 
 def test_a_refusal_from_the_backend_comes_back_as_it_is():
     backend = _NoteBackend(answer={"ok": False, "error": "not_found"})
-    assert handlers.show_note(backend, _USER, note_id=_NOTE_ID, is_admin=True) == {
+    assert handlers.show_note(backend, _USER, note_id=_NOTE_ID, is_admin=True, can_write=True) == {
         "ok": False, "error": "not_found"}
 
 
@@ -263,16 +300,17 @@ def test_a_repo_note_is_for_the_admin_only_like_get_note():
     """פתק ריפו למי שאינו אדמין — ``not_found``, אותה תשובה כמו לפתק שאינו קיים. רק ``True`` ממש פותח."""
     for not_admin in (False, None, 1, "yes"):
         backend = _NoteBackend(answer=_repo_note_answer())
-        assert handlers.show_note(backend, _USER, note_id=_NOTE_ID, is_admin=not_admin) == {
+        assert handlers.show_note(backend, _USER, note_id=_NOTE_ID, is_admin=not_admin, can_write=True) == {
             "ok": False, "error": "not_found"}, not_admin
     admin = handlers.show_note(_NoteBackend(answer=_repo_note_answer(), orphaned=True), _USER,
-                               note_id=_NOTE_ID, is_admin=True)
+                               note_id=_NOTE_ID, is_admin=True, can_write=True)
     assert admin["ok"] is True and admin["orphaned"] is True
     assert (admin["target"], admin["repo_name"], admin["repo_path"]) == ("repo", "CodeBot", "a.py")
 
 
 def test_show_note_is_get_note_without_threads_and_version(monkeypatch):
-    """אותה צורה של ``get_note(part="all")`` — חוץ מהשרשורים ומ-``version``, שהכלי הזה אינו מבקש.
+    """אותה צורה של ``get_note(part="all")`` — חוץ מהשרשורים ומ-``version``, שהכלי הזה אינו מבקש,
+    ועוד ``editable``, שאינו בפתק אלא בחיבור.
 
     נבנה מאותו backend בשני המסלולים, ולכן שדה שיתווסף לפתק או ליעד יגיע לשניהם. ``_with_threads``
     מוחלף כאן בזהות, כי השרשורים אינם חלק ממה שנבדק.
@@ -281,9 +319,17 @@ def test_show_note_is_get_note_without_threads_and_version(monkeypatch):
     answer = {**_NoteBackend().answer, "version": 3}
     via_get = handlers.get_note(_NoteBackend(answer=answer), _USER, note_id=_NOTE_ID, is_admin=False)
     shown_backend = _NoteBackend(answer={k: v for k, v in answer.items() if k != "version"})
-    shown = handlers.show_note(shown_backend, _USER, note_id=_NOTE_ID, is_admin=False)
-    assert shown == {k: v for k, v in via_get.items() if k != "version"}
+    shown = handlers.show_note(shown_backend, _USER, note_id=_NOTE_ID, is_admin=False, can_write=True)
+    assert {k: v for k, v in shown.items() if k != "editable"} == {k: v for k, v in via_get.items() if k != "version"}
     assert shown_backend.calls == [("get_note", _USER, _NOTE_ID, False)]
+
+
+def test_editable_is_the_write_scope_of_the_connection_and_only_true_opens_it():
+    """``editable`` — האם החיבור יכול לשמור. רק ``True`` ממש פותח, כמו ``is_admin`` (K12 §3):
+    ערך אחר שהגיע בטעות אינו מציג כפתור שכל לחיצה עליו נדחית."""
+    for can_write, expected in ((True, True), (False, False), (None, False), (1, False), ("yes", False)):
+        shown = handlers.show_note(_NoteBackend(), _USER, note_id=_NOTE_ID, is_admin=False, can_write=can_write)
+        assert shown["ok"] is True and shown["editable"] is expected, can_write
 
 
 # ===========================================================================

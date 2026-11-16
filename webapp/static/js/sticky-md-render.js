@@ -157,6 +157,10 @@
   class StickyMdEngine {
     constructor(opts){
       this._mdReadOnly = !!(opts && opts.readOnly);
+      // **היסטים גם במצב קריאה בלבד, כשמבקשים.** התצוגה בתוך Claude אינה עורכת בתוך התצוגה, אבל
+      // לחיצה על שורה פותחת עורך שהסמן שלו נוחת בשורה שנלחצה — ולשם היא צריכה את ההיסט של השורה.
+      // כל השאר נשאר של קריאה בלבד: צ'קבוקס מושבת ובלי כפתור העתקה. ראו ``_setSourceOffset``.
+      this._mdSourceOffsets = !!(opts && opts.sourceOffsets);
     }
 
       // בונה את התצוגה מ**כל** השורות, לא רק משורות המשימה.
@@ -1341,7 +1345,7 @@
        * לעריכה, ולכן אינה כותבת אותו: מקום אחד מחליט, ולא כתיבה בכל בלוק שזוכרת לשאול.
        */
       _setSourceOffset(el, offset){
-        if (!this._mdReadOnly) el.dataset.charOffset = String(offset);
+        if (!this._mdReadOnly || this._mdSourceOffsets) el.dataset.charOffset = String(offset);
       }
   }
 
@@ -1377,6 +1381,51 @@
   }
 
   /**
+   * האם ``target`` הוא **פקד שהמנוע מייצר** בתוך התצוגה — אלמנט שיש לו פעולה משלו, ולכן לחיצה עליו
+   * (רגילה או ממושכת) אינה פותחת עריכה.
+   *
+   * **תשובה אחת לכל מי שפותח עריכה מלחיצה בתצוגה** — הפתק בוובאפ (``_isViewControl`` ב-
+   * ``sticky-notes.js``, שמוסיף את כפתור ההעתקה שהוא עצמו בונה) והתצוגה בתוך Claude
+   * (``mcp_server/apps/note_view.js``). הפקדים נולדים כאן, ולכן הרשימה שלהם כאן: רשימה שנייה הייתה
+   * נסחפת מהראשונה בדיוק בפקד הבא שיתווסף.
+   */
+  function isViewControl(t){
+    if (!t) return false;
+    if (t.classList && t.classList.contains('sticky-task-box')) return true;
+    if (typeof t.closest !== 'function') return false;
+    // לחיצה על קישור מרונדר פותחת לשונית — היא **לא** אמורה גם
+    // להיכנס לעריכה, אחרת בחזרה ללשונית הפתק במצב עריכה במקום תצוגה.
+    if (t.closest('a.sticky-md-link')) return true;
+    // **לחיצה על ה-``summary`` מקפלת בלבד ואינה נכנסת לעריכה.**
+    //
+    // האנלוגיה היא אייקון ההעתקה של בלוק קוד — אבל היא אינה מדויקת, ושווה
+    // לדעת במה: שם מוותרים על **אזור קטן ומוקדש** בתוך הבלוק, וכל
+    // שאר הבלוק עדיין מוביל לעריכה. כאן מוותרים על **השורה כולה**,
+    // והיא האלמנט היחיד שמייצג את שורת המקור ``::: details כותרת`` —
+    // כלומר אין מסלול חלופי, וכדי לערוך את השורה הזו נכנסים לעריכה
+    // משורה אחרת בפתק. זו ההכרעה: קיפול ועריכה על אותה שורה הם שתי
+    // פעולות שנלחמות, וקיפול הוא מה שהמשתמש מתכוון אליו כשהוא לוחץ.
+    //
+    // **וההיסט נשאר על ה-``summary`` בכל מקרה** — הוא אינו קיים בשביל
+    // הקליק אלא בשביל המיפוי בין תצוגה למקור.
+    if (t.closest('summary.sticky-md-details-summary')) return true;
+    return false;
+  }
+
+  /**
+   * ההיסט במקור (``data-charOffset``) של השורה שבתוכה ``target``, או ``null``.
+   *
+   * כל אלמנט שהמנוע מציב עליו היסט נושא ``sticky-task-line`` (``_setSourceOffset``), ו-``closest``
+   * מתחיל מהאלמנט עצמו — כך שאפשר להעביר את יעד הלחיצה או את השורה. מנוע בקריאה בלבד בלי
+   * ``sourceOffsets`` אינו מציב היסטים, והתשובה ``null``.
+   */
+  function sourceOffsetAt(target){
+    const row = (target && typeof target.closest === 'function') ? target.closest('.sticky-task-line') : null;
+    const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
+    return Number.isFinite(offset) ? offset : null;
+  }
+
+  /**
    * מצמיד את מתודות המנוע ל-``proto`` (``StickyNotesManager.prototype``).
    *
    * **מסרב לדרוס.** שם שכבר קיים על ``proto`` הוא ``Error`` מיד בטעינה: מתודה של המנהל שמתנגשת
@@ -1399,9 +1448,12 @@
    *
    * בלי ``data-charOffset``, צ'קבוקס מושבת, ובלי כפתור העתקה (אין כאן מארח שמספק אותו). המארקדאון
    * תמיד דלוק: אין כאן מתג של לוח. ``container`` נמחק ונבנה מחדש.
+   *
+   * ``options.sourceOffsets`` — ההיסט של כל שורה (``data-charOffset``), כמו בפתק, בלי לצאת ממצב
+   * קריאה בלבד: לצרכן שלחיצה על שורה פותחת אצלו עורך, והסמן צריך לנחות בשורה שנלחצה.
    */
-  function render(container, text){
-    const engine = new StickyMdEngine({ readOnly: true });
+  function render(container, text, options){
+    const engine = new StickyMdEngine({ readOnly: true, sourceOffsets: !!(options && options.sourceOffsets) });
     const lines = String(text == null ? '' : text).split('\n');
     engine._renderMarkdownView(container, lines, { wantMd: true });
     return container;
@@ -1424,5 +1476,8 @@
     // הסכימות שקישור מותר בהן. מי שפותח קישור מחוץ למנוע — התצוגה בתוך Claude, דרך המארח — בודק
     // מולו, ולא מול עותק שלו.
     MD_SAFE_LINK,
+    // מה לחיצה בתצוגה פוגעת בו: פקד של המנוע, או שורה עם ההיסט שלה במקור.
+    isViewControl,
+    sourceOffsetAt,
   });
 })();

@@ -123,6 +123,9 @@ html.ck-expanded #ck-note-root {
   /* הכותרת כמו בוובאפ — החלטת המשתמש, ולא בגודל של הגוף. */
   --ck-title-font: 13px;
   --ck-title-weight: 600;
+  /* הצבעים המשניים — הודעות ושורות של העורך. על נייר צבוע הם של הפתק (``has-note-color``). */
+  --ck-muted: var(--color-text-secondary, GrayText);
+  --ck-danger: var(--color-text-danger, #b91c1c);
 
   background: var(--color-background-secondary, Canvas);
   color: var(--color-text-primary, CanvasText);
@@ -146,6 +149,10 @@ html.ck-expanded #ck-note-root {
 
 .ck-paper.has-note-color {
   color: var(--ck-ink);
+  /* **הצבעים המשניים של הפתק, ולא של המארח** — מאותה סיבה כמו הדיו: על פסטל קבוע, אפור או אדום
+     של ערכה כהה יוצאים בהירים על בהיר. */
+  --ck-muted: var(--note-ink-muted);
+  --ck-danger: #b91c1c;
   /* **הנייר בהיר תמיד, ולכן גם ערכת הצבעים שלו.** ``:root`` מצהיר ``light dark`` בשביל המשטח של
      המארח, ובערכה כהה של Claude הצ'קבוקס המושבת, פסי הגלילה וצבעי המערכת (``Canvas``) היו נצבעים
      כהים — על נייר פסטל. נמדד: הצ'קבוקס יצא אפור בהיר (``rgb(170, 170, 170)``) במקום הכהה שבוובאפ.
@@ -230,4 +237,80 @@ html.ck-expanded #ck-note-root {
 
 .ck-paper.has-note-color .ck-empty {
   color: var(--note-ink-muted);
+}
+
+/* -- עריכה (``openEditor`` ב-``note_view.js``) ----------------------------------------- */
+
+/* שורת הפעולות של העורך יושבת **מעל** תיבת הטקסט: במובייל המקלדת ושדה ההודעה של Claude מכסים את
+   התחתית (התיעוד של Claude, "Display modes"). השורות של התנגשות, אישור ביטול ושינוי שלא נשמר —
+   אותה צורה. */
+.ck-edit-bar,
+.ck-conflict,
+.ck-confirm,
+.ck-unsaved {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-block-end: 8px;
+  font-size: calc(var(--font-text-sm-size, 14px) / var(--ck-text-scale, 1));
+}
+
+.ck-unsaved {
+  padding-block: 8px 0;
+}
+
+.ck-save {
+  font-weight: 600;
+}
+
+.ck-edit-status {
+  color: var(--ck-muted);
+}
+
+.ck-edit-status.is-error {
+  color: var(--ck-danger);
+}
+
+/* **תיבת הטקסט היא הארגז של הגוף:** אותו גופן, אותו ריווח שורות, אותה שבירה, בלי מסגרת ובלי רקע —
+   כמו ``.sticky-note-content`` בוובאפ מול התצוגה שלו. כך השורה שנלחצה נשארת בערך במקום שבו הייתה.
+   **הגובה נקבע כאן בלבד, ולא ב-JS** (``amir-bug-patterns`` H7, "שתי נוסחאות לאותו מימד"): במסגרת
+   בגובה קבוע (``ck-fill``, המסך המלא של Claude) התיבה ממלאת את מה שנשאר בנייר; במסך מלא בגובה גמיש
+   (``ck-expanded``) נקודת המוצא היא ``flex-basis``, והתקרה של ``#ck-note-root`` מכווצת אותה. בלי
+   ``overflow: hidden`` באף מכל: טקסט שלא נכנס נגלל בתוך התיבה. ``min-height`` — כמה שורות גלויות
+   גם במסגרת נמוכה מאוד (מקלדת פתוחה); אז הדף כולו נגלל, ולא התיבה נעלמת. */
+.ck-editor {
+  flex: 1 1 auto;
+  min-height: 4em;
+  box-sizing: border-box;
+  inline-size: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: calc(var(--ck-font) / var(--ck-text-scale, 1));
+  line-height: var(--ck-line-height);
+  overflow-wrap: anywhere;
+}
+
+html.ck-expanded .ck-editor {
+  flex-basis: 24em;
+}
+
+/* ההודעה הקטנה שמתחת לפתק: "נשמר.", למה העריכה לא נפתחה, ושהמודל לא עודכן. */
+.ck-notice {
+  flex: none;
+  margin: 0;
+  padding-block-start: 8px;
+  font-size: calc(var(--font-text-sm-size, 14px) / var(--ck-text-scale, 1));
+  color: var(--ck-muted);
+}
+
+.ck-notice.is-error {
+  color: var(--ck-danger);
 }

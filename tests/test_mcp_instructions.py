@@ -16,6 +16,13 @@
 PostHog מוסיף **אחרי** הסינון של כלי האדמין. **ובתצורת הייצור** (T1 וריאציה e): PostHog
 דלוק (לקוח אמיתי עם ``send=False``, שום דבר לא יוצא לרשת), רשימת הריפואים של הייצור,
 ומראה — הבלוק הארוך ביותר שנשלח בפועל.
+
+**הכיסוי הוא של הכלים שהסוכן רואה.** כלי שרק דף של MCP App מפעיל (``_meta.ui.visibility`` בלי
+``"model"``, כמו ``codekeeper_note_view_save``) אינו ברשימת הכלים של הסוכן במארח שמכיר את
+ההרחבה ("Host MUST NOT include tools in the agent's tool list when their visibility does not
+include \"model\"", המפרט של MCP Apps, "Visibility"), ולכן הוא אינו נדרש בבלוק — ושם שלו בבלוק
+היה הבטחה לסוכן על כלי שאינו יכול לקרוא לו, ונופל כאן כמו כל שם שאינו ברשימה. ההכרעה נגזרת
+מה-``_meta`` שהלקוח מקבל ב-``tools/list``, ולא מרשימת שמות.
 """
 
 from __future__ import annotations
@@ -105,10 +112,19 @@ async def _client_view(mcp, monkeypatch, *, admin: bool) -> tuple[str, set[str]]
             )
             async with ClientSession(client_streams[0], client_streams[1]) as session:
                 initialized = await session.initialize()
-                listed = {tool.name for tool in (await session.list_tools()).tools}
+                listed = {tool.name for tool in (await session.list_tools()).tools if _agent_sees(tool)}
             tg.cancel_scope.cancel()
     await analytics._drain()
     return initialized.instructions or "", listed
+
+
+def _agent_sees(tool) -> bool:
+    """האם הכלי ברשימה של הסוכן — ``_meta.ui.visibility`` חסר (ברירת המחדל היא ``["model", "app"]``),
+    או כולל ``"model"``. ראו את ה-docstring של המודול."""
+    meta = tool.meta if isinstance(tool.meta, dict) else {}
+    ui = meta.get("ui") if isinstance(meta.get("ui"), dict) else {}
+    visibility = ui.get("visibility")
+    return visibility is None or "model" in visibility
 
 
 def _visible(instructions: str) -> str:
@@ -159,7 +175,7 @@ async def test_the_virtual_tool_is_named_exactly_when_it_is_listed(
     רואה מעבר לכלים הרשומים.
     """
     mcp_on = _build(monkeypatch, posthog=posthog_client)
-    registered_on = {t.name for t in mcp_on._tool_manager.list_tools()}
+    registered_on = {t.name for t in mcp_on._tool_manager.list_tools() if _agent_sees(t)}
     instructions_on, listed_on = await _client_view(mcp_on, monkeypatch, admin=True)
     extra_on = listed_on - registered_on
     assert extra_on == {analytics.MISSING_CAPABILITY_TOOL_NAME}, extra_on
@@ -167,7 +183,7 @@ async def test_the_virtual_tool_is_named_exactly_when_it_is_listed(
 
     mcp_off = _build(monkeypatch, posthog=None)
     instructions_off, listed_off = await _client_view(mcp_off, monkeypatch, admin=True)
-    registered_off = {t.name for t in mcp_off._tool_manager.list_tools()}
+    registered_off = {t.name for t in mcp_off._tool_manager.list_tools() if _agent_sees(t)}
     assert listed_off == registered_off
     assert analytics.MISSING_CAPABILITY_TOOL_NAME not in _IDENTIFIER.findall(instructions_off)
     # ובלי המדידה הכיסוי עדיין מלא — המשפט הוא התוספת היחידה.

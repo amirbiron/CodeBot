@@ -176,6 +176,21 @@ def tool_meta(view: NoteView) -> dict[str, Any]:
     return {"ui": {"resourceUri": view.uri}, "ui/resourceUri": view.uri}
 
 
+def app_tool_meta(view: NoteView) -> dict[str, Any]:
+    """``_meta`` של כלי **שרק הדף מפעיל** — ``visibility: ["app"]`` ליד הקישור לתצוגה.
+
+    "Host MUST NOT include tools in the agent's tool list when their visibility does not include
+    \"model\"", ו-"Host MUST reject ``tools/call`` requests from apps for tools that don't include
+    \"app\"" (המפרט, "Visibility"). הצורה היא של הדוגמה הרשמית (``registerAppTool`` עם
+    ``visibility: ["app"]``, ``docs/patterns.md`` ב-ext-apps): הקישור לתצוגה ב-``_meta.ui`` יחד עם
+    ``visibility``, והמפתח השטוח הישן לצידם, כמו ש-``registerAppTool`` מוסיף אותו לכל כלי עם
+    ``resourceUri`` — ומאותו מקור כמו :func:`tool_meta`, כדי ששני הכלים יצביעו תמיד על אותו דף.
+    """
+    meta = tool_meta(view)
+    meta["ui"] = {**meta["ui"], "visibility": ["app"]}
+    return meta
+
+
 def register_note_view(mcp: Any, view: NoteView) -> None:
     """רושם את הדף: משאב לכתובת הנוכחית, ותבנית לכל גרסה קודמת.
 

@@ -265,6 +265,8 @@ def test_every_note_write_tool_checks_the_body_in_note_content_error(monkeypatch
         "codekeeper_create_repo_note": {"repo_name": "repo", "repo_path": "a.py", "content": "body"},
         "codekeeper_update_note": {"note_id": note_id, "content": "body"},
         "codekeeper_note_str_replace": {"note_id": note_id, "old_string": "MARK", "new_string": "body"},
+        # השמירה מהתצוגה בתוך Claude — ה-hash של הגוף שבמסד, כדי שהסירוב יגיע מהבדיקה ולא מ-``conflict``.
+        "codekeeper_note_view_save": {"note_id": note_id, "content": "body", "expected_content_sha256": _sha("MARK")},
     }
     assert set(sent) == _note_write_tools(admin_mcp) - set(_NOT_A_NOTE_BODY)
 

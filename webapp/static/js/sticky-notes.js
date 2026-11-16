@@ -135,6 +135,7 @@
   const {
     createEl, fillInlineCode, inlineCodeSegments, GENERATED_TEXT_CLASS,
     TASK_LINE_RE, MD_HR_RE, MD_FENCE_RE, MD_CONTAINER_OPEN_RE, MD_CONTAINER_CLOSE_RE, MD_DETAILS_TYPE,
+    isViewControl, sourceOffsetAt,
   } = StickyMdRender;
 
 
@@ -4065,33 +4066,16 @@
        *
        * תשובה אחת לכל מי שמחליט אם לחיצה בתצוגה נכנסת לעריכה (למשל
        * ``_enterEditFromView``, והלחיצה הממושכת של ``_enableViewLongPress``).
-       * רשימה שנייה הייתה נסחפת מהראשונה בדיוק בפקד הבא שיתווסף.
+       * הפקדים שהמנוע מייצר — תיבת סימון, קישור, כותרת של בלוק מתקפל — נבדקים
+       * ב-``isViewControl`` של המנוע, שגם התצוגה בתוך Claude שואלת; כאן נוסף רק
+       * מה שהקובץ הזה עצמו בונה.
        */
       _isViewControl(t){
-        if (!t) return false;
-        if (t.classList && t.classList.contains('sticky-task-box')) return true;
-        if (!t.closest) return false;
-        // לחיצה על קישור מרונדר פותחת לשונית — היא **לא** אמורה גם
-        // להיכנס לעריכה, אחרת בחזרה ללשונית הפתק במצב עריכה במקום תצוגה.
-        if (t.closest('a.sticky-md-link')) return true;
+        if (isViewControl(t)) return true;
         // כפתור ההעתקה של בלוק קוד יושב **בתוך** שורת המקור (הכותרת),
         // ולכן בלי ההחרגה הזו כל לחיצה עליו הייתה גם מעתיקה וגם מפילה
         // את הפתק לעריכה — הכפתור עושה את עבודתו והתצוגה נעלמת.
-        if (t.closest('.sticky-md-code-copy')) return true;
-        // **לחיצה על ה-``summary`` מקפלת בלבד ואינה נכנסת לעריכה.**
-        //
-        // האנלוגיה היא אייקון ההעתקה שמעל — אבל היא אינה מדויקת, ושווה
-        // לדעת במה: שם מוותרים על **אזור קטן ומוקדש** בתוך הבלוק, וכל
-        // שאר הבלוק עדיין מוביל לעריכה. כאן מוותרים על **השורה כולה**,
-        // והיא האלמנט היחיד שמייצג את שורת המקור ``::: details כותרת`` —
-        // כלומר אין מסלול חלופי, וכדי לערוך את השורה הזו נכנסים לעריכה
-        // משורה אחרת בפתק. זו ההכרעה: קיפול ועריכה על אותה שורה הם שתי
-        // פעולות שנלחמות, וקיפול הוא מה שהמשתמש מתכוון אליו כשהוא לוחץ.
-        //
-        // **וההיסט נשאר על ה-``summary`` בכל מקרה** — הוא אינו קיים בשביל
-        // הקליק אלא בשביל המיפוי בין תצוגה למקור.
-        if (t.closest('summary.sticky-md-details-summary')) return true;
-        return false;
+        return !!(t && typeof t.closest === 'function' && t.closest('.sticky-md-code-copy'));
       }
 
       // לחיצה/הפעלה בתצוגה מחזירה לעריכה — **חוץ** מתיבת סימון (סימון)
@@ -4106,9 +4090,7 @@
         // (``_enableViewLongPress``), ו-Enter מהמקלדת — שם אין לחיצה ממושכת,
         // ולכן מסלול המקלדת (``keydown``) אינו נחסם כאן.
         if (ev && ev.type === 'click' && this._isNoteSearching(el)) return false;
-        const row = (t && t.closest) ? t.closest('.sticky-task-line') : null;
-        const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
-        this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
+        this._enterEditAt(el, sourceOffsetAt(t));
         return true;
       }
 
@@ -4621,8 +4603,7 @@
           const target = row;
           reset();
           if (!go) return;
-          const offset = target ? parseInt(target.dataset.charOffset, 10) : NaN;
-          this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
+          this._enterEditAt(el, sourceOffsetAt(target));
         };
         view.addEventListener('pointerdown', (ev) => {
           reset();

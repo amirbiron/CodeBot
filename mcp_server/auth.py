@@ -199,6 +199,16 @@ def _token_scopes(ctx: Any = None) -> list[str]:
     return list(getattr(getattr(request, "state", None), "scopes", None) or [])
 
 
+def has_write_scope(ctx: Any = None) -> bool:
+    """Whether the caller's token carries the ``write`` scope — the one check.
+
+    :func:`require_write` raises on ``False``. ``codekeeper_show_note`` reports it
+    as ``editable``, so the note view offers editing only to a connection that can
+    save — instead of showing a button whose every press is refused.
+    """
+    return "write" in _token_scopes(ctx)
+
+
 def require_write(ctx: Any = None) -> None:
     """Raise unless the caller's token carries the ``write`` scope.
 
@@ -206,7 +216,7 @@ def require_write(ctx: Any = None) -> None:
     raised ``PermissionError`` surfaces to the model as an error tool result
     whose text is this message (not an HTTP 403).
     """
-    if "write" not in _token_scopes(ctx):
+    if not has_write_scope(ctx):
         raise PermissionError(
             "insufficient_scope: this action needs write permission. Reconnect "
             "CodeKeeper granting write access (re-add the connector, or use a "

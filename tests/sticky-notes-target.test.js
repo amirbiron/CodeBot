@@ -6503,6 +6503,61 @@ check('מנוע: במצב קריאה בלבד אין data-charOffset, הצ\'קב
   eq(nodes.some((n) => n._classes.has('sticky-md-code-block')), true, 'אבל בלוק הקוד עצמו נבנה');
 });
 
+check('מנוע: render עם sourceOffsets — אותם היסטים כמו בפתק, ושאר מצב הקריאה בלבד נשאר', () => {
+  // התצוגה בתוך Claude פותחת עורך בשורה שנלחצה, ולכן צריכה את ההיסט של כל שורה — **אותו** היסט שהפתק
+  // כותב (``_setSourceOffset``, המקום האחד שמחליט). הצ'קבוקס נשאר מושבת ובלי סידור, ואין כפתור העתקה.
+  const R = sandbox.window.StickyMdRender;
+  const walk = (n, out) => { if (n.tagName){ out.push(n); n.children.forEach((c) => walk(c, out)); } return out; };
+  const asNote = { node: (n) => n._classes.has('sticky-md-code-copy'), data: (k) => k === 'taskIndex', prop: (p) => p === 'disabled' };
+  const asView = { node: () => false, data: () => false, prop: (p) => p === 'disabled' };
+  ENGINE_CORPUS.forEach((text) => {
+    const note = renderMd(mdMgr, text).view;
+    if (!note.children.length) return;  // טקסט בלי מבנה — ראו את הבדיקה של render לקריאה בלבד
+    const host = new FakeEl('div');
+    host.className = 'sticky-note-tasks';
+    const view = R.render(host, text, { sourceOffsets: true });
+    eq(dumpView(view, asView), dumpView(note, asNote), 'אותו מבנה ואותם היסטים: ' + JSON.stringify(text).slice(0, 40));
+  });
+  const nodes = walk(R.render(new FakeEl('div'), ENGINE_CORPUS.join('\n'), { sourceOffsets: true }), []);
+  eq(nodes.some((n) => 'charOffset' in n.dataset), true, 'יש היסטים');
+  const boxes = nodes.filter((n) => n._classes.has('sticky-task-box'));
+  eq(boxes.length >= 2 && boxes.every((b) => b.disabled === true && !('taskIndex' in b.dataset)), true, 'הצ\'קבוקסים מושבתים ובלי סידור');
+  eq(nodes.some((n) => n._classes.has('sticky-md-code-copy')), false, 'אין כפתור העתקה');
+});
+
+check('מנוע: isViewControl ו-sourceOffsetAt — מה לחיצה בתצוגה פוגעת בו, תשובה אחת לפתק ולתצוגה ב-Claude', () => {
+  // הפקדים נולדים במנוע, ולכן הרשימה שלהם שם; הפתק מוסיף רק את כפתור ההעתקה שהוא עצמו בונה.
+  const R = sandbox.window.StickyMdRender;
+  const walk = (n, out) => { if (n.tagName){ out.push(n); n.children.forEach((c) => walk(c, out)); } return out; };
+  const text = '- [ ] משימה\n[קישור](https://example.com)\n::: details פרטים\nבפנים\n:::\n```js\nx\n```\nשורה **מודגשת**';
+  const nodes = walk(R.render(new FakeEl('div'), text, { sourceOffsets: true }), []);
+  const box = nodes.find((n) => n._classes.has('sticky-task-box'));
+  const link = nodes.find((n) => n.tagName.toLowerCase() === 'a' && n._classes.has('sticky-md-link'));
+  const summary = nodes.find((n) => n._classes.has('sticky-md-details-summary'));
+  eq(!!(box && link && summary), true, 'יש תיבת סימון, קישור וכותרת של בלוק מתקפל');
+  eq([R.isViewControl(box), R.isViewControl(link), R.isViewControl(summary)].join(','), 'true,true,true', 'שלושתם פקדים');
+  const rows = nodes.filter((n) => n._classes.has('sticky-task-line'));
+  const plain = rows.filter((r) => !R.isViewControl(r));
+  eq(plain.length >= 3, true, 'שורות רגילות אינן פקד');
+  eq(R.isViewControl(null) || R.isViewControl(undefined), false, 'בלי יעד — לא פקד');
+  eq(rows.every((r) => R.sourceOffsetAt(r) === parseInt(r.dataset.charOffset, 10)), true, 'ההיסט של כל שורה הוא ה-data-charOffset שלה');
+  const inner = nodes.filter((n) => !n._classes.has('sticky-task-line') && n.closest && n.closest('.sticky-task-line'));
+  eq(inner.length > 0 && inner.every((n) => R.sourceOffsetAt(n) === R.sourceOffsetAt(n.closest('.sticky-task-line'))), true, 'אלמנט בתוך שורה — ההיסט של השורה');
+  eq(R.sourceOffsetAt(null), null, 'בלי יעד — null');
+  const bare = walk(R.render(new FakeEl('div'), text), []).filter((n) => n._classes.has('sticky-task-line'));
+  eq(bare.length > 0 && bare.every((r) => R.sourceOffsetAt(r) === null), true, 'בלי sourceOffsets — null');
+  // הפתק שואל את אותה פונקציה, ומוסיף את כפתור ההעתקה.
+  const { view } = renderMd(mdMgr, text);
+  const noteNodes = walk(view, []);
+  const copy = noteNodes.find((n) => n._classes.has('sticky-md-code-copy'));
+  eq(!!copy && mdMgr._isViewControl(copy) === true && R.isViewControl(copy) === false, true, 'כפתור ההעתקה — פקד של הפתק בלבד');
+  // הכפתור וכל מה שבתוכו (האייקון שלו) — פקד של הפתק בלבד; בכל השאר שתי התשובות זהות.
+  const inCopy = new Set(walk(copy, []));
+  eq([...inCopy].every((n) => mdMgr._isViewControl(n) === true), true, 'גם האייקון שבתוך הכפתור');
+  eq(noteNodes.filter((n) => !inCopy.has(n)).every((n) => mdMgr._isViewControl(n) === R.isViewControl(n)), true,
+    'בכל שאר האלמנטים — הפתק והמנוע עונים אותו דבר');
+});
+
 check('מנוע: ובפתק — כפתור ההעתקה מגיע מה-hook של המארח, אחרי תווית השפה', () => {
   const { view } = renderMd(mdMgr, '```js\nx\n```');
   const head = view.querySelector('.sticky-md-code-head');
