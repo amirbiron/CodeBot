@@ -1036,7 +1036,9 @@ def test_a_folded_block_opened_at_the_bottom_enables_scrolling_down(chromium_exe
 #: של הגרסה הנוכחית — אחרת ``conflict``, כמו ``handlers.save_note_from_view``. ה-hash כאן הוא מונה
 #: גרסה בצורת 64 ספרות: לדף הוא אטום, והשוויון הוא כל מה שהוא בודק. השרת האמיתי, עם ה-hash האמיתי
 #: והגרסאות, נבדק ב-``tests/test_mcp_note_view_save.py``. ``externalEdit`` — עריכה מבחוץ (הוובאפ,
-#: סוכן), בשביל התנגשות. מסך מלא כמו ב-``_FRAME_HOST``: מסגרת קבועה של 600px, או גובה גמיש.
+#: סוכן), בשביל התנגשות. ``holdSave`` מחזיק את התשובה על שמירה עד ``releaseSave`` — שמירה שבדרך —
+#: ו-``leaveFullscreen`` יוצא ממסך מלא כמו הכפתור של המארח. מסך מלא כמו ב-``_FRAME_HOST``: מסגרת
+#: קבועה של 600px, או גובה גמיש.
 _EDIT_HOST = """<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
 <iframe id="view" src="/view.html" sandbox="allow-scripts"
         style="width:600px;height:80px;border:0;display:block"></iframe>
@@ -1047,11 +1049,32 @@ const shaOf = (v) => String(v).padStart(64, '0');
 window.server = {version: 1, note: Object.assign(%(note)s, {content_sha256: shaOf(1)})};
 window.sizes = []; window.toolCalls = []; window.modelContexts = []; window.modeRequests = [];
 window.fixedFrame = false;
+window.holdSave = false;
+window.heldSave = null;
 window.externalEdit = (content) => {
   server.version += 1;
   server.note = Object.assign({}, server.note, {content: content, content_sha256: shaOf(server.version)});
 };
 const answer = (obj) => ({content: [{type: 'text', text: JSON.stringify(obj)}]});
+// השמירה בצד "השרת": כותבת רק כשה-hash שנשלח הוא של הגרסה הנוכחית.
+function serverSave(a) {
+  if (a.expected_content_sha256 !== server.note.content_sha256) {
+    return answer({ok: false, error: 'conflict', hint: 'the note changed since the view received it'});
+  }
+  window.externalEdit(a.content);
+  return answer({ok: true, note: server.note, content_changed: false});
+}
+window.releaseSave = () => {
+  const held = window.heldSave;
+  window.heldSave = null;
+  window.holdSave = false;
+  iframe.contentWindow.postMessage({jsonrpc: '2.0', id: held.id, result: serverSave(held.params.arguments)}, '*');
+};
+window.leaveFullscreen = () => {
+  window.fixedFrame = false;
+  iframe.contentWindow.postMessage({jsonrpc: '2.0', method: 'ui/notifications/host-context-changed',
+    params: {displayMode: 'inline', containerDimensions: {width: 600, maxHeight: 900}}}, '*');
+};
 window.addEventListener('message', (event) => {
   if (event.source !== iframe.contentWindow) return;
   const m = event.data;
@@ -1071,12 +1094,8 @@ window.addEventListener('message', (event) => {
     if (m.params.name === 'codekeeper_show_note') {
       reply(answer({ok: true, editable: true, note: server.note, target: 'board'}));
     } else if (m.params.name === 'codekeeper_note_view_save') {
-      if (a.expected_content_sha256 !== server.note.content_sha256) {
-        reply(answer({ok: false, error: 'conflict', hint: 'the note changed since the view received it'}));
-      } else {
-        window.externalEdit(a.content);
-        reply(answer({ok: true, note: server.note, content_changed: false}));
-      }
+      if (window.holdSave) window.heldSave = m;
+      else reply(serverSave(a));
     }
   } else if (m.method === 'ui/update-model-context') {
     window.modelContexts.push(m.params);
@@ -1361,3 +1380,45 @@ def test_a_conflict_keeps_my_text_and_offers_update_or_save_anyway(chromium_exec
     assert restored == expected_mine, restored
     assert saves == ["0" * 63 + "1", "0" * 63 + "2"], saves
     assert server["note"]["content"] == expected_mine and server["version"] == 3, server
+
+
+def test_a_save_that_lands_after_the_editor_closed_still_updates_the_view_and_claude(chromium_executable, edit_host):
+    """**שמירה שבדרך, ועורך שנסגר לפני התשובה.** מקלידים, Ctrl+S, ובזמן שהשמירה בדרך — Ctrl+Z של
+    הדפדפן מחזיר את הטקסט למקור, והמארח יוצא ממסך מלא. העורך נקי, ולכן נסגר; אבל השמירה כבר יצאה,
+    והשרת כותב אותה. כשהתשובה מגיעה, הפתק שמוצג הוא מה שבשרת, ו-Claude מקבל אותו. לפני התיקון התשובה
+    נזרקה: בשרת הגוף החדש, ובתצוגה ובמודל — הישן."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit.html")
+        try:
+            _open_editor_on(page, view, {"selector": ".sticky-task-line", "text": "שורה רגילה בעברית"})
+            page.evaluate("() => { window.holdSave = true; }")
+            page.keyboard.type("נוסף ")
+            page.keyboard.press("Control+s")
+            poll(page, "() => !!window.heldSave", "the save request reached the host")
+            # הביטול של הדפדפן הולך מילה-מילה: לוחצים עד שהטקסט חוזר למקור, ולא יותר מכמה פעמים.
+            for _ in range(10):
+                if view.evaluate("(original) => document.querySelector('.ck-editor').value === original", _EDIT_NOTE["content"]):
+                    break
+                page.keyboard.press("Control+z")
+            undone = view.evaluate("() => document.querySelector('.ck-editor').value")
+            page.evaluate("() => window.leaveFullscreen()")
+            poll(view, "() => !document.querySelector('.ck-editor')", "the clean editor closed when the host left fullscreen")
+            during = view.evaluate("() => ({edit: getComputedStyle(document.querySelector('.ck-edit')).display !== 'none',"
+                                   " shown: document.querySelector('.ck-content').textContent})")
+            page.evaluate("() => window.releaseSave()")
+            poll(view, "() => document.querySelector('.ck-notice').textContent === 'נשמר.'", "the late answer reached the page")
+            after = view.evaluate("() => ({shown: document.querySelector('.ck-content').textContent,"
+                                  " edit: getComputedStyle(document.querySelector('.ck-edit')).display !== 'none'})")
+            server = page.evaluate("() => window.server")
+            contexts = page.evaluate("() => window.modelContexts")
+        finally:
+            browser.close()
+
+    sent = "\n".join([_EDIT_LINES[0], "נוסף " + _EDIT_LINES[1]] + _EDIT_LINES[2:])
+    assert undone == _EDIT_NOTE["content"], undone
+    assert during["edit"] is False and "נוסף" not in during["shown"], during
+    assert server["note"]["content"] == sent and server["version"] == 2, server
+    assert "נוסף שורה רגילה בעברית" in after["shown"] and after["edit"] is True, after
+    assert len(contexts) == 1 and contexts[0]["content"][0]["text"].endswith("\n" + sent), contexts

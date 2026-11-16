@@ -49,7 +49,9 @@
    ``tools/call`` שהמארח מעביר לשרת (המפרט, "Standard MCP Messages") — עם ה-``content_sha256``
    שהעריכה נבנתה עליו. כל צעד שמחכה למארח ומחזיק משהו (פתיחת העריכה, שמירה, בדיקת התנגשות) נושא
    תקרת זמן משלו, ``TOOL_DEADLINE_MS``. אחרי שמירה הדף מעדכן את המודל (``ui/update-model-context``),
-   כי התוצאה שהכלי החזיר קודם, ושהמודל מחזיק, כבר אינה הפתק. הפירוט ליד ``beginEdit``. */
+   כי התוצאה שהכלי החזיר קודם, ושהמודל מחזיק, כבר אינה הפתק. **התשובה על שמירה שייכת לדף ולא לעורך
+   ששלח אותה:** העורך יכול להיסגר בזמן שהבקשה בדרך (יציאה ממסך מלא של המארח), והשמירה עדיין נוחתת
+   בשרת. הפירוט ליד ``beginEdit`` וליד ``save``. */
 (function (root) {
   'use strict';
 
@@ -144,6 +146,12 @@
     this.modelStale = false;
     /** מונה העדכונים למודל — רק התשובה לעדכון האחרון קובעת את ``modelStale``. */
     this.modelSeq = 0;
+    /** השמירה שבדרך — ``{ed, sent, base}`` — כולל הקריאה שמכריעה עליה, או ``null``. **של הדף ולא של
+     *  העורך:** העורך יכול להיסגר בזמן שהיא בדרך, והתשובה עליה עדיין מעדכנת את הדף (``finishSave``). */
+    this.saving = null;
+    /** שמירה שהתשובה עליה לא הגיעה, ושהקריאה שאחריה לא הכריעה — ``{sent, baseSha}``, או ``null``.
+     *  ראו ``decideUnconfirmed``. */
+    this.unconfirmed = null;
     this.initTimer = null;
     this.resultTimer = null;
     this.onMessage = this.onMessage.bind(this);
@@ -391,7 +399,7 @@
       return;
     }
     v.expand.hidden = !this.canFullscreen();
-    v.edit.hidden = !(this.canEdit() && !this.editor && !this.pendingEdit);
+    v.edit.hidden = !(this.canEdit() && !this.editor && !this.pendingEdit && !this.saving);
     var actionShown = !v.expand.hidden || !v.edit.hidden;
     // שלב 1: השורה מוצגת לפי מה שכבר ידוע. שלב 2: האם הגוף גולש, **בגובה שהיה לו בלי ▲▼** —
     // כשהשורה מוצגת רק בגללם, הגובה שלה חוזר לגוף. כך ההחלטה אינה תלויה במצב הקודם של
@@ -655,16 +663,6 @@
     // והבלוק המתקפל, ומצהיר עליו את הטוקנים שהתוכן קורא (הדיו של הפתק ביניהם). המחלקה אינה מביאה
     // איתה את השלד של הפתק בלוח: הוא ב-``sticky-notes.css``, שהדף הזה אינו כולל.
     paper.className = 'ck-paper sticky-note';
-    if (typeof note.color === 'string' && HEX_COLOR_RE.test(note.color)) {
-      paper.style.backgroundColor = note.color;
-      paper.className += ' has-note-color';
-    }
-    if (typeof note.title === 'string' && note.title.trim() !== '') {
-      var title = doc.createElement('h1');
-      title.className = 'ck-title';
-      title.textContent = note.title;
-      paper.appendChild(title);
-    }
     var body = doc.createElement('div');
     body.className = 'ck-body';
     var self = this;
@@ -675,20 +673,6 @@
     var content = doc.createElement('div');
     content.className = 'ck-content';
     body.appendChild(content);
-    if (note.content === '') {
-      var empty = doc.createElement('div');
-      empty.className = 'ck-empty';
-      empty.textContent = 'הפתק ריק.';
-      content.appendChild(empty);
-    } else {
-      // **אותו מנוע ואותם כללים כמו בפתק בוובאפ**, במצב קריאה בלבד: בלי היסטים, צ'קבוקס מושבת,
-      // ובלי כפתור העתקה. השורות יורשות ``rtl`` מהדף, כמו בפתק, ורק קוד בשורה ותאי טבלה מכריעים
-      // כיוון לפי התוכן (``dir="auto"`` במנוע). התוכן נבנה עם ``createElement`` ו-``textContent``
-      // בלבד — המנוע אינו כותב טקסט של משתמש דרך HTML (העמוד של המנוע, ``sticky-notes-render-untrusted``).
-      // ``sourceOffsets`` — ההיסט של כל שורה, כדי שלחיצה תפתח את העורך בשורה שנלחצה (``onBodyClick``).
-      md.render(content, note.content, { sourceOffsets: true });
-      this.titleLinks(content);
-    }
     paper.appendChild(body);
     paper.appendChild(this.buildControls(body));
     var notice = doc.createElement('p');
@@ -698,11 +682,54 @@
     this.view.content = content;
     this.view.paper = paper;
     this.view.notice = notice;
+    this.view.md = md;
+    this.view.title = null;
+    this.paint(note);
     this.syncNotice();
     host.textContent = '';
     host.appendChild(paper);
     if (this.sizeObserver) this.sizeObserver.observe(content);
     this.settle();
+    this.updateControls();
+    if (this.initialized) this.scheduleSize();
+  };
+
+  /** **מצייר את הפתק בתוך הנייר הקיים:** צבע, כותרת ותוכן. ``render`` בונה את הנייר וקורא לה; בזמן
+   *  שעורך פתוח היא נקראת לבד, כי ``render`` היה בונה נייר חדש ומעלים את העורך שבתוכו. כך הפתק שמאחורי
+   *  העורך — מה שמוצג בתוך השיחה כשיש שינוי שלא נשמר — הוא תמיד ``current``, הגרסה האחרונה שהדף יודע
+   *  עליה, ולא הגרסה שהעריכה נפתחה עליה. ``md`` הוא המנוע ש-``render`` בדק. */
+  NoteView.prototype.paint = function (note) {
+    var v = this.view;
+    if (!v) return;
+    var paper = v.paper;
+    var colored = typeof note.color === 'string' && HEX_COLOR_RE.test(note.color);
+    paper.style.backgroundColor = colored ? note.color : '';
+    paper.classList.toggle('has-note-color', colored);
+    var hasTitle = typeof note.title === 'string' && note.title.trim() !== '';
+    if (hasTitle && !v.title) {
+      v.title = this.doc.createElement('h1');
+      v.title.className = 'ck-title';
+      paper.insertBefore(v.title, paper.firstChild);
+    } else if (!hasTitle && v.title) {
+      paper.removeChild(v.title);
+      v.title = null;
+    }
+    if (v.title) v.title.textContent = note.title;
+    v.content.textContent = '';
+    if (note.content === '') {
+      var empty = this.doc.createElement('div');
+      empty.className = 'ck-empty';
+      empty.textContent = 'הפתק ריק.';
+      v.content.appendChild(empty);
+    } else {
+      // **אותו מנוע ואותם כללים כמו בפתק בוובאפ**, במצב קריאה בלבד: צ'קבוקס מושבת, ובלי כפתור העתקה.
+      // השורות יורשות ``rtl`` מהדף, כמו בפתק, ורק קוד בשורה ותאי טבלה מכריעים כיוון לפי התוכן
+      // (``dir="auto"`` במנוע). התוכן נבנה עם ``createElement`` ו-``textContent`` בלבד — המנוע אינו כותב
+      // טקסט של משתמש דרך HTML (העמוד של המנוע, ``sticky-notes-render-untrusted``). ``sourceOffsets`` —
+      // ההיסט של כל שורה, כדי שלחיצה תפתח את העורך בשורה שנלחצה (``onBodyClick``).
+      v.md.render(v.content, note.content, { sourceOffsets: true });
+      this.titleLinks(v.content);
+    }
     this.updateControls();
     if (this.initialized) this.scheduleSize();
   };
@@ -815,7 +842,7 @@
 
   /** קריאה לכלי של השרת דרך המארח (``tools/call``), עם תקרת זמן משלה. ``done`` מקבל את מה ש-
    *  ``readNote`` מחזיר, או ``{timeout: true}``. תשובה שמגיעה אחרי התקרה נזרקת — מי שחיכה כבר
-   *  קיבל ``timeout`` והמשיך, ותשובה מאוחרת לשמירה מזוהה בשמירה הבאה (``onConflict``). */
+   *  קיבל ``timeout`` והמשיך — ובשמירה, ``timeout`` עובר לקריאה שמכריעה אם היא נחתה (``reconcile``). */
   NoteView.prototype.callTool = function (name, args, done) {
     var self = this;
     var finished = false;
@@ -863,9 +890,16 @@
    *     שנלחץ שייך לטקסט הישן.
    *
    *  **שום דבר לא נשאר מחכה לנצח:** ``pendingEdit`` מונע פתיחה כפולה, ולכן כל הפתיחה נושאת תקרת זמן
-   *  אחת, ``TOOL_DEADLINE_MS`` — גם אם המארח לא עונה על בקשת המסך המלא. */
+   *  אחת, ``TOOL_DEADLINE_MS`` — גם אם המארח לא עונה על בקשת המסך המלא.
+   *
+   *  **ולא בזמן ששמירה בדרך** (``saving``) — עורך שנסגר באמצע שמירה משאיר אותה בדרך. עורך חדש היה נבנה
+   *  על גרסה שהשמירה עומדת להחליף; ההמתנה חסומה בתקרות הזמן של השמירה. */
   NoteView.prototype.beginEdit = function (offset) {
     if (!this.canEdit() || this.editor || this.pendingEdit) return;
+    if (this.saving) {
+      this.setNotice('השמירה הקודמת עוד בדרך. נסו שוב בעוד רגע.', false);
+      return;
+    }
     var self = this;
     var job = { offset: offset, fullscreen: null, fresh: null, timer: null };
     this.pendingEdit = job;
@@ -897,6 +931,7 @@
     if (read.note) {
       changed = read.note.content_sha256 !== this.current.note.content_sha256;
       this.current = { note: read.note, editable: read.editable === true };
+      if (this.decideUnconfirmed(read.note)) this.updateModelContext(read.note);
       if (changed) this.render(read.note);
     }
     if (!job.fullscreen) {
@@ -990,9 +1025,9 @@
     restore.hidden = true;
     this.editor = {
       base: { content: note.content, sha: note.content_sha256 },
-      mine: null, server: null, saving: false, unconfirmed: null,
+      mine: null, server: null,
       bar: bar, save: save, cancel: cancel, restore: restore, status: status,
-      conflict: conflict, confirm: confirm, textarea: textarea, unsaved: unsaved
+      conflict: conflict, confirm: confirm, textarea: textarea, unsaved: unsaved, drop: drop
     };
     save.addEventListener('click', function () { self.save(); });
     cancel.addEventListener('click', function () { self.askCancel(); });
@@ -1079,99 +1114,159 @@
     ed.status.className = isError ? 'ck-edit-status is-error' : 'ck-edit-status';
   };
 
-  NoteView.prototype.setSaving = function (saving) {
+  /** בזמן ששמירה בדרך, הכפתורים שמשנים או סוגרים את העריכה מושבתים — "שמור", "בטל", ו"בטל שינויים"
+   *  בשורה שבתוך השיחה — וכך גם "✏️ עריכה" (``updateControls``). **זה אינו מה ששומר על התשובה:** יציאה
+   *  ממסך מלא של המארח סוגרת עורך נקי גם עכשיו, והתשובה מגיעה לדף בכל מקרה (``finishSave``). */
+  NoteView.prototype.syncSaving = function () {
     var ed = this.editor;
-    if (!ed) return;
-    ed.saving = saving;
-    ed.save.disabled = saving;
-    ed.cancel.disabled = saving;
+    var busy = !!this.saving;
+    if (ed) {
+      ed.save.disabled = busy;
+      ed.cancel.disabled = busy;
+      ed.drop.disabled = busy;
+    }
+    this.updateControls();
   };
 
-  /** **שמירה.** הגוף כולו, עם ה-hash שהעריכה נבנתה עליו. בזמן ההמתנה "שמור" ו"בטל" מושבתים, ולכן
-   *  לבקשה תקרת זמן משלה (``callTool``); בסופה שניהם חוזרים. תקרה שעברה אינה ראיה שהשמירה לא קרתה,
-   *  ולכן ההודעה אומרת את זה — ושמירה נוספת תגלה: אם היא כן קרתה, ה-hash כבר אחר, והתשובה
-   *  ``conflict``, שבודק אם הגוף שבשרת הוא בדיוק מה שנשלח. */
+  /** **שמירה.** הגוף כולו, עם ה-hash שהעריכה נבנתה עליו (``expected_content_sha256``).
+   *
+   *  **התשובה שייכת לדף, ולא לעורך ששלח את הבקשה.** בזמן שהבקשה בדרך העורך יכול להיסגר — יציאה ממסך
+   *  מלא של המארח סוגרת עורך שאין בו שינוי, גם כשהמשתמש החזיר את הטקסט למקור אחרי "שמור" — והשמירה
+   *  עדיין נוחתת בשרת. תשובה שהייתה נזרקת כשהעורך כבר אינו פתוח הייתה משאירה בדף ובמודל את הגוף הישן,
+   *  בזמן שבשרת יושב החדש. לכן כל תשובה עוברת ב-``finishSave`` / ``reconcile`` / ``failSave``, שמעדכנות
+   *  קודם את הדף (``current``, המודל, ההודעה), ורק אחר כך את העורך — אם הוא עדיין העורך ששלח.
+   *
+   *  **שמירה אחת בכל פעם** (``saving``). תקרה שעברה אינה ראיה שהשמירה לא קרתה, ולכן היא, כמו
+   *  ``conflict``, עוברת לקריאה שמכריעה (``reconcile``). */
   NoteView.prototype.save = function () {
     var ed = this.editor;
-    if (!ed || ed.saving) return;
-    // השמירה הקודמת, אם תשובתה לא הגיעה, נשארת ב-``unconfirmed`` עד שהתנגשות מכריעה עליה.
+    if (!ed || this.saving) return;
     var self = this;
-    var sent = ed.textarea.value;
+    var job = { ed: ed, sent: ed.textarea.value, base: ed.base };
     ed.confirm.hidden = true;
-    this.setSaving(true);
+    this.saving = job;
+    this.syncSaving();
     this.setEditStatus('שומר…', false);
     this.callTool(SAVE_TOOL, {
-      note_id: this.current.note.id, content: sent, expected_content_sha256: ed.base.sha
+      note_id: this.current.note.id, content: job.sent, expected_content_sha256: job.base.sha
     }, function (read) {
-      if (self.editor !== ed) return;
-      self.setSaving(false);
-      if (read.note) {
-        self.onSaved(read.note, sent);
-      } else if (read.error === 'conflict') {
-        self.onConflict(sent);
-      } else if (read.timeout) {
-        ed.unconfirmed = sent;
-        self.setEditStatus('לא התקבלה תשובה על השמירה. ייתכן שהיא עברה — לחיצה נוספת על "שמור" תבדוק.', true);
-      } else {
-        self.setEditStatus(self.errorText(read, 'השמירה לא עברה'), true);
-      }
+      if (read.note) self.finishSave(job, read.note);
+      else if (read.error === 'conflict') self.reconcile(job, false);
+      else if (read.timeout) self.reconcile(job, true);
+      else self.failSave(job, self.errorText(read, 'השמירה לא עברה'));
     });
   };
 
-  /** **אחרי שמירה שעברה:** הפתק החדש הוא ``current``, והמודל מתעדכן. אם המשתמש המשיך להקליד בזמן
-   *  השמירה, העורך נשאר פתוח, ונבנה מעכשיו על מה שנשמר — כדי שהשמירה הבאה לא תיתקל בעצמה. */
-  NoteView.prototype.onSaved = function (note, sent) {
-    var ed = this.editor;
+  /** שמירה שנחתה: הגרסה החדשה היא ``current``, והמודל לומד עליה. */
+  NoteView.prototype.applySaved = function (note) {
     this.current = { note: note, editable: true };
     this.updateModelContext(note);
-    if (ed && ed.textarea.value !== sent) {
-      ed.base = { content: note.content, sha: note.content_sha256 };
-      ed.unconfirmed = null;
-      ed.mine = null;
-      ed.restore.hidden = true;
-      this.setEditStatus('נשמר. מה שהוקלד בזמן השמירה עוד לא נשמר.', false);
-      return;
-    }
-    this.closeEditor();
-    this.setNotice('נשמר.', false);
   };
 
-  /** **התנגשות:** הפתק השתנה מאז שהעריכה נפתחה. קריאה טרייה מכריעה מה קרה:
-   *
-   *  - **הגוף שבשרת הוא בדיוק מה שנשלח עכשיו** — השמירה שלנו כבר שם (תשובה שהלכה לאיבוד, או תקרת
-   *    זמן שעברה): הצלחה.
-   *  - **הגוף שבשרת הוא מה ששמירה קודמת שלחה, שתשובתה לא הגיעה** (``unconfirmed``) — זו שמירה שלנו
-   *    שעברה, ולא שינוי של מישהו אחר. העריכה נבנית מעכשיו עליה, והשמירה הנוכחית יוצאת שוב.
-   *    ``unconfirmed`` מתאפס לפני כן, ולכן זה קורה פעם אחת לכל היותר.
-   *  - אחרת — מישהו אחר שינה. הטקסט נשאר בעורך, ושורה מציעה "עדכן" או "שמור בכל זאת", כמו הפס בוובאפ. */
-  NoteView.prototype.onConflict = function (sent) {
+  /** **שמירה שעברה** — מהתשובה, או מקריאה שהראתה בדיוק את מה שנשלח. הדף מתעדכן תמיד. העורך ששלח, אם
+   *  הוא עדיין פתוח: נסגר — או, אם המשתמש המשיך להקליד בזמן השמירה, נשאר ונבנה מעכשיו על מה שנשמר,
+   *  כדי שהשמירה הבאה לא תיתקל בעצמה. העורך כבר נסגר — הפתק מוצג מהגרסה השמורה. */
+  NoteView.prototype.finishSave = function (job, note) {
+    this.saving = null;
+    this.decideUnconfirmed(note);
+    this.applySaved(note);
     var ed = this.editor;
+    if (ed === job.ed && ed.textarea.value !== job.sent) {
+      ed.base = { content: note.content, sha: note.content_sha256 };
+      ed.mine = null;
+      ed.restore.hidden = true;
+      this.paint(note);
+      this.setEditStatus('נשמר. מה שהוקלד בזמן השמירה עוד לא נשמר.', false);
+      this.syncSaving();
+      return;
+    }
+    if (ed === job.ed) this.closeEditor();
+    else this.render(note);
+    this.setNotice('נשמר.', false);
+    this.syncSaving();
+  };
+
+  /** **שמירה שלא עברה בוודאות** — סירוב שאינו התנגשות, או קריאה שלא הצליחה להכריע. */
+  NoteView.prototype.failSave = function (job, text) {
+    this.saving = null;
+    if (this.editor === job.ed) this.setEditStatus(text, true);
+    else this.setNotice(text, true);
+    this.syncSaving();
+  };
+
+  /** ``unconfirmed`` — שמירה שהתשובה עליה לא הגיעה, ושהקריאה שאחריה לא הכריעה: ``{sent, baseSha}``.
+   *  **היא יכולה עוד לנחות רק כל עוד הגוף שבשרת הוא הגוף שהיא נבנתה עליה** — השרת דוחה hash ישן
+   *  (``conflict``), והדריסה שלו מותנית בגוף שנקרא. לכן כל גרסה שהדף רואה מכריעה עליה: הגוף שלה — היא
+   *  נחתה; hash אחר מזה שהיא נבנתה עליו — היא כבר לא תנחת. מחזיר ``true`` כשהיא נחתה. */
+  NoteView.prototype.decideUnconfirmed = function (fresh) {
+    var u = this.unconfirmed;
+    if (!u) return false;
+    var landed = fresh.content === u.sent;
+    if (landed || fresh.content_sha256 !== u.baseSha) this.unconfirmed = null;
+    return landed;
+  };
+
+  /** **מכריע מה קרה לשמירה** — אחרי ``conflict``, או אחרי תקרה שעברה (``afterTimeout``) — לפי קריאה
+   *  טרייה של הפתק:
+   *
+   *  - **הגוף שבשרת הוא בדיוק מה שנשלח** — השמירה נחתה (תשובה שהלכה לאיבוד, תקרה שעברה). הצלחה.
+   *  - **הגוף שבשרת הוא מה ששמירה קודמת שלחה, שלא הוכרעה** (``unconfirmed``) — שמירה של הדף, ולא
+   *    שינוי של מישהו אחר. העריכה נבנית עליה, והשמירה הנוכחית יוצאת שוב; ``unconfirmed`` מתאפס לפני
+   *    כן, ולכן זה קורה פעם אחת לכל היותר.
+   *  - **אחרי תקרה, והפתק לא השתנה** — ייתכן שהשמירה עוד בדרך. היא נרשמת כ-``unconfirmed``, והמשתמש
+   *    יכול לשמור שוב.
+   *  - **אחרת — מישהו אחר שינה.** הטקסט נשאר בעורך, ושורה מציעה "עדכן" או "שמור בכל זאת", כמו הפס
+   *    בוובאפ.
+   *
+   *  בכל המקרים הגרסה הטרייה היא ``current``, ומה שמוצג מאחורי העורך מתעדכן אליה. עורך שכבר נסגר —
+   *  הפתק מוצג מהגרסה הטרייה, וההודעה אומרת מה קרה לשמירה. */
+  NoteView.prototype.reconcile = function (job, afterTimeout) {
     var self = this;
-    this.setSaving(true);
-    this.setEditStatus('הפתק השתנה מאז שהתחלת לערוך. בודק מה השתנה…', false);
+    if (this.editor === job.ed) {
+      this.setEditStatus(afterTimeout ? 'לא התקבלה תשובה על השמירה. בודק אם היא עברה…'
+        : 'הפתק השתנה מאז שהתחלת לערוך. בודק מה השתנה…', false);
+    }
     this.callTool(READ_TOOL, { note_id: this.current.note.id }, function (read) {
-      if (self.editor !== ed) return;
-      self.setSaving(false);
-      if (!read.note) {
-        self.setEditStatus(self.errorText(read, 'השמירה נדחתה כי הפתק השתנה, ולא הצלחתי לקרוא את הגרסה החדשה. נסו שוב'), true);
+      var fresh = read.note;
+      if (!fresh) {
+        if (afterTimeout) self.unconfirmed = { sent: job.sent, baseSha: job.base.sha };
+        self.failSave(job, afterTimeout
+          ? 'לא התקבלה תשובה על השמירה, ולא הצלחתי לבדוק אם היא עברה. לחיצה נוספת על "שמור" תבדוק.'
+          : self.errorText(read, 'השמירה נדחתה כי הפתק השתנה, ולא הצלחתי לקרוא את הגרסה החדשה. נסו שוב'));
         return;
       }
-      if (read.note.content === sent) {
-        self.onSaved(read.note, sent);
+      if (fresh.content === job.sent) {
+        self.finishSave(job, fresh);
         return;
       }
-      self.current = { note: read.note, editable: read.editable === true };
-      if (ed.unconfirmed !== null && read.note.content === ed.unconfirmed) {
-        ed.unconfirmed = null;
-        ed.base = { content: read.note.content, sha: read.note.content_sha256 };
-        self.updateModelContext(read.note);
+      var earlierLanded = self.decideUnconfirmed(fresh);
+      var unchanged = fresh.content_sha256 === job.base.sha;
+      if (afterTimeout && unchanged) self.unconfirmed = { sent: job.sent, baseSha: job.base.sha };
+      self.current = { note: fresh, editable: read.editable === true };
+      self.saving = null;
+      if (earlierLanded) self.updateModelContext(fresh);
+      var ed = self.editor;
+      if (ed !== job.ed) {
+        self.render(fresh);
+        self.setNotice(afterTimeout && unchanged ? 'לא התקבלה תשובה על השמירה. ייתכן שהיא עוד בדרך.'
+          : 'השמירה לא עברה: הפתק השתנה בינתיים. מוצגת הגרסה העדכנית.', true);
+        self.syncSaving();
+        return;
+      }
+      self.paint(fresh);
+      if (earlierLanded) {
+        ed.base = { content: fresh.content, sha: fresh.content_sha256 };
         self.save();
         return;
       }
-      ed.unconfirmed = null;
-      ed.server = read.note;
-      ed.conflict.hidden = false;
-      self.setEditStatus('', false);
+      if (unchanged) {
+        self.setEditStatus('לא התקבלה תשובה על השמירה, והפתק עוד לא השתנה — ייתכן שהיא עוד בדרך. לחיצה נוספת על "שמור" תשלח שוב.', true);
+      } else {
+        ed.server = fresh;
+        ed.conflict.hidden = false;
+        self.setEditStatus('', false);
+      }
+      self.syncSaving();
       if (self.initialized) self.scheduleSize();
     });
   };
@@ -1216,7 +1311,7 @@
    *  מבודדת בלי ``allow-modals``. */
   NoteView.prototype.askCancel = function () {
     var ed = this.editor;
-    if (!ed || ed.saving) return;
+    if (!ed || this.saving) return;
     if (!this.isDirty()) {
       this.closeEditor();
       return;
@@ -1226,7 +1321,7 @@
   };
 
   NoteView.prototype.discardEdit = function () {
-    if (!this.editor || this.editor.saving) return;
+    if (!this.editor || this.saving) return;
     this.closeEditor();
   };
 

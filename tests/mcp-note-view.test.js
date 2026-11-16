@@ -249,7 +249,13 @@ function load(opts = {}) {
     deliver(data, source = parent) { for (const fn of listeners) fn({ source, data }); },
     methods() { return sent.map((s) => s.message.method || (s.message.error ? 'error' : 'result')); },
     last(method) { return [...sent].reverse().find((s) => s.message.method === method); },
-    fire(ms) { for (const t of timers) if (t.ms === ms && !t.cleared) t.fn(); },
+    /** הזמן עובר ב-``ms``: כל טיימר של ``ms`` שקיים **עכשיו** יורה, פעם אחת, כמו בדפדפן. טיימר שנוצר בתוך
+     *  אחד מהם (למשל תקרת הזמן של הקריאה שאחרי שמירה שלא נענתה) עוד לא הגיע זמנו. */
+    fire(ms) {
+      for (const t of timers.slice()) {
+        if (t.ms === ms && !t.cleared) { t.cleared = true; t.fn(); }
+      }
+    },
     /** המארח משנה את המסגרת — מה שהדפדפן מודיע עליו ב-``resize`` של החלון שבתוכה. */
     resize() { for (const fn of resizeListeners) fn({ type: 'resize' }); },
     find(cls) {
@@ -1101,12 +1107,28 @@ for (const [name, reply, expect] of [
   host.find('ck-save').dispatch('click');
   const save = toolCalls(host, 'codekeeper_note_view_save')[0];
   host.fire(20000);
-  check('אין תשובה לשמירה — אחרי תקרת הזמן הכפתורים חוזרים, והסטטוס אומר שאולי היא עברה',
-    host.find('ck-save').disabled === false && host.find('ck-cancel').disabled === false && host.find('ck-edit-status').textContent.indexOf('ייתכן שהיא עברה') !== -1,
-    [host.find('ck-save').disabled, host.find('ck-edit-status').textContent]);
+  const reads = toolCalls(host, 'codekeeper_show_note');
+  check('אין תשובה לשמירה — אחרי תקרת הזמן הדף קורא את הפתק כדי להכריע, והכפתורים עוד מושבתים',
+    reads.length === 2 && host.find('ck-save').disabled === true && host.find('ck-edit-status').textContent.indexOf('בודק אם היא עברה') !== -1,
+    [reads.length, host.find('ck-save').disabled, host.find('ck-edit-status').textContent]);
+  answer(host, reads[1], toolAnswer(editNote()));
+  check('הפתק לא השתנה — ייתכן שהשמירה עוד בדרך: הסטטוס אומר את זה, והכפתורים חוזרים',
+    host.find('ck-save').disabled === false && host.find('ck-cancel').disabled === false && host.find('ck-edit-status').textContent.indexOf('ייתכן שהיא עוד בדרך') !== -1
+      && host.find('ck-edit-status').className === 'ck-edit-status is-error', [host.find('ck-save').disabled, host.find('ck-edit-status').textContent]);
   answer(host, save, savedAnswer('שינוי'));
   check('תשובה שמגיעה אחרי התקרה — נזרקת: העורך פתוח, והמודל לא עודכן ממנה', !!host.find('ck-editor') && !host.last('ui/update-model-context'),
     [!!host.find('ck-editor'), host.methods().slice(-3)]);
+}
+{
+  const host = editableView();
+  const ta = openEditorAt(host, 1);
+  ta.value = 'נחתה';
+  host.find('ck-save').dispatch('click');
+  host.fire(20000);
+  answer(host, toolCalls(host, 'codekeeper_show_note')[1], toolAnswer(editNote({ content: 'נחתה', content_sha256: SHA2 })));
+  check('אחרי תקרה, הקריאה מראה בדיוק את מה שנשלח — השמירה עברה: העורך נסגר, "נשמר.", והמודל מתעדכן',
+    !host.find('ck-editor') && host.find('ck-notice').textContent === 'נשמר.' && !!host.last('ui/update-model-context')
+      && host.last('ui/update-model-context').message.params.content[0].text.endsWith('\nנחתה'), [!!host.find('ck-editor'), host.find('ck-notice').textContent]);
 }
 {
   const host = editableView();
@@ -1199,12 +1221,13 @@ console.log('\nהתנגשות');
   ta.value = 'ראשון';
   host.find('ck-save').dispatch('click');
   host.fire(20000);
+  answer(host, toolCalls(host, 'codekeeper_show_note')[1], toolAnswer(editNote()));
   ta.value = 'ראשון ושני';
   host.find('ck-save').dispatch('click');
   const second = toolCalls(host, 'codekeeper_note_view_save')[1];
-  check('אחרי תקרה — השמירה הבאה עדיין על ה-hash הישן', second.message.params.arguments.expected_content_sha256 === SHA, second.message.params.arguments);
+  check('אחרי תקרה שלא הוכרעה — השמירה הבאה עדיין על ה-hash הישן', second.message.params.arguments.expected_content_sha256 === SHA, second.message.params.arguments);
   answer(host, second, toolAnswer({ ok: false, error: 'conflict' }));
-  answer(host, toolCalls(host, 'codekeeper_show_note')[1], toolAnswer(editNote({ content: 'ראשון', content_sha256: SHA2 })));
+  answer(host, toolCalls(host, 'codekeeper_show_note')[2], toolAnswer(editNote({ content: 'ראשון', content_sha256: SHA2 })));
   const third = toolCalls(host, 'codekeeper_note_view_save')[2];
   check('בשרת מה שהשמירה שלא נענתה שלחה — השמירה שלי עברה: יוצאת שוב, על ה-hash שלה, בלי שורת התנגשות',
     third && third.message.params.arguments.content === 'ראשון ושני' && third.message.params.arguments.expected_content_sha256 === SHA2
@@ -1212,7 +1235,7 @@ console.log('\nהתנגשות');
   const ctx = host.last('ui/update-model-context');
   check('והמודל לומד על השמירה ההיא', ctx && ctx.message.params.content[0].text.endsWith('\nראשון'), ctx && ctx.message.params.content[0].text);
   answer(host, third, toolAnswer({ ok: false, error: 'conflict' }));
-  answer(host, toolCalls(host, 'codekeeper_show_note')[2], toolAnswer(editNote({ content: 'ראשון', content_sha256: 'f'.repeat(64) })));
+  answer(host, toolCalls(host, 'codekeeper_show_note')[3], toolAnswer(editNote({ content: 'ראשון', content_sha256: 'f'.repeat(64) })));
   check('ואם גם השמירה הזו נתקלת — רק פעם אחת: עכשיו שורת התנגשות, לא לולאה', toolCalls(host, 'codekeeper_note_view_save').length === 3
     && host.find('ck-conflict').hidden === false, toolCalls(host, 'codekeeper_note_view_save').length);
 }
@@ -1225,6 +1248,155 @@ console.log('\nהתנגשות');
   host.fire(20000);
   check('הקריאה שאחרי ההתנגשות לא ענתה — הכפתורים חוזרים, והטקסט נשאר', host.find('ck-save').disabled === false && ta.value === 'שלי'
     && host.find('ck-edit-status').className === 'ck-edit-status is-error', [host.find('ck-save').disabled, host.find('ck-edit-status').textContent]);
+}
+
+console.log('\nהתשובה על שמירה שייכת לדף — גם כשהעורך כבר נסגר');
+const lastRender = (host) => host.mdCalls[host.mdCalls.length - 1].text;
+/** שמירה של ``edited``, ובזמן שהיא בדרך: הטקסט חוזר למקור, ו-Claude יוצא ממסך מלא — העורך הנקי נסגר. */
+function saveThenUndoAndLeave(host, edited) {
+  const ta = openEditorAt(host, 1);
+  const original = ta.value;
+  ta.value = edited;
+  host.find('ck-save').dispatch('click');
+  ta.value = original;
+  host.deliver(hostContextChanged({ displayMode: 'inline' }));
+  return toolCalls(host, 'codekeeper_note_view_save')[0];
+}
+{
+  const host = editableView();
+  const edited = LINES.join('\n') + '\nנוסף';
+  const save = saveThenUndoAndLeave(host, edited);
+  check('החזרת הטקסט למקור ויציאה ממסך מלא בזמן שמירה — העורך הנקי נסגר', !host.find('ck-editor'), !!host.find('ck-editor'));
+  check('בזמן שהשמירה בדרך אין "✏️ עריכה"', host.find('ck-edit').hidden === true, host.find('ck-edit').hidden);
+  host.find('ck-body').dispatch('click', { target: host.findAll('sticky-task-line')[0] });
+  check('ולחיצה על שורה אינה פותחת עורך חדש — ההודעה אומרת שהשמירה עוד בדרך',
+    toolCalls(host, 'codekeeper_show_note').length === 1 && host.find('ck-notice').textContent.indexOf('עוד בדרך') !== -1,
+    [toolCalls(host, 'codekeeper_show_note').length, host.find('ck-notice').textContent]);
+  answer(host, save, savedAnswer(edited));
+  check('השמירה נחתה — הפתק מוצג מהגרסה השמורה, ולא מהגרסה שלפני העריכה', lastRender(host) === edited, lastRender(host));
+  check('וההודעה "נשמר."', host.find('ck-notice').textContent === 'נשמר.', host.find('ck-notice').textContent);
+  const ctx = host.last('ui/update-model-context');
+  check('והמודל מקבל את הגרסה השמורה', ctx && ctx.message.params.content[0].text.endsWith('\n' + edited), ctx && ctx.message.params.content[0].text);
+  check('"✏️ עריכה" חוזר', host.find('ck-edit').hidden === false, host.find('ck-edit').hidden);
+  const ta2 = openEditorAt(host, 0, { ...editNote(), note: { ...editNote().note, content: edited, content_sha256: SHA2 } });
+  ta2.value = edited + '!';
+  host.find('ck-save').dispatch('click');
+  check('והעריכה הבאה נבנית על ה-hash של מה שנשמר', toolCalls(host, 'codekeeper_note_view_save')[1].message.params.arguments.expected_content_sha256 === SHA2,
+    toolCalls(host, 'codekeeper_note_view_save')[1].message.params.arguments);
+}
+{
+  const host = editableView();
+  const save = saveThenUndoAndLeave(host, 'משהו אחר');
+  answer(host, save, toolAnswer({ ok: false, error: 'conflict' }));
+  const reads = toolCalls(host, 'codekeeper_show_note');
+  check('העורך כבר נסגר והשמירה נתקלה — הדף עדיין קורא את הפתק כדי להכריע', reads.length === 2, reads.length);
+  answer(host, reads[1], toolAnswer(editNote({ content: 'מהוובאפ', content_sha256: SHA2 })));
+  check('מישהו אחר שינה — הפתק מוצג מהגרסה שבשרת, וההודעה אומרת שהשמירה לא עברה',
+    lastRender(host) === 'מהוובאפ' && host.find('ck-notice').textContent.indexOf('השמירה לא עברה') !== -1 && host.find('ck-notice').className === 'ck-notice is-error',
+    [lastRender(host), host.find('ck-notice').textContent]);
+  check('ובלי עדכון של המודל על גוף שלא נכתב', !host.last('ui/update-model-context'), host.methods().slice(-3));
+  check('"✏️ עריכה" חוזר', host.find('ck-edit').hidden === false, host.find('ck-edit').hidden);
+}
+{
+  const host = editableView();
+  saveThenUndoAndLeave(host, 'שלי');
+  host.fire(20000);
+  answer(host, toolCalls(host, 'codekeeper_show_note')[1], toolAnswer(editNote({ content: 'שלי', content_sha256: SHA2 })));
+  check('העורך כבר נסגר, התשובה לא הגיעה, והקריאה מראה את מה שנשלח — "נשמר.", הגרסה השמורה מוצגת, והמודל מתעדכן',
+    host.find('ck-notice').textContent === 'נשמר.' && lastRender(host) === 'שלי' && !!host.last('ui/update-model-context'),
+    [host.find('ck-notice').textContent, lastRender(host)]);
+}
+{
+  const host = editableView();
+  const save = saveThenUndoAndLeave(host, 'שלי');
+  answer(host, save, toolAnswer({ ok: false, error: 'rate_limited' }));
+  check('העורך כבר נסגר והשמירה נדחתה — ההודעה שמתחת לפתק אומרת למה',
+    host.find('ck-notice').textContent.indexOf('יותר מדי קריאות') !== -1 && host.find('ck-notice').className === 'ck-notice is-error' && host.find('ck-edit').hidden === false,
+    [host.find('ck-notice').textContent, host.find('ck-edit').hidden]);
+}
+{
+  const host = editableView();
+  const ta = openEditorAt(host, 1);
+  ta.value = 'נשמר בשרת';
+  host.find('ck-save').dispatch('click');
+  ta.value = 'נשמר בשרת ועוד';
+  host.deliver(hostContextChanged({ displayMode: 'inline' }));
+  check('יציאה ממסך מלא עם שינוי בזמן שמירה — העורך נשאר, ו"בטל שינויים" מושבת עד התשובה',
+    host.find('ck-editor') === ta && host.find('ck-drop').disabled === true, [!!host.find('ck-editor'), host.find('ck-drop').disabled]);
+  host.find('ck-drop').dispatch('click');
+  check('ולחיצה עליו (שלא אמורה להיות אפשרית) אינה סוגרת', host.find('ck-editor') === ta, !!host.find('ck-editor'));
+  answer(host, toolCalls(host, 'codekeeper_note_view_save')[0], savedAnswer('נשמר בשרת'));
+  check('השמירה נחתה — הפתק שבתוך השיחה מצויר מחדש מהגרסה השמורה', lastRender(host) === 'נשמר בשרת' && host.find('ck-body').hidden === false,
+    [lastRender(host), host.find('ck-body').hidden]);
+  check('והעורך נשאר עם מה שהוקלד אחרי השמירה, ושורת "יש שינוי שלא נשמר" מוצגת',
+    host.find('ck-editor') === ta && ta.value === 'נשמר בשרת ועוד' && host.find('ck-unsaved').hidden === false, [ta.value, host.find('ck-unsaved').hidden]);
+  check('"בטל שינויים" חוזר', host.find('ck-drop').disabled === false, host.find('ck-drop').disabled);
+}
+{
+  const host = editableView();
+  const ta = openEditorAt(host, 1);
+  ta.value = 'שלי';
+  host.find('ck-save').dispatch('click');
+  answer(host, toolCalls(host, 'codekeeper_note_view_save')[0], toolAnswer({ ok: false, error: 'conflict' }));
+  answer(host, toolCalls(host, 'codekeeper_show_note')[1], toolAnswer(editNote({ content: 'של מישהו אחר', content_sha256: SHA2 })));
+  host.deliver(hostContextChanged({ displayMode: 'inline' }));
+  check('התנגשות ואז יציאה ממסך מלא — הפתק בתוך השיחה הוא הגרסה שבשרת, ולא זו שהעריכה נפתחה עליה',
+    lastRender(host) === 'של מישהו אחר' && host.find('ck-body').hidden === false && host.find('ck-unsaved').hidden === false,
+    [lastRender(host), host.find('ck-unsaved').hidden]);
+}
+{
+  const host = editableView();
+  const ta = openEditorAt(host, 1);
+  ta.value = 'אולי';
+  host.find('ck-save').dispatch('click');
+  host.fire(20000);
+  answer(host, toolCalls(host, 'codekeeper_show_note')[1], toolAnswer(editNote()));
+  host.find('ck-cancel').dispatch('click');
+  host.find('ck-discard').dispatch('click');
+  check('שמירה שלא הוכרעה, והעורך נסגר בלי לשמור שוב', !host.find('ck-editor') && !host.last('ui/update-model-context'), !!host.find('ck-editor'));
+  openEditorAt(host, 0, editNote({ content: 'אולי', content_sha256: SHA2 }));
+  const ctx = host.last('ui/update-model-context');
+  check('הפתיחה הבאה רואה שהיא נחתה בסוף — והמודל לומד עליה', ctx && ctx.message.params.content[0].text.endsWith('\nאולי'), ctx && ctx.message.params.content[0].text);
+}
+{
+  const host = editableView();
+  const ta = openEditorAt(host, 1);
+  ta.value = 'אולי';
+  host.find('ck-save').dispatch('click');
+  host.fire(20000);
+  answer(host, toolCalls(host, 'codekeeper_show_note')[1], toolAnswer(editNote()));
+  host.find('ck-cancel').dispatch('click');
+  host.find('ck-discard').dispatch('click');
+  openEditorAt(host, 0, editNote({ content: 'גרסה של מישהו אחר', content_sha256: SHA2 }));
+  const ta2 = host.find('ck-editor');
+  ta2.value = 'חדש';
+  host.find('ck-save').dispatch('click');
+  answer(host, toolCalls(host, 'codekeeper_note_view_save')[1], toolAnswer({ ok: false, error: 'conflict' }));
+  answer(host, toolCalls(host, 'codekeeper_show_note')[3], toolAnswer(editNote({ content: 'אולי', content_sha256: 'e'.repeat(64) })));
+  check('גרסה אחרת בשרת מכריעה ששמירה ישנה כבר לא תנחת — גוף זהה לה אחר כך אינו נחשב "שלנו"',
+    host.find('ck-conflict').hidden === false && toolCalls(host, 'codekeeper_note_view_save').length === 2 && !host.last('ui/update-model-context'),
+    [host.find('ck-conflict').hidden, toolCalls(host, 'codekeeper_note_view_save').length]);
+}
+
+{
+  // גם הקריאה שאחרי התקרה לא ענתה: השמירה נשארת "לא מוכרעת", והשמירה הבאה מזהה אותה אם נחתה.
+  const host = editableView();
+  const ta = openEditorAt(host, 1);
+  ta.value = 'ראשון';
+  host.find('ck-save').dispatch('click');
+  host.fire(20000);
+  host.fire(20000);
+  check('השמירה וגם הקריאה שאחריה לא ענו — הסטטוס אומר שלא ידוע, והכפתורים חוזרים',
+    host.find('ck-edit-status').textContent.indexOf('לא הצלחתי לבדוק') !== -1 && host.find('ck-save').disabled === false,
+    [host.find('ck-edit-status').textContent, host.find('ck-save').disabled]);
+  ta.value = 'ראשון ושני';
+  host.find('ck-save').dispatch('click');
+  answer(host, toolCalls(host, 'codekeeper_note_view_save')[1], toolAnswer({ ok: false, error: 'conflict' }));
+  answer(host, toolCalls(host, 'codekeeper_show_note')[2], toolAnswer(editNote({ content: 'ראשון', content_sha256: SHA2 })));
+  const third = toolCalls(host, 'codekeeper_note_view_save')[2];
+  check('השמירה הבאה מזהה שהראשונה נחתה — ויוצאת שוב על ה-hash שלה, בלי שורת התנגשות',
+    third && third.message.params.arguments.content === 'ראשון ושני' && third.message.params.arguments.expected_content_sha256 === SHA2
+      && host.find('ck-conflict').hidden === true, third && third.message.params.arguments);
 }
 
 console.log('\nביטול, ויציאה ממסך מלא');
