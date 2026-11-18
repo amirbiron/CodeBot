@@ -170,6 +170,7 @@ def db(wired_mongo):
 def _seed_files(db, count, *, now=None, languages=None):
     """``count`` קבצים פעילים של המשתמש, שעודכנו בשעה האחרונה — מה שקבוצת הקבצים בפיד מציגה.
     ``languages`` — שפה לכל קובץ, לפי הסדר; רשימת "שפות" בעמוד הקבצים נבנית מהשפות של הקבצים."""
+    assert languages is None or len(languages) >= count, f"צריך שפה לכל אחד מ-{count} הקבצים, התקבלו {len(languages)}"
     now = now or datetime.now(timezone.utc)
     ids = []
     for i in range(count):
@@ -177,7 +178,7 @@ def _seed_files(db, count, *, now=None, languages=None):
         stamp = now - timedelta(minutes=i + 1)
         db.code_snippets.insert_one({
             "_id": oid, "user_id": USER_ID, "file_name": f"demo_{i}.py",
-            "code": "print('hi')\n", "programming_language": languages[i] if languages else "python",
+            "code": "print('hi')\n", "programming_language": languages[i] if languages is not None else "python",
             "version": 1, "is_active": True, "created_at": stamp, "updated_at": stamp,
         })
         ids.append(str(oid))
