@@ -190,6 +190,7 @@
     // השוליים התחתונים הגדולים ביותר מאז שהעורך נפתח (``syncEditBottom``), ההמתנה לדיווח על המקלדת
     // (``beginKeyboardWait``), ומה שקרה בהמתנה האחרונה — למצב המדידה.
     this.editBottom = null;
+    this.editBottomStale = false;
     this.keyboardWait = null;
     this.keyboardReport = null;
     /** השמירה שבדרך — ``{ed, sent, base}`` — כולל הקריאה שמכריעה עליה, או ``null``. **של הדף ולא של
@@ -341,10 +342,17 @@
       this.forceReport = true;
     }
     // **מסגרת בגודל אחר (סיבוב של המכשיר) — המקלדת שנזכרה כבר אינה בגובה הזה.** ההשוואה היא בערכים
-    // ולא בעצם ההודעה: מארח ששולח את אותה מסגרת יחד עם שוליים חדשים אינו מאפס את מה שנזכר.
+    // ולא בעצם ההודעה: מארח ששולח את אותה מסגרת יחד עם שוליים חדשים אינו מאפס את מה שנזכר. **ושוליים
+    // שלא הגיעו עם המסגרת החדשה הם של הקודמת:** הם ממשיכים לשמש לפריסה, אבל הדיווח הבא מחליף אותם — גם
+    // כשהוא קטן מהם — ורק ממנו הזיכרון מתחיל שוב (``editBottomStale``, ``syncEditBottom``).
+    var insetsArrived = Object.prototype.hasOwnProperty.call(context, 'safeAreaInsets');
     if (Object.prototype.hasOwnProperty.call(context, 'containerDimensions')
         && !sameDimensions(oldDims, merged.containerDimensions)) {
       this.editBottom = null;
+      this.editBottomStale = !insetsArrived;
+    } else if (insetsArrived && this.editBottomStale) {
+      this.editBottom = null;
+      this.editBottomStale = false;
     }
     this.applyTheme(context);
     this.layout();
@@ -414,12 +422,15 @@
    *  ב-``note_view.css``, ``html.ck-fill.ck-editing #ck-note-root``). כשהמקלדת נסגרת באמצע עריכה
    *  (כפתור "חזור" של אנדרואיד) השוליים קטנים, אבל הקו התחתון נשאר בגובה שלה: אחרת התיבה הייתה
    *  מתארכת אל השטח שהמקלדת תכסה, לחיצה על שורה נמוכה הייתה פותחת אותה עם הסמן שם, ואנדרואיד היה דוחף
-   *  את המסגרת. ``editBottom`` מתאפס ביציאה מהעריכה ובמסגרת בגודל אחר (``applyHostContext``).
+   *  את המסגרת. ``editBottom`` מתאפס ביציאה מהעריכה ובמסגרת בגודל אחר (``applyHostContext``); כשההודעה
+   *  על המסגרת החדשה אינה נושאת שוליים, הישנים נכנסים רק לפריסה (``editBottomStale``), והדיווח הבא מחליף
+   *  אותם גם כשהוא קטן מהם.
    *  שוליים שגדלו בזמן ההמתנה לדיווח על המקלדת — הם הדיווח (``endKeyboardWait``). */
   NoteView.prototype.syncEditBottom = function () {
     var style = this.doc.documentElement.style;
     if (!this.editor) {
       this.editBottom = null;
+      this.editBottomStale = false;
       style.removeProperty('--ck-edit-bottom');
       return;
     }
@@ -1347,6 +1358,7 @@
       conflict: conflict, confirm: confirm, textarea: textarea, unsaved: unsaved, drop: drop
     };
     this.editBottom = null;
+    this.editBottomStale = false;
     this.syncEditBottom();
     save.addEventListener('click', function () { self.save(); });
     cancel.addEventListener('click', function () { self.askCancel(); });

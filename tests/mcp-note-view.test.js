@@ -1660,6 +1660,22 @@ function touchEditor(opts = {}) {
   check('יציאה מהעריכה — בלי קו תחתון של עריכה', !host.find('ck-editor') && !('--ck-edit-bottom' in docEl.style.props), docEl.style.props);
 }
 {
+  // **סיבוב שההודעה עליו אינה נושאת שוליים** — השוליים שבזיכרון הם של הכיוון הקודם. הם ממשיכים לשמש
+  // לפריסה עד הדיווח הבא, אבל אינם רצפה לו: המקלדת של הכיוון החדש יכולה להיות נמוכה יותר.
+  const host = touchEditor();
+  const docEl = host.document.documentElement;
+  host.deliver(hostContextChanged(KEYBOARD_INSETS(543)));
+  host.deliver(hostContextChanged({ containerDimensions: { width: 924, height: 1400 } }));
+  check('סיבוב בלי שוליים בהודעה — עד הדיווח הבא, הקו לפי השוליים הישנים', docEl.style.props['--ck-edit-bottom'] === '543px',
+    docEl.style.props['--ck-edit-bottom']);
+  host.deliver(hostContextChanged(KEYBOARD_INSETS(400)));
+  check('והדיווח הבא נקבע גם כשהוא קטן מהם — המקלדת של הכיוון החדש', docEl.style.props['--ck-edit-bottom'] === '400px',
+    docEl.style.props['--ck-edit-bottom']);
+  host.deliver(hostContextChanged(KEYBOARD_INSETS(195)));
+  check('ומשם הזיכרון עובד כרגיל — המקלדת נסגרה, הקו נשאר', docEl.style.props['--ck-edit-bottom'] === '400px',
+    docEl.style.props['--ck-edit-bottom']);
+}
+{
   const host = touchEditor({ debug: true });
   const ta = host.find('ck-editor');
   host.fire(KEYBOARD_DEADLINE);
