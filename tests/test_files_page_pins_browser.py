@@ -31,6 +31,8 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 from _browser_harness import poll  # noqa: E402
 from _note_threads_harness import insert_board, mongo_reachable, temp_database  # noqa: E402
 
+import sticky_notes_target as snt  # noqa: E402
+
 pytestmark = pytest.mark.skipif(not mongo_reachable(), reason="דורש MONGODB_URL עם שרת מונגו נגיש")
 
 #: המשתמש של ``admin_live_server`` (``ADMIN_USER_IDS=1``).
@@ -398,8 +400,9 @@ def test_a_failed_load_says_so_and_retry_brings_the_cards(db, admin_live_server,
 
 @pytest.mark.parametrize("width", [390, 768, 1024, 1366])
 def test_the_row_never_overflows(db, admin_live_server, chromium_executable, width):
+    """כמה פתקים שמשתמש יכול לנעוץ לכל היותר (``MAX_FILES_PAGE_PINNED_NOTES``) — המקרה הגרוע לשורה."""
     board = insert_board(db, USER)
-    for i in range(4):
+    for i in range(snt.MAX_FILES_PAGE_PINNED_NOTES):
         board_note(db, board, f"נעוץ עם שם ארוך מאוד שנחתך {i}", pinned_minutes=i)
 
     with opened(admin_live_server, chromium_executable, "/files", {"width": width, "height": 900}) as page:

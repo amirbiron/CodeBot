@@ -154,12 +154,12 @@ function runPage({ answer, innerHeight = 800, banner = false, store = {}, rowWid
 
 const pin = (id, label, color = '#ffffcc') => ({ id, label, color, color_id: 'yellow', files_page_pinned_at: '2026-11-10T09:00:00+00:00' });
 const list = (...notes) => (url) => (url === '/api/sticky-notes/files-page'
-  ? [200, { ok: true, notes, count: notes.length, max: 4 }] : [200, { ok: true, note: { id: notes[0].id } }]);
+  ? [200, { ok: true, notes, count: notes.length, max: 5 }] : [200, { ok: true, note: { id: notes[0].id } }]);
 
 // ─── מצבים ───────────────────────────────────────────────────────────────
 
 check('בלי נעוצים האזור אינו מוצג — ואין הורדה של גופן כתב היד', async () => {
-  const p = runPage({ answer: list() && (() => [200, { ok: true, notes: [], count: 0, max: 4 }]) });
+  const p = runPage({ answer: list() && (() => [200, { ok: true, notes: [], count: 0, max: 5 }]) });
   await tick(); await tick();
   eq(p.ids.filesPageNotes.hidden, true, 'מוסתר');
   eq(p.window.__fontLoaded || 0, 0, 'הגופן לא נטען');
@@ -266,7 +266,7 @@ check('לחיצה על כרטיס פותחת את הפתק מעל העמוד, ו
 
 check('פתק שכבר אינו נעוץ (404): הכרטיס יורד, והמשתמש יודע למה', async () => {
   const p = runPage({ answer: (url) => (url === '/api/sticky-notes/files-page'
-    ? [200, { ok: true, notes: [pin('a', 'א'), pin('b', 'ב')], count: 2, max: 4 }] : [404, { ok: false, error: 'note_not_found' }]) });
+    ? [200, { ok: true, notes: [pin('a', 'א'), pin('b', 'ב')], count: 2, max: 5 }] : [404, { ok: false, error: 'note_not_found' }]) });
   await tick(); await tick();
   await p.cards()[0].listeners.click();
   await tick();
@@ -317,7 +317,7 @@ check('נגיעה ברקע סוגרת רק כשהמנהל לא טיפל בה (de
 check('סגירת הפתק טוענת את הרשימה שוב — התווית נגזרת בשרת — והמיקוד חוזר לאותו כרטיס', async () => {
   let label = 'ישן';
   const p = runPage({ answer: (url) => (url === '/api/sticky-notes/files-page'
-    ? [200, { ok: true, notes: [pin('a', label)], count: 1, max: 4 }] : [200, { ok: true, note: { id: 'a' } }]) });
+    ? [200, { ok: true, notes: [pin('a', label)], count: 1, max: 5 }] : [200, { ok: true, note: { id: 'a' } }]) });
   await tick(); await tick();
   await p.cards()[0].listeners.click();
   await tick();
