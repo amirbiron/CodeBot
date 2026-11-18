@@ -3,6 +3,7 @@
 {% block title %}דיבוג Web Push - CodeKeeper{% endblock %}
 
 {% block content %}
+{# הכרטיסים שבתוך כרטיס קוראים את --nested-card-bg-override, כמו בעמוד ההגדרות (ההערה בראש settings.html). #}
 <h1 class="page-title">
   <i class="fas fa-bug"></i>
   דיבוג Web Push
@@ -13,7 +14,7 @@
     <i class="fas fa-server"></i>
     סטטוס שרת
   </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+  <div class="glass-card" style="background: var(--nested-card-bg-override, rgba(255, 255, 255, 0.05))">
     <div style="display: grid; grid-template-columns: 1fr; gap: 0.6rem">
       <div><strong>PUSH_NOTIFICATIONS_ENABLED:</strong> {{ '🟢 true' if push_enabled else '🔴 false' }}</div>
       <div><strong>VAPID_PUBLIC_KEY:</strong> {{ '🟢 מוגדר' if vapid_public_set else '🔴 חסר' }}</div>
@@ -34,7 +35,7 @@
     <i class="fas fa-database"></i>
     מנויים (DB)
   </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+  <div class="glass-card" style="background: var(--nested-card-bg-override, rgba(255, 255, 255, 0.05))">
     {% if subs_error %}
       <div style="opacity: 0.9">🔴 שגיאה בקריאת DB: {{ subs_error }}</div>
     {% else %}
@@ -51,7 +52,7 @@
     <i class="fas fa-mobile-screen"></i>
     לקוח (מידע כללי)
   </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+  <div class="glass-card" style="background: var(--nested-card-bg-override, rgba(255, 255, 255, 0.05))">
     <div style="opacity: 0.9; word-break: break-word">
       <strong>User-Agent:</strong> {{ user_agent if user_agent else '—' }}
     </div>
@@ -67,7 +68,7 @@
     <i class="fas fa-vial"></i>
     בדיקות
   </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+  <div class="glass-card" style="background: var(--nested-card-bg-override, rgba(255, 255, 255, 0.05))">
     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
       <form action="/settings/push-test" method="post" style="margin: 0">
         <button type="submit" class="btn btn-primary">
@@ -87,7 +88,7 @@
     <i class="fas fa-desktop"></i>
     סטטוס דפדפן (JavaScript)
   </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+  <div class="glass-card" style="background: var(--nested-card-bg-override, rgba(255, 255, 255, 0.05))">
     <div id="browser-checks" style="display: grid; gap: 0.6rem">
       <div>טוען בדיקות...</div>
     </div>
@@ -99,7 +100,7 @@
     <i class="fas fa-link"></i>
     התאמת מנוי (דפדפן ↔ שרת)
   </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+  <div class="glass-card" style="background: var(--nested-card-bg-override, rgba(255, 255, 255, 0.05))">
     <div id="sub-match" style="display: grid; gap: 0.6rem">
       <div>טוען בדיקה...</div>
     </div>
@@ -114,7 +115,7 @@
     <i class="fas fa-wand-magic-sparkles"></i>
     פעולות מהדפדפן
   </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+  <div class="glass-card" style="background: var(--nested-card-bg-override, rgba(255, 255, 255, 0.05))">
     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
       <button id="swRegisterBtn" type="button" class="btn btn-secondary" onclick="registerServiceWorkerNow()">
         רשום Service Worker
@@ -149,7 +150,7 @@
     <i class="fas fa-receipt"></i>
     דוחות Service Worker מהשרת
   </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+  <div class="glass-card" style="background: var(--nested-card-bg-override, rgba(255, 255, 255, 0.05))">
     <div style="display:flex; gap: 0.5rem; flex-wrap: wrap">
       <button type="button" class="btn btn-secondary" onclick="loadSwReports()">
         טען דוחות
@@ -169,7 +170,7 @@
     <i class="fas fa-plug"></i>
     בדיקת חיבוריות Push Services
   </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+  <div class="glass-card" style="background: var(--nested-card-bg-override, rgba(255, 255, 255, 0.05))">
     <button id="diagnoseBtn" type="button" class="btn btn-secondary" onclick="runDiagnose()">
       הרץ בדיקת חיבוריות
     </button>
@@ -182,7 +183,7 @@
     <i class="fas fa-list"></i>
     כלים נוספים
   </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+  <div class="glass-card" style="background: var(--nested-card-bg-override, rgba(255, 255, 255, 0.05))">
     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
       <button type="button" onclick="listSubscriptions()" class="btn btn-secondary">
         הצג מנויים
@@ -629,7 +630,7 @@ function loadSwReports() {
       var html = '';
       for (var i = reports.length - 1; i >= 0; i--) {
         var r = reports[i] || {};
-        html += '<div class="glass-card" style="padding: 0.6rem; background: rgba(255,255,255,0.05)">';
+        html += '<div class="glass-card" style="padding: 0.6rem; background: var(--nested-card-bg-override, rgba(255,255,255,0.05))">';
         html += '<div><strong>' + String(r.event || 'unknown') + '</strong> — ' + String(r.status || '') + '</div>';
         html += '<div style="opacity:0.8; font-size:0.9rem">server: ' + String(r.ts || '') + '</div>';
         if (r.error) html += '<div style="opacity:0.9; color: var(--danger)">error: ' + String(r.error) + '</div>';
@@ -736,7 +737,7 @@ function listSubscriptions() {
       var html = '<div style="display: grid; gap: 0.5rem; margin-top: 0.5rem">';
       for (var i = 0; i < subs.length; i++) {
         var s = subs[i] || {};
-        html += '<div class="glass-card" style="padding: 0.5rem; background: rgba(255,255,255,0.05)">';
+        html += '<div class="glass-card" style="padding: 0.5rem; background: var(--nested-card-bg-override, rgba(255,255,255,0.05))">';
         html += '<div><strong>Provider:</strong> ' + String(s.provider || 'unknown') + '</div>';
         html += '<div><strong>Created:</strong> ' + String(s.created_at || 'לא ידוע') + '</div>';
         html += '<div><strong>Endpoint:</strong> ' + String(s.endpoint_preview || '') + '</div>';
