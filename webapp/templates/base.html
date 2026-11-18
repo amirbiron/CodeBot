@@ -989,7 +989,13 @@
             gap: .25rem;
             padding: .4rem;
             max-width: calc(100vw - 24px); /* אין גלילה אופקית */
+            /* ``clip`` ולא ``hidden``: ``hidden`` בציר אחד הופך את השני ל-``auto``, והחלונית נעשתה קופסת
+               גלילה שחותכת גם למעלה — הכפתורים, שנכנסים מעט מעל מקומם (``cascadeMenuFrom``), נחתכו
+               בקצה העליון שלה בתחילת הכניסה (נמדד). ``clip`` חוסם גלישה לרוחב בלי להפוך אותה לקופסת
+               גלילה; ``hidden`` שלפניו — לדפדפן שאינו מכיר ``clip``. ראו "מלכודת קופסת גלילה" ב-
+               docs/webapp/theming_and_css.rst. */
             overflow-x: hidden;
+            overflow-x: clip;
             border: 1px solid var(--quick-dropdown-border, var(--card-border, rgba(0, 0, 0, 0.08)));
         }
 
@@ -1078,7 +1084,9 @@
             gap: .25rem;
             padding: .4rem;
             max-width: calc(100vw - 24px);
+            /* ``clip`` ולא ``hidden`` — אותה סיבה כמו ב-``.quick-access-dropdown``. */
             overflow-x: hidden;
+            overflow-x: clip;
             border: 1px solid var(--quick-dropdown-border, var(--card-border, rgba(0, 0, 0, 0.08)));
         }
 
@@ -2267,6 +2275,22 @@
             } catch (e) {}
         }
 
+        /**
+         * הכפתורים בחלונית נכנסים אחד אחרי השני ונוחתים בקפיץ, **מהקרוב ל-``toggle`` והחוצה** — כאילו
+         * הם יוצאים מהכפתור שפתח אותה. ``AnimUtils.cascadeFrom`` (``utils/animations.js``): התנועה
+         * בתזמון שבטוקנים ``--motion-menu-*`` ב-``animations.css``, והסדר מהמרחק בין מלבנים שנמדדו —
+         * שורה במחשב, רשת של ארבע עמודות בנייד, בכל כיוון עמוד.
+         *
+         * **אחרי הדלקת ``.active``, ולא לפני:** החלונית מוסתרת ב-``opacity``/``visibility``, ולכן
+         * הכפתורים כבר פרושים והמלבנים שלהם נכונים גם לפני ההדלקה — אבל האנימציה צריכה להתחיל
+         * כשהחלונית מוצגת. הסגירה נשארת כמו שהייתה.
+         */
+        function cascadeMenuFrom(toggle, dropdown, itemSelector) {
+            const AU = window.AnimUtils;
+            if (!AU || !AU.cascadeFrom) return;
+            AU.cascadeFrom(toggle, dropdown.querySelectorAll(itemSelector));
+        }
+
         function toggleQuickAccess(ev) {
             try { ev && ev.stopPropagation && ev.stopPropagation(); } catch (e) {}
             const dropdown = document.getElementById('quickAccessDropdown');
@@ -2279,6 +2303,7 @@
                 // בסגנון), ולכן ההצבה אינה משנה את הגאומטריה שמחושבת מיד
                 // אחריה ב-``ensureQuickAccessVisible``.
                 loadDeferredImages(dropdown);
+                cascadeMenuFrom(toggle, dropdown, '.quick-access-item');
                 try { dropdown.scrollTop = 0; } catch (e) {}
                 ensureQuickAccessVisible(dropdown);
                 const closer = function(event) {
@@ -2333,6 +2358,7 @@
 
             dropdown.classList.add('active');
             toggle.classList.add('active');
+            cascadeMenuFrom(toggle, dropdown, '.fun-mode-item');
             try { dropdown.scrollTop = 0; } catch (e) {}
             ensureQuickAccessVisible(dropdown);
 

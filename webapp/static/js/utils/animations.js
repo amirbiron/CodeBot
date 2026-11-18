@@ -160,17 +160,19 @@
   // ---------------------------------------------------------------------------
 
   /**
-   * התזמונים של כל אנימציה שעוברת כאן — המקום היחיד שבו הם כתובים. המספרים והעקומות
-   * נלקחו מהפתק "אנימציות לCk" (רכיבי React: ``sidebar-collapse``, ``spring-dropdown``,
-   * ``expand-card``, ``morph-popover``). ``step`` הוא ההשהיה בין פריט לפריט, ו-``maxIndex``
-   * עוצר את ההשהיה המצטברת, כדי שרשימה ארוכה לא תיכנס במשך שניות. עקומה שה-y שלה מעל 1
-   * היא שעושה את הקפיץ: התנועה עוברת מעט את היעד וחוזרת.
+   * התזמונים של האנימציות שרק ה-JS מריץ — המקום היחיד שבו הם כתובים. המספרים והעקומות
+   * נלקחו מהפתק "אנימציות לCk" (רכיבי React: ``sidebar-collapse``, ``expand-card``,
+   * ``morph-popover``). ``step`` הוא ההשהיה בין פריט לפריט, ו-``maxIndex`` עוצר את ההשהיה
+   * המצטברת, כדי שרשימה ארוכה לא תיכנס במשך שניות. עקומה שה-y שלה מעל 1 היא שעושה את הקפיץ:
+   * התנועה עוברת מעט את היעד וחוזרת.
+   *
+   * **הכניסה של פריטי תפריט (``spring-dropdown``) אינה כאן.** היא רצה גם מ-CSS (האפשרויות של
+   * ה-select בחיפוש הגלובלי), ולכן התזמון שלה כתוב בטוקנים ``--motion-menu-*`` ב-``animations.css``,
+   * ו-``menuMotion`` קורא אותם משם.
    */
   const MOTION = Object.freeze({
     noteFold: Object.freeze({ duration: 500, easing: 'cubic-bezier(.2, 1.3, .3, 1)' }),
     noteContent: Object.freeze({ duration: 250, easing: 'ease' }),
-    menuItem: Object.freeze({ duration: 500, easing: 'cubic-bezier(.2, 1.5, .3, 1)', step: 55 }),
-    menuItemFade: Object.freeze({ duration: 250, easing: 'ease', step: 55 }),
     groupFold: Object.freeze({ duration: 500, easing: 'cubic-bezier(.2, 1.3, .3, 1)' }),
     groupChevron: Object.freeze({ duration: 400, easing: 'cubic-bezier(.4, 0, .2, 1)' }),
     groupRow: Object.freeze({ duration: 400, easing: 'cubic-bezier(.2, 1.4, .3, 1)', step: 60, maxIndex: 7 }),
@@ -221,6 +223,9 @@
    */
   function play(nodes, keyframes, timing) {
     const t = timing || {};
+    // תזמון בלי משך — למשל טוקן CSS שלא נטען בעמוד — אינו אנימציה. בלי הבדיקה ``animate``
+    // היה מקבל משך לא מוגדר, כלומר אפס, והפריט היה "מונפש" בלי לזוז.
+    if (!Number.isFinite(t.duration)) return [];
     const step = Number(t.step) || 0;
     const base = Number(t.delay) || 0;
     const maxIndex = Number.isFinite(t.maxIndex) ? t.maxIndex : Infinity;
@@ -235,6 +240,86 @@
       }));
     });
     return out;
+  }
+
+  /**
+   * מילישניות מערך זמן של CSS: ``500ms`` או ``.25s``. ``NaN`` לכל דבר אחר — גם למחרוזת ריקה, שהיא
+   * מה ש-``getPropertyValue`` מחזיר על טוקן שאינו מוגדר.
+   */
+  function cssTimeMs(value) {
+    const m = /^(-?\d*\.?\d+)(ms|s)$/.exec(String(value || '').trim());
+    if (!m) return NaN;
+    return parseFloat(m[1]) * (m[2] === 's' ? 1000 : 1);
+  }
+
+  /**
+   * התזמון של כניסת פריטי תפריט, מהטוקנים ``--motion-menu-*`` ב-``animations.css`` — כלומר מאותו
+   * מקור שה-CSS נשען עליו. ``null`` כשהטוקנים לא נמצאו (עמוד שלא טען את ``animations.css``).
+   *
+   * **נקרא בכל קריאה, ולא פעם אחת בטעינה.** הקובץ הזה נטען עם ``defer``, וקריאה אחת בטעינה הייתה
+   * תלויה בכך שגיליון הסגנונות כבר הוחל — וקריאה של כמה טוקנים בפתיחת תפריט זולה.
+   */
+  function menuMotion() {
+    const cs = window.getComputedStyle(document.documentElement);
+    const token = (name) => cs.getPropertyValue(`--motion-menu-${name}`).trim();
+    const motion = {
+      from: token('from'),
+      duration: cssTimeMs(token('duration')),
+      easing: token('ease'),
+      step: cssTimeMs(token('step')),
+      fadeDuration: cssTimeMs(token('fade-duration')),
+      fadeEasing: token('fade-ease'),
+    };
+    if (!motion.from || !motion.easing || !motion.fadeEasing
+        || ![motion.duration, motion.step, motion.fadeDuration].every(Number.isFinite)) {
+      return null;
+    }
+    return Object.freeze(motion);
+  }
+
+  /**
+   * כניסה של פריטי תפריט (``spring-dropdown``): כל פריט נכנס מעט מלמעלה ומוקטן ונוחת בקפיץ, ודוהה
+   * פנימה בתזמון קצר משלו, בהשהיה ``step`` אחרי הקודם. הסדר הוא הסדר של ``items`` — מי שרוצה
+   * שהכניסה תתחיל ליד הכפתור מסדר קודם ב-``byDistanceFrom``. מחזיר את האנימציות שהופעלו.
+   */
+  function cascadeMenu(items) {
+    const m = menuMotion();
+    if (!m) return [];
+    return [
+      ...play(items, [{ transform: m.from }, { transform: 'none' }],
+        { duration: m.duration, easing: m.easing, step: m.step }),
+      ...play(items, [{ opacity: 0 }, { opacity: 1 }],
+        { duration: m.fadeDuration, easing: m.fadeEasing, step: m.step }),
+    ];
+  }
+
+  /**
+   * ``items`` מסודרים מהקרוב אל הרחוק ממרכז ``anchor`` — מרחק בין מרכזי מלבנים שנמדדו. כך כניסה
+   * מדורגת מתחילה ליד הכפתור שפתח את התפריט, בשורה, ברשת ובתפריט שנפתח כלפי מעלה, ונכונה בעמוד
+   * שנפרש מימין לשמאל ובעמוד שנפרש משמאל לימין בלי לשאול מה הכיוון (H7). שוויון במרחק נשאר בסדר
+   * המקורי (``sort`` יציב).
+   */
+  function byDistanceFrom(anchor, items) {
+    const list = Array.from(items || []);
+    if (!anchor || typeof anchor.getBoundingClientRect !== 'function') return list;
+    const a = anchor.getBoundingClientRect();
+    const ax = a.left + a.width / 2;
+    const ay = a.top + a.height / 2;
+    return list
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return { el, d: Math.hypot(r.left + r.width / 2 - ax, r.top + r.height / 2 - ay) };
+      })
+      .sort((p, q) => p.d - q.d)
+      .map((p) => p.el);
+  }
+
+  /**
+   * כניסה של פריטי תפריט שמתחילה ליד ``anchor`` — הכפתור שפתח את התפריט — ומתרחקת ממנו:
+   * ``cascadeMenu`` על ``items`` אחרי ``byDistanceFrom``.
+   */
+  function cascadeFrom(anchor, items) {
+    return cascadeMenu(byDistanceFrom(anchor, items));
   }
 
   /**
@@ -372,6 +457,10 @@
   window.AnimUtils.canAnimate = canAnimate;
   window.AnimUtils.rectDelta = rectDelta;
   window.AnimUtils.play = play;
+  window.AnimUtils.menuMotion = menuMotion;
+  window.AnimUtils.cascadeMenu = cascadeMenu;
+  window.AnimUtils.byDistanceFrom = byDistanceFrom;
+  window.AnimUtils.cascadeFrom = cascadeFrom;
   window.AnimUtils.animateHeight = animateHeight;
   window.AnimUtils.rotationOf = rotationOf;
   window.AnimUtils.rotateFrom = rotateFrom;

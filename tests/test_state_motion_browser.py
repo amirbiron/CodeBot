@@ -105,10 +105,10 @@ def browser(chromium_executable):
 class _Page:
     """עמוד אחד של המשתמש, וכל שגיאת JS שהוא דיווח. בקשות לכל מארח אחר נקטעות."""
 
-    def __init__(self, browser, server, *, reduced_motion="no-preference"):
+    def __init__(self, browser, server, *, reduced_motion="no-preference", viewport=TABLET):
         self.server = server
         self.errors: list[str] = []
-        self.context = browser.new_context(viewport=TABLET, locale="he-IL", reduced_motion=reduced_motion)
+        self.context = browser.new_context(viewport=viewport, locale="he-IL", reduced_motion=reduced_motion)
         self.context.add_cookies([{
             "name": "session", "value": server.session_cookie, "domain": "127.0.0.1", "path": "/",
         }])
@@ -167,8 +167,9 @@ def db(wired_mongo):
     return database
 
 
-def _seed_files(db, count, *, now=None):
-    """``count`` קבצים פעילים של המשתמש, שעודכנו בשעה האחרונה — מה שקבוצת הקבצים בפיד מציגה."""
+def _seed_files(db, count, *, now=None, languages=None):
+    """``count`` קבצים פעילים של המשתמש, שעודכנו בשעה האחרונה — מה שקבוצת הקבצים בפיד מציגה.
+    ``languages`` — שפה לכל קובץ, לפי הסדר; רשימת "שפות" בעמוד הקבצים נבנית מהשפות של הקבצים."""
     now = now or datetime.now(timezone.utc)
     ids = []
     for i in range(count):
@@ -176,7 +177,7 @@ def _seed_files(db, count, *, now=None):
         stamp = now - timedelta(minutes=i + 1)
         db.code_snippets.insert_one({
             "_id": oid, "user_id": USER_ID, "file_name": f"demo_{i}.py",
-            "code": "print('hi')\n", "programming_language": "python",
+            "code": "print('hi')\n", "programming_language": languages[i] if languages else "python",
             "version": 1, "is_active": True, "created_at": stamp, "updated_at": stamp,
         })
         ids.append(str(oid))
@@ -300,7 +301,7 @@ def test_the_file_menu_items_cascade_in_and_the_frame_stays_still(make_page, db,
     p.js(FREEZE_JS, "#fileActionsMenu")
     assert p.js("() => !document.getElementById('fileActionsMenu').hidden"), "התפריט נפתח מיד"
 
-    step = p.js("() => window.AnimUtils.MOTION.menuItem.step")
+    step = p.js("() => window.AnimUtils.menuMotion().step")
     info = p.js("""() => {
       const items = [...document.querySelectorAll('#fileActionsMenu .file-actions__menu-item')]
         .filter((el) => el.getClientRects().length > 0);
@@ -494,6 +495,260 @@ def test_recent_files_without_a_button_keep_the_css_entrance(make_page, db):
     assert names == ["modalSlideUp"], names
 
 
+# --- 5. חלוניות הסרגל (🚀, 🪄) ורשימת "שפות" -------------------------------------------------
+
+#: טלפון לאורך — שם הסרגל מקופל להמבורגר, וחלונית 🚀 היא רשת של ארבע עמודות.
+HAMBURGER = {"width": 767, "height": 1227}
+
+#: לכל פריט: ההשהיות של אנימציות ה-JS שעליו (נקראות לפני הסיום), ואחרי שכולן הסתיימו — המרחק
+#: של מרכזו ממרכז הכפתור, על המלבן בלי ההזזה של האנימציה.
+CASCADE_JS = """([anchorSel, itemSel]) => {
+  const items = [...document.querySelectorAll(itemSel)];
+  const script = (el) => el.getAnimations()
+    .filter((a) => !(a instanceof CSSAnimation) && !(a instanceof CSSTransition));
+  const delays = items.map((el) => script(el).map((a) => a.effect.getTiming().delay).sort((p, q) => p - q));
+  items.forEach((el) => script(el).forEach((a) => a.finish()));
+  const b = document.querySelector(anchorSel).getBoundingClientRect();
+  const ax = b.left + b.width / 2, ay = b.top + b.height / 2;
+  return items.map((el, i) => {
+    const r = el.getBoundingClientRect();
+    return {delays: delays[i], d: Math.hypot(r.left + r.width / 2 - ax, r.top + r.height / 2 - ay)};
+  });
+}"""
+
+#: האם פריט בשורה העליונה של החלונית נחתך בזמן הכניסה: אנימציות ה-JS של הפריטים מוקפאות בהתחלה
+#: (הפריט מוזז למעלה), ובודקים מה הדפדפן מוצא בנקודה שבתוך הפריט, ממש מתחת לקצה העליון שלו. חיתוך
+#: חוסם גם את בדיקת הפגיעה, ולכן פריט חתוך אינו נמצא שם.
+#:
+#: **מעברי ה-CSS של החלונית מסתיימים קודם, ולא מוקפאים.** החלונית נפתחת במעבר של ``opacity`` ו-
+#: ``visibility``, ובזמן 0 שלו היא עוד ``visibility: hidden`` — ונקודה עוברת דרכה. הקפאה של כל מה
+#: שבחלונית נתנה "חתוך" גם כשלא היה שום חיתוך (נמדד: הנקודה פגעה בסרגל גם באמצע הפריט).
+TOP_ROW_CLIPPED_JS = """([panelSel, itemSel]) => {
+  const panel = document.querySelector(panelSel);
+  panel.getAnimations({subtree: true}).forEach((a) => {
+    if (a instanceof CSSTransition || a instanceof CSSAnimation) { a.finish(); } else { a.pause(); a.currentTime = 0; }
+  });
+  const items = [...panel.querySelectorAll(itemSel)];
+  const top = Math.min(...items.map((el) => el.getBoundingClientRect().top));
+  const el = items.find((x) => Math.abs(x.getBoundingClientRect().top - top) < 0.5);
+  const r = el.getBoundingClientRect(), p = panel.getBoundingClientRect();
+  const at = (y) => {
+    const h = document.elementFromPoint(r.left + r.width / 2, y);
+    return !!h && (h === el || el.contains(h));
+  };
+  return {aboveThePanel: r.top < p.top, clipped: !at(r.top + 1),
+          control: at(r.top + r.height / 2), overflowY: getComputedStyle(panel).overflowY};
+}"""
+
+
+def _assert_cascades_outward(rows, step):
+    """ההשהיות הן 0, step, 2·step… — אחת לכל פריט — ופריט עם השהיה גדולה יותר אינו קרוב יותר לכפתור."""
+    assert all(len(r["delays"]) == 2 and r["delays"][0] == r["delays"][1] for r in rows), rows
+    by_delay = sorted(rows, key=lambda r: r["delays"][0])
+    assert [r["delays"][0] for r in by_delay] == [i * step for i in range(len(rows))], rows
+    distances = [r["d"] for r in by_delay]
+    assert distances == sorted(distances), f"הכניסה אינה מהכפתור והחוצה: {by_delay}"
+
+
+SHORTCUT_MENUS = {
+    "rocket": (".quick-access-toggle", "#quickAccessDropdown", "#quickAccessDropdown .quick-access-item"),
+    "effects": (".fun-mode-toggle", "#funModeDropdown", "#funModeDropdown .fun-mode-item"),
+}
+
+
+@pytest.mark.parametrize("layout", ["tablet", "hamburger"])
+@pytest.mark.parametrize("menu", sorted(SHORTCUT_MENUS))
+def test_the_navbar_menus_cascade_out_of_their_button(make_page, db, menu, layout):
+    toggle, panel, items = SHORTCUT_MENUS[menu]
+    p = make_page(viewport=TABLET if layout == "tablet" else HAMBURGER)
+    p.goto("/files")
+    if layout == "hamburger":
+        assert p.js("() => getComputedStyle(document.querySelector('.mobile-menu-toggle')).display") != "none", \
+            "בקרה: הסרגל באמת מקופל להמבורגר"
+        if menu == "effects":
+            # השרביט בתוך רשימת ההמבורגר. ל-``<i>`` של הכפתור אין קופסה כשהגופן מה-CDN אינו נטען
+            # (הבקשות למארחים אחרים נקטעות), ולכן נותנים לו גודל — כמו ``_open_hamburger`` ב-
+            # ``tests/test_navbar_menus_browser.py``.
+            p.js("""() => { const i = document.querySelector('.mobile-menu-toggle i');
+              i.style.display = 'inline-block'; i.style.width = '1em'; i.style.height = '1em'; }""")
+            p.page.click(".mobile-menu-toggle")
+            poll(p.page, "() => document.getElementById('navMenu').classList.contains('active')"
+                         " && !document.getElementById('navMenu').getAnimations({subtree: true})"
+                         ".some((a) => a.playState === 'running')", "רשימת ההמבורגר נפתחה ונרגעה")
+    p.page.click(toggle)
+    p.js(FREEZE_JS, panel)
+    step = p.js("() => window.AnimUtils.menuMotion().step")
+    _assert_cascades_outward(p.js(CASCADE_JS, [toggle, items]), step)
+
+
+@pytest.mark.parametrize("direction", ["rtl", "ltr"])
+@pytest.mark.parametrize("menu", sorted(SHORTCUT_MENUS))
+def test_the_navbar_menus_do_not_clip_items_entering_from_above(make_page, db, menu, direction):
+    """החלונית אינה קופסת גלילה (``overflow-x: clip`` ולא ``hidden``), ולכן פריט שנכנס מעט מעליה
+    אינו נחתך בקצה העליון שלה."""
+    toggle, panel, items = SHORTCUT_MENUS[menu]
+    p = make_page()
+    p.goto("/files")
+    p.js("(d) => { document.documentElement.dir = d; }", direction)
+    p.page.click(toggle)
+    res = p.js(TOP_ROW_CLIPPED_JS, [panel, items.split(" ", 1)[1]])
+    assert res["aboveThePanel"], f"בקרה: בתחילת הכניסה הפריט מעל קצה החלונית — {res}"
+    assert res["control"], f"בקרה: באמצע הפריט הנקודה פוגעת בו — {res}"
+    assert not res["clipped"], res
+    # ``hidden`` או ``auto`` בציר כלשהו הופכים את החלונית לקופסת גלילה, שחותכת בשני הצירים.
+    assert p.js("(s) => { const cs = getComputedStyle(document.querySelector(s));"
+                " return [cs.overflowX, cs.overflowY]; }", panel) == ["clip", "visible"]
+
+
+LANGUAGES = ["bash", "c", "cpp", "csharp", "css", "go", "html", "java",
+             "javascript", "json", "kotlin", "markdown", "php", "python", "ruby", "rust"]
+
+
+def test_the_language_list_cascades_only_the_rows_you_can_see(make_page, db):
+    _seed_files(db, len(LANGUAGES), languages=LANGUAGES)
+    p = make_page()
+    p.goto("/files")
+    p.page.click("#languageFilterBtn")
+    p.js(FREEZE_JS, "#languageFilterDropdown")
+    rows = p.js("""() => {
+      const list = document.querySelector('#languageFilterDropdown .lang-dropdown-list');
+      const box = list.getBoundingClientRect();
+      return [...list.querySelectorAll('label')].map((el) => {
+        const r = el.getBoundingClientRect();
+        return {visible: r.bottom > box.top && r.top < box.bottom, animated: el.getAnimations().length > 0};
+      });
+    }""")
+    assert len(rows) == len(LANGUAGES), rows
+    visible = [r["visible"] for r in rows]
+    assert any(visible) and not all(visible), f"בקרה: הרשימה נגללת, וחלק מהשורות מתחת לקצה — {rows}"
+    assert [r["animated"] for r in rows] == visible, "רק השורות הגלויות מונפשות"
+    step = p.js("() => window.AnimUtils.menuMotion().step")
+    seen = p.js(CASCADE_JS, ["#languageFilterBtn", "#languageFilterDropdown .lang-dropdown-list label"])
+    _assert_cascades_outward([r for r, v in zip(seen, visible) if v], step)
+
+
+# --- 6. ה-select בחיפוש הגלובלי -------------------------------------------------------------
+
+SEARCH_SELECTS = ("#searchType", "#resultsPerPage", "#sortOrder")
+
+#: האפשרויות של select פתוח: שמות אנימציות ה-CSS וההשהיות שלהן, ואחרי שהן הסתיימו — המלבנים, מול
+#: המלבן של התיבה ורוחב החלון.
+OPTIONS_JS = """(sel) => {
+  const s = document.querySelector(sel);
+  const opts = [...s.options];
+  const anims = opts.map((o) => o.getAnimations().map((a) => [a.animationName, a.effect.getTiming().delay]).sort());
+  s.getAnimations({subtree: true}).forEach((a) => a.finish());
+  const box = s.getBoundingClientRect();
+  return {open: s.matches(':open'), appearance: getComputedStyle(s).appearance, anims,
+          selectBottom: box.bottom,
+          rects: opts.map((o) => { const r = o.getBoundingClientRect(); return [r.left, r.right, r.top]; }),
+          vw: document.documentElement.clientWidth};
+}"""
+
+
+@pytest.mark.parametrize("direction", ["rtl", "ltr"])
+def test_the_search_selects_open_in_the_page_and_their_options_cascade_in(make_page, db, direction):
+    p = make_page()
+    p.goto("/files")
+    p.js("(d) => { document.documentElement.dir = d; }", direction)
+    step = p.js("() => window.AnimUtils.menuMotion().step")
+    for sel in SEARCH_SELECTS:
+        p.page.click(sel)
+        p.js(FREEZE_JS, sel)
+        res = p.js(OPTIONS_JS, sel)
+        assert res["appearance"] == "base-select" and res["open"], (sel, res)
+        for i, anims in enumerate(res["anims"]):
+            assert anims == [["menuItemFadeIn", i * step], ["menuItemSpringIn", i * step]], (sel, i, anims)
+        for left, right, top in res["rects"]:
+            assert top >= res["selectBottom"], f"{sel}: הרשימה נפתחת מתחת לתיבה — {res}"
+            assert 0 <= left and right <= res["vw"], f"{sel}: הרשימה בתוך רוחב החלון — {res}"
+        p.page.keyboard.press("Escape")
+        assert not p.js("(s) => document.querySelector(s).matches(':open')", sel), sel
+
+
+@pytest.mark.parametrize("layout", ["tablet", "hamburger"])
+@pytest.mark.parametrize("direction", ["rtl", "ltr"])
+def test_the_closed_search_selects_hold_their_text_and_arrow(make_page, db, direction, layout):
+    """``base-select`` אינו חותך את התוכן כמו ה-select הרגיל, ולכן תיבה צרה מהתוכן שלה מציירת את החץ
+    מחוץ למסגרת. כל תיבה מכילה את הטקסט והחץ, ושלושתן בתוך רוחב החלון."""
+    p = make_page(viewport=TABLET if layout == "tablet" else HAMBURGER)
+    p.goto("/files")
+    p.js("(d) => { document.documentElement.dir = d; }", direction)
+    boxes = p.js("""(ids) => ids.map((id) => { const s = document.getElementById(id), r = s.getBoundingClientRect();
+      return {id, scroll: s.scrollWidth, client: s.clientWidth, left: r.left, right: r.right}; })""",
+                 [s.lstrip("#") for s in SEARCH_SELECTS])
+    vw = p.js("() => document.documentElement.clientWidth")
+    for b in boxes:
+        assert b["scroll"] <= b["client"], f"התוכן גולש מהתיבה: {b}"
+        assert 0 <= b["left"] and b["right"] <= vw, f"התיבה בתוך רוחב החלון: {b}"
+
+
+def test_a_choice_in_the_search_selects_reaches_the_search(make_page, db):
+    """בחירה בעכבר ובמקלדת משנה את הערך ומפעילה ``change`` כמו ב-select רגיל — והחיפוש שולח אותה."""
+    _seed_files(db, 1)
+    p = make_page()
+    p.goto("/files")
+    p.js("""() => { window.__changes = [];
+      ['searchType', 'resultsPerPage', 'sortOrder'].forEach((id) => document.getElementById(id)
+        .addEventListener('change', (e) => window.__changes.push(id + '=' + e.target.value))); }""")
+    p.page.click("#resultsPerPage")
+    p.page.click("#resultsPerPage option[value='20']")
+    p.page.click("#sortOrder")
+    p.page.click("#sortOrder option[value='name_asc']")
+    # מקלדת: החץ פותח את הרשימה על הבחירה הנוכחית, החץ הבא עובר לאפשרות שאחריה, ו-Enter בוחר.
+    p.page.focus("#searchType")
+    p.page.keyboard.press("ArrowDown")
+    assert p.js("() => document.getElementById('searchType').matches(':open')")
+    p.page.keyboard.press("ArrowDown")
+    p.page.keyboard.press("Enter")
+    assert p.js("() => window.__changes") == ["resultsPerPage=20", "sortOrder=name_asc", "searchType=semantic"]
+
+    p.js("() => { document.getElementById('searchType').value = 'content'; }")
+    p.page.fill("#globalSearchInput", "print")
+    with p.page.expect_request(lambda r: urlsplit(r.url).path == "/api/search/global") as req:
+        p.page.click("#searchBtn")
+    body = json.loads(req.value.post_data)
+    assert (body["limit"], body["sort"]) == (20, "name_asc"), body
+
+
+def _luminance(rgb):
+    def channel(c):
+        c = c / 255
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (channel(v) for v in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _rgba(css):
+    nums = [float(x) for x in css[css.index("(") + 1:css.index(")")].replace("/", ",").split(",")]
+    return nums + [1.0] * (4 - len(nums))
+
+
+@pytest.mark.parametrize("theme", [None, "dark", "high-contrast"])
+def test_the_search_select_list_is_readable_in_every_theme(make_page, db, theme):
+    """הרשימה היא המשטח הקשיח (``--solid-surface-*``), אטום, והאפשרויות שקופות עליו — כך שהצבע מאחורי
+    הטקסט הוא צבע הרשימה. בלי הצבע המפורש של האפשרויות, הכלל של הרשימה הרגילה צובע אותן ב-
+    ``--text-primary``, ובערכת ברירת המחדל ובכהה זה לבן על לבן (נמדד: 1.00). ערכת הניגודיות הגבוהה
+    כאן כי היא צובעת את ה-``select`` עצמו בלבן עם ``!important``."""
+    p = make_page()
+    p.goto("/files")
+    if theme:
+        p.js("(t) => document.documentElement.setAttribute('data-theme', t)", theme)
+    p.page.click("#sortOrder")
+    colors = p.js("""() => { const s = document.getElementById('sortOrder');
+      const pk = getComputedStyle(s, '::picker(select)');
+      return {bg: pk.backgroundColor, options: [...s.options].map((o) => [getComputedStyle(o).color,
+              getComputedStyle(o).backgroundColor])}; }""")
+    bg = _rgba(colors["bg"])
+    assert bg[3] == 1.0, f"הרשימה אטומה — {colors}"
+    for color, option_bg in colors["options"]:
+        assert _rgba(option_bg)[3] == 0.0, f"האפשרות שקופה על הרשימה — {colors}"
+        fg = _rgba(color)
+        light, dark = sorted((_luminance(fg[:3]), _luminance(bg[:3])), reverse=True)
+        ratio = (light + 0.05) / (dark + 0.05)
+        assert ratio >= 4.5, f"ניגודיות {ratio:.2f} בערכה {theme}: {colors}"
+
+
 # --- מי שביקש פחות תנועה ---------------------------------------------------------------------
 
 
@@ -519,7 +774,19 @@ def test_reduced_motion_gets_the_same_state_changes_without_any_animation(make_p
     assert p.js(SCRIPT_ANIMS_JS, GROUP_SEL) == 0
 
     p.page.click(".quick-access-toggle")
+    assert p.js(SCRIPT_ANIMS_JS, "#quickAccessDropdown") == 0
     p.page.click(".quick-access-item[title='קבצים שנפתחו לאחרונה']")
     p.page.wait_for_selector(".recent-files-modal")
     assert not p.js("() => document.querySelector('.recent-files-modal').classList.contains('is-morph')")
     assert p.js(SCRIPT_ANIMS_JS, ".recent-files-modal") == 0
+
+    p.goto("/files")
+    p.page.click(".fun-mode-toggle")
+    assert p.js(SCRIPT_ANIMS_JS, "#funModeDropdown") == 0
+    p.page.click("#languageFilterBtn")
+    assert p.js(SCRIPT_ANIMS_JS, "#languageFilterDropdown") == 0
+    # ה-select: אנימציות CSS, ולכן נבדק שאין אף אנימציה על האפשרויות — גם לא כזו שמחכה בהשהיה.
+    p.page.click("#searchType")
+    assert p.js("() => document.getElementById('searchType').matches(':open')")
+    assert p.js("() => [...document.getElementById('searchType').options]"
+                ".reduce((n, o) => n + o.getAnimations().length, 0)") == 0
