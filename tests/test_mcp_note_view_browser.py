@@ -509,7 +509,9 @@ def test_a_long_note_stops_at_the_fixed_height_and_scrolls_inside(chromium_execu
             inside = view.evaluate("""() => ({
                 controlsBottom: document.querySelector('.ck-controls').getBoundingClientRect().bottom,
                 viewport: innerHeight})""")
-            step = round(top["clientHeight"] * 0.75)
+            # **העיגול של הדפדפן, ולא של פייתון:** ``Math.round`` מעגל חצי כלפי מעלה, ו-``round`` של
+            # פייתון לזוגי — בגובה 286 הצעד הוא 214.5, הדף גולל 215 ופייתון ציפה ל-214 (נמדד).
+            step = view.evaluate("(h) => Math.round(h * 0.75)", top["clientHeight"])
             # **רכות, בלי תלות בתזמון:** הלחיצה והדגימה באותו סקריפט. גלילה רכה מתחילה לזוז רק
             # בפריים הבא, ולכן מיד אחרי הלחיצה המיקום עוד לא זז; קפיצה הייתה כבר ב-``step`` (ראו
             # ``test_reduced_motion_makes_the_step_a_jump``, שבודק את אותה דגימה בכיוון ההפוך).
@@ -1435,8 +1437,9 @@ def test_a_save_that_lands_after_the_editor_closed_still_updates_the_view_and_cl
 
 #: **השטח הגלוי, בשליטת הבדיקה.** המקלדת במכשיר מקטינה את השטח הגלוי (``visualViewport``) בלי לגעת
 #: בפריסה; לכרום של שולחן העבודה אין מקלדת. הסקריפט רץ בתוך מסגרת התצוגה לפני הקוד שלה, ומחליף את
-#: ``visualViewport`` באובייקט עם אותו ממשק: ``height`` / ``offsetTop`` ואירוע ``resize``. כל השאר —
-#: הדף, ה-CSS, הפריסה והגלילה — אמיתי. ``__vv.set(height, top)`` הוא "המקלדת נפתחה".
+#: ``visualViewport`` באובייקט עם אותו ממשק: ``height`` / ``offsetTop``, ``resize`` כשהגובה משתנה ו-
+#: ``scroll`` כשהמרחק משתנה, כמו בדפדפן (MDN, ``VisualViewport``). כל השאר — הדף, ה-CSS, הפריסה
+#: והגלילה — אמיתי. ``__vv.set(height, top)`` הוא "המקלדת נפתחה".
 _FAKE_VISUAL_VIEWPORT = """(() => {
   if (!location.pathname.endsWith('/view.html')) return;
   const target = new EventTarget();
@@ -1447,7 +1450,12 @@ _FAKE_VISUAL_VIEWPORT = """(() => {
   Object.defineProperty(target, 'pageTop', { get: () => forced ? forced.top : 0 });
   Object.defineProperty(target, 'scale', { get: () => 1 });
   Object.defineProperty(window, 'visualViewport', { configurable: true, get: () => target });
-  window.__vv = { set(h, top) { forced = { h: h, top: top }; target.dispatchEvent(new Event('resize')); } };
+  window.__vv = { set(h, top) {
+    const prev = forced || { h: window.innerHeight, top: 0 };
+    forced = { h: h, top: top };
+    if (h !== prev.h) target.dispatchEvent(new Event('resize'));
+    if (top !== prev.top) target.dispatchEvent(new Event('scroll'));
+  } };
 })();"""
 
 _GEOMETRY_STATE = """() => {
@@ -1469,10 +1477,30 @@ def _caret_visible(page, view):
     return before, after
 
 
+def _frames(view, count):
+    """מחכה ``count`` פריימים של אנימציה בתוך מסגרת התצוגה — עד שהעבודה ששינוי כבר התחיל נגמרת:
+    ``ResizeObserver`` מודיע בפריים הראשון, והמדידה שהוא מתזמן (``scheduleSize``) רצה ב-
+    ``requestAnimationFrame`` של הפריים שאחריו.
+
+    **תקרה משלו** (``wait-without-own-deadline``): ל-``evaluate`` אין תקרה שמצאתי בתיעוד, ומסגרת
+    שאינה מציירת (מוסתרת, או דפדפן תקוע) לא הייתה מריצה אף פריים — והבדיקה, ואיתה ה-CI, היו תלויות.
+    אחרי ``WAIT_S`` ההמתנה נכשלת בהודעה, ולא ממשיכה כאילו הפריימים עברו."""
+    view.evaluate("""([n, ms]) => new Promise((done, fail) => {
+        const timer = setTimeout(() => fail(new Error('no animation frames within ' + ms + 'ms')), ms);
+        const step = () => { n -= 1; if (n <= 0) { clearTimeout(timer); done(true); } else requestAnimationFrame(step); };
+        requestAnimationFrame(step);
+    })""", [count, int(WAIT_S * 1000)])
+
+
 def test_with_the_keyboard_open_the_editor_fits_the_visible_area_and_only_the_box_scrolls(chromium_executable, edit_host):
     """**המקלדת נפתחה** — השטח הגלוי קטן ל-300 וזז 120 מראש הפריסה. הפתק מוצמד אליו: ראש הנייר
-    ("שמור" ו"בטל" עם הכותרת) בראש השטח הגלוי, תיבת הטקסט ממלאת את השאר ונגללת בעצמה, הדף עצמו לא
-    נגלל, והסמן — בשורה רחוקה בפתק ארוך — נשאר גלוי בתיבה שהתכווצה."""
+    ("שמור" ו"בטל" עם הכותרת) בראש השטח הגלוי, תיבת הטקסט ממלאת את השאר ונגללת בעצמה, והדף עצמו לא
+    נגלל.
+
+    **והסמן נשאר גלוי** — המקרה מהטאבלט: הסמן בשורה התחתונה של התיבה המלאה, והמקלדת מכווצת את התיבה
+    מעליו. לכן לפני הכיווץ הסמן מוצב בשורה האחרונה שגלויה כולה, כשהתיבה בראשה, והבדיקה מוודאת שבלי
+    גלילה הוא היה מחוץ לתיבה שהתכווצה — אחרת היא לא בודקת כלום (``revealCaret``). ``setSelectionRange``
+    על תיבה בפוקוס אינו גולל (נמדד), ולכן ההצבה אינה משנה את ``scrollTop``."""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
@@ -1482,7 +1510,20 @@ def test_with_the_keyboard_open_the_editor_fits_the_visible_area_and_only_the_bo
             poll(view, "() => document.documentElement.classList.contains('ck-fill') && innerHeight === 600"
                        " && !!document.querySelector('.ck-editor') && document.activeElement === document.querySelector('.ck-editor')",
                  "the editor opened in the fixed frame")
+            page.wait_for_timeout(100)
             full = view.evaluate(_GEOMETRY_STATE)
+            placed = view.evaluate("""() => {
+                const t = document.querySelector('.ck-editor');
+                const lh = parseFloat(getComputedStyle(t).lineHeight);
+                const last = Math.floor(t.clientHeight / lh) - 1;
+                const lines = t.value.split('\\n');
+                let pos = 0;
+                for (let i = 0; i < last; i += 1) pos += lines[i].length + 1;
+                t.scrollTop = 0;
+                t.setSelectionRange(pos, pos);
+                return {top: last * lh, bottom: (last + 1) * lh, clientHeight: t.clientHeight, scrollTop: t.scrollTop,
+                        padding: getComputedStyle(t).paddingTop};
+            }""")
             view.evaluate("() => window.__vv.set(300, 120)")
             poll(view, "() => Math.abs(document.getElementById('ck-note-root').getBoundingClientRect().top - 120) < 1",
                  "the note moved to the visible area")
@@ -1498,7 +1539,9 @@ def test_with_the_keyboard_open_the_editor_fits_the_visible_area_and_only_the_bo
     assert shrunk["ta"]["bottom"] <= shrunk["paper"]["bottom"] + 0.5 and shrunk["paper"]["bottom"] <= 420 + 0.5, shrunk
     assert shrunk["taScrollable"] is True, shrunk
     assert shrunk["scrollY"] == 0 and shrunk["docH"] <= shrunk["inner"], shrunk
-    assert caret[0] == caret[1], caret
+    assert placed["padding"] == "0px" and placed["scrollTop"] == 0 and placed["bottom"] <= placed["clientHeight"], placed
+    assert placed["top"] >= shrunk["ta"]["height"], (placed, shrunk["ta"])
+    assert caret[0] == caret[1] and caret[0] > 0, caret
 
 
 def test_a_tiny_visible_area_keeps_the_box_inside_the_note(chromium_executable, edit_host):
@@ -1523,8 +1566,12 @@ def test_a_tiny_visible_area_keeps_the_box_inside_the_note(chromium_executable, 
 
 
 def test_opening_a_far_line_of_a_long_note_shows_the_caret(chromium_executable, edit_host):
-    """לחיצה על שורה רחוקה בפתק ארוך: התיבה נגללת אל הסמן. הסמן מוצב לפני הפוקוס — ``focus()`` הוא
-    שגולל את התיבה אליו; בסדר ההפוך התיבה הציגה מקום אחר, והסמן נשאר מחוץ לה."""
+    """לחיצה על שורה רחוקה בפתק ארוך: התיבה נגללת אל הסמן. **השורה באמצע הפתק — רחוקה גם מההתחלה
+    וגם מהסוף.** נמדד בכרום: אחרי הצבה של ``value`` הסמן בסוף הטקסט, ו-``focus()`` גולל לשם. בסדר
+    הישן (פוקוס ואז ``setSelectionRange``, שאינו גולל) התיבה הציגה את הסוף — ושורה קרובה לסוף נראתה
+    במקרה; כך הבדיקה עברה גם על הקוד הישן כשהיא לחצה על שורה קרובה לסוף ``_EDIT_LONG``. בקוד החדש שני דברים מביאים
+    את הסמן לתצוגה — הסדר (קודם הסמן, ואז הפוקוס) ו-``revealCaret`` — והבדיקה כאן היא על התוצאה; הסדר
+    עצמו נעול ב-``tests/mcp-note-view.test.js``."""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
@@ -1532,7 +1579,7 @@ def test_opening_a_far_line_of_a_long_note_shows_the_caret(chromium_executable, 
         try:
             view.click(".ck-expand")
             poll(view, "() => document.documentElement.classList.contains('ck-fill') && innerHeight === 600", "fullscreen")
-            view.locator(".ck-content .sticky-task-line", has_text="שורה מספר 70 בפתק הארוך").first.click()
+            view.locator(".ck-content .sticky-task-line", has_text="שורה מספר 40 בפתק הארוך").first.click()
             poll(view, "() => !!document.querySelector('.ck-editor') && document.activeElement === document.querySelector('.ck-editor')",
                  "the editor opened")
             page.wait_for_timeout(100)
@@ -1574,12 +1621,20 @@ def test_a_phone_screen_shows_the_note_without_editing(chromium_executable, edit
 
 def test_the_conversation_row_is_icons_close_to_the_bottom_with_a_full_tap_area(chromium_executable, edit_host):
     """בתוך השיחה: "מסך מלא" (SVG) ו"עריכה" (✎) — אייקונים בלבד, בגודל 36, ואזור הלחיצה 44: נקודה 3
-    פיקסלים מחוץ לקופסה הנראית עדיין פוגעת בכפתור. השורה צמודה לתחתית הנייר."""
+    פיקסלים מחוץ לקופסה הנראית עדיין פוגעת בכפתור. השורה צמודה לתחתית הנייר.
+
+    ``elementFromPoint`` מחזיר ``null`` לנקודה שמחוץ לחלון של המסגרת, ומיד אחרי הרינדור המסגרת עוד
+    בגובה של "טוען…" — לכן קודם מחכים שהמסגרת תקבל את הגובה שהדף מודד עכשיו (``_settled``), ואז
+    לתנאי שהמדידה עצמה צריכה: כל אזור הלחיצה בתוך החלון של המסגרת. ``hit`` בתוצאה — מה נפגע."""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
         browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit.html")
         try:
+            _settled(page, view, "the frame took the reported height")
+            poll(view, """() => { const b = document.querySelector('.ck-edit').getBoundingClientRect();
+                                  return b.top - 4 >= 0 && b.bottom + 4 <= innerHeight; }""",
+                 "the whole tap area of the edit button is inside the frame")
             state = view.evaluate("""() => {
                 const expand = document.querySelector('.ck-expand');
                 const edit = document.querySelector('.ck-edit');
@@ -1589,7 +1644,8 @@ def test_the_conversation_row_is_icons_close_to_the_bottom_with_a_full_tap_area(
                 const row = document.querySelector('.ck-controls').getBoundingClientRect();
                 return {svg: !!expand.querySelector('svg path'), expandText: expand.textContent.trim(), editText: edit.textContent,
                         size: [Math.round(b.width), Math.round(b.height)], hitsEdit: outside === edit,
-                        gap: paper.bottom - row.bottom, label: edit.getAttribute('aria-label')};
+                        gap: paper.bottom - row.bottom, label: edit.getAttribute('aria-label'),
+                        hit: outside ? (outside.className || outside.tagName) : null};
             }""")
         finally:
             browser.close()
@@ -1600,7 +1656,11 @@ def test_the_conversation_row_is_icons_close_to_the_bottom_with_a_full_tap_area(
 
 
 def test_layout_debug_shows_live_numbers_over_the_view(chromium_executable, edit_host):
-    """מצב מדידה בדפדפן אמיתי: השורה מציגה את השטח הגלוי, החלון והמסך, ומתעדכנת כשהשטח הגלוי משתנה."""
+    """מצב מדידה בדפדפן אמיתי: השורה מציגה את השטח הגלוי, החלון והמסך, ומתעדכנת כשהשטח הגלוי משתנה —
+    **גם כשרק המרחק שלו זז** (``scroll`` בלי ``resize``). אז שום דבר אינו משנה גודל, ``ResizeObserver``
+    שקט, והעדכון הוא רק מ-``syncVisibleArea``. לפני הצעד הזה מחכים שהעבודה של הצעד הקודם תיגמר
+    (``_frames``): המדידה שהוא תזמן רצה אחריו, קוראת את המרחק החדש ומעדכנת את השורה — ואז הבדיקה
+    עוברת גם בלי ``syncVisibleArea`` (נמדד: כך שתי מוטציות שרדו)."""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
@@ -1611,6 +1671,11 @@ def test_layout_debug_shows_live_numbers_over_the_view(chromium_executable, edit
             poll(view, "() => !!document.querySelector('.ck-editor')", "the editor opened")
             view.evaluate("() => window.__vv.set(300, 120)")
             poll(view, "() => /vv h=300 top=120/.test(document.querySelector('.ck-debug').textContent)", "the numbers followed the visible area")
+            _frames(view, 4)
+            settled = view.evaluate("() => document.querySelector('.ck-debug').textContent.split('\\n')[0]")
+            view.evaluate("() => window.__vv.set(300, 60)")
+            poll(view, "() => /vv h=300 top=60/.test(document.querySelector('.ck-debug').textContent)",
+                 "the numbers followed a move of the visible area without a resize")
             after = view.evaluate("() => document.querySelector('.ck-debug').textContent")
             direction = view.evaluate("() => getComputedStyle(document.querySelector('.ck-debug')).direction")
         finally:
@@ -1618,4 +1683,5 @@ def test_layout_debug_shows_live_numbers_over_the_view(chromium_executable, edit
 
     assert "screen " in first and "edit=true" in first and "inner 600x" in first, first
     assert "editor " in after and "focus=true" in after, after
+    assert settled.startswith("vv h=300 top=120 "), settled
     assert direction == "ltr", direction
