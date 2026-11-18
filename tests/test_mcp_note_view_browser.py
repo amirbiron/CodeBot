@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from _browser_harness import WAIT_S, poll
+from _browser_harness import WAIT_S, Touch, poll
 from mcp_server import note_view
 from sticky_notes_target import NOTE_COLORS
 
@@ -442,9 +442,12 @@ def _launch(pw, chromium_executable, args=None):
             if chromium_executable else pw.chromium.launch(**launch))
 
 
-def _open(pw, chromium_executable, url, *, reduced_motion=None, args=None, console=None, screen=None, init_script=None):
+def _open(pw, chromium_executable, url, *, reduced_motion=None, args=None, console=None, screen=None, init_script=None,
+          touch=False):
+    """``touch=True`` — מסך מגע: ``has_touch`` של Playwright מדליק ``(pointer: coarse)``, ונמדד שגם בתוך
+    המסגרת המבודדת (בלעדיו — ``fine``)."""
     browser = _launch(pw, chromium_executable, args)
-    page = browser.new_page(device_scale_factor=1, viewport={"width": 1000, "height": 1000},
+    page = browser.new_page(device_scale_factor=1, viewport={"width": 1000, "height": 1000}, has_touch=touch,
                             **({"screen": screen} if screen else {}))
     if init_script:
         page.add_init_script(init_script)
@@ -1580,17 +1583,98 @@ _CARET_BOTTOM = """() => {
 }"""
 
 
-def test_with_the_keyboard_reported_by_the_host_the_note_reaches_the_bottom_and_the_caret_stays_above(
-        chromium_executable, edit_host):
-    """**המקלדת של האפליקציה של Claude** — לא בשטח הגלוי אלא ב-``safeAreaInsets.bottom``. נמדד בטאבלט:
-    השטח הגלוי והחלון נשארים בגובה המסגרת, השוליים התחתונים קופצים מ-195 ל-543, והאפליקציה מזיזה את
-    המסגרת כולה בלי שהדף יודע. המארח המזויף שולח שוליים של ``_KEYBOARD_INSET``:
+#: **מה היה ברגע הפוקוס** — כלומר רגע לפני שהמקלדת נקראת. ``focusin`` יורה בתוך ``focus()`` עצמו, ולכן
+#: מה שנרשם כאן הוא המצב שאנדרואיד רואה כשהוא מחליט אם לדחוף את המסגרת. ``caretTop`` — המרחק של ראש
+#: שורת הסמן מראש התיבה הגלויה, בחשבון של הבדיקה (מספר שורה כפול גובה שורה, פחות הגלילה).
+_AT_FOCUS = """(() => {
+  if (!location.pathname.endsWith('/view.html')) return;
+  document.addEventListener('focusin', (event) => {
+    const t = event.target;
+    if (!t.matches || !t.matches('.ck-editor')) return;
+    const cs = getComputedStyle(t);
+    const lines = t.value.slice(0, t.selectionStart).split('\\n').length;
+    window.__atFocus = {opening: t.classList.contains('ck-opening'), scrollTop: t.scrollTop, line: parseFloat(cs.lineHeight),
+                        caretTop: parseFloat(cs.paddingTop) + (lines - 1) * parseFloat(cs.lineHeight) - t.scrollTop};
+  }, true);
+})();"""
 
-    - **הנייר ממשיך עד תחתית המסגרת** — כשהמסגרת זזה למעלה, מה שנחשף מתחתיו הוא הפתק ולא שטח ריק;
-    - **הסמן, שהיה בשורה התחתונה של התיבה, עולה אל מעל הקו** (``revealCaret``, מ-``layout``);
-    - **הקלדה של שורות חדשות משאירה אותו מעל הקו** (``scroll-padding-block-end`` — בלעדיו הדפדפן גולל
-      לפי כל התיבה, כולל הריפוד, כלומר אל מתחת למקלדת);
-    - **והשורה האחרונה של הפתק יכולה לעלות אל מעל הקו** (``padding-block-end``)."""
+
+def _post_context(page, params):
+    """המארח המזויף שולח ``host-context-changed`` — למשל השוליים של המקלדת, כמו שהאפליקציה של Claude
+    מוסרת אותה (``safeAreaInsets.bottom``)."""
+    page.evaluate("""(params) => document.getElementById('view').contentWindow.postMessage({jsonrpc: '2.0',
+        method: 'ui/notifications/host-context-changed', params}, '*')""", params)
+
+
+def _keyboard(bottom, top=0):
+    return {"safeAreaInsets": {"top": top, "right": 0, "bottom": bottom, "left": 0}}
+
+
+_PAPER_BOTTOM = "() => document.querySelector('.ck-paper').getBoundingClientRect().bottom"
+
+
+@pytest.mark.parametrize("line", [1, 40, 80])
+def test_on_a_touch_screen_the_caret_line_reaches_the_top_before_the_keyboard_and_the_note_ends_at_its_line(
+        chromium_executable, edit_host, line):
+    """**כניסה לעריכה במסך מגע — בלי דחיפה של המסגרת.** אנדרואיד מזיז את כל החלון כשהמקלדת נפתחת, כדי
+    שהסמן לא יוסתר (נמדד במכשיר: מהשורה הראשונה — לא זז; מהשורה התחתונה — נדחף). לכן ברגע הפוקוס שורת
+    הסמן כבר בראש התיבה, עם שורה אחת מעליה — לשורה הראשונה, בלי גלילה; לאחרונה, בזכות הריפוד הזמני.
+    אחרי שהמקלדת מדווחת: הריפוד הזמני יורד (``kb=reported`` במצב המדידה, ולא תקרת הזמן), הנייר נגמר על
+    הקו שלה, והסמן מעליו."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long-debug.html", touch=True, init_script=_AT_FOCUS)
+        try:
+            view.locator(".ck-content .sticky-task-line", has_text=f"שורה מספר {line} בפתק הארוך").first.click()
+            poll(view, "() => document.documentElement.classList.contains('ck-fill') && innerHeight === 600"
+                       " && !!window.__atFocus && document.activeElement === document.querySelector('.ck-editor')",
+                 "the editor opened in the fixed frame")
+            at_focus = view.evaluate("() => window.__atFocus")
+            _post_context(page, _keyboard(_KEYBOARD_INSET))
+            poll(view, "() => !document.querySelector('.ck-editor').classList.contains('ck-opening')"
+                       " && /kb=reported/.test(document.querySelector('.ck-debug').textContent)",
+                 "the keyboard report took the temporary room away")
+            _frames(view, 4)
+            paper = view.evaluate(_PAPER_BOTTOM)
+            caret = view.evaluate(_CARET_BOTTOM)
+        finally:
+            browser.close()
+
+    expected_top = 0 if line == 1 else at_focus["line"]
+    assert at_focus["opening"] is True and abs(at_focus["caretTop"] - expected_top) <= 1, at_focus
+    keyboard_line = 600 - _KEYBOARD_INSET
+    assert abs(paper - (keyboard_line - 4)) <= 0.5, paper
+    assert caret <= keyboard_line - 4 + 0.5, caret
+
+
+def test_without_a_keyboard_report_the_temporary_room_goes_away_on_its_own(chromium_executable, edit_host):
+    """**בלי דיווח על מקלדת** (מקלדת פיזית מחוברת, או מקלדת שלא נפתחה) הריפוד הזמני לא נשאר: להמתנה
+    לדיווח יש תקרת זמן משלה (``KEYBOARD_REPORT_DEADLINE_MS``), ואחריה התיבה בלי ריפוד, ואין שטח ריק
+    מתחת לשורה האחרונה."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long.html", touch=True, init_script=_AT_FOCUS)
+        try:
+            view.locator(".ck-content .sticky-task-line", has_text="שורה מספר 80 בפתק הארוך").first.click()
+            poll(view, "() => !!window.__atFocus", "the editor opened")
+            at_focus = view.evaluate("() => window.__atFocus")
+            poll(view, "() => !document.querySelector('.ck-editor').classList.contains('ck-opening')",
+                 "the temporary room went away without a keyboard report")
+            pad = view.evaluate("() => getComputedStyle(document.querySelector('.ck-editor')).paddingBottom")
+        finally:
+            browser.close()
+
+    assert at_focus["opening"] is True, at_focus
+    assert pad == "0px", pad
+
+
+def test_after_the_keyboard_the_note_keeps_its_line_until_the_frame_changes(chromium_executable, edit_host):
+    """**אחרי שהמקלדת דווחה:** הנייר נגמר על הקו שלה, והקלדה של שורות חדשות בסוף התיבה משאירה את הסמן
+    מעליו — התיבה נגמרת שם, והדפדפן שומר את הסמן בתוכה. **המקלדת נסגרת באמצע עריכה** (השוליים קטנים):
+    הקו נשאר, כדי שלחיצה על שורה תמיד תניח את הסמן מעל המקלדת כשהיא תיפתח שוב. אותה מסגרת שנשלחה שוב
+    אינה מאפסת אותו; **מסגרת בגודל אחר** (סיבוב) — כן."""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
@@ -1598,48 +1682,117 @@ def test_with_the_keyboard_reported_by_the_host_the_note_reaches_the_bottom_and_
         try:
             view.click(".ck-edit")
             poll(view, "() => document.documentElement.classList.contains('ck-fill') && innerHeight === 600"
-                       " && !!document.querySelector('.ck-editor') && document.activeElement === document.querySelector('.ck-editor')",
-                 "the editor opened in the fixed frame")
-            _frames(view, 4)
-            placed = view.evaluate("""() => {
-                const t = document.querySelector('.ck-editor');
-                const lh = parseFloat(getComputedStyle(t).lineHeight);
-                const last = Math.floor(t.clientHeight / lh) - 1;
-                const lines = t.value.split('\\n');
-                let pos = 0;
-                for (let i = 0; i < last; i += 1) pos += lines[i].length + 1;
-                t.scrollTop = 0;
-                t.setSelectionRange(pos, pos);
-                return {line: last};
-            }""")
-            before = view.evaluate(_CARET_BOTTOM)
-            page.evaluate("""(bottom) => document.getElementById('view').contentWindow.postMessage({jsonrpc: '2.0',
-                method: 'ui/notifications/host-context-changed',
-                params: {safeAreaInsets: {top: 0, right: 0, bottom: bottom, left: 0}}}, '*')""", _KEYBOARD_INSET)
-            poll(view, "(b) => getComputedStyle(document.querySelector('.ck-editor')).paddingBottom === b + 'px'",
-                 "the editor took the host's bottom inset as its padding", _KEYBOARD_INSET)
-            _frames(view, 4)
-            geo = view.evaluate("""() => ({paper: document.querySelector('.ck-paper').getBoundingClientRect().bottom,
-                                         inner: innerHeight, scrollY: (document.scrollingElement || document.documentElement).scrollTop})""")
-            revealed = view.evaluate(_CARET_BOTTOM)
-            page.keyboard.press("End")
-            for _ in range(6):
+                       " && document.activeElement === document.querySelector('.ck-editor')", "the editor opened in the fixed frame")
+            _post_context(page, _keyboard(_KEYBOARD_INSET))
+            poll(view, "(b) => Math.abs(document.querySelector('.ck-paper').getBoundingClientRect().bottom - b) < 1",
+                 "the note ended at the keyboard's line", 600 - _KEYBOARD_INSET - 4)
+            page.keyboard.press("Control+End")
+            for _ in range(10):
                 page.keyboard.press("Enter")
             page.keyboard.type("x")
             _frames(view, 4)
             typed = view.evaluate(_CARET_BOTTOM)
-            page.keyboard.press("Control+End")
+            _post_context(page, _keyboard(48))
             _frames(view, 4)
-            last = view.evaluate(_CARET_BOTTOM)
+            closed = view.evaluate(_PAPER_BOTTOM)
+            _post_context(page, {"containerDimensions": {"width": 800, "height": 600}, **_keyboard(48)})
+            _frames(view, 4)
+            resent = view.evaluate(_PAPER_BOTTOM)
+            _post_context(page, {"containerDimensions": {"width": 800, "height": 599}, **_keyboard(48)})
+            _frames(view, 4)
+            rotated = view.evaluate(_PAPER_BOTTOM)
         finally:
             browser.close()
 
-    line = 600 - _KEYBOARD_INSET
-    assert placed["line"] > 0 and before > line, (placed, before)
-    assert geo["paper"] >= geo["inner"] - 4 - 0.5 and geo["scrollY"] == 0, geo
-    assert revealed <= line + 0.5, revealed
-    assert typed <= line + 0.5, typed
-    assert last <= line + 0.5, last
+    keyboard_line = 600 - _KEYBOARD_INSET
+    assert typed <= keyboard_line - 4 + 0.5, typed
+    assert abs(closed - (keyboard_line - 4)) <= 0.5 and abs(resent - (keyboard_line - 4)) <= 0.5, (closed, resent)
+    assert abs(rotated - (600 - 48 - 4)) <= 0.5, rotated
+
+
+def test_on_a_computer_the_editor_opens_without_the_temporary_room(chromium_executable, edit_host):
+    """**במחשב אין מקלדת שתדחוף את המסגרת** (מצביע מדויק, ``pointer: fine``): אין ריפוד זמני, והתיבה
+    נגללת אל הסמן בדרך הרגילה של הדפדפן."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long.html", init_script=_AT_FOCUS)
+        try:
+            view.locator(".ck-content .sticky-task-line", has_text="שורה מספר 40 בפתק הארוך").first.click()
+            poll(view, "() => !!window.__atFocus", "the editor opened")
+            at_focus = view.evaluate("() => window.__atFocus")
+            pad = view.evaluate("() => getComputedStyle(document.querySelector('.ck-editor')).paddingBottom")
+        finally:
+            browser.close()
+
+    assert at_focus["opening"] is False and pad == "0px", (at_focus, pad)
+
+
+def test_while_editing_the_head_row_sits_in_the_banner_area_and_the_box_starts_below_it(chromium_executable, edit_host):
+    """**עוד מקום לעריכה** (החלטת המשתמש): בזמן עריכה הנייר מתחיל בראש המסגרת, שורת הראש — "שמור" ו"בטל"
+    — ממלאת את השטח שהמארח שומר לבאנר (``safeAreaInsets.top``), ותיבת הטקסט מתחילה בדיוק מתחתיו. שם
+    הפתק מוסתר בעריכה: בקצה הימני של השורה הוא היה מתחת לכפתור הסגירה של Claude. בתצוגה, בלי עריכה,
+    הנייר מתחיל מתחת לשוליים."""
+    from playwright.sync_api import sync_playwright
+
+    banner = 120
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long.html")
+        try:
+            view.click(".ck-expand")
+            poll(view, "() => document.documentElement.classList.contains('ck-fill') && innerHeight === 600", "fullscreen")
+            _post_context(page, _keyboard(0, top=banner))
+            poll(view, "(t) => Math.abs(document.querySelector('.ck-paper').getBoundingClientRect().top - t) < 1",
+                 "the view took the top inset", banner + 4)
+            view.locator(".ck-content .sticky-task-line", has_text="שורה מספר 2 בפתק הארוך").first.click()
+            poll(view, "() => document.activeElement === document.querySelector('.ck-editor')", "the editor opened")
+            _frames(view, 4)
+            geo = view.evaluate("""() => {
+                const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+                return {paper: r('.ck-paper').top, editor: r('.ck-editor').top, save: [r('.ck-save').top, r('.ck-save').bottom],
+                        title: getComputedStyle(document.querySelector('.ck-title')).display};
+            }""")
+        finally:
+            browser.close()
+
+    assert abs(geo["paper"] - 4) <= 0.5, geo
+    assert abs(geo["editor"] - banner) <= 0.5, geo
+    assert geo["save"][0] >= 4 and geo["save"][1] <= banner, geo
+    assert geo["title"] == "none", geo
+
+
+def test_while_editing_a_swipe_outside_the_box_does_not_reach_the_page_behind(chromium_executable, edit_host):
+    """**גלילה מחוץ לתיבה לא עוברת הלאה.** במכשיר, גלילה על השטח שמחוץ לתיבה דחפה את המסגרת. כאן הדף של
+    המארח גליל, כדי שאפשר יהיה לראות זליגה: החלקה במגע אמיתי על השטח שמתחת לנייר (אחרי שהמקלדת דווחה)
+    אינה מזיזה אותו, והחלקה על התיבה גוללת את התיבה — ולא את הדף שמאחור. **מה הבדיקה מבחינה בו:** בלי
+    ``touch-action: none`` ובלי ``overscroll-behavior: none`` הדף שמאחור זז (נמדד: 285 פיקסלים); בכרום
+    כל אחת מהן לבדה כבר עוצרת את זה, ולכן הבדיקה אינה מכריעה איזו מהן האפליקציה של Claude צריכה — זה
+    נבדק במכשיר."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long.html", touch=True)
+        try:
+            view.click(".ck-edit")
+            poll(view, "() => document.documentElement.classList.contains('ck-fill') && innerHeight === 600"
+                       " && document.activeElement === document.querySelector('.ck-editor')", "the editor opened in the fixed frame")
+            _post_context(page, _keyboard(_KEYBOARD_INSET))
+            poll(view, "() => !document.querySelector('.ck-editor').classList.contains('ck-opening')", "the keyboard was reported")
+            page.evaluate("() => { const s = document.createElement('div'); s.style.height = '3000px'; document.body.appendChild(s); scrollTo(0, 0); }")
+            box = page.locator("#view").bounding_box()
+            touch = Touch(page.context.new_cdp_session(page))
+            touch.swipe(box["x"] + 400, box["y"] + 500, 0, -200)
+            page.wait_for_timeout(400)
+            outside = page.evaluate("() => scrollY")
+            before = view.evaluate("() => document.querySelector('.ck-editor').scrollTop")
+            touch.swipe(box["x"] + 400, box["y"] + 200, 0, -100)
+            page.wait_for_timeout(400)
+            inside = [view.evaluate("() => document.querySelector('.ck-editor').scrollTop"), page.evaluate("() => scrollY")]
+        finally:
+            browser.close()
+
+    assert outside == 0, outside
+    assert inside[0] > before and inside[1] == 0, (before, inside)
 
 
 def test_opening_a_far_line_of_a_long_note_shows_the_caret(chromium_executable, edit_host):

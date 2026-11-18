@@ -80,7 +80,7 @@ class FakeElement {
     this.parentNode = null;
   }
   /** ``selectionAtFocus`` — איפה היה הסמן ברגע הפוקוס: ``focus()`` הוא שגולל את התיבה אל הסמן. */
-  focus() { FakeElement.focused = this; this.selectionAtFocus = this.selection; }
+  focus() { FakeElement.focused = this; this.selectionAtFocus = this.selection; this.classAtFocus = this.className; }
   setSelectionRange(start, end) { this.selection = [start, end]; }
   get firstChild() { return this.children[0] || null; }
   get nextSibling() {
@@ -203,6 +203,9 @@ function load(opts = {}) {
     setTimeout(fn, ms) { timers.push({ fn, ms, cleared: false }); return timers.length; },
     clearTimeout(handle) { if (timers[handle - 1]) timers[handle - 1].cleared = true; },
   };
+  // **סוג המצביע** — ``opts.coarse`` מדליק ``matchMedia`` שעונה על ``(pointer: coarse)``: ``true``
+  // למסך מגע, ``false`` למחשב. בלעדיו אין ``matchMedia`` בכלל, כמו בבדיקות שקדמו לו.
+  if (opts.coarse !== undefined) win.matchMedia = (query) => ({ media: query, matches: query === '(pointer: coarse)' && opts.coarse === true });
   const unobserved = [];
   if (opts.resizeObserver) {
     win.ResizeObserver = class {
@@ -1617,6 +1620,89 @@ console.log('\nביטול, ויציאה ממסך מלא');
   host.find('ck-drop').dispatch('click');
   check('"בטל שינויים" בשורה שבתוך השיחה — העורך נסגר בלי שמירה', !host.find('ck-editor') && toolCalls(host, 'codekeeper_note_view_save').length === 0,
     !!host.find('ck-editor'));
+}
+
+console.log('\nכניסה לעריכה במסך מגע — בלי דחיפה של המסגרת');
+// ``KEYBOARD_REPORT_DEADLINE_MS`` ב-``note_view.js``: השעון המזויף יורה רק טיימר באורך הזה בדיוק, ולכן
+// שינוי של הקבוע מפיל את הבדיקה של התקרה — ולא עובר בשקט.
+const KEYBOARD_DEADLINE = 1500;
+const KEYBOARD_INSETS = (bottom) => ({ safeAreaInsets: { top: 120, right: 0, bottom, left: 0 } });
+/** מסך מלא בגובה קבוע (``ck-fill``), כמו ש-Claude מוסר, ופתיחה של העורך מלחיצה על שורה. */
+function touchEditor(opts = {}) {
+  const host = load({ coarse: opts.coarse === undefined ? true : opts.coarse });
+  initialize(host, { ...EDIT_CTX, ...KEYBOARD_INSETS(195) }, EDIT_CAPS);
+  host.deliver(toolResult(opts.debug ? { ...editNote(), layout_debug: true } : editNote()));
+  host.find('ck-body').dispatch('click', { target: host.findAll('sticky-task-line')[2] });
+  answer(host, host.last('ui/request-display-mode'), { mode: 'fullscreen' });
+  host.deliver(hostContextChanged({ displayMode: 'fullscreen', containerDimensions: { width: 1400, height: 924 } }));
+  answer(host, toolCalls(host, 'codekeeper_show_note').pop(), toolAnswer(editNote()));
+  return host;
+}
+{
+  const host = touchEditor({ debug: true });
+  const ta = host.find('ck-editor');
+  const docEl = host.document.documentElement;
+  check('מסך מגע — הריפוד הזמני כבר על התיבה ברגע הפוקוס, כלומר לפני שהמקלדת נקראת',
+    ta && /\bck-opening\b/.test(ta.classAtFocus || '') && ta.classList.contains('ck-opening'), ta && ta.classAtFocus);
+  check('הקו התחתון של העריכה — השוליים שהמארח מסר בפתיחה', docEl.style.props['--ck-edit-bottom'] === '195px', docEl.style.props['--ck-edit-bottom']);
+  host.deliver(hostContextChanged(KEYBOARD_INSETS(543)));
+  check('המקלדת דווחה (השוליים גדלו) — הריפוד הזמני יורד, והקו התחתון עולה אליה',
+    !ta.classList.contains('ck-opening') && docEl.style.props['--ck-edit-bottom'] === '543px', [ta.className, docEl.style.props['--ck-edit-bottom']]);
+  check('ומצב המדידה אומר שזה הגיע מדיווח', /kb=reported/.test(host.find('ck-debug').textContent) && /edit-bottom=543/.test(host.find('ck-debug').textContent),
+    host.find('ck-debug').textContent);
+  host.deliver(hostContextChanged(KEYBOARD_INSETS(195)));
+  check('המקלדת נסגרה באמצע עריכה — הקו התחתון נשאר בגובה שלה', docEl.style.props['--ck-edit-bottom'] === '543px', docEl.style.props['--ck-edit-bottom']);
+  host.deliver(hostContextChanged({ containerDimensions: { width: 1400, height: 924 }, ...KEYBOARD_INSETS(195) }));
+  check('אותה מסגרת שנשלחה שוב עם השוליים — עדיין לא מתאפס', docEl.style.props['--ck-edit-bottom'] === '543px', docEl.style.props['--ck-edit-bottom']);
+  host.deliver(hostContextChanged({ containerDimensions: { width: 924, height: 1400 }, ...KEYBOARD_INSETS(195) }));
+  check('מסגרת בגודל אחר (סיבוב) — הקו התחתון חוזר לשוליים של עכשיו', docEl.style.props['--ck-edit-bottom'] === '195px', docEl.style.props['--ck-edit-bottom']);
+  host.find('ck-cancel').dispatch('click');
+  check('יציאה מהעריכה — בלי קו תחתון של עריכה', !host.find('ck-editor') && !('--ck-edit-bottom' in docEl.style.props), docEl.style.props);
+}
+{
+  // **סיבוב שההודעה עליו אינה נושאת שוליים** — השוליים שבזיכרון הם של הכיוון הקודם. הם ממשיכים לשמש
+  // לפריסה עד הדיווח הבא, אבל אינם רצפה לו: המקלדת של הכיוון החדש יכולה להיות נמוכה יותר.
+  const host = touchEditor();
+  const docEl = host.document.documentElement;
+  host.deliver(hostContextChanged(KEYBOARD_INSETS(543)));
+  host.deliver(hostContextChanged({ containerDimensions: { width: 924, height: 1400 } }));
+  check('סיבוב בלי שוליים בהודעה — עד הדיווח הבא, הקו לפי השוליים הישנים', docEl.style.props['--ck-edit-bottom'] === '543px',
+    docEl.style.props['--ck-edit-bottom']);
+  host.deliver(hostContextChanged(KEYBOARD_INSETS(400)));
+  check('והדיווח הבא נקבע גם כשהוא קטן מהם — המקלדת של הכיוון החדש', docEl.style.props['--ck-edit-bottom'] === '400px',
+    docEl.style.props['--ck-edit-bottom']);
+  host.deliver(hostContextChanged(KEYBOARD_INSETS(195)));
+  check('ומשם הזיכרון עובד כרגיל — המקלדת נסגרה, הקו נשאר', docEl.style.props['--ck-edit-bottom'] === '400px',
+    docEl.style.props['--ck-edit-bottom']);
+}
+{
+  const host = touchEditor({ debug: true });
+  const ta = host.find('ck-editor');
+  host.fire(KEYBOARD_DEADLINE);
+  check('בלי דיווח על מקלדת (מקלדת פיזית) — הריפוד הזמני יורד בתקרת הזמן', !ta.classList.contains('ck-opening'), ta.className);
+  check('ומצב המדידה אומר שזו הייתה התקרה', /kb=deadline/.test(host.find('ck-debug').textContent), host.find('ck-debug').textContent);
+}
+{
+  const host = touchEditor();
+  const timer = host.timers.find((t) => t.ms === KEYBOARD_DEADLINE);
+  host.find('ck-cancel').dispatch('click');
+  check('יציאה מהעריכה בזמן ההמתנה — הטיימר מתבטל', !!timer && timer.cleared === true, timer);
+}
+{
+  const host = touchEditor({ coarse: false });
+  const ta = host.find('ck-editor');
+  check('מחשב (מצביע מדויק) — אין ריפוד זמני ואין תקרת זמן', ta &&!/\bck-opening\b/.test(ta.classAtFocus || '') && !host.timers.some((t) => t.ms === KEYBOARD_DEADLINE),
+    ta && ta.classAtFocus);
+}
+{
+  const host = load({ coarse: true });
+  initialize(host, { ...EDIT_CTX, containerDimensions: { width: 1400, maxHeight: 6000 } }, EDIT_CAPS);
+  host.deliver(toolResult(editNote()));
+  host.find('ck-body').dispatch('click', { target: host.findAll('sticky-task-line')[2] });
+  answer(host, host.last('ui/request-display-mode'), { mode: 'fullscreen' });
+  answer(host, toolCalls(host, 'codekeeper_show_note').pop(), toolAnswer(editNote()));
+  const ta = host.find('ck-editor');
+  check('מסך מלא בגובה גמיש (ck-expanded) — אין ריפוד זמני גם במסך מגע', ta && !/\bck-opening\b/.test(ta.classAtFocus || ''), ta && ta.classAtFocus);
 }
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);
