@@ -1162,6 +1162,10 @@
             from { opacity: 0; transform: translateY(20px); }
             to   { opacity: 1; transform: translateY(0); }
         }
+        /* החלונית צומחת מהכפתור שפתח אותה (``showRecentFiles``), ואז אנימציית ה-CSS לא רצה. */
+        .recent-files-modal.is-morph .modal-content {
+            animation: none;
+        }
         .recent-files-modal .modal-header,
         .community-modal .modal-header {
             display: flex; justify-content: space-between; align-items: center;
@@ -1983,7 +1987,7 @@
                             <span class="qa-icon"><img data-src="{{ url_for('static', filename='icons/boards-quick-access-128.png') }}?v={{ static_version }}" alt="" style="width: 1.3em; height: 1.3em; vertical-align: middle;"></span>
                             <span class="qa-label">לוחות פתקים</span>
                         </a>
-                        <button class="quick-access-item" onclick="showRecentFiles()" title="קבצים שנפתחו לאחרונה">
+                        <button class="quick-access-item" onclick="showRecentFiles(this)" title="קבצים שנפתחו לאחרונה">
                             <span class="qa-icon">🕓</span>
                             <span class="qa-label">נפתחו לאחרונה</span>
                         </button>
@@ -2371,17 +2375,51 @@
             }
         }
 
-        async function showRecentFiles() {
+        /**
+         * החלונית "קבצים אחרונים". ``trigger`` הוא הכפתור שנלחץ (🕓 בחלונית קיצורי הדרך):
+         * כשהוא ידוע, החלונית "צומחת" ממנו אל מקומה במרכז, והתוכן והרקע שמאחוריה מופיעים
+         * בהדרגה — ``AnimUtils.morphFromRect`` וה-``MOTION.morph*`` ב-``utils/animations.js``.
+         * בלי ``trigger`` (קריאה מתוך קוד), או כשאי אפשר להנפיש, נשארת הכניסה של CSS
+         * (``modalSlideUp``).
+         *
+         * **הרשימה נכנסת רק אחרי שהצמיחה נגמרה.** הצמיחה מחושבת מהקופסה של החלונית ברגע
+         * הפתיחה, עם "טוען...". רשימה שהייתה מגיעה מהשרת באמצע הייתה משנה את הקופסה, והחלונית
+         * הייתה קופצת בגודל. ההמתנה מוסיפה זמן רק כשהשרת עונה מהר מהצמיחה.
+         */
+        async function showRecentFiles(trigger) {
             let modal = null;
             try {
+                // המלבן נמדד לפני שהתפריט נסגר: הסגירה היא מעבר של ``opacity``, והכפתור
+                // עדיין במקומו, אבל אין סיבה להישען על זה.
+                const fromRect = (trigger && typeof trigger.getBoundingClientRect === 'function')
+                    ? trigger.getBoundingClientRect() : null;
                 // סגור את התפריט
                 try { toggleQuickAccess(); } catch (e) {}
                 modal = createRecentFilesModal();
+                const AU = window.AnimUtils;
+                const content = modal.querySelector('.modal-content');
+                const morph = !!(fromRect && fromRect.width && fromRect.height
+                    && AU && AU.canAnimate && AU.canAnimate(content));
+                // ``is-morph`` מבטל את ``modalSlideUp``, לפני ההוספה לעמוד: המדידה של הקופסה
+                // הסופית לא צריכה לכלול את ההזזה של אנימציית ה-CSS, והשתיים לא צריכות לרוץ יחד.
+                if (morph) modal.classList.add('is-morph');
                 document.body.appendChild(modal);
+                let grown = null;
+                if (morph) {
+                    const radius = parseFloat(window.getComputedStyle(trigger).borderTopLeftRadius) || 0;
+                    grown = AU.morphFromRect(content, fromRect, radius, AU.MOTION.morph);
+                    AU.play(Array.from(content.children), [{ opacity: 0 }, { opacity: 1 }], AU.MOTION.morphContent);
+                    AU.play(modal.querySelectorAll('.modal-backdrop'), [{ opacity: 0 }, { opacity: 1 }], AU.MOTION.morphBackdrop);
+                }
                 // טעינת קבצים אחרונים מה-API
                 const resp = await fetch('/api/files/recent');
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 const files = await resp.json();
+                if (grown) {
+                    // ``finished`` נדחה רק כשהאנימציה בוטלה (MDN, ``Animation.cancel()``), ואז
+                    // אין צמיחה לחכות לה — מציגים את הרשימה מיד.
+                    await grown.finished.catch(() => {});
+                }
                 displayRecentFiles(files, modal);
             } catch (err) {
                 console.error('Error loading recent files:', err);
