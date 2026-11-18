@@ -54,7 +54,9 @@
    בשרת. הפירוט ליד ``beginEdit`` וליד ``save``.
 
    **המקלדת.** בזמן עריכה במסגרת קבועה הפתק מוצמד לשטח הגלוי (``visualViewport``), ורק תיבת הטקסט
-   נגללת — ``syncVisibleArea``. במסך שהצלע הקצרה שלו צרה (טלפון) אין עריכה — ``screenAllowsEditing``.
+   נגללת — ``syncVisibleArea``. באפליקציה של Claude המקלדת מגיעה דווקא ב-``safeAreaInsets.bottom``:
+   הנייר ממשיך עד תחתית המסגרת, והשוליים הופכים לריפוד של תיבת הטקסט (``note_view.css``), כך שמה
+   שמקלידים נשאר מעליהם — ``revealCaret``. במסך שהצלע הקצרה שלו צרה (טלפון) אין עריכה — ``screenAllowsEditing``.
    ו-``layout_debug`` מהכלי מציג מספרים חיים על הפריסה, לבדיקה במכשיר — ``updateDebug``. */
 (function (root) {
   'use strict';
@@ -375,6 +377,10 @@
     }
     this.updateControls();
     if (this.initialized) this.scheduleSize();
+    // **המסגרת או השוליים השתנו — הסמן חוזר לתצוגה.** באפליקציה של Claude המקלדת מגיעה כאן, ב-
+    // ``safeAreaInsets.bottom``, ולא כשינוי של השטח הגלוי: הריפוד של תיבת הטקסט גדל מתחת לסמן,
+    // ושום דבר אחר אינו גולל אליו (``revealCaret`` חוזר מיד כשאין עורך בפוקוס).
+    this.scheduleReveal();
   };
 
   NoteView.prototype.canFullscreen = function () {
@@ -613,11 +619,12 @@
    *  בזמן עריכה במסגרת קבועה הפתק מוצמד לשטח הזה, כך שהכותרת ו"שמור"/"בטל" בראשו, ותיבת הטקסט היא
    *  היחידה שנגללת — במקום שהדפדפן יגלול את הדף כולו כדי להראות את הסמן מעל המקלדת.
    *
-   *  **למה זה מספיק גם כשהמקלדת משנה את הפריסה עצמה:** אז גם הגובה הגלוי קטן, והמרחק נשאר 0. ולמה זה
-   *  עלול לא להספיק: השינוי שבו המקלדת מקטינה רק את השטח הגלוי "do not affect WebView" (Chrome for
-   *  Developers, "Prepare for viewport resize behavior changes"), והאפליקציה של Claude מציגה את הדף ב-
-   *  WebView. אם המערכת מזיזה בה את כל החלון, הדף אינו יודע דבר — ובשביל זה מצב המדידה
-   *  (``updateDebug``). מספר שאינו אורך תקין אינו נכנס ל-CSS. */
+   *  **למה זה מספיק גם כשהמקלדת משנה את הפריסה עצמה:** אז גם הגובה הגלוי קטן, והמרחק נשאר 0. **ולמה
+   *  באפליקציה של Claude זה לא משנה דבר:** השינוי שבו המקלדת מקטינה רק את השטח הגלוי "do not affect
+   *  WebView" (Chrome for Developers, "Prepare for viewport resize behavior changes"), ונמדד בטאבלט
+   *  (מצב המדידה, ``updateDebug``, 18.11.2026): השטח הגלוי והחלון נשארים בגובה המסגרת גם כשהמקלדת
+   *  פתוחה. שם המקלדת מגיעה מהמארח, ב-``safeAreaInsets.bottom`` — ראו ``layout`` ו-``revealCaret``.
+   *  מספר שאינו אורך תקין אינו נכנס ל-CSS. */
   NoteView.prototype.syncVisibleArea = function () {
     var vv = this.win.visualViewport;
     var style = this.doc.documentElement.style;
@@ -648,15 +655,21 @@
    *  ``setSelectionRange`` על תיבה שבפוקוס אינו גולל אליו, ו-``focus()`` גולל אליו רק כשהתיבה מקבלת
    *  פוקוס (ו-``blur`` + ``focus`` היו סוגרים ופותחים את המקלדת במובייל). לכן המקום של הסמן נמדד:
    *  ``caretTop`` בונה עותק נסתר של התיבה, עם הסגנון המחושב שלה, ומודד את הגובה של הטקסט שלפני הסמן.
-   *  רק גלילה אנכית של התיבה עצמה — שום מיקום אופקי אינו מחושב כאן. */
+   *  רק גלילה אנכית של התיבה עצמה — שום מיקום אופקי אינו מחושב כאן.
+   *
+   *  **הגבול התחתון הוא מעל האזור שהמארח מכסה.** במסגרת קבועה, בזמן עריכה, התיבה נמשכת מתחת למקלדת,
+   *  והריפוד התחתון שלה הוא השוליים של המארח (``note_view.css``). הגובה שלו נקרא מהסגנון המחושב — לא
+   *  מחושב כאן שוב (H7). ריפוד שאינו אורך תקין נחשב 0, כלומר כל התיבה גלויה — כמו בלי מקלדת. */
   NoteView.prototype.revealCaret = function () {
     var ed = this.editor;
     if (!ed || !this.editorShown() || this.doc.activeElement !== ed.textarea) return;
     var ta = ed.textarea;
     var caret = this.caretTop(ta);
     if (!caret) return;
+    var covered = parseFloat(this.win.getComputedStyle(ta).paddingBottom);
+    var visible = ta.clientHeight - (isLength(covered, true) ? covered : 0);
     if (caret.top < ta.scrollTop) ta.scrollTop = caret.top;
-    else if (caret.top + caret.line > ta.scrollTop + ta.clientHeight) ta.scrollTop = caret.top + caret.line - ta.clientHeight;
+    else if (caret.top + caret.line > ta.scrollTop + visible) ta.scrollTop = caret.top + caret.line - visible;
   };
 
   /** המרחק של הסמן מראש התוכן של התיבה, וגובה שורה — ``{top, line}``, או ``null`` כשאין למדוד. העותק

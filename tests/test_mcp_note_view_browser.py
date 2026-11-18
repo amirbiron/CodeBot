@@ -1565,6 +1565,83 @@ def test_a_tiny_visible_area_keeps_the_box_inside_the_note(chromium_executable, 
     assert geo["paper"]["bottom"] <= geo["root"]["bottom"] + 0.5, geo
 
 
+#: השוליים התחתונים שהמארח המזויף מוסר כשהמקלדת "נפתחת", מתוך מסגרת של 600 — באפליקציה של Claude
+#: בטאבלט נמדד 543 מתוך 924 (מצב המדידה, 18.11.2026).
+_KEYBOARD_INSET = 300
+
+#: המקום של תחתית שורת הסמן במסגרת, בחשבון של הבדיקה ולא במדידה של הדף: מספר השורה שלפני הסמן כפול
+#: גובה שורה, מראש התיבה ובניכוי הגלילה. השורות של ``_EDIT_LONG`` ושל מה שהבדיקה מקלידה קצרות, ולא
+#: נשברות ברוחב של 800.
+_CARET_BOTTOM = """() => {
+    const t = document.querySelector('.ck-editor');
+    const cs = getComputedStyle(t);
+    const lines = t.value.slice(0, t.selectionStart).split('\\n').length;
+    return t.getBoundingClientRect().top + parseFloat(cs.paddingTop) + lines * parseFloat(cs.lineHeight) - t.scrollTop;
+}"""
+
+
+def test_with_the_keyboard_reported_by_the_host_the_note_reaches_the_bottom_and_the_caret_stays_above(
+        chromium_executable, edit_host):
+    """**המקלדת של האפליקציה של Claude** — לא בשטח הגלוי אלא ב-``safeAreaInsets.bottom``. נמדד בטאבלט:
+    השטח הגלוי והחלון נשארים בגובה המסגרת, השוליים התחתונים קופצים מ-195 ל-543, והאפליקציה מזיזה את
+    המסגרת כולה בלי שהדף יודע. המארח המזויף שולח שוליים של ``_KEYBOARD_INSET``:
+
+    - **הנייר ממשיך עד תחתית המסגרת** — כשהמסגרת זזה למעלה, מה שנחשף מתחתיו הוא הפתק ולא שטח ריק;
+    - **הסמן, שהיה בשורה התחתונה של התיבה, עולה אל מעל הקו** (``revealCaret``, מ-``layout``);
+    - **הקלדה של שורות חדשות משאירה אותו מעל הקו** (``scroll-padding-block-end`` — בלעדיו הדפדפן גולל
+      לפי כל התיבה, כולל הריפוד, כלומר אל מתחת למקלדת);
+    - **והשורה האחרונה של הפתק יכולה לעלות אל מעל הקו** (``padding-block-end``)."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long.html")
+        try:
+            view.click(".ck-edit")
+            poll(view, "() => document.documentElement.classList.contains('ck-fill') && innerHeight === 600"
+                       " && !!document.querySelector('.ck-editor') && document.activeElement === document.querySelector('.ck-editor')",
+                 "the editor opened in the fixed frame")
+            _frames(view, 4)
+            placed = view.evaluate("""() => {
+                const t = document.querySelector('.ck-editor');
+                const lh = parseFloat(getComputedStyle(t).lineHeight);
+                const last = Math.floor(t.clientHeight / lh) - 1;
+                const lines = t.value.split('\\n');
+                let pos = 0;
+                for (let i = 0; i < last; i += 1) pos += lines[i].length + 1;
+                t.scrollTop = 0;
+                t.setSelectionRange(pos, pos);
+                return {line: last};
+            }""")
+            before = view.evaluate(_CARET_BOTTOM)
+            page.evaluate("""(bottom) => document.getElementById('view').contentWindow.postMessage({jsonrpc: '2.0',
+                method: 'ui/notifications/host-context-changed',
+                params: {safeAreaInsets: {top: 0, right: 0, bottom: bottom, left: 0}}}, '*')""", _KEYBOARD_INSET)
+            poll(view, "(b) => getComputedStyle(document.querySelector('.ck-editor')).paddingBottom === b + 'px'",
+                 "the editor took the host's bottom inset as its padding", _KEYBOARD_INSET)
+            _frames(view, 4)
+            geo = view.evaluate("""() => ({paper: document.querySelector('.ck-paper').getBoundingClientRect().bottom,
+                                         inner: innerHeight, scrollY: (document.scrollingElement || document.documentElement).scrollTop})""")
+            revealed = view.evaluate(_CARET_BOTTOM)
+            page.keyboard.press("End")
+            for _ in range(6):
+                page.keyboard.press("Enter")
+            page.keyboard.type("x")
+            _frames(view, 4)
+            typed = view.evaluate(_CARET_BOTTOM)
+            page.keyboard.press("Control+End")
+            _frames(view, 4)
+            last = view.evaluate(_CARET_BOTTOM)
+        finally:
+            browser.close()
+
+    line = 600 - _KEYBOARD_INSET
+    assert placed["line"] > 0 and before > line, (placed, before)
+    assert geo["paper"] >= geo["inner"] - 4 - 0.5 and geo["scrollY"] == 0, geo
+    assert revealed <= line + 0.5, revealed
+    assert typed <= line + 0.5, typed
+    assert last <= line + 0.5, last
+
+
 def test_opening_a_far_line_of_a_long_note_shows_the_caret(chromium_executable, edit_host):
     """לחיצה על שורה רחוקה בפתק ארוך: התיבה נגללת אל הסמן. **השורה באמצע הפתק — רחוקה גם מההתחלה
     וגם מהסוף.** נמדד בכרום: אחרי הצבה של ``value`` הסמן בסוף הטקסט, ו-``focus()`` גולל לשם. בסדר
