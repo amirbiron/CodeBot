@@ -1054,30 +1054,31 @@ Endpoints
 שמירת משתנים בפרסום
 ~~~~~~~~~~~~~~~~~~~
 
-בבונה הערכות (``theme_builder.html``), הקוד שומר את המשתנים המקוריים כדי שלא יאבדו בפרסום:
+בונה הערכות (``webapp/templates/settings/theme_builder.html``) מציג רק חלק מהמשתנים של ערכה, ולא תמיד במדויק: Pickr כותב צבע בצורה שלו, ולמחוון השקיפות אין פקד לצבע הזכוכית. לכן הוא שומר את כל המשתנים של הערכה שנטענה (``currentThemeOriginalVariables``), ואת ערכי הטופס כמו שהם מיד אחרי הטעינה (``loadedFormBaseline``), ושולח בשמירה ובפרסום רק את מה שהשתנה מהם:
 
-.. code-block:: javascript
+.. literalinclude:: ../../webapp/templates/settings/theme_builder.html
+   :language: javascript
+   :start-after: // docs:theme-builder-changed-values:start
+   :end-before: // docs:theme-builder-changed-values:end
+   :dedent: 4
+   :caption: theme_builder.html – _changedThemeValues
 
-   // משתנים לשמירת נתונים מקוריים
-   let currentThemeOriginalVariables = {};  // כל משתני CSS
-   let currentThemeSyntaxCss = '';          // CSS להדגשת תחביר
-   let currentThemeSyntaxColors = {};       // מילון צבעים דינמי
+בפרסום, המשתנים המקוריים — כולל אלה שאינם בטופס, כמו ``--link-color`` ו-``--code-bg`` — ומעליהם רק השינויים:
 
-   // בטעינת ערכה
-   currentThemeOriginalVariables = { ...theme.variables };
-   currentThemeSyntaxCss = theme.syntax_css || '';
-   currentThemeSyntaxColors = theme.syntax_colors || {};
+.. literalinclude:: ../../webapp/templates/settings/theme_builder.html
+   :language: javascript
+   :start-after: // docs:theme-builder-publish-merge:start
+   :end-before: // docs:theme-builder-publish-merge:end
+   :dedent: 12
+   :caption: theme_builder.html – המיזוג בפרסום
 
-   // בפרסום - מיזוג: משתנים מקוריים + ערכי טופס
-   const colors = {
-     ...currentThemeOriginalVariables,  // משתנים שאינם בטופס
-     ...collectThemeValues(),           // ערכי הטופס (דורסים)
-   };
+בשמירה נשלחים רק השינויים, ו-``update_theme`` ב-``webapp/themes_api.py`` ממזג אותם מעל המשתנים השמורים. ערכה חדשה, שנבנית מאפס בבונה, אין לה ערכים מקוריים, ולכן היא שולחת את כל הטופס.
 
-.. tip::
+**מחוון השקיפות** משנה את שלושת משתני הזכוכית יחד — ``--glass``, ובשקיפות גבוהה ממנה ``--glass-border`` ו-``--glass-hover`` — וכל אחד שומר את הצבע שלו מהערכה שנטענה (``_glassValues``). בערכה חדשה, ואחרי "איפוס לברירות מחדל", הצבע לבן. "בטל", "בצע שוב" ושחזור טיוטה מחזירים גם את הצבע של המצב שחוזרים אליו (``_applyState``), ולא רק את המחוון ואת התצוגה המקדימה — כך ש"בטל" אחרי איפוס שומר שוב את הזכוכית הצבעונית.
 
-   משתנים כמו ``--link-color`` ו-``--code-bg`` אינם בטופס אך נשמרים
-   מהערכה המקורית, כך שצבעי קישורים וקוד לא נאבדים בפרסום.
+.. note::
+
+   עד נובמבר 2026 הבונה כתב את שלושת משתני הזכוכית תמיד כלבן, ושלח בשמירה ובפרסום את כל הטופס. ערכה מיובאת עם זכוכית צבעונית פורסמה לכן עם זכוכית לבנה — הכרטיסים והכפתורים לבנים בלי מסגרת, וכל וו דריסה בצבע שלו — ושמירה בבונה, גם בלי שום שינוי, הלבינה גם את הזכוכית בערכה האישית. ערכה ציבורית שפורסמה לפני התיקון נשארת כך עד שמוחקים אותה ומפרסמים אותה מחדש: היא עותק שנשמר ברגע הפרסום. ``tests/test_theme_builder_glass_browser.py`` בודק בדפדפן מה הבונה שולח.
 
 .. _shared-theme-syntax-css:
 
