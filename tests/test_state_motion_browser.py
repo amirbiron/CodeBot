@@ -667,21 +667,68 @@ def test_the_search_selects_open_in_the_page_and_their_options_cascade_in(make_p
         assert not p.js("(s) => document.querySelector(s).matches(':open')", sel), sel
 
 
-@pytest.mark.parametrize("layout", ["tablet", "hamburger"])
+#: הרוחב של הטאבלט של המשתמש (בצילום המסך שלו) ושל טלפון לאורך — שני הרוחבים שבהם השורה לא נכנסה.
+NARROW_LAYOUTS = {"tablet": {"width": 1250, "height": 900}, "phone": {"width": 412, "height": 915}}
+
+#: כל הפקדים בשורת הפילטרים, מול הקופסה של השורה עצמה: האם התוכן נכנס בכל תיבה, האם משהו גולש מהשורה,
+#: והגובה של כל select — שורת טקסט אחת או יותר.
+FILTER_ROW_JS = """() => {
+  const row = document.querySelector('.search-and-filters .filters-row').getBoundingClientRect();
+  const ids = ['searchType', 'resultsPerPage', 'sortOrder', 'languageFilterBtn'];
+  return ids.map((id) => {
+    const e = document.getElementById(id), r = e.getBoundingClientRect();
+    return {id, value: e.value, scroll: e.scrollWidth, client: e.clientWidth, height: Math.round(r.height),
+            inside: r.left >= row.left - 0.5 && r.right <= row.right + 0.5};
+  });
+}"""
+
+
 @pytest.mark.parametrize("direction", ["rtl", "ltr"])
-def test_the_closed_search_selects_hold_their_text_and_arrow(make_page, db, direction, layout):
-    """``base-select`` אינו חותך את התוכן כמו ה-select הרגיל, ולכן תיבה צרה מהתוכן שלה מציירת את החץ
-    מחוץ למסגרת. כל תיבה מכילה את הטקסט והחץ, ושלושתן בתוך רוחב החלון."""
-    p = make_page(viewport=TABLET if layout == "tablet" else HAMBURGER)
+@pytest.mark.parametrize("layout", sorted(NARROW_LAYOUTS))
+def test_the_filter_row_fits_every_search_type(make_page, db, layout, direction):
+    """לכל סוג חיפוש: כל תיבה מכילה את הטקסט ואת החץ, שום פקד אינו יוצא מהשורה, והטקסט בשורה אחת —
+    שלוש התיבות באותו גובה כמו כשנבחר "תוכן". ``base-select`` אינו מתכווץ ואינו חותך כמו ה-select
+    הרגיל, ולכן תיבה צרה צירה את החץ מחוץ למסגרת, שורה שלא נשברה גלשה בטלפון, ו"חיפוש חכם" נשבר לשתי
+    שורות ומתח איתו את שאר התיבות."""
+    p = make_page(viewport=NARROW_LAYOUTS[layout])
     p.goto("/files")
     p.js("(d) => { document.documentElement.dir = d; }", direction)
-    boxes = p.js("""(ids) => ids.map((id) => { const s = document.getElementById(id), r = s.getBoundingClientRect();
-      return {id, scroll: s.scrollWidth, client: s.clientWidth, left: r.left, right: r.right}; })""",
-                 [s.lstrip("#") for s in SEARCH_SELECTS])
-    vw = p.js("() => document.documentElement.clientWidth")
-    for b in boxes:
-        assert b["scroll"] <= b["client"], f"התוכן גולש מהתיבה: {b}"
-        assert 0 <= b["left"] and b["right"] <= vw, f"התיבה בתוך רוחב החלון: {b}"
+    values = p.js("() => [...document.getElementById('searchType').options].map((o) => o.value)")
+    assert "semantic" in values and "docs" in values, f"בקרה: כל סוגי החיפוש, כולל 'תיעוד' של אדמין — {values}"
+    baseline = None
+    for value in values:
+        p.js("""(v) => { const s = document.getElementById('searchType'); s.value = v;
+          s.dispatchEvent(new Event('change', {bubbles: true})); }""", value)
+        boxes = p.js(FILTER_ROW_JS)
+        for b in boxes:
+            assert b["scroll"] <= b["client"], f"{value}: התוכן גולש מהתיבה — {b}"
+            assert b["inside"], f"{value}: הפקד יוצא מהשורה — {boxes}"
+        heights = [b["height"] for b in boxes[:3]]
+        baseline = baseline or heights
+        assert heights == baseline, f"{value}: גובה התיבות {heights}, ובשורה אחת הוא {baseline}"
+
+
+def test_the_blocked_search_selects_look_blocked(make_page, db):
+    """כשנבחר "תיעוד", מספר התוצאות והמיון חסומים (``syncFiltersWithSearchType``), ונראים חסומים כמו
+    שנראו ב-select הרגיל. האורקל הוא select רגיל וחסום באותו עמוד — השקיפות שהדפדפן נותן לו — ולא
+    מספר שמוקלד כאן."""
+    p = make_page()
+    p.goto("/files")
+    native = p.js("""() => { const s = document.createElement('select'); s.disabled = true;
+      s.style.appearance = 'auto'; document.body.appendChild(s);
+      const o = getComputedStyle(s).opacity; s.remove(); return o; }""")
+    assert float(native) < 1, f"בקרה: הדפדפן מסמן select רגיל וחסום בשקיפות — {native}"
+    p.js("""() => { const s = document.getElementById('searchType'); s.value = 'docs';
+      s.dispatchEvent(new Event('change', {bubbles: true})); }""")
+    for sel in ("#resultsPerPage", "#sortOrder"):
+        state = p.js("(s) => { const e = document.querySelector(s);"
+                     " return [e.disabled, getComputedStyle(e).opacity]; }", sel)
+        assert state == [True, native], f"{sel}: {state}, וה-select הרגיל החסום — {native}"
+        p.page.click(sel, force=True)
+        assert not p.js("(s) => document.querySelector(s).matches(':open')", sel), f"{sel}: תיבה חסומה לא נפתחת"
+    p.js("""() => { const s = document.getElementById('searchType'); s.value = 'content';
+      s.dispatchEvent(new Event('change', {bubbles: true})); }""")
+    assert p.js("() => getComputedStyle(document.getElementById('sortOrder')).opacity") == "1"
 
 
 def test_a_choice_in_the_search_selects_reaches_the_search(make_page, db):
