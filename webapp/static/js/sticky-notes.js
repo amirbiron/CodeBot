@@ -1744,7 +1744,7 @@
         // בפתק שנפתח מעל עמוד "—" סוגר אותו — הוא חוזר לכרטיס שלו — ואינו כותב מיזעור.
         if (this.overlayMode) { this.closeOverlayNote(); return; }
         const nowMin = !el.classList.contains('is-minimized');
-        el.classList.toggle('is-minimized');
+        this._toggleMinimizedAnimated(el);
         // פתק ממוזער מסתיר את התצוגה, ולכן אין במה לחפש: החיפוש נסגר
         // (כולל הבלוקים שהוא פתח) והכפתור מושבת עד שהפתק נפתח.
         if (nowMin) this._closeNoteSearch(el);
@@ -3287,26 +3287,49 @@
     }
 
     /**
-     * הפתק מתכווץ אל הכרטיס שלו — **הפרש בין שני מלבנים שנמדדו**, ולכן נכון ב-RTL וב-LTR
-     * (H7). בלי ``animate`` (סביבת בדיקה), בלי מלבן יעד, או כשהמשתמש ביקש פחות תנועה
-     * (``prefers-reduced-motion``) — אין אנימציה, והפתק פשוט יורד.
+     * הפתק מתכווץ אל הכרטיס שלו — **הפרש בין שני מלבנים שנמדדו** (``AnimUtils.rectDelta``
+     * ב-``utils/animations.js``), ולכן נכון ב-RTL וב-LTR (H7). בלי מלבן יעד, כשאי אפשר להנפיש
+     * (``AnimUtils.canAnimate``: אין ``animate``, או שהמשתמש ביקש פחות תנועה), או בעמוד שלא
+     * טען את ``utils/animations.js`` — אין אנימציה, והפתק פשוט יורד.
      */
     async _shrinkInto(el, toRect){
-      if (!toRect || typeof el.animate !== 'function') return;
-      try {
-        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      } catch(_) { /* אין matchMedia — אין העדפה לכבד */ }
+      const AU = window.AnimUtils;
+      if (!toRect || !AU || !AU.canAnimate || !AU.canAnimate(el)) return;
       const from = el.getBoundingClientRect();
       if (!from.width || !from.height || !toRect.width || !toRect.height) return;
-      const dx = (toRect.left + toRect.width / 2) - (from.left + from.width / 2);
-      const dy = (toRect.top + toRect.height / 2) - (from.top + from.height / 2);
-      const sx = toRect.width / from.width;
-      const sy = toRect.height / from.height;
+      const { dx, dy, sx, sy } = AU.rectDelta(from, toRect);
       const anim = el.animate([
         { transform: 'none', opacity: 1 },
         { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: 0.35 },
       ], { duration: ARCHIVE_CLOSE_MS, easing: 'ease-in' });
       try { await anim.finished; } catch(_) { /* האנימציה בוטלה — ממשיכים להסרה */ }
+    }
+
+    /**
+     * מתג המיזעור של ``—``, עם אנימציה: הפתק מתקפל לשורת הכותרת בקפיץ, ונפתח בחזרה לגודל
+     * שלו כשהתוכן מופיע בהדרגה. התזמונים — ``AnimUtils.MOTION.noteFold`` ו-``noteContent``.
+     *
+     * **המחלקה מתחלפת מיד** (``AnimUtils.animateHeight`` מריץ את ההחלפה בתוכו, באותו רגע),
+     * ולכן כל מה שהקורא עושה אחריה — סגירת החיפוש והשרשורים, השבתת הכפתורים, השמירה — רואה את
+     * המצב החדש כמו בלי אנימציה. לחיצה נוספת באמצע ממשיכה מהגובה שרואים.
+     *
+     * **רק הגובה זז, לא המיקום.** המיקום נשמר מהמלבן של הפתק (``_notePayloadFromEl``), ולכן
+     * אין כאן ``transform`` על הפתק: שמירה שהייתה רצה באמצע הייתה קוראת מיקום מוזז.
+     *
+     * רק הלחיצה של המשתמש עוברת כאן. פתיחה מתוך הקוד (``_expandMinimized``) נשארת מיידית, ובעמוד
+     * שלא טען את ``utils/animations.js`` המחלקה פשוט מתחלפת.
+     */
+    _toggleMinimizedAnimated(el){
+      const AU = window.AnimUtils;
+      const flip = () => { el.classList.toggle('is-minimized'); };
+      if (!AU || !AU.animateHeight) { flip(); return; }
+      AU.animateHeight(el, flip, AU.MOTION.noteFold);
+      if (el.classList.contains('is-minimized')) return;
+      // הגוף שהמיזעור הסתיר — התצוגה או ה-textarea, ורשימת המשימות — מופיע בהדרגה. רק מה
+      // שמוצג באמת: ``getClientRects`` ריק על ``display: none``.
+      const shown = Array.from(el.querySelectorAll(':scope > .sticky-note-content, :scope > .sticky-note-tasks'))
+        .filter((node) => node.getClientRects().length > 0);
+      AU.play(shown, [{ opacity: 0 }, { opacity: 1 }], AU.MOTION.noteContent);
     }
 
     /**

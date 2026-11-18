@@ -1423,6 +1423,18 @@
     display: flex;
 }
 
+/* החץ מצביע למעלה כשהקבוצה פתוחה. בלי transition, כמו ``.first-steps-chevron``: בערכות הכהות
+   dark-mode.css דורס אותו ממילא ([data-theme] *). את הסיבוב בלחיצה מנפיש ה-JS (``animateGroupToggle``).
+   ``inline-block`` כאן ולא רק מ-Font Awesome: ``transform`` אינו חל על תיבה inline, והגיליון של
+   Font Awesome מגיע מ-CDN. */
+.group-toggle > .fa-chevron-down {
+    display: inline-block;
+}
+
+.timeline-group.is-open .group-toggle > .fa-chevron-down {
+    transform: rotate(180deg);
+}
+
 .timeline-item.is-hidden-by-filter,
 .timeline-group.is-hidden-by-filter {
     display: none !important;
@@ -2523,11 +2535,41 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // הקבוצה נפתחת ונסגרת במקום בקפיץ, השורות עולות פנימה בהשהיה מדורגת, והחץ מסתובב — התזמונים
+    // ב-``AnimUtils.MOTION`` (``groupFold``, ``groupRow``, ``groupRowFade``, ``groupChevron``).
+    // **הגובה נמדד, לא קבוע:** בקבוצת הקבצים יש "טען עוד", וגובה קבוע היה חותך אותה בשקט.
+    // ``overflow: hidden`` מוחזק רק בזמן האנימציה (``clip``). רק הקשה של המשתמש מונפשת —
+    // הפתיחה בטעינה במסך רחב (``syncDesktop``) ו"הצג הכול" נשארות מיידיות.
+    const animateGroupToggle = (group) => {
+        const AU = window.AnimUtils;
+        const flip = () => { group.classList.toggle('is-open'); };
+        if (!AU || !AU.animateHeight) {
+            flip();
+            return;
+        }
+        AU.animateHeight(group, flip, Object.assign({ clip: true }, AU.MOTION.groupFold));
+        const open = group.classList.contains('is-open');
+        const chevron = group.querySelector('.group-toggle > .fa-chevron-down');
+        if (chevron) {
+            AU.play([chevron], [
+                { transform: open ? 'rotate(0deg)' : 'rotate(180deg)' },
+                { transform: open ? 'rotate(180deg)' : 'rotate(0deg)' },
+            ], AU.MOTION.groupChevron);
+        }
+        if (!open) {
+            return;
+        }
+        const rows = Array.from(group.querySelectorAll('.group-items > [data-timeline-event]'))
+            .filter((row) => row.getClientRects().length > 0);
+        AU.play(rows, [{ transform: 'translateY(8px)' }, { transform: 'none' }], AU.MOTION.groupRow);
+        AU.play(rows, [{ opacity: 0 }, { opacity: 1 }], AU.MOTION.groupRowFade);
+    };
+
     timelineCard.querySelectorAll('[data-group-toggle]').forEach(toggle => {
         toggle.addEventListener('click', () => {
             const parent = toggle.closest('.timeline-group');
             if (parent) {
-                parent.classList.toggle('is-open');
+                animateGroupToggle(parent);
             }
         });
     });
