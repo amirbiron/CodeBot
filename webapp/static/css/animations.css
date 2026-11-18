@@ -18,6 +18,18 @@
 
   /* Settings */
   --slide-dist: 15px;
+
+  /* כניסה של פריטי תפריט (spring-dropdown מהפתק "אנימציות לCk"): כל פריט נכנס מעט מלמעלה
+     ומוקטן, ונוחת בקפיץ, ``step`` אחרי הקודם. **המקור היחיד של התנועה הזו** — גם ה-CSS (האפשרויות
+     של ה-select בחיפוש הגלובלי, ``menuItemSpringIn`` ו-``menuItemFadeIn`` למטה) וגם ה-JS
+     (``AnimUtils.cascadeMenu`` ב-``utils/animations.js``, שקורא את הטוקנים האלה בזמן ריצה) נשענים
+     עליה. עקומה שה-y שלה מעל 1 היא שעושה את הקפיץ. */
+  --motion-menu-from: translateY(-14px) scale(.92);
+  --motion-menu-duration: 500ms;
+  --motion-menu-ease: cubic-bezier(.2, 1.5, .3, 1);
+  --motion-menu-step: 55ms;
+  --motion-menu-fade-duration: 250ms;
+  --motion-menu-fade-ease: ease;
 }
 
 /* נגישות: ביטול אנימציות למי שמבקש */
@@ -49,6 +61,18 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* כניסה של פריט תפריט — שני חלקים עם תזמון נפרד, כמו ב-spring-dropdown: התנועה בקפיץ
+   (``--motion-menu-duration``/``-ease``) והדהייה הקצרה (``--motion-menu-fade-*``). */
+@keyframes menuItemSpringIn {
+  from { transform: var(--motion-menu-from); }
+  to { transform: none; }
+}
+
+@keyframes menuItemFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* מחיקה הצידה */

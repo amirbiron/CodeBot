@@ -8,7 +8,7 @@
 איפה זה בממשק
 -------------
 
-תיבת החיפוש הגלובלי יושבת בראש עמוד הקבצים (``/files``). ליד התיבה יש רשימה נפתחת (``#searchType`` ב-``webapp/templates/files.html``) שבה בוחרים את סוג החיפוש, וברירת המחדל היא **תוכן**.
+תיבת החיפוש הגלובלי יושבת בראש עמוד הקבצים (``/files``). ליד התיבה יש רשימה נפתחת (``#searchType`` ב-``webapp/templates/files.html``) שבה בוחרים את סוג החיפוש, וברירת המחדל היא **תוכן**. היא ושתי הרשימות שלידה — מספר התוצאות והמיון — נפתחות בתוך העמוד, צמודות לתיבה, והאפשרויות נכנסות בתנועה; בדפדפן שאינו תומך ב-``appearance: base-select`` הן נפתחות כרשימה הרגילה של הדפדפן (:ref:`anim-utils-state-motion`).
 
 הדפדפן (``performGlobalSearch`` ב-``webapp/static/js/global_search.js``) שולח את החיפוש ל-``POST /api/search/global`` (``api_search_global``). שני סוגים נשלחים ל-endpoint נפרד: **חיפוש חכם** (:ref:`global-search-smart`) ו\ **תיעוד** (:ref:`global-search-docs`).
 

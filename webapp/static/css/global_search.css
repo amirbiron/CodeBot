@@ -401,6 +401,77 @@
 }
 .search-and-filters select.form-control option{ background: var(--card-bg); color: var(--text-primary); }
 
+/* **סוג החיפוש, מספר התוצאות והמיון: הרשימה נפתחת בתוך העמוד, והאפשרויות נכנסות בקפיץ.**
+   ‏``appearance: base-select`` (כרום 135, גם באנדרואיד — browser-compat-data של MDN,
+   ``css.properties.appearance.base-select``; המדריך "Customizable select elements") מצייר את הרשימה של ``<select>`` כחלק מהעמוד —
+   חלונית צפה שמעוגנת לתיבה — במקום חלון של מערכת ההפעלה, שאת התוכן שלו אי אפשר להנפיש. ה-``<select>``,
+   הערכים ואירועי ה-``change`` נשארים כמו שהם, ולכן ``global_search.js`` לא משתנה.
+
+   **בתוך ``@supports``, והכלל הישן שמעליו נשאר:** דפדפן שאינו מכיר ``base-select`` מציג את ה-select
+   הרגיל בדיוק כמו קודם, כולל צבעי האפשרויות שהכלל שמעל קובע לו.
+
+   **המשטח הוא המשטח הקשיח של העמוד** (``--solid-surface-*``), כמו רשימת "שפות" שליד שלוש התיבות
+   והצעות החיפוש — לבן בכל ערכה. ולאפשרויות צבע מפורש: הכלל שמעל, שנכתב לרשימה של המערכת, צובע אותן
+   ב-``--text-primary`` — בהיר בערכת ברירת המחדל ובערכות הכהות — ועל הרשימה הלבנה זה יצא לבן על לבן
+   (נמדד בכרומיום 153: ניגודיות 1.00).
+
+   **התנועה היא spring-dropdown** — אותם keyframes ואותם טוקנים ``--motion-menu-*`` (``animations.css``)
+   שתפריטי ה-JS רצים לפיהם דרך ``AnimUtils.cascadeMenu``. ‏``animation`` ולא ``transition``: את
+   ``transition`` דורס ``[data-theme="dark"] *`` ב-``dark-mode.css`` בכל הערכות הכהות. האנימציה מתחילה
+   מחדש בכל פתיחה, כי הרשימה עוברת מ-``display: none`` לתצוגה (נמדד בכרומיום 153). ההשהיה נגזרת מ-
+   ``sibling-index()`` (כרום 138, browser-compat-data ``css.types.sibling-index``); דפדפן שאינו מכיר אותה
+   מוותר על ההצהרה, והאפשרויות נכנסות יחד. */
+@supports (appearance: base-select) {
+  .search-and-filters .filter-container select.form-control,
+  .search-and-filters .filter-container select.form-control::picker(select) {
+    appearance: base-select;
+  }
+
+  /* **ברוחב התוכן, ולא ``min(180px, 100%)`` של הכלל שמעל.** שלוש התיבות שואפות ל-180 כל אחת, ובשורה
+     אין מקום לשלוש כאלה, ולכן הן התכווצו לכ-78px. ה-select הרגיל חתך את הטקסט בתוכו ("רלוונ"), אבל
+     ``base-select`` אינו חותך: "רלוונטיות" והחץ (92px) גלשו מהתיבה, והחץ צויר מחוץ למסגרת (נמדד בכרומיום
+     153). ברוחב התוכן הן נכנסות בשורה במלואן, ו-``max-width: 100%`` שבכלל שמעל ממשיך לחסום גלישה. */
+  .search-and-filters .filter-container select.form-control {
+    width: auto;
+  }
+
+  .search-and-filters .filter-container select.form-control::picker(select) {
+    background: var(--solid-surface-bg);
+    color: var(--solid-surface-text);
+    border: 1px solid var(--solid-surface-border);
+    border-radius: 10px;
+    box-shadow: var(--solid-surface-shadow);
+    padding: .5rem;
+    margin-block: 6px;
+  }
+
+  .search-and-filters .filter-container select.form-control option {
+    background: transparent;
+    color: var(--solid-surface-text);
+    padding: .4rem .6rem;
+    border-radius: 8px;
+    animation:
+      menuItemSpringIn var(--motion-menu-duration) var(--motion-menu-ease) backwards,
+      menuItemFadeIn var(--motion-menu-fade-duration) var(--motion-menu-fade-ease) backwards;
+    animation-delay: calc((sibling-index() - 1) * var(--motion-menu-step));
+  }
+
+  .search-and-filters .filter-container select.form-control option:hover {
+    background: color-mix(in srgb, var(--solid-surface-text) 6%, transparent);
+  }
+
+  .search-and-filters .filter-container select.form-control option:checked {
+    font-weight: 600;
+  }
+
+  /* פחות תנועה: גם בלי ההשהיות — הכלל הגלובלי ב-``animations.css`` מקצר רק את המשך. */
+  @media (prefers-reduced-motion: reduce) {
+    .search-and-filters .filter-container select.form-control option {
+      animation: none;
+    }
+  }
+}
+
 /* ייצוב פריסת בקרי החיפוש */
 .search-and-filters .filters-row{
   display:flex;

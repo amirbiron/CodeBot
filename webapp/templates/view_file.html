@@ -2717,8 +2717,8 @@ function goBack(ev){
     setTimeout(runOverflowCycle, 80);
     setTimeout(runOverflowCycle, 350);
 
-    // הפריטים נכנסים אחד אחרי השני, מעט מלמעלה ומוקטנים, ונוחתים בקפיץ — התזמונים ב-
-    // ``AnimUtils.MOTION.menuItem`` / ``menuItemFade`` (``utils/animations.js``). **רק הפריטים זזים,
+    // הפריטים נכנסים אחד אחרי השני, מעט מלמעלה ומוקטנים, ונוחתים בקפיץ — ``AnimUtils.cascadeMenu``
+    // (``utils/animations.js``), עם התזמון שבטוקנים ``--motion-menu-*`` ב-``animations.css``. **רק הפריטים זזים,
     // לא המסגרת:** ``clampDropdownToViewport`` כותב ``transform`` על המסגרת כדי להחזיק אותה בתוך
     // המסך, ומדידה של המסגרת אינה מושפעת מ-``transform`` של ילדים. כולל פריטים שעברו לתפריט כי לא
     // נכנסו בשורה, לפי סדר התצוגה בשני החלקים; ``getClientRects`` ריק על פריט מוסתר.
@@ -2726,16 +2726,11 @@ function goBack(ev){
     // סגירה הייתה משאירה אותו מצויר — ו-Escape היה נבלע בזמנה.
     function animateMenuItems() {
         const AU = window.AnimUtils;
-        if (!AU || !AU.play) {
+        if (!AU || !AU.cascadeMenu) {
             return;
         }
-        const items = Array.from(dropdown.querySelectorAll('.file-actions__menu-item'))
-            .filter((item) => item.getClientRects().length > 0);
-        AU.play(items, [
-            { transform: 'translateY(-14px) scale(.92)' },
-            { transform: 'none' },
-        ], AU.MOTION.menuItem);
-        AU.play(items, [{ opacity: 0 }, { opacity: 1 }], AU.MOTION.menuItemFade);
+        AU.cascadeMenu(Array.from(dropdown.querySelectorAll('.file-actions__menu-item'))
+            .filter((item) => item.getClientRects().length > 0));
     }
 
     function openMenu() {
