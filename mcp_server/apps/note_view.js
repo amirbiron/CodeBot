@@ -54,9 +54,10 @@
    בשרת. הפירוט ליד ``beginEdit`` וליד ``save``.
 
    **המקלדת.** בזמן עריכה במסגרת קבועה הפתק מוצמד לשטח הגלוי (``visualViewport``), ורק תיבת הטקסט
-   נגללת — ``syncVisibleArea``. באפליקציה של Claude המקלדת מגיעה דווקא ב-``safeAreaInsets.bottom``:
-   הנייר ממשיך עד תחתית המסגרת, והשוליים הופכים לריפוד של תיבת הטקסט (``note_view.css``), כך שמה
-   שמקלידים נשאר מעליהם — ``revealCaret``. במסך שהצלע הקצרה שלו צרה (טלפון) אין עריכה — ``screenAllowsEditing``.
+   נגללת — ``syncVisibleArea``. באפליקציה של Claude המקלדת מגיעה דווקא ב-``safeAreaInsets.bottom``,
+   והפתק נגמר בתחילת בלוק ההקלדה — ``syncEditBottom``. אנדרואיד דוחף את המסגרת כשהמקלדת נפתחת מעל
+   הסמן, ולכן במסך מגע שורת הסמן עולה לראש התיבה לפני הפוקוס — ``beginKeyboardWait``. במסך שהצלע
+   הקצרה שלו צרה (טלפון) אין עריכה — ``screenAllowsEditing``.
    ו-``layout_debug`` מהכלי מציג מספרים חיים על הפריסה, לבדיקה במכשיר — ``updateDebug``. */
 (function (root) {
   'use strict';
@@ -84,6 +85,11 @@
    *  משהו מוחזק (הכפתור "שמור" מושבת, או שהעריכה "נפתחת"), ולכן ההמתנה חייבת סוף משלה
    *  (``wait-without-own-deadline``). */
   var TOOL_DEADLINE_MS = 20000;
+  /** תקרת הזמן של הריפוד הזמני בכניסה לעריכה (``beginKeyboardWait``): הוא מוחזק עד שהמארח מדווח על
+   *  המקלדת, ובלי מקלדת על המסך (מקלדת פיזית, מקלדת שלא נפתחה) הדיווח לא מגיע — ולכן להמתנה יש סוף
+   *  משלה (``wait-without-own-deadline``). המספר הוא מרווח שנבחר, לא מדידה: הזמן בפועל מהפוקוס ועד
+   *  הדיווח מוצג במצב המדידה (``kb=``), כדי שהתקרה תיקבע לפיו. */
+  var KEYBOARD_REPORT_DEADLINE_MS = 1500;
   /** הכלי שהתצוגה מציגה, והכלי שהיא שומרת דרכו (``mcp_server/server.py``). */
   var READ_TOOL = 'codekeeper_show_note';
   var SAVE_TOOL = 'codekeeper_note_view_save';
@@ -126,6 +132,14 @@
 
   /** מספר מהמארח, לפני שהוא נכנס ל-CSS: מספר אמיתי, סופי, ובטווח. ``NaN`` עובר כל השוואה
    *  כ-``false``, ולכן ``isFinite`` קודם (``amir-bug-patterns`` U3, סעיף 4). */
+  /** האם שתי הודעות ``containerDimensions`` מתארות אותה מסגרת. ארבעת השדות של המפרט ("Specify either
+   *  width or maxWidth, and either height or maxHeight", ``HostContext`` ב-``apps.mdx``). */
+  function sameDimensions(a, b) {
+    var x = isObject(a) ? a : {};
+    var y = isObject(b) ? b : {};
+    return x.width === y.width && x.maxWidth === y.maxWidth && x.height === y.height && x.maxHeight === y.maxHeight;
+  }
+
   function isLength(value, allowZero) {
     return typeof value === 'number' && isFinite(value) && (allowZero ? value >= 0 : value > 0);
   }
@@ -173,6 +187,11 @@
     /** העותק הנסתר של תיבת הטקסט שבו נמדד מקום הסמן (``revealCaret``), או ``null``. */
     this.caretMirror = null;
     this.revealScheduled = false;
+    // השוליים התחתונים הגדולים ביותר מאז שהעורך נפתח (``syncEditBottom``), ההמתנה לדיווח על המקלדת
+    // (``beginKeyboardWait``), ומה שקרה בהמתנה האחרונה — למצב המדידה.
+    this.editBottom = null;
+    this.keyboardWait = null;
+    this.keyboardReport = null;
     /** השמירה שבדרך — ``{ed, sent, base}`` — כולל הקריאה שמכריעה עליה, או ``null``. **של הדף ולא של
      *  העורך:** העורך יכול להיסגר בזמן שהיא בדרך, והתשובה עליה עדיין מעדכנת את הדף (``finishSave``). */
     this.saving = null;
@@ -309,6 +328,7 @@
   NoteView.prototype.applyHostContext = function (context) {
     if (!isObject(context)) return;
     // מיזוג רדוד, כמו ה-SDK: שדה שהגיע מחליף את הקודם כולו, ושדה שלא הגיע נשאר.
+    var oldDims = this.hostContext.containerDimensions;
     var merged = {};
     var oldKeys = Object.keys(this.hostContext);
     for (var o = 0; o < oldKeys.length; o += 1) merged[oldKeys[o]] = this.hostContext[oldKeys[o]];
@@ -319,6 +339,12 @@
     if (Object.prototype.hasOwnProperty.call(context, 'containerDimensions')
         || Object.prototype.hasOwnProperty.call(context, 'displayMode')) {
       this.forceReport = true;
+    }
+    // **מסגרת בגודל אחר (סיבוב של המכשיר) — המקלדת שנזכרה כבר אינה בגובה הזה.** ההשוואה היא בערכים
+    // ולא בעצם ההודעה: מארח ששולח את אותה מסגרת יחד עם שוליים חדשים אינו מאפס את מה שנזכר.
+    if (Object.prototype.hasOwnProperty.call(context, 'containerDimensions')
+        && !sameDimensions(oldDims, merged.containerDimensions)) {
+      this.editBottom = null;
     }
     this.applyTheme(context);
     this.layout();
@@ -375,12 +401,40 @@
       if (isLength(insets[side], true)) docEl.style.setProperty('--ck-safe-' + side, insets[side] + 'px');
       else docEl.style.removeProperty('--ck-safe-' + side);
     }
+    this.syncEditBottom();
     this.updateControls();
     if (this.initialized) this.scheduleSize();
     // **המסגרת או השוליים השתנו — הסמן חוזר לתצוגה.** באפליקציה של Claude המקלדת מגיעה כאן, ב-
-    // ``safeAreaInsets.bottom``, ולא כשינוי של השטח הגלוי: הריפוד של תיבת הטקסט גדל מתחת לסמן,
-    // ושום דבר אחר אינו גולל אליו (``revealCaret`` חוזר מיד כשאין עורך בפוקוס).
+    // ``safeAreaInsets.bottom``, ולא כשינוי של השטח הגלוי: התיבה מתקצרת מתחת לסמן, ושום דבר אחר אינו
+    // גולל אליו (``revealCaret`` חוזר מיד כשאין עורך בפוקוס).
     this.scheduleReveal();
+  };
+
+  /** השוליים התחתונים בזמן עריכה — **הגדולים ביותר מאז שהעורך נפתח**, ב-``--ck-edit-bottom`` (הנוסחה
+   *  ב-``note_view.css``, ``html.ck-fill.ck-editing #ck-note-root``). כשהמקלדת נסגרת באמצע עריכה
+   *  (כפתור "חזור" של אנדרואיד) השוליים קטנים, אבל הקו התחתון נשאר בגובה שלה: אחרת התיבה הייתה
+   *  מתארכת אל השטח שהמקלדת תכסה, לחיצה על שורה נמוכה הייתה פותחת אותה עם הסמן שם, ואנדרואיד היה דוחף
+   *  את המסגרת. ``editBottom`` מתאפס ביציאה מהעריכה ובמסגרת בגודל אחר (``applyHostContext``).
+   *  שוליים שגדלו בזמן ההמתנה לדיווח על המקלדת — הם הדיווח (``endKeyboardWait``). */
+  NoteView.prototype.syncEditBottom = function () {
+    var style = this.doc.documentElement.style;
+    if (!this.editor) {
+      this.editBottom = null;
+      style.removeProperty('--ck-edit-bottom');
+      return;
+    }
+    var bottom = this.safeBottom();
+    if (this.editBottom !== null && bottom <= this.editBottom) return;
+    var grew = this.editBottom !== null;
+    this.editBottom = bottom;
+    style.setProperty('--ck-edit-bottom', bottom + 'px');
+    if (grew && this.keyboardWait) this.endKeyboardWait('reported');
+  };
+
+  /** השוליים התחתונים שהמארח מסר עכשיו — 0 כשהם חסרים או אינם אורך תקין, כמו ב-``layout``. */
+  NoteView.prototype.safeBottom = function () {
+    var insets = isObject(this.hostContext.safeAreaInsets) ? this.hostContext.safeAreaInsets : {};
+    return isLength(insets.bottom, true) ? insets.bottom : 0;
   };
 
   NoteView.prototype.canFullscreen = function () {
@@ -623,7 +677,7 @@
    *  באפליקציה של Claude זה לא משנה דבר:** השינוי שבו המקלדת מקטינה רק את השטח הגלוי "do not affect
    *  WebView" (Chrome for Developers, "Prepare for viewport resize behavior changes"), ונמדד בטאבלט
    *  (מצב המדידה, ``updateDebug``, 18.11.2026): השטח הגלוי והחלון נשארים בגובה המסגרת גם כשהמקלדת
-   *  פתוחה. שם המקלדת מגיעה מהמארח, ב-``safeAreaInsets.bottom`` — ראו ``layout`` ו-``revealCaret``.
+   *  פתוחה. שם המקלדת מגיעה מהמארח, ב-``safeAreaInsets.bottom`` — ראו ``layout`` ו-``syncEditBottom``.
    *  מספר שאינו אורך תקין אינו נכנס ל-CSS. */
   NoteView.prototype.syncVisibleArea = function () {
     var vv = this.win.visualViewport;
@@ -655,21 +709,58 @@
    *  ``setSelectionRange`` על תיבה שבפוקוס אינו גולל אליו, ו-``focus()`` גולל אליו רק כשהתיבה מקבלת
    *  פוקוס (ו-``blur`` + ``focus`` היו סוגרים ופותחים את המקלדת במובייל). לכן המקום של הסמן נמדד:
    *  ``caretTop`` בונה עותק נסתר של התיבה, עם הסגנון המחושב שלה, ומודד את הגובה של הטקסט שלפני הסמן.
-   *  רק גלילה אנכית של התיבה עצמה — שום מיקום אופקי אינו מחושב כאן.
-   *
-   *  **הגבול התחתון הוא מעל האזור שהמארח מכסה.** במסגרת קבועה, בזמן עריכה, התיבה נמשכת מתחת למקלדת,
-   *  והריפוד התחתון שלה הוא השוליים של המארח (``note_view.css``). הגובה שלו נקרא מהסגנון המחושב — לא
-   *  מחושב כאן שוב (H7). ריפוד שאינו אורך תקין נחשב 0, כלומר כל התיבה גלויה — כמו בלי מקלדת. */
+   *  רק גלילה אנכית של התיבה עצמה — שום מיקום אופקי אינו מחושב כאן. התיבה כולה גלויה: בזמן עריכה
+   *  היא נגמרת מעל השוליים של המארח (``syncEditBottom``). */
   NoteView.prototype.revealCaret = function () {
     var ed = this.editor;
     if (!ed || !this.editorShown() || this.doc.activeElement !== ed.textarea) return;
     var ta = ed.textarea;
     var caret = this.caretTop(ta);
     if (!caret) return;
-    var covered = parseFloat(this.win.getComputedStyle(ta).paddingBottom);
-    var visible = ta.clientHeight - (isLength(covered, true) ? covered : 0);
     if (caret.top < ta.scrollTop) ta.scrollTop = caret.top;
-    else if (caret.top + caret.line > ta.scrollTop + visible) ta.scrollTop = caret.top + caret.line - visible;
+    else if (caret.top + caret.line > ta.scrollTop + ta.clientHeight) ta.scrollTop = caret.top + caret.line - ta.clientHeight;
+  };
+
+  /** **האם כניסה לעריכה תפתח מקלדת שעלולה לדחוף את המסגרת** — מסגרת בגובה קבוע (``ck-fill``, המסך
+   *  המלא של Claude) ומסך מגע. ``(pointer: coarse)``: "The primary input mechanism includes a pointing
+   *  device of limited accuracy, such as a finger on a touchscreen" (MDN). הכרעה סטטית על היכולת של
+   *  המכשיר — דפדפן בלי ``matchMedia`` נחשב בלי מגע, כלומר העורך נפתח כמו במחשב. */
+  NoteView.prototype.keyboardMayPush = function () {
+    if (!this.doc.documentElement.classList.contains('ck-fill')) return false;
+    return typeof this.win.matchMedia === 'function' && this.win.matchMedia('(pointer: coarse)').matches === true;
+  };
+
+  /** **הכניסה לעריכה בלי דחיפה.** אנדרואיד מזיז את כל החלון כשהמקלדת נפתחת, כדי שהסמן לא יוסתר — נמדד
+   *  במכשיר: כניסה מהשורה הראשונה, המסגרת לא זזה; מהשורה התחתונה, נדחפה, והדף אינו רואה את ההזזה. לכן,
+   *  **לפני** ``focus()``, שורת הסמן נגללת לראש התיבה (עם שורה אחת מעליה): זה המקום היחיד שבטוח יישאר
+   *  גלוי לפני שגובה המקלדת ידוע. לשורות האחרונות אין מתחתן טקסט לגלול, ולכן ``ck-opening`` נותן לתיבה
+   *  ריפוד זמני (``note_view.css``). נמדד בכרום: ``focus()`` אינו משנה גלילה שהוצבה לפניו, כשהסמן
+   *  כבר בתוך התיבה. הריפוד יורד כשהמארח מדווח על המקלדת, בתקרת הזמן, או ביציאה מהעריכה
+   *  (``endKeyboardWait``). */
+  NoteView.prototype.beginKeyboardWait = function (ta) {
+    var self = this;
+    this.endKeyboardWait('restarted');
+    ta.classList.toggle('ck-opening', true);
+    var caret = this.caretTop(ta);
+    if (caret) ta.scrollTop = Math.max(0, caret.top - caret.line);
+    this.keyboardWait = {
+      ta: ta,
+      startedAt: Date.now(),
+      timer: this.win.setTimeout(function () { self.endKeyboardWait('deadline'); }, KEYBOARD_REPORT_DEADLINE_MS)
+    };
+  };
+
+  /** סוף ההמתנה לדיווח על המקלדת: הריפוד הזמני יורד, והסמן חוזר לתצוגה אם הגלילה זזה בגלל זה.
+   *  ``how`` נשמר למצב המדידה — ``reported`` עם הזמן מהפוקוס, ``deadline``, ``closed`` או ``restarted``. */
+  NoteView.prototype.endKeyboardWait = function (how) {
+    var wait = this.keyboardWait;
+    if (!wait) return;
+    this.keyboardWait = null;
+    this.win.clearTimeout(wait.timer);
+    wait.ta.classList.toggle('ck-opening', false);
+    this.keyboardReport = { how: how, ms: how === 'reported' ? Date.now() - wait.startedAt : null };
+    this.scheduleReveal();
+    this.updateDebug();
   };
 
   /** המרחק של הסמן מראש התוכן של התיבה, וגובה שורה — ``{top, line}``, או ``null`` כשאין למדוד. העותק
@@ -735,6 +826,12 @@
     if (this.editor) {
       var ta = this.editor.textarea;
       lines.push('editor ' + box(ta) + ' scrollTop=' + num(ta.scrollTop) + ' focus=' + (this.doc.activeElement === ta));
+      // הקו התחתון של העריכה, וההמתנה לדיווח על המקלדת: ``kb=reported 420ms`` הוא הזמן מהפוקוס ועד
+      // שהשוליים גדלו — המספר שתקרת הזמן (``KEYBOARD_REPORT_DEADLINE_MS``) נקבעת לפיו.
+      var report = this.keyboardReport;
+      lines.push('edit-bottom=' + (this.editBottom === null ? '—' : num(this.editBottom))
+        + ' opening=' + (this.keyboardWait ? 'on' : 'off')
+        + ' kb=' + (report ? report.how + (report.ms === null ? '' : ' ' + num(report.ms) + 'ms') : '—'));
     }
     var text = lines.join('\n');
     if (v.debug.textContent !== text) v.debug.textContent = text;
@@ -1249,6 +1346,8 @@
       bar: bar, save: save, cancel: cancel, restore: restore, status: status,
       conflict: conflict, confirm: confirm, textarea: textarea, unsaved: unsaved, drop: drop
     };
+    this.editBottom = null;
+    this.syncEditBottom();
     save.addEventListener('click', function () { self.save(); });
     cancel.addEventListener('click', function () { self.askCancel(); });
     restore.addEventListener('click', function () { self.restoreMine(); });
@@ -1278,9 +1377,11 @@
     // אחרי ``syncEditMode``: אלמנט מוסתר אינו מקבל פוקוס. הסמן בתחילת השורה שנלחצה — אותו מקום של
     // ``_enterEditAt`` בוובאפ. **הסמן קודם, הפוקוס אחריו:** נמדד בכרום ש-``focus()`` גולל את התיבה
     // אל הסמן, ו-``setSelectionRange`` על תיבה שכבר בפוקוס — לא. בסדר ההפוך, בפתק ארוך, התיבה הציגה
-    // את המקום שבו הסמן היה לפני ההצבה, והסמן עצמו נשאר מחוץ לתיבה.
+    // את המקום שבו הסמן היה לפני ההצבה, והסמן עצמו נשאר מחוץ לתיבה. **ובמסך מגע — שורת הסמן בראש
+    // התיבה, לפני הפוקוס**, כדי שהמקלדת לא תדחוף את המסגרת (``beginKeyboardWait``).
     var pos = offset === null || !isFinite(offset) ? 0 : Math.max(0, Math.min(offset, textarea.value.length));
     textarea.setSelectionRange(pos, pos);
+    if (this.keyboardMayPush()) this.beginKeyboardWait(textarea);
     textarea.focus();
     this.scheduleReveal();
     this.updateControls();
@@ -1327,7 +1428,9 @@
   NoteView.prototype.closeEditor = function () {
     var ed = this.editor;
     if (!ed) return;
+    this.endKeyboardWait('closed');
     this.editor = null;
+    this.syncEditBottom();
     this.doc.documentElement.classList.toggle('ck-editing', false);
     var parts = [ed.bar, ed.status, ed.conflict, ed.confirm, ed.textarea, ed.unsaved];
     for (var i = 0; i < parts.length; i += 1) {
