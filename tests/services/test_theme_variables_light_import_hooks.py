@@ -57,6 +57,7 @@ CODE_TOOLBAR_TEXT = "--code-toolbar-text-override"
 CODE_CAPSULE_BG = "--code-search-capsule-bg-override"
 CODE_CAPSULE_FOCUS_BORDER = "--code-search-capsule-focus-border-override"
 META_ITEM_BG = "--file-meta-item-bg-override"
+NESTED_CARD_BG = "--nested-card-bg-override"
 TOKENS = (
     FIELD_BORDER,
     FIELD_BG,
@@ -81,6 +82,7 @@ TOKENS = (
     CODE_CAPSULE_BG,
     CODE_CAPSULE_FOCUS_BORDER,
     META_ITEM_BG,
+    NESTED_CARD_BG,
 )
 #: משתנה הביניים של המסגרת של "שולחן עבודה" — לא וו. ראו ``WORKSPACE_HOOKS``.
 WORKSPACE_RING = "--workspace-btn-ring"
@@ -95,6 +97,8 @@ CODEMIRROR_CUSTOM_CSS = REPO_ROOT / "webapp/static/css/codemirror-custom.css"
 MARKDOWN_TOOLBAR_CSS = REPO_ROOT / "webapp/static/css/markdown-toolbar.css"
 VIEW_FILE_HTML = REPO_ROOT / "webapp/templates/view_file.html"
 CUSTOM_THEMES_GUIDE = REPO_ROOT / "docs/webapp/custom_themes_guide.rst"
+SETTINGS_HTML = REPO_ROOT / "webapp/templates/settings.html"
+SETTINGS_PUSH_DEBUG_HTML = REPO_ROOT / "webapp/templates/settings_push_debug.html"
 
 #: מה שכל כלל צבע לפני הווו (``main`` ב-2a3dec3c). ה-fallback חייב להיות בדיוק הערך הזה, אחרת ערכה
 #: שאינה מצהירה — כל ערכה מובנית, וכל ערכה מיובאת כהה — זזה.
@@ -177,8 +181,44 @@ FILES_FILTER_STYLE = {
     "border": f"1px solid var({FIELD_BORDER}, rgba(255,255,255,0.2))",
     "background": f"var({FIELD_BG}, rgba(255,255,255,0.1))",
 }
+#: השדות בעמוד ההגדרות — צבועים רק ב-``style`` שבתגית, כמו שדות הסינון בעמוד הקבצים, ולכן קוראים את אותם ווים.
+#: ה-``id`` של כל שדה, עם הערכים שצבעו אותו עד היום: לשדה של "הוראות לסוכן" רקע 0.08, ולתיבות הבחירה 0.1.
+SETTINGS_FIELD_STYLES = {
+    "agentInstructions": {
+        "border": f"1px solid var({FIELD_BORDER}, rgba(255, 255, 255, 0.2))",
+        "background": f"var({FIELD_BG}, rgba(255, 255, 255, 0.08))",
+    },
+    **{
+        field_id: {
+            "border": f"1px solid var({FIELD_BORDER}, rgba(255,255,255,0.2))",
+            "background": f"var({FIELD_BG}, rgba(255,255,255,0.1))",
+        }
+        for field_id in (
+            "themeSelect",
+            "themeScopeSelect",
+            "noteFont-{{ surface }}",
+            "noteFontsScopeSelect",
+            "settingsNoteFontSizeSelect",
+            "settingsNoteFontSizeScopeSelect",
+        )
+    },
+}
+#: הרקע של כרטיס בתוך כרטיס — ה-fallback הוא הלבן השקוף שצבע אותו עד היום. הרווחים נמחקים לפני ההשוואה,
+#: כי בתבניות הערך כתוב גם ``rgba(255, 255, 255, 0.05)`` וגם ``rgba(255,255,255,0.05)``.
+NESTED_CARD_BACKGROUND = f"var({NESTED_CARD_BG},rgba(255,255,255,0.05))"
 #: הכלל שצובע את שורת החיפוש בערכה מיובאת או משותפת. הווו נקרא בו ולא בכלל חדש.
 CAPSULE_SCOPES = (':root[data-theme="custom"]', ':root[data-theme^="shared:"]')
+
+
+def _style_declarations(tag):
+    """המאפיינים שב-``style`` של תגית אחת, כמילון — ערך עם רווחים מנורמלים. ריק כשאין ``style``."""
+    style = re.search(r'style="([^"]*)"', tag)
+    declarations = {}
+    for declaration in (style.group(1) if style else "").split(";"):
+        prop, sep, value = declaration.partition(":")
+        if sep:
+            declarations[prop.strip()] = " ".join(value.split())
+    return declarations
 
 
 def _declaration(rules, selector, prop):
@@ -237,13 +277,8 @@ def test_every_files_filter_field_reads_the_tokens_with_todays_fallbacks():
     for field in FILES_FILTER_FIELDS:
         tag = re.search(r"<" + re.escape(field) + r"[^>]*>", html, re.DOTALL)
         assert tag, field
-        style = re.search(r'style="([^"]*)"', tag.group(0))
-        assert style, field
-        declarations = {}
-        for declaration in style.group(1).split(";"):
-            prop, sep, value = declaration.partition(":")
-            if sep:
-                declarations[prop.strip()] = " ".join(value.split())
+        declarations = _style_declarations(tag.group(0))
+        assert declarations, field
         for prop, expected in FILES_FILTER_STYLE.items():
             assert declarations.get(prop) == expected, (field, prop, declarations.get(prop))
 
@@ -253,6 +288,49 @@ def test_files_page_has_no_unhooked_copy_of_the_filter_style():
     html = FILES_HTML.read_text(encoding="utf-8")
     assert "border: 1px solid rgba(255,255,255,0.2)" not in html
     assert "background: rgba(255,255,255,0.1)" not in html
+
+
+def test_every_settings_field_reads_the_form_field_tokens_with_todays_fallbacks():
+    """השדה של "הוראות לסוכן" וכל תיבות הבחירה בעמוד ההגדרות — אותו סוג רכיב כמו שדות הסינון בעמוד הקבצים."""
+    html = SETTINGS_HTML.read_text(encoding="utf-8")
+    for field_id, expected_style in SETTINGS_FIELD_STYLES.items():
+        tag = re.search(r'<(?:select|textarea)\b[^>]*\bid="' + re.escape(field_id) + r'"[^>]*>', html, re.DOTALL)
+        assert tag, field_id
+        declarations = _style_declarations(tag.group(0))
+        for prop, expected in expected_style.items():
+            assert declarations.get(prop) == expected, (field_id, prop, declarations.get(prop))
+
+
+def test_settings_page_has_no_unhooked_field():
+    """שדה שנוסף לעמוד ההגדרות עם ``style`` לבן קבוע, בלי הווו, היה נשאר בלתי נראה בערכה שהצהירה."""
+    html = SETTINGS_HTML.read_text(encoding="utf-8")
+    offenders = []
+    for tag in re.findall(r"<(?:select|textarea|input)\b[^>]*>", html, re.DOTALL):
+        declarations = _style_declarations(tag)
+        for prop in ("background", "border"):
+            value = declarations.get(prop, "")
+            if "rgba(255" in value and "var(--form-field-" not in value:
+                offenders.append(f"{prop}: {value} — {' '.join(tag.split())[:80]}")
+    assert not offenders, "\n".join(offenders)
+
+
+def _glass_card_tags(html):
+    """כל תגית פתיחה של ``.glass-card`` בתבנית, גם כזו שנבנית במחרוזת של JavaScript."""
+    return re.findall(r"<div\b[^>]*\bclass=\"glass-card\b[^\"]*\"[^>]*>", html, re.DOTALL)
+
+
+@pytest.mark.parametrize("template", [SETTINGS_HTML, SETTINGS_PUSH_DEBUG_HTML], ids=lambda p: p.name)
+def test_every_nested_card_with_an_inline_background_reads_the_token(template):
+    """כל כרטיס עם רקע ב-``style`` שבתגית — בעמודים האלה כולם כרטיסים שבתוך כרטיס — קורא את הווו, עם הערך של היום."""
+    html = template.read_text(encoding="utf-8")
+    backgrounds = [
+        _style_declarations(tag)["background"]
+        for tag in _glass_card_tags(html)
+        if "background" in _style_declarations(tag)
+    ]
+    assert backgrounds, f"לא נמצאו כרטיסים עם רקע ב-{template.name} — הבדיקה לא בודקת כלום"
+    offenders = [bg for bg in backgrounds if bg.replace(" ", "") != NESTED_CARD_BACKGROUND]
+    assert not offenders, offenders
 
 
 def test_dashboard_feed_and_push_read_the_tokens_with_todays_fallbacks():
@@ -367,6 +445,7 @@ DOCUMENTED_VARIABLES = {
     CODE_CAPSULE_BG: "rgba(248, 246, 241, 0.25)",
     CODE_CAPSULE_FOCUS_BORDER: "#6e4e44",
     META_ITEM_BG: "rgba(255, 253, 249, 0.6)",
+    NESTED_CARD_BG: "rgba(110, 78, 68, 0.06)",
 }
 
 
