@@ -79,6 +79,7 @@ from .auth import (
     EXEMPT_PATHS,
     PATAuthMiddleware,
     current_user_id,
+    has_write_scope,
     is_admin_user,
     require_admin,
     require_write,
@@ -3927,7 +3928,37 @@ def build_mcp(
     )
     def show_note(ctx: Context, note_id: str) -> dict:
         user_id = current_user_id(ctx)
-        return handlers.show_note(backend, user_id, note_id=note_id, is_admin=is_admin_user(user_id))
+        return handlers.show_note(
+            backend, user_id, note_id=note_id, is_admin=is_admin_user(user_id),
+            can_write=has_write_scope(ctx),
+        )
+
+    # **העריכה מהתצוגה נשמרת דרך כלי שרק הדף מפעיל** (``_meta.ui.visibility: ["app"]``, ראו
+    # ``note_view.app_tool_meta``): Claude מסתיר אותו מהמודל ומעביר אליו רק קריאות מהדף. הגוף
+    # של השמירה הוא של ``codekeeper_note_str_replace`` (``handlers._write_note_body``), והשער של
+    # ``codekeeper_show_note`` (``handlers._readable_note``) — לא מסלול כתיבה שלישי. ``require_write``
+    # כמו כל כלי כתיבה, ו-``_REPLACE_IN_PLACE_TOOL``: שמירה חוזרת עם אותו hash אחרי שמירה שהצליחה
+    # היא ``conflict``, לא no-op, ולכן הכלי אינו אידמפוטנטי.
+    @mcp.tool(
+        name="codekeeper_note_view_save",
+        description=(
+            "Save the body of ONE sticky note edited in the note view (the MCP App of "
+            "codekeeper_show_note). The view calls it; agents edit notes with "
+            "codekeeper_note_str_replace or codekeeper_update_note. Replaces the whole body. "
+            "expected_content_sha256 (required) is the note.content_sha256 the view received: if "
+            "the note changed since, the answer is conflict and nothing is written. The previous "
+            "body is kept as a version, as with every note edit through this server."
+        ),
+        annotations=_REPLACE_IN_PLACE_TOOL,
+        meta=note_view.app_tool_meta(note_page),
+    )
+    def note_view_save(ctx: Context, note_id: str, content: str, expected_content_sha256: str) -> dict:
+        require_write(ctx)  # reject a read-only token before touching anything
+        user_id = current_user_id(ctx)
+        return handlers.save_note_from_view(
+            backend, user_id, note_id=note_id, content=content,
+            expected_content_sha256=expected_content_sha256, is_admin=is_admin_user(user_id),
+        )
 
     # **השער של הפתק הוא של ``codekeeper_get_note``, ומאותו קוד** (``handlers._readable_note``):
     # פתק של משתמש אחר, ופתק ריפו למי שאינו אדמין, עונים ``not_found`` ושום דבר לא נכתב.

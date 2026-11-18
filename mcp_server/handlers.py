@@ -1407,13 +1407,20 @@ def _resaved_answer(res: dict[str, Any], **fields: Any) -> dict[str, Any]:
 _SHA256_HEX = re.compile(r"[0-9a-fA-F]{64}")
 
 
-def _invalid_expected_sha256(expected: Any) -> dict[str, Any] | None:
+#: איפה מוצאים את ה-hash שהשער מצפה לו — לכל משפחת כלים, כי ההפניה בתשובה היא מה שהקורא עושה
+#: אחריה: כלי הקבצים קוראים ב-``codekeeper_get_file``, והתצוגה של פתק מקבלת אותו מ-``codekeeper_show_note``.
+_FILE_SHA256_HINT = "pass file.content_sha256 exactly as codekeeper_get_file returned it: 64 hex digits"
+_NOTE_SHA256_HINT = "pass note.content_sha256 exactly as codekeeper_show_note returned it: 64 hex digits"
+
+
+def _invalid_expected_sha256(expected: Any, *, hint: str = _FILE_SHA256_HINT) -> dict[str, Any] | None:
     """סירוב על ``expected_content_sha256`` שאינו בצורת hash — או ``None``.
 
     **קוד משלו ולא ``conflict``:** שגיאת כתיב הייתה נקראת אחרת כ"הקובץ השתנה",
     והסוכן היה קורא אותו מחדש ושולח שוב את אותו ערך שגוי. נבדק לפני כל קריאה
     מהמסד. ספרות הקס בשתי הרישיות מתקבלות — זה אותו מספר — וההשוואה ב-
-    :func:`_changed_since_read` אינה תלויה ברישיות. הערך עצמו אינו מוחזר.
+    :func:`_changed_since_read` אינה תלויה ברישיות. הערך עצמו אינו מוחזר. ``hint`` —
+    מאיפה הקורא לוקח את הערך הנכון (:data:`_FILE_SHA256_HINT` לכלי הקבצים).
     """
     if expected is None:
         return None
@@ -1422,8 +1429,7 @@ def _invalid_expected_sha256(expected: Any) -> dict[str, Any] | None:
     return {
         "ok": False,
         "error": "invalid_expected_content_sha256",
-        "hint": "pass file.content_sha256 exactly as codekeeper_get_file returned it: 64 hex "
-        "digits",
+        "hint": hint,
     }
 
 
@@ -2653,6 +2659,34 @@ def add_to_collection(
     )
 
 
+def _write_note_body(
+    backend: Any, user_id: int, nid: str, *, current_body: str, new_body: Any
+) -> dict[str, Any]:
+    """**הכתיבה של גוף פתק שנבנה על גוף שנקרא** — החלק המשותף ל-:func:`note_str_replace` ול-
+    :func:`save_note_from_view`, כדי שהעריכה מהתצוגה בתוך Claude לא תהיה מסלול כתיבה שלישי.
+
+    1. :func:`_note_content_error` על הגוף החדש — הבדיקה של כל כלי שכותב פתק (ריק, לא מחרוזת,
+       ארוך מ-``MAX_NOTE_CONTENT``). ``backend.update_note`` אינו בודק אורך, ולכן היא כאן.
+    2. ``backend.update_note`` עם ``expected_content=current_body``: הדריסה מותנית בכך שהגוף
+       שנקרא הוא עדיין הגוף שבמסד (המסנן של ``find_one_and_update`` נושא אותו), ולפניה נשמרת
+       הגרסה הקודמת בהיסטוריה — רק כשהתוכן באמת משתנה.
+    3. ``conflict`` מקבל ``hint`` — הפתק השתנה בין הקריאה לכתיבה.
+
+    התשובה היא של ``backend.update_note`` כמו שהיא — ``ok``, ``note`` מהמסמך שהכתיבה השאירה,
+    ``content_changed`` — או הסירוב.
+    """
+    refused = _note_content_error(new_body)
+    if refused:
+        return refused
+    res = backend.update_note(
+        user_id, note_id=nid, fields={"content": new_body}, expected_content=current_body
+    )
+    if not res.get("ok") and res.get("error") == "conflict":
+        res = dict(res)
+        res["hint"] = "the note changed since it was read — re-read it and retry"
+    return res
+
+
 def note_str_replace(
     backend: Any,
     user_id: int,
@@ -2723,17 +2757,8 @@ def note_str_replace(
     # בעותק שלה: ריקנות על עותק אחרי ``strip``, ואורך כרשת על מה שנכתב, כי
     # ``backend.update_note`` אינו בודק אורך. האורך אינו ההגנה כאן — ``_apply_edit``
     # כבר סירב לפני שהתוצאה נבנתה, וכל עוד החשבון שם מדויק הוא אינו נדלק.
-    refused = _note_content_error(new_body)
-    if refused:
-        return refused
-
-    res = backend.update_note(
-        user_id, note_id=nid, fields={"content": new_body}, expected_content=body
-    )
+    res = _write_note_body(backend, user_id, nid, current_body=body, new_body=new_body)
     if not res.get("ok"):
-        if res.get("error") == "conflict":
-            res = dict(res)
-            res["hint"] = "the note changed since it was read — re-read it and retry"
         return res
     # ``content_changed`` (ו-``content_diff`` כשהוא נדלק) עוברים כמו שה-backend
     # מדד אותם על המסמך שהכתיבה השאירה — ראו ``ProductionBackend.update_note``.
@@ -2758,9 +2783,10 @@ def _readable_note(
 ) -> dict[str, Any]:
     """**השער של פתק בודד** — מה ש-``backend.get_note`` החזיר, או הסירוב.
 
-    קוד אחד לשני הכלים: ``codekeeper_get_note`` קורא דרכו, ו-``codekeeper_comment_note``
-    עובר בו **לפני כל כתיבה**. כך "ההרשאה של תגובה זהה לזו של קריאה" נכון מבנית ולא
-    מתוך תיאום (האפיון: "ההרשאה זהה לזו של get_note, ומאותו קוד").
+    קוד אחד לכלים: ``codekeeper_get_note`` ו-``codekeeper_show_note`` קוראים דרכו, ו-
+    ``codekeeper_comment_note`` ו-``codekeeper_note_view_save`` עוברים בו **לפני כל כתיבה**. כך
+    "ההרשאה של תגובה זהה לזו של קריאה" נכון מבנית ולא מתוך תיאום (האפיון: "ההרשאה זהה לזו של
+    get_note, ומאותו קוד"), וכך גם מה שהתצוגה מציגה הוא בדיוק מה שהיא יכולה לשמור.
 
     - הבעלות יושבת במסנן של ``backend.get_note`` — פתק של משתמש אחר הוא ``not_found``.
     - פתק ריפו (:func:`is_repo_note`) פתוח לאדמין בלבד; לכל אחר ``not_found`` — אותה
@@ -2878,15 +2904,21 @@ def _note_with_target(backend: Any, current: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def show_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> dict[str, Any]:
+def show_note(
+    backend: Any, user_id: int, *, note_id: str, is_admin: bool, can_write: bool
+) -> dict[str, Any]:
     """פתק **אחד** להצגה בתוך Claude — הגוף של ``codekeeper_show_note`` (MCP App).
 
     **אותו שער ואותה צורה כמו** ``codekeeper_get_note``: :func:`_readable_note` (בעלות במסנן,
     פתק ריפו לאדמין בלבד, ``not_found`` אחיד שאינו מגלה שהמזהה קיים), ואחריו
-    :func:`_note_with_target`. ההבדל היחיד: **בלי שרשורים ובלי ``version``.** התצוגה מציגה
+    :func:`_note_with_target`. ההבדל: **בלי שרשורים ובלי ``version``.** התצוגה מציגה
     את הפתק בלבד, וזה גם מה שהמודל ולקוח שאינו מציג תצוגה מקבלים — הטקסט המלא של הפתק,
     כפי שהמפרט של MCP Apps דורש מכלי שיש לו תצוגה. ``is_admin`` הוא חובה ובלי ברירת מחדל,
     מאותה סיבה כמו ב-:func:`get_note` (K12 §3).
+
+    **``editable``** — האם החיבור יכול לשמור (``can_write``, מ-``auth.has_write_scope``). התצוגה
+    מציעה עריכה רק כשהוא ``True``; גם הוא חובה ובלי ברירת מחדל, כדי שקורא ששכח אותו ייכשל ולא
+    יציג כפתור שכל לחיצה עליו נדחית. ה-hash שהעריכה נבנית עליו כבר בפתק (``content_sha256``).
     """
     nid = _clean_note_id(note_id)
     if nid is None:
@@ -2894,7 +2926,66 @@ def show_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> di
     current = _readable_note(backend, user_id, note_id=nid, is_admin=is_admin, with_version=False)
     if not current.get("ok"):
         return current
-    return _note_with_target(backend, current)
+    out = _note_with_target(backend, current)
+    out["editable"] = can_write is True
+    return out
+
+
+def save_note_from_view(
+    backend: Any,
+    user_id: int,
+    *,
+    note_id: Any,
+    content: Any,
+    expected_content_sha256: Any,
+    is_admin: bool,
+) -> dict[str, Any]:
+    """שמירה של פתק שנערך **בתצוגה בתוך Claude** — הגוף של ``codekeeper_note_view_save``.
+
+    **לא מסלול כתיבה שלישי.** הסדר הוא של :func:`note_str_replace` — קריאה, בדיקה שהגוף לא
+    השתנה, וכתיבה מותנית — דרך אותו :func:`_write_note_body`: אותה בדיקת גוף, אותה דריסה
+    מותנית בתוכן, ואותה גרסה בהיסטוריה לפני הדריסה. ההבדלים:
+
+    - **השער הוא של התצוגה** (:func:`_readable_note`): מה שאפשר לראות ב-``codekeeper_show_note``
+      אפשר לשמור, ופתק ריפו פתוח לאדמין בלבד.
+    - **הגרסה שהעריכה נבנתה עליה היא ``expected_content_sha256``, והיא חובה** — ה-``content_sha256``
+      שהתצוגה קיבלה עם הפתק. בלעדיה העריכה הייתה דורסת עדכון שהגיע מהוובאפ או מסוכן בזמן
+      שהמשתמש הקליד. hash שאינו תואם לגוף שבמסד הוא ``conflict``, ושום דבר לא נכתב.
+    - **הגוף נשלח שלם** — זו תיבת טקסט, לא מצא-והחלף.
+
+    ``conflict`` יכול להגיע משני מקומות: מההשוואה כאן (הפתק השתנה מאז שהתצוגה קיבלה אותו), או
+    מהכתיבה המותנית (השתנה בין הקריאה כאן לכתיבה). בשניהם התצוגה קוראת את הפתק מחדש.
+    """
+    nid = _clean_note_id(note_id)
+    if nid is None:
+        return {"ok": False, "error": "invalid_note_id"}
+    bad_expected = (
+        _invalid_expected_sha256(expected_content_sha256, hint=_NOTE_SHA256_HINT)
+        if expected_content_sha256 is not None
+        else {"ok": False, "error": "invalid_expected_content_sha256", "hint": _NOTE_SHA256_HINT}
+    )
+    if bad_expected:
+        return bad_expected
+    current = _readable_note(backend, user_id, note_id=nid, is_admin=is_admin, with_version=False)
+    if not current.get("ok"):
+        return current
+    note = current.get("note") if isinstance(current.get("note"), dict) else {}
+    body = note.get("content")
+    stored = note.get("content_sha256")
+    # גוף שאינו מחרוזת אינו מקבל hash (``_as_note_hashed``), ולכן אין מול מה לוודא — ``conflict``
+    # ולא דריסה: הכרעה סגורה, כמו כל שער כאן.
+    if not isinstance(body, str) or not isinstance(stored, str) or stored.lower() != expected_content_sha256.lower():
+        return {
+            "ok": False,
+            "error": "conflict",
+            "hint": "the note changed since the view received it — read it again",
+        }
+    res = _write_note_body(backend, user_id, nid, current_body=body, new_body=content)
+    if not res.get("ok"):
+        return res
+    out: dict[str, Any] = {"ok": True, "note": res.get("note")}
+    out.update({k: res[k] for k in ("content_changed", "content_diff") if k in res})
+    return out
 
 
 # -- שרשורי תגובות על פתקים ----------------------------------------------------
@@ -3308,7 +3399,8 @@ def update_note(
     anchor_text: str | None = None,
     is_minimized: bool | None = None,
 ) -> dict[str, Any]:
-    """Partial update of a sticky note by its id (in-place, no version history)."""
+    """Partial update of a sticky note by its id (in place). When the content changes,
+    ``backend.update_note`` keeps the previous body as a version first."""
     nid = _clean_note_id(note_id)
     if nid is None:
         return {"ok": False, "error": "invalid_note_id"}

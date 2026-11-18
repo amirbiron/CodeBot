@@ -1027,3 +1027,398 @@ def test_a_folded_block_opened_at_the_bottom_enables_scrolling_down(chromium_exe
     assert bottom["scroll"] is True and bottom["down"] is True, bottom
     assert opened["scrollHeight"] > bottom["scrollHeight"] and opened["clientHeight"] == bottom["clientHeight"], (bottom, opened)
     assert opened["doc"] == bottom["doc"], (bottom, opened)  # הדף לא שינה גודל — רק התוכן
+
+
+# ── עריכה ────────────────────────────────────────────────────────────────────────
+
+#: **מארח שעורכים מולו.** מעביר קריאות לכלים (``serverTools``) ומחזיק את "השרת" בעצמו: פתק אחד,
+#: ``codekeeper_show_note`` מחזיר אותו, ו-``codekeeper_note_view_save`` כותב רק כשה-hash שנשלח הוא
+#: של הגרסה הנוכחית — אחרת ``conflict``, כמו ``handlers.save_note_from_view``. ה-hash כאן הוא מונה
+#: גרסה בצורת 64 ספרות: לדף הוא אטום, והשוויון הוא כל מה שהוא בודק. השרת האמיתי, עם ה-hash האמיתי
+#: והגרסאות, נבדק ב-``tests/test_mcp_note_view_save.py``. ``externalEdit`` — עריכה מבחוץ (הוובאפ,
+#: סוכן), בשביל התנגשות. ``holdSave`` מחזיק את התשובה על שמירה עד ``releaseSave`` — שמירה שבדרך —
+#: ו-``leaveFullscreen`` יוצא ממסך מלא כמו הכפתור של המארח. מסך מלא כמו ב-``_FRAME_HOST``: מסגרת
+#: קבועה של 600px, או גובה גמיש.
+_EDIT_HOST = """<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
+<iframe id="view" src="/view.html" sandbox="allow-scripts"
+        style="width:600px;height:80px;border:0;display:block"></iframe>
+<script>
+const iframe = document.getElementById('view');
+const FIXED = %(fixed)s;
+const shaOf = (v) => String(v).padStart(64, '0');
+window.server = {version: 1, note: Object.assign(%(note)s, {content_sha256: shaOf(1)})};
+window.sizes = []; window.toolCalls = []; window.modelContexts = []; window.modeRequests = [];
+window.fixedFrame = false;
+window.holdSave = false;
+window.heldSave = null;
+window.externalEdit = (content) => {
+  server.version += 1;
+  server.note = Object.assign({}, server.note, {content: content, content_sha256: shaOf(server.version)});
+};
+const answer = (obj) => ({content: [{type: 'text', text: JSON.stringify(obj)}]});
+// השמירה בצד "השרת": כותבת רק כשה-hash שנשלח הוא של הגרסה הנוכחית.
+function serverSave(a) {
+  if (a.expected_content_sha256 !== server.note.content_sha256) {
+    return answer({ok: false, error: 'conflict', hint: 'the note changed since the view received it'});
+  }
+  window.externalEdit(a.content);
+  return answer({ok: true, note: server.note, content_changed: false});
+}
+window.releaseSave = () => {
+  const held = window.heldSave;
+  window.heldSave = null;
+  window.holdSave = false;
+  iframe.contentWindow.postMessage({jsonrpc: '2.0', id: held.id, result: serverSave(held.params.arguments)}, '*');
+};
+window.leaveFullscreen = () => {
+  window.fixedFrame = false;
+  iframe.contentWindow.postMessage({jsonrpc: '2.0', method: 'ui/notifications/host-context-changed',
+    params: {displayMode: 'inline', containerDimensions: {width: 600, maxHeight: 900}}}, '*');
+};
+window.addEventListener('message', (event) => {
+  if (event.source !== iframe.contentWindow) return;
+  const m = event.data;
+  const view = iframe.contentWindow;
+  const reply = (result) => view.postMessage({jsonrpc: '2.0', id: m.id, result: result}, '*');
+  if (m.method === 'ui/initialize') {
+    reply({protocolVersion: '2026-01-26', hostInfo: {name: 'test-host', version: '1'},
+      hostCapabilities: {serverTools: {}, updateModelContext: {text: {}}},
+      hostContext: {availableDisplayModes: ['inline', 'fullscreen'], displayMode: 'inline',
+                    containerDimensions: {width: 600, maxHeight: 900}}});
+  } else if (m.method === 'ui/notifications/initialized') {
+    view.postMessage({jsonrpc: '2.0', method: 'ui/notifications/tool-result',
+      params: answer({ok: true, editable: true, note: server.note, target: 'board'})}, '*');
+  } else if (m.method === 'tools/call') {
+    window.toolCalls.push(m.params);
+    const a = m.params.arguments;
+    if (m.params.name === 'codekeeper_show_note') {
+      reply(answer({ok: true, editable: true, note: server.note, target: 'board'}));
+    } else if (m.params.name === 'codekeeper_note_view_save') {
+      if (window.holdSave) window.heldSave = m;
+      else reply(serverSave(a));
+    }
+  } else if (m.method === 'ui/update-model-context') {
+    window.modelContexts.push(m.params);
+    reply({});
+  } else if (m.method === 'ui/notifications/size-changed') {
+    window.sizes.push(m.params);
+    if (!window.fixedFrame) iframe.style.height = m.params.height + 'px';
+  } else if (m.method === 'ui/request-display-mode') {
+    window.modeRequests.push(m.params);
+    iframe.style.width = '800px';
+    reply({mode: 'fullscreen'});
+    if (FIXED) {
+      window.fixedFrame = true;
+      iframe.style.height = '600px';
+      view.postMessage({jsonrpc: '2.0', method: 'ui/notifications/host-context-changed',
+        params: {displayMode: 'fullscreen', containerDimensions: {width: 800, height: 600}}}, '*');
+    } else {
+      view.postMessage({jsonrpc: '2.0', method: 'ui/notifications/host-context-changed',
+        params: {displayMode: 'fullscreen', containerDimensions: {width: 800, maxHeight: 6000}}}, '*');
+    }
+  }
+});
+</script></body></html>"""
+
+#: שורה לכל צורה שהמנוע בונה לה שורה משלו — כותרת, פסקה, רשימה, משימה, שורת טבלה, שורת קוד ובלוק
+#: מתקפל — כדי שהלחיצה תיבדק מול ההיסט של כל אחת מהן, בטקסט שהבדיקה מחשבת בעצמה ולא מהמנוע.
+_EDIT_LINES = [
+    "# כותרת ראשית",
+    "שורה רגילה בעברית",
+    "- פריט ברשימה",
+    "- [ ] משימה פתוחה",
+    "| עמודה | ערך |",
+    "| --- | --- |",
+    "| תא ראשון | 1 |",
+    "```js",
+    "const answer = 42;",
+    "```",
+    "::: details פרטים נוספים",
+    "בתוך הבלוק",
+    ":::",
+    "שורה אחרונה",
+]
+_EDIT_NOTE = {"id": "9" * 24, "title": "עריכה", "color": "#ffeddb", "content": "\n".join(_EDIT_LINES)}
+_EDIT_LONG = {"id": "7" * 24, "title": "ארוך", "color": "#ffeddb",
+              "content": "\n".join(f"שורה מספר {i} בפתק הארוך" for i in range(1, 81))}
+
+
+def _line_start(lines, index):
+    return sum(len(line) + 1 for line in lines[:index])
+
+
+@pytest.fixture
+def edit_host():
+    """שרת מקומי: ``/<מקרה>.html`` מארח שעורכים מולו, ו-``/view.html`` הדף עם ה-CSP של המפרט."""
+    view = note_view.build_note_view()
+    pages = {}
+    for name, note, fixed in (("edit", _EDIT_NOTE, True), ("edit-long", _EDIT_LONG, True),
+                              ("edit-long-flexible", _EDIT_LONG, False)):
+        pages[f"/{name}.html"] = _EDIT_HOST % {
+            "note": json.dumps(note, ensure_ascii=False).replace("<", "\\u003c"), "fixed": "true" if fixed else "false"}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - שם שה-stdlib מחייב
+            if self.path in pages:
+                body, headers = pages[self.path], {}
+            elif self.path == "/view.html":
+                body, headers = view.html, {"Content-Security-Policy": _SPEC_DEFAULT_CSP}
+            else:
+                self.send_error(404)
+                return
+            data = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            for key, value in headers.items():
+                self.send_header(key, value)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *_args):  # שקט בפלט הבדיקות
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+_EDITOR_STATE = """() => {
+    const ta = document.querySelector('.ck-editor');
+    const shown = (el) => !!el && getComputedStyle(el).display !== 'none';
+    return {open: shown(ta), focused: document.activeElement === ta, value: ta ? ta.value : null,
+            caret: ta ? [ta.selectionStart, ta.selectionEnd] : null,
+            body: shown(document.querySelector('.ck-body')), bar: shown(document.querySelector('.ck-edit-bar'))};
+}"""
+
+
+def _open_editor_on(page, view, locator):
+    view.locator(locator["selector"], has_text=locator["text"]).first.click()
+    return poll(view, "() => { const ta = document.querySelector('.ck-editor');"
+                      " return !!ta && getComputedStyle(ta).display !== 'none' && document.activeElement === ta; }",
+                f"the editor opened from {locator['text']!r}")
+
+
+def test_a_click_on_any_line_opens_the_editor_in_fullscreen_with_the_caret_on_that_line(chromium_executable, edit_host):
+    """הלחיצה על שורה פותחת את העורך במסך מלא, והסמן בתחילת אותה שורה **במקור** — לכל צורה שהמנוע
+    בונה: כותרת, פסקה, פריט, משימה, שורת טבלה, שורת קוד ושורה בתוך בלוק מתקפל. ההיסט הצפוי מחושב כאן
+    מהטקסט, ולא נקרא מהמנוע. לחיצה על כותרת של בלוק מתקפל מקפלת ואינה פותחת עורך."""
+    from playwright.sync_api import sync_playwright
+
+    targets = [
+        (".sticky-task-line", "כותרת ראשית", 0),
+        (".sticky-task-line", "שורה רגילה בעברית", 1),
+        (".sticky-task-line", "פריט ברשימה", 2),
+        (".sticky-task-line", "משימה פתוחה", 3),
+        ("tr.sticky-task-line", "תא ראשון", 6),
+        (".sticky-task-line", "const answer = 42;", 8),
+        (".sticky-task-line", "בתוך הבלוק", 11),
+        (".sticky-task-line", "שורה אחרונה", 13),
+    ]
+    results = []
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit.html")
+        try:
+            view.click("summary.sticky-md-details-summary")
+            folded = view.evaluate("() => ({open: document.querySelector('details').open,"
+                                   " editor: !!document.querySelector('.ck-editor'), calls: 0})")
+            folded["calls"] = page.evaluate("() => window.toolCalls.length")
+            for selector, text, index in targets:
+                # סגירת העורך בונה את הפתק מחדש, והבלוק המתקפל חוזר סגור — פותחים אותו לפני השורה שבתוכו.
+                if text == "בתוך הבלוק" and not view.evaluate("() => document.querySelector('details').open"):
+                    view.click("summary.sticky-md-details-summary")
+                _open_editor_on(page, view, {"selector": selector, "text": text})
+                state = view.evaluate(_EDITOR_STATE)
+                results.append((text, state["caret"], _line_start(_EDIT_LINES, index), state["value"] == _EDIT_NOTE["content"],
+                                state["body"], state["bar"]))
+                view.click(".ck-cancel")
+                poll(view, "() => !document.querySelector('.ck-editor')", "the clean editor closed")
+            calls = page.evaluate("() => window.toolCalls")
+            modes = page.evaluate("() => window.modeRequests")
+            saved = page.evaluate("() => window.server.version")
+        finally:
+            browser.close()
+
+    assert folded == {"open": True, "editor": False, "calls": 0}, folded
+    for text, caret, expected, same, body, bar in results:
+        assert caret == [expected, expected], (text, caret, expected)
+        assert same and body is False and bar is True, (text, same, body, bar)
+    # מסך מלא נתבקש פעם אחת — אחר כך הדף כבר שם; וכל פתיחה קראה את הפתק מחדש, ואף אחת לא שמרה.
+    assert modes == [{"mode": "fullscreen"}], modes
+    assert [c["name"] for c in calls] == ["codekeeper_show_note"] * len(targets), calls
+    assert all(c["arguments"] == {"note_id": _EDIT_NOTE["id"]} for c in calls), calls
+    assert saved == 1
+
+
+def test_typing_lands_on_the_clicked_line_and_ctrl_s_saves_and_tells_the_model(chromium_executable, edit_host):
+    """הקלדה אמיתית נכנסת בשורה שנלחצה, Ctrl+S שומר את הגוף כולו עם ה-hash שהעריכה נבנתה עליו, העורך
+    נסגר על הגרסה השמורה, והמודל מקבל את הגוף החדש."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit.html")
+        try:
+            _open_editor_on(page, view, {"selector": ".sticky-task-line", "text": "שורה רגילה בעברית"})
+            page.keyboard.type("חדש: ")
+            page.keyboard.press("Control+s")
+            poll(view, "() => !document.querySelector('.ck-editor') && !!document.querySelector('.ck-notice')"
+                       " && document.querySelector('.ck-notice').textContent === 'נשמר.'", "the save went through and the editor closed")
+            rendered = view.evaluate("() => document.querySelector('.ck-content').textContent")
+            saves = page.evaluate("() => window.toolCalls.filter((c) => c.name === 'codekeeper_note_view_save')")
+            server = page.evaluate("() => window.server")
+            contexts = page.evaluate("() => window.modelContexts")
+        finally:
+            browser.close()
+
+    expected = list(_EDIT_LINES)
+    expected[1] = "חדש: " + expected[1]
+    body = "\n".join(expected)
+    assert saves == [{"name": "codekeeper_note_view_save",
+                      "arguments": {"note_id": _EDIT_NOTE["id"], "content": body, "expected_content_sha256": "0" * 63 + "1"}}], saves
+    assert server["note"]["content"] == body and server["version"] == 2, server
+    assert "חדש: שורה רגילה בעברית" in rendered, rendered
+    assert len(contexts) == 1 and contexts[0]["content"][0]["text"].endswith("\n" + body), contexts
+    assert "content_sha256: " + "0" * 63 + "2" in contexts[0]["content"][0]["text"], contexts
+
+
+def test_the_editor_fills_the_fixed_fullscreen_frame_and_scrolls_inside(chromium_executable, edit_host):
+    """במסגרת הקבועה של מסך מלא: שורת "שמור/בטל" למעלה, תיבת הטקסט ממלאת את שאר הנייר עד התחתית,
+    הדף עצמו אינו גולש, ופתק ארוך נגלל בתוך התיבה. הטקסט בגודל, בריווח ובדיו של הגוף, ובכיוון של
+    הדף (rtl)."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long.html")
+        try:
+            body_style = view.evaluate("""() => { const s = getComputedStyle(document.querySelector('.ck-body'));
+                return [s.fontSize, s.lineHeight, s.color]; }""")
+            view.click(".ck-edit")
+            poll(view, "() => document.documentElement.classList.contains('ck-fill') && innerHeight === 600"
+                       " && !!document.querySelector('.ck-editor')", "the editor opened in the fixed frame")
+            geo = view.evaluate("""() => {
+                const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+                const ta = document.querySelector('.ck-editor');
+                const s = getComputedStyle(ta);
+                return {bar: r('.ck-edit-bar'), ta: r('.ck-editor'), paper: r('.ck-paper'),
+                        doc: Math.ceil(document.documentElement.getBoundingClientRect().height),
+                        scrollable: ta.scrollHeight > ta.clientHeight, style: [s.fontSize, s.lineHeight, s.color],
+                        direction: s.direction, paddingBottom: parseFloat(getComputedStyle(document.querySelector('.ck-paper')).paddingBottom),
+                        noticeH: document.querySelector('.ck-notice').getBoundingClientRect().height};
+            }""")
+        finally:
+            browser.close()
+
+    assert geo["bar"]["bottom"] <= geo["ta"]["top"], geo
+    assert abs(geo["paper"]["bottom"] - (600 - 4)) <= 1, geo
+    assert abs(geo["ta"]["bottom"] - (geo["paper"]["bottom"] - 1 - geo["paddingBottom"] - geo["noticeH"])) <= 1, geo
+    assert geo["doc"] <= 600, geo
+    assert geo["scrollable"] is True, geo
+    assert geo["style"] == body_style, (geo["style"], body_style)
+    assert geo["direction"] == "rtl", geo
+
+
+def test_in_flexible_fullscreen_the_editor_has_a_height_and_the_frame_follows(chromium_executable, edit_host):
+    """מסך מלא בגובה גמיש (כמו ``basic-host``): לתיבה גובה התחלתי משלה (``flex-basis`` ב-CSS), הדף
+    מדווח אותו, והמסגרת גדלה אליו."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long-flexible.html")
+        try:
+            view.click(".ck-edit")
+            poll(view, "() => document.documentElement.classList.contains('ck-expanded') && !!document.querySelector('.ck-editor')",
+                 "the editor opened in the flexible frame")
+            state = _settled(page, view, "the frame took the editor height")
+            ta = view.evaluate("""() => { const ta = document.querySelector('.ck-editor');
+                return {h: ta.getBoundingClientRect().height, font: parseFloat(getComputedStyle(ta).fontSize),
+                        scrollable: ta.scrollHeight > ta.clientHeight}; }""")
+        finally:
+            browser.close()
+
+    assert abs(ta["h"] - 24 * ta["font"]) <= 1, ta
+    assert ta["scrollable"] is True, ta
+    assert state["last"]["height"] > ta["h"], (state, ta)
+
+
+def test_a_conflict_keeps_my_text_and_offers_update_or_save_anyway(chromium_executable, edit_host):
+    """הפתק נערך מבחוץ בזמן שאני עורך: השמירה נדחית, הטקסט שלי נשאר, ושורה מציעה "עדכן" או "שמור בכל
+    זאת". "עדכן" טוען את הגרסה שבשרת, "החזר את הטקסט שלי" מחזיר אותו, ושמירה אחריו כותבת אותו מעל
+    הגרסה שנטענה — בלי לדרוס אף גרסה שלא ראיתי."""
+    from playwright.sync_api import sync_playwright
+
+    shown = "(sel) => getComputedStyle(document.querySelector(sel)).display !== 'none'"
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit.html")
+        try:
+            _open_editor_on(page, view, {"selector": ".sticky-task-line", "text": "שורה אחרונה"})
+            page.evaluate("() => window.externalEdit('גרסה מהוובאפ')")
+            page.keyboard.type("שלי ")
+            view.click(".ck-save")
+            poll(view, f"() => ({shown})('.ck-conflict')", "the conflict bar appeared")
+            mine = view.evaluate("() => document.querySelector('.ck-editor').value")
+            view.click(".ck-accept")
+            after_accept = view.evaluate(f"() => ({{value: document.querySelector('.ck-editor').value,"
+                                         f" restore: ({shown})('.ck-restore'), conflict: ({shown})('.ck-conflict')}})")
+            view.click(".ck-restore")
+            restored = view.evaluate("() => document.querySelector('.ck-editor').value")
+            view.click(".ck-save")
+            poll(view, "() => !document.querySelector('.ck-editor')", "the save over the loaded version went through")
+            saves = page.evaluate("() => window.toolCalls.filter((c) => c.name === 'codekeeper_note_view_save')"
+                                  ".map((c) => c.arguments.expected_content_sha256)")
+            server = page.evaluate("() => window.server")
+        finally:
+            browser.close()
+
+    expected_mine = "\n".join(_EDIT_LINES[:-1] + ["שלי " + _EDIT_LINES[-1]])
+    assert mine == expected_mine, mine
+    assert after_accept == {"value": "גרסה מהוובאפ", "restore": True, "conflict": False}, after_accept
+    assert restored == expected_mine, restored
+    assert saves == ["0" * 63 + "1", "0" * 63 + "2"], saves
+    assert server["note"]["content"] == expected_mine and server["version"] == 3, server
+
+
+def test_a_save_that_lands_after_the_editor_closed_still_updates_the_view_and_claude(chromium_executable, edit_host):
+    """**שמירה שבדרך, ועורך שנסגר לפני התשובה.** מקלידים, Ctrl+S, ובזמן שהשמירה בדרך — Ctrl+Z של
+    הדפדפן מחזיר את הטקסט למקור, והמארח יוצא ממסך מלא. העורך נקי, ולכן נסגר; אבל השמירה כבר יצאה,
+    והשרת כותב אותה. כשהתשובה מגיעה, הפתק שמוצג הוא מה שבשרת, ו-Claude מקבל אותו. לפני התיקון התשובה
+    נזרקה: בשרת הגוף החדש, ובתצוגה ובמודל — הישן."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit.html")
+        try:
+            _open_editor_on(page, view, {"selector": ".sticky-task-line", "text": "שורה רגילה בעברית"})
+            page.evaluate("() => { window.holdSave = true; }")
+            page.keyboard.type("נוסף ")
+            page.keyboard.press("Control+s")
+            poll(page, "() => !!window.heldSave", "the save request reached the host")
+            # הביטול של הדפדפן הולך מילה-מילה: לוחצים עד שהטקסט חוזר למקור, ולא יותר מכמה פעמים.
+            for _ in range(10):
+                if view.evaluate("(original) => document.querySelector('.ck-editor').value === original", _EDIT_NOTE["content"]):
+                    break
+                page.keyboard.press("Control+z")
+            undone = view.evaluate("() => document.querySelector('.ck-editor').value")
+            page.evaluate("() => window.leaveFullscreen()")
+            poll(view, "() => !document.querySelector('.ck-editor')", "the clean editor closed when the host left fullscreen")
+            during = view.evaluate("() => ({edit: getComputedStyle(document.querySelector('.ck-edit')).display !== 'none',"
+                                   " shown: document.querySelector('.ck-content').textContent})")
+            page.evaluate("() => window.releaseSave()")
+            poll(view, "() => document.querySelector('.ck-notice').textContent === 'נשמר.'", "the late answer reached the page")
+            after = view.evaluate("() => ({shown: document.querySelector('.ck-content').textContent,"
+                                  " edit: getComputedStyle(document.querySelector('.ck-edit')).display !== 'none'})")
+            server = page.evaluate("() => window.server")
+            contexts = page.evaluate("() => window.modelContexts")
+        finally:
+            browser.close()
+
+    sent = "\n".join([_EDIT_LINES[0], "נוסף " + _EDIT_LINES[1]] + _EDIT_LINES[2:])
+    assert undone == _EDIT_NOTE["content"], undone
+    assert during["edit"] is False and "נוסף" not in during["shown"], during
+    assert server["note"]["content"] == sent and server["version"] == 2, server
+    assert "נוסף שורה רגילה בעברית" in after["shown"] and after["edit"] is True, after
+    assert len(contexts) == 1 and contexts[0]["content"][0]["text"].endswith("\n" + sent), contexts
