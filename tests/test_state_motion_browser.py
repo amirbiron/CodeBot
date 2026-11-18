@@ -390,6 +390,62 @@ def test_a_feed_group_folds_and_opens_in_place_without_cutting_a_long_list(make_
     assert opened["scroll"] <= opened["client"], "שום שורה לא נחתכה"
 
 
+#: הזווית שבה האלמנט מצויר עכשיו, במעלות — האורקל של הבדיקה, כתוב כאן בנפרד מ-``AnimUtils.rotationOf``
+#: כדי שבאג שם לא יעבור גם כאן. הטווח (-90, 270], כמו שם.
+ANGLE_JS = """(sel) => {
+  const t = getComputedStyle(document.querySelector(sel)).transform;
+  if (t === 'none') return 0;
+  const m = new DOMMatrixReadOnly(t);
+  const d = Math.atan2(m.b, m.a) * 180 / Math.PI;
+  return d <= -90 ? d + 360 : d;
+}"""
+
+#: הזוויות שבמסגרות של אנימציית הסיבוב היחידה שעל האלמנט, או מילון שאומר כמה אנימציות יש עליו.
+KEYFRAME_ANGLES_JS = r"""(sel) => {
+  const anims = document.querySelector(sel).getAnimations();
+  if (anims.length !== 1) return {count: anims.length};
+  return anims[0].effect.getKeyframes().map((k) => {
+    const m = /^rotate\((-?[\d.e+-]+)deg\)$/.exec(k.transform || '');
+    return m ? parseFloat(m[1]) : k.transform;
+  });
+}"""
+
+
+def test_the_chevron_turns_from_the_angle_it_is_drawn_at(make_page, db):
+    """החץ מתחיל להסתובב מהזווית שמצוירת ברגע ההקשה, ומגיע לזווית שה-CSS קובע.
+
+    שני מקרים, ושניהם עלו בריוויו של ה-PR: בהקשה רגילה ההתחלה היא הזווית שלפני ההחלפה — זווית
+    שנקראת **אחרי** ההחלפה כבר שווה ליעד, והחץ היה קופץ בלי להסתובב (נמדד); ובהקשה חוזרת באמצע
+    הסיבוב ההתחלה היא הזווית שבה הוא עצר — עם שתי זוויות קבועות הוא קפץ קודם לזווית ההתחלה הקבועה.
+    """
+    _seed_files(db, 3)
+    p = make_page()
+    p.goto("/dashboard")
+    p.page.wait_for_selector(f"{GROUP_SEL}.is-open")
+    chevron = f"{GROUP_SEL} .group-toggle > .fa-chevron-down"
+    toggle = f"{GROUP_SEL} .group-toggle"
+    assert abs(p.js(ANGLE_JS, chevron) - 180) < 1, "קבוצה פתוחה — החץ מצביע למעלה"
+
+    # הקשה רגילה: מ-180 (פתוחה) אל 0, וגם בפריים הראשון החץ עוד מצויר ב-180.
+    p.page.click(toggle)
+    p.js(FREEZE_JS, chevron)
+    assert p.js(KEYFRAME_ANGLES_JS, chevron) == pytest.approx([180, 0], abs=1)
+    p.js(SEEK_JS, [chevron, 0])
+    assert abs(p.js(ANGLE_JS, chevron) - 180) < 1
+    p.js(FINISH_JS, chevron)
+
+    # הקשה חוזרת באמצע: נפתחת (0 ← 180), נעצרת בדרך, ונסגרת שוב — מהזווית שבה החץ עצר.
+    p.page.click(toggle)
+    p.js(FREEZE_JS, chevron)
+    p.js(SEEK_JS, [chevron, 0.3])
+    mid = p.js(ANGLE_JS, chevron)
+    assert 5 < mid < 175, mid
+    p.page.click(toggle)
+    p.js(FREEZE_JS, chevron)
+    assert p.js(KEYFRAME_ANGLES_JS, chevron) == pytest.approx([mid, 0], abs=1), \
+        "הסיבוב הקודם בוטל, והחדש מתחיל מהזווית שמצוירת"
+
+
 # --- 4. "קבצים אחרונים" ----------------------------------------------------------------------
 
 

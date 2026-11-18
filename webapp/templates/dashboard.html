@@ -2547,14 +2547,14 @@ document.addEventListener('DOMContentLoaded', () => {
             flip();
             return;
         }
+        const chevron = group.querySelector('.group-toggle > .fa-chevron-down');
+        // הזווית שמצוירת עכשיו, **לפני** ההחלפה — כולל סיבוב שעוד רץ. אחריה הסגנון כבר שווה ליעד
+        // (``AnimUtils.rotateFrom``).
+        const chevronFrom = chevron ? AU.rotationOf(chevron) : 0;
         AU.animateHeight(group, flip, Object.assign({ clip: true }, AU.MOTION.groupFold));
         const open = group.classList.contains('is-open');
-        const chevron = group.querySelector('.group-toggle > .fa-chevron-down');
         if (chevron) {
-            AU.play([chevron], [
-                { transform: open ? 'rotate(0deg)' : 'rotate(180deg)' },
-                { transform: open ? 'rotate(180deg)' : 'rotate(0deg)' },
-            ], AU.MOTION.groupChevron);
+            AU.rotateFrom(chevron, chevronFrom, AU.MOTION.groupChevron);
         }
         if (!open) {
             return;

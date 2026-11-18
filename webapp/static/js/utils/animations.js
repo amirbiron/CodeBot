@@ -237,6 +237,22 @@
     return out;
   }
 
+  /**
+   * רושם את ``anim`` כאנימציה שרצה עכשיו על ``el`` במפה ``map``, ומוחק אותה משם כשהיא נגמרת —
+   * רק אם בינתיים לא נרשמה אחרת במקומה.
+   *
+   * ``finished`` נדחה ב-``AbortError`` כשהאנימציה מבוטלת (MDN, ``Animation.cancel()``) — וזה בדיוק
+   * המקרה של לחיצה חוזרת, שכבר רשמה במקומה אנימציה חדשה. אין כאן כשל לדווח.
+   */
+  function remember(map, el, anim) {
+    map.set(el, anim);
+    const forget = () => {
+      if (map.get(el) === anim) map.delete(el);
+    };
+    anim.finished.then(forget, forget);
+    return anim;
+  }
+
   /** אנימציית הגובה שרצה עכשיו על כל אלמנט, כדי שלחיצה חוזרת תמשיך מהגובה שרואים. */
   const heightAnims = new WeakMap();
 
@@ -277,15 +293,51 @@
       first.overflow = 'hidden';
       last.overflow = 'hidden';
     }
-    const anim = el.animate([first, last], { duration: t.duration, easing: t.easing });
-    heightAnims.set(el, anim);
-    const forget = () => {
-      if (heightAnims.get(el) === anim) heightAnims.delete(el);
-    };
-    // ``finished`` נדחה ב-``AbortError`` כשהאנימציה מבוטלת (MDN, ``Animation.cancel()``) —
-    // וזה בדיוק המקרה של לחיצה חוזרת, שכבר רשמה במקומה אנימציה חדשה. אין כאן כשל לדווח.
-    anim.finished.then(forget, forget);
-    return anim;
+    return remember(heightAnims, el, el.animate([first, last], { duration: t.duration, easing: t.easing }));
+  }
+
+  /**
+   * הזווית שבה ``el`` מצויר עכשיו, במעלות. היא נקראת מה-``transform`` המחושב, ולכן כוללת סיבוב
+   * שעוד רץ עליו.
+   *
+   * ``getComputedStyle`` מחזיר ``none`` או ``matrix()`` / ``matrix3d()``. את שני האחרונים
+   * ``DOMMatrixReadOnly`` מקבל כמחרוזת (MDN, ``DOMMatrixReadOnly()``); ``none`` אינו ברשימה של
+   * הפורמטים שם, ולכן הוא נבדק לפני. ``a`` ו-``b`` הם ``m11`` ו-``m12`` — הקוסינוס והסינוס של הסיבוב.
+   * הטווח הוא (-90, 270]: ``atan2`` מחזיר זווית שבין 180 ל-270 כשלילית, והיא מועברת לחצי השני.
+   */
+  function rotationOf(el) {
+    const value = window.getComputedStyle(el).transform;
+    if (!value || value === 'none') return 0;
+    const m = new DOMMatrixReadOnly(value);
+    const deg = Math.atan2(m.b, m.a) * 180 / Math.PI;
+    return deg <= -90 ? deg + 360 : deg;
+  }
+
+  /** אנימציית הסיבוב שרצה עכשיו על כל אלמנט — אותו תפקיד כמו ``heightAnims``. */
+  const rotationAnims = new WeakMap();
+
+  /**
+   * מסובב את ``el`` מ-``fromDeg`` אל הזווית שה-CSS קובע לו עכשיו. מחזיר את האנימציה, או ``null``.
+   *
+   * **``fromDeg`` נמדד ב-``rotationOf`` לפני שינוי המצב, ולא אחריו.** אחרי השינוי הסגנון המחושב
+   * כבר שווה ליעד, ואנימציה שהייתה מתחילה ממנו לא הייתה זזה בכלל — נמדד בכרומיום 153 ב-18.11.2026:
+   * החץ קפץ מ-180 ל-0 בפריים אחד. והמדידה לפני השינוי כוללת סיבוב שעוד רץ, ולכן לחיצה חוזרת באמצע
+   * ממשיכה מהזווית שרואים; עם שתי זוויות קבועות היא קפצה קודם לזווית ההתחלה הקבועה.
+   *
+   * **היעד נקרא מה-CSS ולא נכתב כאן.** הסיבוב הקודם מבוטל קודם, ואז הסגנון המחושב הוא מצב ה-CSS
+   * בלבד, כך שזווית היעד כתובה פעם אחת — בכלל ה-CSS.
+   */
+  function rotateFrom(el, fromDeg, timing) {
+    const t = timing || {};
+    if (!el) return null;
+    const running = rotationAnims.get(el);
+    if (running) running.cancel();
+    const toDeg = rotationOf(el);
+    if (!canAnimate(el) || Math.abs(toDeg - fromDeg) < 0.5) return null;
+    return remember(rotationAnims, el, el.animate([
+      { transform: `rotate(${fromDeg}deg)` },
+      { transform: `rotate(${toDeg}deg)` },
+    ], { duration: t.duration, easing: t.easing }));
   }
 
   /**
@@ -321,5 +373,7 @@
   window.AnimUtils.rectDelta = rectDelta;
   window.AnimUtils.play = play;
   window.AnimUtils.animateHeight = animateHeight;
+  window.AnimUtils.rotationOf = rotationOf;
+  window.AnimUtils.rotateFrom = rotateFrom;
   window.AnimUtils.morphFromRect = morphFromRect;
 })();
