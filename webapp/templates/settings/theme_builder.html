@@ -1084,6 +1084,14 @@
             }
 
             const variables = state.variables || {};
+            // צבע הזכוכית חוזר יחד עם המצב: מצבי ההיסטוריה והטיוטה נבנים ב-collectThemeValues, ולכן הצבע שכתוב בהם הוא
+            // הבסיס שהיה בתוקף כשנשמרו. בלי זה "בטל" אחרי "איפוס" מחזיר את המחוון ואת התצוגה, אבל השמירה מחשבת מהלבן
+            // של האיפוס. משתנה שחסר במצב משאיר את הבסיס כמו שהוא, כמו שהמחוון עצמו לא זז כשאין לו ערך.
+            glassBaseRgb = {
+                glass: variables['--glass'] ? _rgbOf(variables['--glass']) : glassBaseRgb.glass,
+                border: variables['--glass-border'] ? _rgbOf(variables['--glass-border']) : glassBaseRgb.border,
+                hover: variables['--glass-hover'] ? _rgbOf(variables['--glass-hover']) : glassBaseRgb.hover,
+            };
             Object.entries(VAR_MAP).forEach(([pickrId, varName]) => {
                 const textInput = document.getElementById(pickrId + 'Text');
                 const value = variables[varName] || DEFAULT_VALUES[varName];

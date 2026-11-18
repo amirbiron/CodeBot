@@ -9,7 +9,8 @@
 
 **מה נמדד כאן.** הדף האמיתי (``/settings/theme-builder`` דרך ``test_client``, כולל הסטטיים) עם ערכה שהזכוכית שלה
 צבעונית, בכרומיום: מה הבונה שולח בפרסום, בשמירה בלי שינוי, בשמירה אחרי שינוי צבע אחד, ואחרי הזזת המחוון; וערכה
-חדשה, שנבנית מאפס בבונה, שולחת זכוכית לבנה כמו עד היום.
+חדשה, שנבנית מאפס בבונה, שולחת זכוכית לבנה כמו עד היום. ושני מסלולים שמחזירים מצב שמור לטופס — "בטל" אחרי "איפוס",
+ושחזור טיוטה — מחזירים גם את צבע הזכוכית של אותו מצב, ולא רק את המחוון ואת התצוגה המקדימה.
 
 **מה לא עובר כאן דרך השרת.** פרטי הערכה (``GET /api/themes/<id>``) מוגשים מהבדיקה, באותה צורה ש-
 ``get_theme_details`` ב-``webapp/themes_api.py`` מחזיר ומאותו מסמך: הוא קורא ב-``{"custom_themes.$": 1}`` עם
@@ -259,4 +260,42 @@ def test_a_new_theme_still_gets_white_glass(builder):
     assert variables["--glass-hover"] == "rgba(255, 255, 255, 0.15)"
     # כל הטופס נשלח, כי אין ערכה מקורית שאפשר להשאיר אותו בה.
     assert {"--bg-primary", "--primary", "--text-primary", "--glass-blur"} <= set(variables)
+    assert not errors, errors
+
+
+def test_undo_after_reset_restores_the_glass_colour_too(builder):
+    """"איפוס לברירות מחדל" מחזיר את הזכוכית ללבן, ו"בטל" מחזיר את הערכה כמו שנטענה — כולל הצבע של הזכוכית, ולא רק
+    את המחוון ואת התצוגה המקדימה. אחרת השמירה הייתה מחשבת את הזכוכית מהלבן של האיפוס, ושומרת לבן מתחת לתצוגה צבעונית."""
+    page, sent, errors = builder()
+    page.click("#resetThemeBtn")  # האישור נענה ב-handler של הדיאלוגים בפיקסצ'ר
+    page.wait_for_function("() => !document.getElementById('undoBtn').disabled", timeout=WAIT_S * 1000)
+    page.click("#undoBtn")
+    page.wait_for_function(
+        "() => document.getElementById('glassOpacityValue').textContent.trim() === '55%'", timeout=WAIT_S * 1000
+    )
+    body = _save(page, sent)
+    # אחרי "בטל" הטופס זהה למה שנטען, ולכן אין מה לשלוח.
+    assert body.get("variables") == {}, body.get("variables")
+    assert not errors, errors
+
+
+def test_a_restored_draft_brings_its_own_glass_colour(builder):
+    """המקרה ההפוך, דרך הטיוטה: טיוטה שנשמרה אחרי "איפוס" היא זכוכית לבנה. אחרי טעינה מחדש ושחזור הטיוטה, השמירה
+    שולחת את הלבן שבתצוגה — ולא את הצבע של הערכה שנטענה לפני השחזור עם השקיפות של הטיוטה."""
+    page, sent, errors = builder()
+    page.click("#resetThemeBtn")
+    page.wait_for_function(
+        "(id) => localStorage.getItem('codebot.theme_builder.draft.v1:' + id) !== null", arg=THEME_ID,
+        timeout=WAIT_S * 1000,
+    )
+    page.reload(wait_until="load")  # "לשחזר טיוטה?" נענה ב-handler של הדיאלוגים בפיקסצ'ר
+    page.wait_for_function(
+        "() => document.getElementById('glassOpacityValue').textContent.trim() === '10%'"
+        " && !document.getElementById('saveThemeBtn').disabled",
+        timeout=WAIT_S * 1000,
+    )
+    variables = _save(page, sent)["variables"]
+    assert variables["--glass"] == "rgba(255, 255, 255, 0.10)", variables["--glass"]
+    assert variables["--glass-border"] == "rgba(255, 255, 255, 0.20)", variables["--glass-border"]
+    assert variables["--glass-hover"] == "rgba(255, 255, 255, 0.15)", variables["--glass-hover"]
     assert not errors, errors
