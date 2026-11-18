@@ -142,9 +142,12 @@ html.ck-expanded #ck-note-root {
   min-height: 0;
 }
 
-/* ``hidden`` של הדפדפן הוא ``display: none`` ברמת ה-UA, ו-``display`` של כלל כאן היה דורס אותו. */
+/* ``hidden`` של הדפדפן הוא ``display: none`` ברמת ה-UA, ו-``display`` של כלל כאן היה דורס אותו. **עם
+   ``!important``, ובכוונה:** בלעדיו כל כלל עם אותה ספציפיות שבא אחריו בקובץ גובר עליו — כך קרה עם
+   ``.ck-btn.ck-icon { display: inline-flex }``, ו"מסך מלא" נשאר על המסך במסך מלא (נתפס בבדיקת
+   הדפדפן). "מוסתר" הוא החלטה של ``note_view.js``, ושום כלל עיצוב אינו אמור לבטל אותה. */
 .ck-paper [hidden] {
-  display: none;
+  display: none !important;
 }
 
 .ck-paper.has-note-color {
@@ -161,9 +164,24 @@ html.ck-expanded #ck-note-root {
   color-scheme: light;
 }
 
-.ck-title {
+/* **שורת הראש** — הכותרת, ובזמן עריכה גם "שמור" ו"בטל" (``.ck-edit-bar``) בקצה השני של השורה. בלי
+   כותרת ובלי עריכה היא ריקה, ואינה תופסת מקום. */
+.ck-head {
   flex: none;
-  margin-block: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-block-end: 8px;
+}
+
+.ck-head:empty {
+  display: none;
+}
+
+.ck-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   font-size: calc(var(--ck-title-font) / var(--ck-text-scale, 1));
   font-weight: var(--ck-title-weight);
   line-height: var(--ck-line-height);
@@ -195,13 +213,16 @@ html.ck-expanded #ck-note-root {
   }
 }
 
-/* שורת הכפתורים בתחתית הפתק: "מסך מלא" בתחילת השורה, ▲▼ בסופה. */
+/* שורת הכפתורים בתחתית הפתק: "מסך מלא" ו"עריכה" בתחילת השורה, ▲▼ בסופה. **צמודה לתחתית הנייר**
+   (החלטת המשתמש): ``margin-block-end`` שלילי אוכל חלק מהריפוד התחתון של הנייר, רק כשהשורה מוצגת —
+   שורה מוסתרת היא ``display: none``, והריפוד המלא נשאר לטקסט. */
 .ck-controls {
   flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-block-start: 8px;
+  padding-block-start: 4px;
+  margin-block-end: -8px;
 }
 
 .ck-scroll-btns {
@@ -231,6 +252,30 @@ html.ck-expanded #ck-note-root {
   cursor: default;
 }
 
+/* **כפתור אייקון** — "מסך מלא", "עריכה", ▲▼: קטן יותר לעין (החלטת המשתמש), ואזור הלחיצה נשאר 44 —
+   ה-``::after`` השקוף מרחיב אותו 4 פיקסלים לכל צד. ``inset`` שווה בכל הצדדים, ולכן אין לו כיוון. */
+.ck-btn.ck-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  font-size: calc(18px / var(--ck-text-scale, 1));
+}
+
+.ck-btn.ck-icon::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+}
+
+.ck-btn.ck-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
 .ck-empty {
   font-style: italic;
 }
@@ -241,10 +286,18 @@ html.ck-expanded #ck-note-root {
 
 /* -- עריכה (``openEditor`` ב-``note_view.js``) ----------------------------------------- */
 
-/* שורת הפעולות של העורך יושבת **מעל** תיבת הטקסט: במובייל המקלדת ושדה ההודעה של Claude מכסים את
-   התחתית (התיעוד של Claude, "Display modes"). השורות של התנגשות, אישור ביטול ושינוי שלא נשמר —
-   אותה צורה. */
-.ck-edit-bar,
+/* "שמור" ו"בטל" **בשורת הראש**, מעל תיבת הטקסט — במובייל המקלדת ושדה ההודעה של Claude מכסים את
+   התחתית (התיעוד של Claude, "Display modes") — ובקצה השמאלי שלה (``margin-inline-start: auto`` בשורה
+   מימין לשמאל): הבאנר של Claude יושב באמצע ראש המסך, וכפתור הסגירה שלו מימין. */
+.ck-edit-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+
+/* השורות של התנגשות, אישור ביטול ושינוי שלא נשמר. */
 .ck-conflict,
 .ck-confirm,
 .ck-unsaved {
@@ -265,7 +318,12 @@ html.ck-expanded #ck-note-root {
   font-weight: 600;
 }
 
+/* הסטטוס של העורך ("שומר…", למה השמירה לא עברה) — שורה משלו, מוצגת רק כשיש בה משהו. */
 .ck-edit-status {
+  flex: none;
+  margin: 0;
+  padding-block-end: 4px;
+  font-size: calc(var(--font-text-sm-size, 14px) / var(--ck-text-scale, 1));
   color: var(--ck-muted);
 }
 
@@ -278,11 +336,12 @@ html.ck-expanded #ck-note-root {
    **הגובה נקבע כאן בלבד, ולא ב-JS** (``amir-bug-patterns`` H7, "שתי נוסחאות לאותו מימד"): במסגרת
    בגובה קבוע (``ck-fill``, המסך המלא של Claude) התיבה ממלאת את מה שנשאר בנייר; במסך מלא בגובה גמיש
    (``ck-expanded``) נקודת המוצא היא ``flex-basis``, והתקרה של ``#ck-note-root`` מכווצת אותה. בלי
-   ``overflow: hidden`` באף מכל: טקסט שלא נכנס נגלל בתוך התיבה. ``min-height`` — כמה שורות גלויות
-   גם במסגרת נמוכה מאוד (מקלדת פתוחה); אז הדף כולו נגלל, ולא התיבה נעלמת. */
+   ``overflow: hidden`` באף מכל: טקסט שלא נכנס נגלל בתוך התיבה. **``min-height: 0`` ולא מינימום של
+   שורות:** מינימום כזה דחף את התיבה אל מחוץ לנייר כשהשטח הגלוי קטן ממנו — נראה בטלפון, שורה מתחת
+   לגבול הפתק. התיבה היא הפריט היחיד שגדל בנייר, והיא נגללת בעצמה, ולכן שום דבר אינו בורח מהנייר. */
 .ck-editor {
   flex: 1 1 auto;
-  min-height: 4em;
+  min-height: 0;
   box-sizing: border-box;
   inline-size: 100%;
   margin: 0;
@@ -300,6 +359,52 @@ html.ck-expanded #ck-note-root {
 
 html.ck-expanded .ck-editor {
   flex-basis: 24em;
+}
+
+/* **בזמן עריכה כל פיקסל לתיבה** (``ck-editing``, מ-``syncEditMode``): ריפוד קטן לנייר, רווח קטן מתחת
+   לשורת הראש, והכותרת בשורה אחת — מה שלא נכנס נחתך בשלוש נקודות; בתצוגה היא נשברת לשורות, כרגיל. */
+html.ck-editing .ck-paper {
+  padding-block: 6px;
+  padding-inline: 10px;
+}
+
+html.ck-editing .ck-head {
+  margin-block-end: 4px;
+}
+
+html.ck-editing .ck-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* **הפתק מוצמד לשטח הגלוי** — במסגרת בגובה קבוע (``ck-fill``, המסך המלא של Claude), בזמן עריכה.
+   ``note_view.js`` מעביר את הגובה הגלוי ואת המרחק שלו מראש הפריסה (``syncVisibleArea``), והנוסחה כאן:
+   הגובה של ``#ck-note-root`` הוא השטח הגלוי, והוא מוזז אליו (``position: relative`` אינו משנה את
+   הפריסה של אף אחד אחר). ראש הנייר — הכותרת, "שמור" ו"בטל" — בראש השטח הגלוי, ותיבת הטקסט ממלאת
+   את השאר. הריפוד של ``#ck-note-root`` נשאר: ``safeAreaInsets`` של המארח (שדה ההודעה למטה). בלי
+   המשתנים (אין ``visualViewport``) — 100% ו-0, כלומר המסגרת כולה, כמו קודם. ובמסגרת גמישה
+   (``ck-expanded``) אין הצמדה: שם הגובה של המסגרת הוא מה שהדף מדווח, והצמדה לשטח הגלוי הייתה סוגרת
+   מעגל. */
+html.ck-fill.ck-editing #ck-note-root {
+  position: relative;
+  top: var(--ck-vv-top, 0px);
+  height: var(--ck-vv-height, 100%);
+}
+
+/* **מצב מדידה** (``layout_debug``, ``updateDebug``) — מספרים, משמאל לימין, בגופן קבוע רוחב. */
+.ck-debug {
+  flex: none;
+  margin-block-end: 6px;
+  padding-block: 4px;
+  padding-inline: 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, .06);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(11px / var(--ck-text-scale, 1));
+  line-height: 1.3;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* ההודעה הקטנה שמתחת לפתק: "נשמר.", למה העריכה לא נפתחה, ושהמודל לא עודכן. */

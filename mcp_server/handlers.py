@@ -2905,7 +2905,7 @@ def _note_with_target(backend: Any, current: dict[str, Any]) -> dict[str, Any]:
 
 
 def show_note(
-    backend: Any, user_id: int, *, note_id: str, is_admin: bool, can_write: bool
+    backend: Any, user_id: int, *, note_id: str, is_admin: bool, can_write: bool, layout_debug: bool = False
 ) -> dict[str, Any]:
     """פתק **אחד** להצגה בתוך Claude — הגוף של ``codekeeper_show_note`` (MCP App).
 
@@ -2919,6 +2919,10 @@ def show_note(
     **``editable``** — האם החיבור יכול לשמור (``can_write``, מ-``auth.has_write_scope``). התצוגה
     מציעה עריכה רק כשהוא ``True``; גם הוא חובה ובלי ברירת מחדל, כדי שקורא ששכח אותו ייכשל ולא
     יציג כפתור שכל לחיצה עליו נדחית. ה-hash שהעריכה נבנית עליו כבר בפתק (``content_sha256``).
+
+    **``layout_debug``** — מצב מדידה: התצוגה מציגה מספרים חיים על הפריסה, לבדיקה במכשיר שאין בו כלי
+    פיתוח (``updateDebug`` ב-``mcp_server/apps/note_view.js``). השדה נכנס לתשובה רק כשהתבקש, ורק
+    כ-``True`` — תשובה רגילה לא משתנה.
     """
     nid = _clean_note_id(note_id)
     if nid is None:
@@ -2928,6 +2932,8 @@ def show_note(
         return current
     out = _note_with_target(backend, current)
     out["editable"] = can_write is True
+    if layout_debug is True:
+        out["layout_debug"] = True
     return out
 
 

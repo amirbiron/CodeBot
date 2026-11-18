@@ -44,14 +44,18 @@
    **שתי תקרות זמן משלנו** (``wait-without-own-deadline``). אף אחת מהן אינה מחזיקה דבר — היא
    מחליפה את "טוען…" בהודעה שאומרת מה לא הגיע, ותשובה שמגיעה אחריה עדיין מוצגת.
 
-   **עריכה, במסך מלא.** לחיצה על שורה, או על "✏️ עריכה", פותחת את הטקסט הגולמי בתיבת טקסט, והסמן
+   **עריכה, במסך מלא.** לחיצה על שורה, או על ✎ ("עריכה"), פותחת את הטקסט הגולמי בתיבת טקסט, והסמן
    בשורה שנלחצה. השמירה עוברת דרך ``codekeeper_note_view_save`` — כלי שרק הדף מפעיל, בקשת
    ``tools/call`` שהמארח מעביר לשרת (המפרט, "Standard MCP Messages") — עם ה-``content_sha256``
    שהעריכה נבנתה עליו. כל צעד שמחכה למארח ומחזיק משהו (פתיחת העריכה, שמירה, בדיקת התנגשות) נושא
    תקרת זמן משלו, ``TOOL_DEADLINE_MS``. אחרי שמירה הדף מעדכן את המודל (``ui/update-model-context``),
    כי התוצאה שהכלי החזיר קודם, ושהמודל מחזיק, כבר אינה הפתק. **התשובה על שמירה שייכת לדף ולא לעורך
    ששלח אותה:** העורך יכול להיסגר בזמן שהבקשה בדרך (יציאה ממסך מלא של המארח), והשמירה עדיין נוחתת
-   בשרת. הפירוט ליד ``beginEdit`` וליד ``save``. */
+   בשרת. הפירוט ליד ``beginEdit`` וליד ``save``.
+
+   **המקלדת.** בזמן עריכה במסגרת קבועה הפתק מוצמד לשטח הגלוי (``visualViewport``), ורק תיבת הטקסט
+   נגללת — ``syncVisibleArea``. במסך שהצלע הקצרה שלו צרה (טלפון) אין עריכה — ``screenAllowsEditing``.
+   ו-``layout_debug`` מהכלי מציג מספרים חיים על הפריסה, לבדיקה במכשיר — ``updateDebug``. */
 (function (root) {
   'use strict';
 
@@ -81,6 +85,22 @@
   /** הכלי שהתצוגה מציגה, והכלי שהיא שומרת דרכו (``mcp_server/server.py``). */
   var READ_TOOL = 'codekeeper_show_note';
   var SAVE_TOOL = 'codekeeper_note_view_save';
+  /** הצלע הקצרה של המסך, בפיקסלים של הדף, שמתחתיה אין עריכה — הסף של אנדרואיד בין טלפון לטאבלט
+   *  (``sw600dp``: "600dp: 7” tablet", "For phones (smaller than 600dp smallest width)", ב-
+   *  "Responsive/adaptive design with views" של Android Developers). ראו ``screenAllowsEditing``. */
+  var EDIT_MIN_SCREEN_SIDE_PX = 600;
+  /** האייקון של "מסך מלא": ``maximize-2`` של Lucide ‏1.73.0 (``icons/maximize-2.svg`` ב-
+   *  ``github.com/lucide-icons/lucide``), הצורות מילה במילה — אותה משפחה כמו אייקוני הפתק בוובאפ
+   *  (``LINK_ICON_SHAPES`` ב-``sticky-notes.js``), ונבנה באותה פונקציה של המנוע (``buildStrokeIcon``). */
+  var MAXIMIZE_ICON_SHAPES = [
+    ['path', { d: 'M15 3h6v6' }],
+    ['path', { d: 'm21 3-7 7' }],
+    ['path', { d: 'm3 21 7-7' }],
+    ['path', { d: 'M9 21H3v-6' }]
+  ];
+  /** "עריכה" — ``✎``, התו של כפתור עריכת השם בפתק בוובאפ (``editBtn`` ב-``sticky-notes.js``). תו טקסט
+   *  ולא אימוג'י, ולכן הוא מקבל את ה-``color`` של הכפתור. */
+  var EDIT_GLYPH = '\u270E';
   var MODEL_STALE_TEXT = 'Claude לא עודכן על השינוי האחרון. כדי שיעבוד על הגרסה השמורה, בקשו ממנו לקרוא את הפתק מחדש.';
 
   /** קוד שגיאה מהשרת מוצג רק כשהוא בצורה של קוד — מילה אחת באותיות קטנות. */
@@ -146,6 +166,11 @@
     this.modelStale = false;
     /** מונה העדכונים למודל — רק התשובה לעדכון האחרון קובעת את ``modelStale``. */
     this.modelSeq = 0;
+    /** מצב מדידה — ``layout_debug: true`` בתוצאת הכלי (``updateDebug``). */
+    this.layoutDebug = false;
+    /** העותק הנסתר של תיבת הטקסט שבו נמדד מקום הסמן (``revealCaret``), או ``null``. */
+    this.caretMirror = null;
+    this.revealScheduled = false;
     /** השמירה שבדרך — ``{ed, sent, base}`` — כולל הקריאה שמכריעה עליה, או ``null``. **של הדף ולא של
      *  העורך:** העורך יכול להיסגר בזמן שהיא בדרך, והתשובה עליה עדיין מעדכנת את הדף (``finishSave``). */
     this.saving = null;
@@ -398,6 +423,15 @@
       v.bar.hidden = true;
       return;
     }
+    // **במסך מלא אין שורת כפתורים** (החלטת המשתמש): הגוף נגלל באצבע או בגלגלת, "מסך מלא" כבר אינו
+    // רלוונטי, ועריכה נפתחת בלחיצה על שורה. הפתק מקבל את כל הגובה.
+    if (this.hostContext.displayMode === 'fullscreen') {
+      v.bar.hidden = true;
+      v.expand.hidden = true;
+      v.edit.hidden = true;
+      v.group.hidden = true;
+      return;
+    }
     v.expand.hidden = !this.canFullscreen();
     v.edit.hidden = !(this.canEdit() && !this.editor && !this.pendingEdit && !this.saving);
     var actionShown = !v.expand.hidden || !v.edit.hidden;
@@ -523,6 +557,7 @@
       this.lastHeight = height;
       this.notify('ui/notifications/size-changed', { width: width, height: height });
     }
+    this.updateDebug();
   };
 
   NoteView.prototype.scheduleSize = function () {
@@ -546,7 +581,19 @@
     this.win.addEventListener('resize', function () {
       self.forceReport = true;
       self.scheduleSize();
+      self.syncVisibleArea();
     });
+    // **השטח הגלוי** (``visualViewport``): "User-interface features like the on-screen keyboard (OSK)
+    // can shrink the visual viewport without affecting the layout viewport" (MDN, VisualViewport), ו-
+    // ``resize`` / ``scroll`` שלו יורים כשהוא משתנה או זז. **הכרעה סטטית על היעדר יכולת:** בלעדיו
+    // המשתנים אינם מוצבים, והעורך ממלא את המסגרת כמו קודם.
+    var vv = this.win.visualViewport;
+    if (vv && typeof vv.addEventListener === 'function') {
+      var onVisibleArea = function () { self.syncVisibleArea(); };
+      vv.addEventListener('resize', onVisibleArea);
+      vv.addEventListener('scroll', onVisibleArea);
+    }
+    this.syncVisibleArea();
     // **הכרעה סטטית על היעדר יכולת, לא נפילה על כשל:** בלי ``ResizeObserver`` הגודל נמדד פעם
     // אחת עכשיו ופעם אחת אחרי כל רינדור (``render``).
     if (typeof this.win.ResizeObserver === 'function') {
@@ -556,6 +603,128 @@
       this.sizeObserver = observer;
       if (this.view) observer.observe(this.view.content);
     }
+  };
+
+  // -- השטח הגלוי והסמן -----------------------------------------------------------
+
+  /** **מעביר ל-CSS את השטח הגלוי** — הגובה שלו (``--ck-vv-height``) והמרחק שלו מראש הפריסה
+   *  (``--ck-vv-top``), שניהם בפיקסלים של הדף ("in CSS pixels", MDN). **הנוסחה ב-``note_view.css``,
+   *  לא כאן** (``amir-bug-patterns`` H7, "שתי נוסחאות לאותו מימד"), כמו התקרה של המארח ב-``layout``:
+   *  בזמן עריכה במסגרת קבועה הפתק מוצמד לשטח הזה, כך שהכותרת ו"שמור"/"בטל" בראשו, ותיבת הטקסט היא
+   *  היחידה שנגללת — במקום שהדפדפן יגלול את הדף כולו כדי להראות את הסמן מעל המקלדת.
+   *
+   *  **למה זה מספיק גם כשהמקלדת משנה את הפריסה עצמה:** אז גם הגובה הגלוי קטן, והמרחק נשאר 0. ולמה זה
+   *  עלול לא להספיק: השינוי שבו המקלדת מקטינה רק את השטח הגלוי "do not affect WebView" (Chrome for
+   *  Developers, "Prepare for viewport resize behavior changes"), והאפליקציה של Claude מציגה את הדף ב-
+   *  WebView. אם המערכת מזיזה בה את כל החלון, הדף אינו יודע דבר — ובשביל זה מצב המדידה
+   *  (``updateDebug``). מספר שאינו אורך תקין אינו נכנס ל-CSS. */
+  NoteView.prototype.syncVisibleArea = function () {
+    var vv = this.win.visualViewport;
+    var style = this.doc.documentElement.style;
+    if (vv && isLength(vv.height, false) && isLength(vv.offsetTop, true)) {
+      style.setProperty('--ck-vv-height', vv.height + 'px');
+      style.setProperty('--ck-vv-top', vv.offsetTop + 'px');
+    } else {
+      style.removeProperty('--ck-vv-height');
+      style.removeProperty('--ck-vv-top');
+    }
+    this.scheduleReveal();
+    this.updateDebug();
+  };
+
+  NoteView.prototype.scheduleReveal = function () {
+    var self = this;
+    if (this.revealScheduled) return;
+    this.revealScheduled = true;
+    var run = function () {
+      self.revealScheduled = false;
+      self.revealCaret();
+    };
+    if (typeof this.win.requestAnimationFrame === 'function') this.win.requestAnimationFrame(run);
+    else run();
+  };
+
+  /** **מחזיר את הסמן לתוך תיבת הטקסט** אחרי שהיא התכווצה — המקלדת נפתחה, השטח הגלוי זז. נמדד בכרום:
+   *  ``setSelectionRange`` על תיבה שבפוקוס אינו גולל אליו, ו-``focus()`` גולל אליו רק כשהתיבה מקבלת
+   *  פוקוס (ו-``blur`` + ``focus`` היו סוגרים ופותחים את המקלדת במובייל). לכן המקום של הסמן נמדד:
+   *  ``caretTop`` בונה עותק נסתר של התיבה, עם הסגנון המחושב שלה, ומודד את הגובה של הטקסט שלפני הסמן.
+   *  רק גלילה אנכית של התיבה עצמה — שום מיקום אופקי אינו מחושב כאן. */
+  NoteView.prototype.revealCaret = function () {
+    var ed = this.editor;
+    if (!ed || !this.editorShown() || this.doc.activeElement !== ed.textarea) return;
+    var ta = ed.textarea;
+    var caret = this.caretTop(ta);
+    if (!caret) return;
+    if (caret.top < ta.scrollTop) ta.scrollTop = caret.top;
+    else if (caret.top + caret.line > ta.scrollTop + ta.clientHeight) ta.scrollTop = caret.top + caret.line - ta.clientHeight;
+  };
+
+  /** המרחק של הסמן מראש התוכן של התיבה, וגובה שורה — ``{top, line}``, או ``null`` כשאין למדוד. העותק
+   *  מקבל את כל מה שקובע איפה שורה נשברת: הגופן, הריווח, הכיוון והריפוד, מהסגנון המחושב של התיבה, ו-
+   *  ``clientWidth`` שלה — בלי פס הגלילה. אחרי המדידה הוא יוצא מהדף. */
+  NoteView.prototype.caretTop = function (ta) {
+    var cs = this.win.getComputedStyle(ta);
+    var line = parseFloat(cs.lineHeight);
+    var padInline = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    if (!isLength(line, false) || !isLength(ta.clientWidth, false)) return null;
+    var mirror = this.caretMirror || this.doc.createElement('div');
+    this.caretMirror = mirror;
+    var props = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontVariant', 'fontStretch', 'letterSpacing',
+      'wordSpacing', 'lineHeight', 'textIndent', 'textTransform', 'tabSize', 'direction', 'overflowWrap', 'wordBreak',
+      'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
+    for (var i = 0; i < props.length; i += 1) mirror.style[props[i]] = cs[props[i]];
+    mirror.style.position = 'absolute';
+    mirror.style.visibility = 'hidden';
+    mirror.style.top = '0';
+    mirror.style.boxSizing = 'content-box';
+    mirror.style.whiteSpace = 'pre-wrap';
+    mirror.style.border = '0';
+    mirror.style.width = Math.max(0, ta.clientWidth - (isFinite(padInline) ? padInline : 0)) + 'px';
+    mirror.textContent = ta.value.slice(0, ta.selectionStart);
+    var marker = this.doc.createElement('span');
+    marker.textContent = ta.value.slice(ta.selectionStart) || '.';
+    mirror.appendChild(marker);
+    this.doc.body.appendChild(mirror);
+    var top = marker.offsetTop;
+    this.doc.body.removeChild(mirror);
+    return isLength(top, true) ? { top: top, line: line } : null;
+  };
+
+  // -- מצב מדידה ----------------------------------------------------------------------
+
+  /** **מצב מדידה** (``layout_debug: true`` בתוצאת הכלי): מספרים חיים על הפריסה, כדי שבדיקה במכשיר —
+   *  שאין בו כלי פיתוח — תתבסס על מדידה ולא על ניחוש: השטח הגלוי, החלון, המסך, מה שהמארח מסר על
+   *  המסגרת ועל השוליים, ואיפה הנייר ותיבת הטקסט. **טקסט בלבד, מספרים בלבד** — בלי תוכן הפתק — ושום
+   *  דבר אינו נשלח לשום מקום. */
+  NoteView.prototype.updateDebug = function () {
+    var v = this.view;
+    if (!v || !v.debug) return;
+    var w = this.win;
+    var vv = w.visualViewport;
+    var sc = w.screen;
+    var ctx = this.hostContext;
+    var num = function (n) { return typeof n === 'number' && isFinite(n) ? String(Math.round(n * 10) / 10) : '—'; };
+    var box = function (el) {
+      if (!el || typeof el.getBoundingClientRect !== 'function') return '—';
+      var b = el.getBoundingClientRect();
+      return num(b.top) + '..' + num(b.bottom) + ' (' + num(b.height) + ')';
+    };
+    var scroller = this.doc.scrollingElement || this.doc.documentElement;
+    var lines = [
+      'vv h=' + (vv ? num(vv.height) : '—') + ' top=' + (vv ? num(vv.offsetTop) : '—') + ' pageTop=' + (vv ? num(vv.pageTop) : '—')
+        + ' scale=' + (vv ? num(vv.scale) : '—'),
+      'inner ' + num(w.innerWidth) + 'x' + num(w.innerHeight) + ' scrollY=' + num(scroller.scrollTop) + ' dpr=' + num(w.devicePixelRatio),
+      'screen ' + (sc ? num(sc.width) + 'x' + num(sc.height) : '—') + ' edit=' + this.screenAllowsEditing(),
+      'mode=' + String(ctx.displayMode) + ' dims=' + JSON.stringify(isObject(ctx.containerDimensions) ? ctx.containerDimensions : null)
+        + ' safe=' + JSON.stringify(isObject(ctx.safeAreaInsets) ? ctx.safeAreaInsets : null),
+      'root ' + box(this.root()) + ' paper ' + box(v.paper)
+    ];
+    if (this.editor) {
+      var ta = this.editor.textarea;
+      lines.push('editor ' + box(ta) + ' scrollTop=' + num(ta.scrollTop) + ' focus=' + (this.doc.activeElement === ta));
+    }
+    var text = lines.join('\n');
+    if (v.debug.textContent !== text) v.debug.textContent = text;
   };
 
   // -- רינדור -------------------------------------------------------------------
@@ -611,7 +780,7 @@
       return { error: code, max: isLength(answer.max, false) ? answer.max : null };
     }
     if (!isObject(answer.note) || typeof answer.note.content !== 'string') return { error: null };
-    return { note: answer.note, editable: answer.editable === true };
+    return { note: answer.note, editable: answer.editable === true, layoutDebug: answer.layout_debug === true };
   };
 
   /** הודעה למשתמש על סירוב מהשרת — הטקסט הידוע לקוד, או קוד השגיאה עצמו. */
@@ -636,6 +805,8 @@
       return;
     }
     this.current = { note: read.note, editable: read.editable === true };
+    // מצב המדידה נקבע מהקריאה של המודל בלבד — הקריאות הטריות של העריכה אינן מבקשות אותו.
+    this.layoutDebug = read.layoutDebug === true;
     this.render(read.note);
   };
 
@@ -650,9 +821,11 @@
     // נבדק כאן:** ``render`` לבנייה, ו-``MD_SAFE_LINK`` לקישורים. והאובייקט שנבדק הוא זה שהקישורים
     // נשפטים מולו (``onLinkClick`` מקבל אותו), כך שבזמן הלחיצה אין בדיקה שנייה ואין קריאה שנייה של
     // ``window`` — מנוע שעבר את הבדיקה הזו הוא המנוע של כל מה שקורה בפתק עד הרינדור הבא. גם
-    // ``isViewControl`` ו-``sourceOffsetAt`` — מה לחיצה בגוף הפתק פוגעת בו (``onBodyClick``).
+    // ``isViewControl`` ו-``sourceOffsetAt`` — מה לחיצה בגוף הפתק פוגעת בו (``onBodyClick``) — ו-
+    // ``buildStrokeIcon`` לאייקונים של הכפתורים.
     if (!md || typeof md.render !== 'function' || !md.MD_SAFE_LINK || typeof md.MD_SAFE_LINK.test !== 'function'
-        || typeof md.isViewControl !== 'function' || typeof md.sourceOffsetAt !== 'function') {
+        || typeof md.isViewControl !== 'function' || typeof md.sourceOffsetAt !== 'function'
+        || typeof md.buildStrokeIcon !== 'function') {
       this.settle();
       this.showStatus('התצוגה של הפתק לא נטענה במלואה, ולכן הפתק לא מוצג.', true);
       return;
@@ -663,6 +836,17 @@
     // והבלוק המתקפל, ומצהיר עליו את הטוקנים שהתוכן קורא (הדיו של הפתק ביניהם). המחלקה אינה מביאה
     // איתה את השלד של הפתק בלוח: הוא ב-``sticky-notes.css``, שהדף הזה אינו כולל.
     paper.className = 'ck-paper sticky-note';
+    // **שורת הראש:** הכותרת (``paint``), ובזמן עריכה גם "שמור" ו"בטל" (``openEditor``) — שורה אחת.
+    var head = doc.createElement('div');
+    head.className = 'ck-head';
+    paper.appendChild(head);
+    var debug = null;
+    if (this.layoutDebug) {
+      debug = doc.createElement('div');
+      debug.className = 'ck-debug';
+      debug.setAttribute('dir', 'ltr');
+      paper.appendChild(debug);
+    }
     var body = doc.createElement('div');
     body.className = 'ck-body';
     var self = this;
@@ -674,7 +858,7 @@
     content.className = 'ck-content';
     body.appendChild(content);
     paper.appendChild(body);
-    paper.appendChild(this.buildControls(body));
+    paper.appendChild(this.buildControls(body, md));
     var notice = doc.createElement('p');
     notice.className = 'ck-notice';
     notice.setAttribute('role', 'status');
@@ -683,6 +867,8 @@
     this.view.paper = paper;
     this.view.notice = notice;
     this.view.md = md;
+    this.view.head = head;
+    this.view.debug = debug;
     this.view.title = null;
     this.paint(note);
     this.syncNotice();
@@ -691,6 +877,7 @@
     if (this.sizeObserver) this.sizeObserver.observe(content);
     this.settle();
     this.updateControls();
+    this.updateDebug();
     if (this.initialized) this.scheduleSize();
   };
 
@@ -709,9 +896,9 @@
     if (hasTitle && !v.title) {
       v.title = this.doc.createElement('h1');
       v.title.className = 'ck-title';
-      paper.insertBefore(v.title, paper.firstChild);
+      v.head.insertBefore(v.title, v.head.firstChild);
     } else if (!hasTitle && v.title) {
-      paper.removeChild(v.title);
+      v.head.removeChild(v.title);
       v.title = null;
     }
     if (v.title) v.title.textContent = note.title;
@@ -784,29 +971,31 @@
     this.beginEdit(md.sourceOffsetAt(target));
   };
 
-  /** שורת הכפתורים בתחתית הפתק. כולם מוסתרים עד ש-``updateControls`` מחליט אחרת. */
-  NoteView.prototype.buildControls = function (body) {
+  /** שורת הכפתורים בתחתית הפתק — **אייקונים בלבד**, והשם שלהם ב-``aria-label`` וב-``title``. כולם
+   *  מוסתרים עד ש-``updateControls`` מחליט אחרת. ``md`` — המנוע ש-``render`` בדק. */
+  NoteView.prototype.buildControls = function (body, md) {
     var self = this;
     var doc = this.doc;
-    var button = function (className, text, label) {
+    var button = function (className, label) {
       var b = doc.createElement('button');
       b.setAttribute('type', 'button');
-      b.className = 'ck-btn ' + className;
-      b.textContent = text;
-      if (label) {
-        b.setAttribute('aria-label', label);
-        b.setAttribute('title', label);
-      }
+      b.className = 'ck-btn ck-icon ' + className;
+      b.setAttribute('aria-label', label);
+      b.setAttribute('title', label);
       return b;
     };
     var bar = doc.createElement('div');
     bar.className = 'ck-controls';
-    var expand = button('ck-expand', 'מסך מלא', null);
-    var edit = button('ck-edit', '✏️ עריכה', null);
+    var expand = button('ck-expand', 'מסך מלא');
+    expand.appendChild(md.buildStrokeIcon(MAXIMIZE_ICON_SHAPES));
+    var edit = button('ck-edit', 'עריכה');
+    edit.textContent = EDIT_GLYPH;
     var group = doc.createElement('span');
     group.className = 'ck-scroll-btns';
-    var up = button('ck-up', '▲', 'גלילה למעלה');
-    var down = button('ck-down', '▼', 'גלילה למטה');
+    var up = button('ck-up', 'גלילה למעלה');
+    up.textContent = '▲';
+    var down = button('ck-down', 'גלילה למטה');
+    down.textContent = '▼';
     group.appendChild(up);
     group.appendChild(down);
     bar.appendChild(expand);
@@ -829,15 +1018,31 @@
 
   /** האם להציע עריכה. **כל התנאים, במקום אחד:** החיבור יכול לשמור (``editable`` מהשרת), לפתק יש
    *  מזהה ו-hash שהשמירה תיבנה עליו, המארח מעביר קריאות לכלים של השרת (``serverTools`` — "Host
-   *  can proxy tool calls to the MCP server", המפרט), והמארח מציע מסך מלא: העריכה, בשלב הזה,
-   *  נפתחת רק שם. מארח שאחד מאלה חסר אצלו — אין כפתור, ולחיצה על שורה אינה עושה דבר. */
+   *  can proxy tool calls to the MCP server", המפרט), המארח מציע מסך מלא — העריכה, בשלב הזה,
+   *  נפתחת רק שם — והמסך אינו של טלפון (``screenAllowsEditing``). כשאחד מאלה חסר אין כפתור, ולחיצה
+   *  על שורה אינה עושה דבר. */
   NoteView.prototype.canEdit = function () {
     var cur = this.current;
     var modes = this.hostContext.availableDisplayModes;
     return !!cur && cur.editable === true && typeof cur.note.id === 'string'
       && typeof cur.note.content_sha256 === 'string'
       && isObject(this.hostCapabilities.serverTools)
-      && Array.isArray(modes) && modes.indexOf('fullscreen') !== -1;
+      && Array.isArray(modes) && modes.indexOf('fullscreen') !== -1
+      && this.screenAllowsEditing();
+  };
+
+  /** **טלפון: תצוגה בלבד** (החלטת המשתמש) — גם אחרי שהעורך נבנה לפי השטח הגלוי, מעל המקלדת נשארות
+   *  שורה או שתיים. הקריטריון הוא **הצלע הקצרה של המסך**, ``Math.min(screen.width, screen.height)`` —
+   *  "returns the width of the screen in CSS pixels" (MDN, Screen.width) — מול
+   *  ``EDIT_MIN_SCREEN_SIDE_PX``. **לא הרוחב:** טלפון שמוחזק לרוחב רחב מטאבלט שמוחזק לאורך, ומה שמגביל
+   *  את העריכה הוא הגובה שנשאר מעל המקלדת — כלומר הצלע הקצרה. **ולא המסגרת:** בתוך השיחה היא נמוכה,
+   *  ובחלונית הצד צרה, בלי קשר למכשיר. מסך שאינו נמדד (ערך שאינו אורך) — אין עריכה: מה שלא נמדד אינו
+   *  מוצע. */
+  NoteView.prototype.screenAllowsEditing = function () {
+    var sc = this.win.screen;
+    if (!sc) return false;
+    var side = Math.min(sc.width, sc.height);
+    return isLength(side, false) && side >= EDIT_MIN_SCREEN_SIDE_PX;
   };
 
   /** קריאה לכלי של השרת דרך המארח (``tools/call``), עם תקרת זמן משלה. ``done`` מקבל את מה ש-
@@ -974,17 +1179,18 @@
       el.className = className;
       return el;
     };
+    // "שמור" ו"בטל" **בשורת הראש, עם הכותרת**, בקצה השמאלי שלה: הבאנר של Claude יושב באמצע ראש המסך,
+    // וכפתור הסגירה שלו מימין. הסטטוס בשורה משלו, ומוצג רק כשיש בו משהו (``setEditStatus``).
     var bar = row('ck-edit-bar');
     var save = button('ck-save', 'שמור');
     var cancel = button('ck-cancel', 'בטל');
     var restore = button('ck-restore', 'החזר את הטקסט שלי');
-    var status = doc.createElement('span');
-    status.className = 'ck-edit-status';
-    status.setAttribute('role', 'status');
     bar.appendChild(save);
     bar.appendChild(cancel);
     bar.appendChild(restore);
-    bar.appendChild(status);
+    var status = doc.createElement('p');
+    status.className = 'ck-edit-status';
+    status.setAttribute('role', 'status');
     var conflict = row('ck-conflict');
     var conflictText = doc.createElement('span');
     conflictText.textContent = 'הפתק השתנה מאז שהתחלת לערוך — בוובאפ או על ידי סוכן.';
@@ -1013,13 +1219,14 @@
     unsaved.appendChild(unsavedText);
     unsaved.appendChild(resume);
     unsaved.appendChild(drop);
-    var title = v.paper.querySelector('.ck-title');
-    var anchor = title ? title.nextSibling : v.paper.firstChild;
-    v.paper.insertBefore(bar, anchor);
+    v.head.appendChild(bar);
+    var anchor = v.head.nextSibling;
+    v.paper.insertBefore(status, anchor);
     v.paper.insertBefore(conflict, anchor);
     v.paper.insertBefore(confirm, anchor);
     v.paper.insertBefore(textarea, v.bar);
     v.paper.appendChild(unsaved);
+    status.hidden = true;
     conflict.hidden = true;
     confirm.hidden = true;
     restore.hidden = true;
@@ -1053,12 +1260,16 @@
         self.save();
       }
     });
+    textarea.addEventListener('scroll', function () { self.updateDebug(); });
     this.syncEditMode();
     // אחרי ``syncEditMode``: אלמנט מוסתר אינו מקבל פוקוס. הסמן בתחילת השורה שנלחצה — אותו מקום של
-    // ``_enterEditAt`` בוובאפ; את הגלילה אל הסמן הדפדפן עושה בעצמו.
-    textarea.focus();
+    // ``_enterEditAt`` בוובאפ. **הסמן קודם, הפוקוס אחריו:** נמדד בכרום ש-``focus()`` גולל את התיבה
+    // אל הסמן, ו-``setSelectionRange`` על תיבה שכבר בפוקוס — לא. בסדר ההפוך, בפתק ארוך, התיבה הציגה
+    // את המקום שבו הסמן היה לפני ההצבה, והסמן עצמו נשאר מחוץ לתיבה.
     var pos = offset === null || !isFinite(offset) ? 0 : Math.max(0, Math.min(offset, textarea.value.length));
     textarea.setSelectionRange(pos, pos);
+    textarea.focus();
+    this.scheduleReveal();
     this.updateControls();
   };
 
@@ -1075,13 +1286,17 @@
     }
     ed.bar.hidden = !shown;
     ed.textarea.hidden = !shown;
+    ed.status.hidden = !shown || !ed.status.textContent;
     if (!shown) {
       ed.conflict.hidden = true;
       ed.confirm.hidden = true;
     }
     ed.unsaved.hidden = shown;
     v.body.hidden = shown;
+    // ``ck-editing`` — הכללים של העורך ב-CSS: שוליים קטנים, כותרת בשורה אחת, והצמדה לשטח הגלוי.
+    this.doc.documentElement.classList.toggle('ck-editing', shown);
     this.updateControls();
+    this.scheduleReveal();
     if (this.initialized) this.scheduleSize();
   };
 
@@ -1100,7 +1315,8 @@
     var ed = this.editor;
     if (!ed) return;
     this.editor = null;
-    var parts = [ed.bar, ed.conflict, ed.confirm, ed.textarea, ed.unsaved];
+    this.doc.documentElement.classList.toggle('ck-editing', false);
+    var parts = [ed.bar, ed.status, ed.conflict, ed.confirm, ed.textarea, ed.unsaved];
     for (var i = 0; i < parts.length; i += 1) {
       if (parts[i].parentNode) parts[i].parentNode.removeChild(parts[i]);
     }
@@ -1112,10 +1328,11 @@
     if (!ed) return;
     ed.status.textContent = text || '';
     ed.status.className = isError ? 'ck-edit-status is-error' : 'ck-edit-status';
+    ed.status.hidden = !text || !this.editorShown();
   };
 
   /** בזמן ששמירה בדרך, הכפתורים שמשנים או סוגרים את העריכה מושבתים — "שמור", "בטל", ו"בטל שינויים"
-   *  בשורה שבתוך השיחה — וכך גם "✏️ עריכה" (``updateControls``). **זה אינו מה ששומר על התשובה:** יציאה
+   *  בשורה שבתוך השיחה — וכך גם "עריכה" (``updateControls``). **זה אינו מה ששומר על התשובה:** יציאה
    *  ממסך מלא של המארח סוגרת עורך נקי גם עכשיו, והתשובה מגיעה לדף בכל מקרה (``finishSave``). */
   NoteView.prototype.syncSaving = function () {
     var ed = this.editor;

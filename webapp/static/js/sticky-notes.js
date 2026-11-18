@@ -135,7 +135,7 @@
   const {
     createEl, fillInlineCode, inlineCodeSegments, GENERATED_TEXT_CLASS,
     TASK_LINE_RE, MD_HR_RE, MD_FENCE_RE, MD_CONTAINER_OPEN_RE, MD_CONTAINER_CLOSE_RE, MD_DETAILS_TYPE,
-    isViewControl, sourceOffsetAt,
+    isViewControl, sourceOffsetAt, buildStrokeIcon,
   } = StickyMdRender;
 
 
@@ -294,7 +294,7 @@
   //: כמו אייקוני האלרטים** שלידם ברשת (``ADMONITION_ICONS``, ‏Lucide), ולכן הצורות הועתקו מילה
   //: במילה מ-Lucide ‏1.73.0 (``icons/link.svg`` ו-``icons/square-chevron-down.svg`` ב-
   //: ``github.com/lucide-icons/lucide``): אותו ``viewBox`` של 24, אותו עובי קו, ואותו ``currentColor``
-  //: ש-``buildStrokeIcon`` מציב. נבנים בצמתים, כמו כל אייקון אחר שנכתב כאן.
+  //: ש-``buildStrokeIcon`` (במנוע, ``sticky-md-render.js``) מציב. נבנים בצמתים, כמו כל אייקון אחר שנכתב כאן.
   const LINK_ICON_SHAPES = [
     ['path', { d: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71' }],
     ['path', { d: 'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71' }],
@@ -304,26 +304,8 @@
     ['path', { d: 'm16 10-4 4-4-4' }],
   ];
 
-  //: בונה SVG מקווקו מתוך מערך צורות. ``buildFabIcon`` מצייר צורות
-  //: מלאות עם ``fill`` משלהן; כאן הקווים יורשים את צבע הכפתור דרך
-  //: ``currentColor``, ולכן די בהגדרה אחת על ה-``svg``.
-  function buildStrokeIcon(shapes){
-    const svg = document.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', 'currentColor');
-    svg.setAttribute('stroke-width', '2');
-    svg.setAttribute('stroke-linecap', 'round');
-    svg.setAttribute('stroke-linejoin', 'round');
-    // השם הנגיש יושב על הכפתור (``aria-label``), כמו באייקון הצף.
-    svg.setAttribute('aria-hidden', 'true');
-    for (const [tag, attrs] of shapes){
-      const shape = document.createElementNS(SVG_NS, tag);
-      Object.keys(attrs).forEach(k => shape.setAttribute(k, attrs[k]));
-      svg.appendChild(shape);
-    }
-    return svg;
-  }
+  //: ``buildFabIcon`` מצייר צורות מלאות עם ``fill`` משלהן. האייקונים המקווקווים (הצורות שלמעלה) נבנים ב-
+  //: ``buildStrokeIcon`` של המנוע — אותה פונקציה שגם התצוגה של פתק בתוך Claude בונה בה את האייקונים שלה.
 
   function clamp(n, min, max){ return Math.min(Math.max(n, min), max); }
 
