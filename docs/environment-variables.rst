@@ -2156,6 +2156,12 @@
      - ``10``
      - ``5``
      - Bot
+   * - ``PREDICTIVE_SAMPLER_OUTAGE_ALERT_SECS``
+     - כמה שניות ברצף הסמפולר לא מצליח לקרוא את ``/metrics`` של הוובאפ לפני שנשלחת ההתראה ``webapp_metrics_unreachable``. כישלון קצר יותר, כמו בדיפלוי של הוובאפ, נרשם בלוג בלבד. ``0`` = התראה כבר בכישלון הראשון; ערך לא תקין מוחלף בברירת המחדל (``DEFAULT_OUTAGE_ALERT_SECS`` ב-``services/webapp_metrics_outage.py``). ראו :ref:`events-webapp-metrics-outage`.
+     - לא
+     - ``120``
+     - ``300``
+     - Bot
    * - ``PREDICTIVE_SAMPLER_RUN_IN_TESTS``
      - כאשר ``true`` הסמפולר רץ גם במהלך Pytest (ברירת מחדל כבוי כדי לא להאריך טסטים).
      - לא

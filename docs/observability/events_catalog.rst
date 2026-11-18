@@ -139,6 +139,25 @@ Jobs
 
 התראה לבוט, ``repo_mirror_fill_failing`` (``ALERT_MIRROR_FILL_FAILING`` ב-``services/repo_sync_service.py``): נשלחת דרך ``emit_internal_alert`` ברמת ``error``, פעם אחת לכל תהליך, כשהניסיון ה-``MIRROR_FILL_ALERT_ATTEMPT`` של המילוי נכשל והמילוי ממשיך לנסות (:ref:`code-browser-mirror-fill`). השדות שלה: ``reason`` — ``db_unavailable`` (המסד לא זמין), ``read_failed`` (המסד לא ענה בקריאה של ``repo_metadata``), ``lock_busy`` (תהליך אחר עדיין ממלא) או ``repos_failed``; ‏``repos`` — הריפואים שהכשל שלהם ינוסה שוב, כש-``reason`` הוא ``repos_failed``; ‏``attempt`` ו-``max_attempts``; ‏``next_attempt_in_seconds``; ו-``pid``. ``alert_type`` הוא אותו שם, וה-runbook באותו שם ב-``config/observability_runbooks.yml`` מסביר מה לבדוק לכל ``reason``.
 
+.. _events-external-request-failure:
+
+בקשה החוצה שנכשלה
+------------------
+
+``external_request_failure`` — בקשה דרך ``http_sync.request`` או ``http_async.request`` נכשלה סופית, אחרי הניסיונות החוזרים (:doc:`/resilience`). השדות: ``service`` ו-``endpoint``; ‏``error_signature`` — ``HTTPStatus`` כשהתשובה האחרונה הייתה סטטוס שמנסים עליו שוב, שם המחלקה של החריגה כשהבקשה נפלה בחריגה, או ``RetriesExhausted``/``CircuitOpen``; ו-``retries``. החומרה היא ``error``, ולכן כל אירוע כזה נשלח ל-Sentry דרך ``emit_event``. ב-``http_async`` הקורא יכול להוריד אותה ל-``warning`` עם ``failure_severity`` — ואז האירוע נשאר בלוג. כך עושה הסמפולר של הבוט מול ``/metrics`` של הוובאפ (:ref:`events-webapp-metrics-outage`).
+
+.. _events-webapp-metrics-outage:
+
+השבתה של ``/metrics`` בוובאפ, מנקודת המבט של הבוט
+--------------------------------------------------
+
+הסמפולר ``predictive_sampler`` ב-``main.py`` קורא את ``/metrics`` של הוובאפ בכל הרצה (``PREDICTIVE_SAMPLER_INTERVAL_SECS``). כישלון בודד נרשם כ-``external_request_failure`` ברמת ``warning`` ולא מתריע: בכל דיפלוי של הוובאפ יש כישלון כזה, כי לשירות מחובר דיסק קבוע ולכן Render מכבה את המופע הישן לפני שהחדש עולה. ההתראות נשלחות דרך ``emit_internal_alert`` מ-``services/webapp_metrics_outage.py``, ולא דרך Sentry:
+
+- ``webapp_metrics_unreachable`` (``ALERT_UNREACHABLE``), ברמת ``error`` — הקריאה נכשלת ברצף לאורך ``PREDICTIVE_SAMPLER_OUTAGE_ALERT_SECS``. מספר ההרצות הכושלות שנדרש נגזר מהסף ומהתדירות (``required_failures``): הראשונה בזמן 0 והאחרונה בזמן הסף. נשלחת פעם אחת לכל השבתה.
+- ``webapp_metrics_recovered`` (``ALERT_RECOVERED``), ברמת ``info`` — הקריאה הצליחה שוב, אחרי ``webapp_metrics_unreachable``. אחריה המונה מתאפס, והשבתה הבאה מתריעה שוב.
+
+השדות של שתיהן: ``alert_type`` (אותו שם), ‏``consecutive_failures``, ‏``outage_seconds`` — מההרצה הכושלת הראשונה, ולכן חסם תחתון, ‏``last_reason`` — ``HTTP <קוד>``, ``circuit_open``, או שם המחלקה של חריגת התחבורה — ו-``threshold_seconds``. מה נספר ככישלון: תשובה שאינה ``200``, או חריגה ש-``http_async.is_transport_error`` מזהה. חריגה אחרת היא באג: ההרצה של הסמפולר נכשלת, והמונה לא זז. ל-``webapp_metrics_unreachable`` יש runbook באותו שם ב-``config/observability_runbooks.yml``.
+
 .. _drive-events:
 
 Google Drive
