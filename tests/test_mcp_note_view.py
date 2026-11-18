@@ -189,6 +189,30 @@ async def test_the_tool_answers_with_the_full_note_as_text(production_like_mcp):
     assert backend.calls == [("get_note", _USER, _NOTE_ID, False)]
 
 
+async def test_layout_debug_is_off_by_default_and_reaches_the_view_only_when_asked(production_like_mcp):
+    """**מצב מדידה** — ``layout_debug``: בוליאני בסכמה, כבוי כברירת מחדל, עם תיאור שנפתח ב"מתי".
+    כשהוא מבוקש, התשובה נושאת ``layout_debug: true`` — וזה כל השינוי בה. בלעדיו התשובה זהה לתשובה
+    הרגילה, בלי המפתח בכלל."""
+    mcp, backend, _sent = production_like_mcp
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        tool = next(t for t in (await session.list_tools()).tools if t.name == "codekeeper_show_note")
+        asked = await session.call_tool("codekeeper_show_note", {"note_id": _NOTE_ID, "layout_debug": True})
+        plain = await session.call_tool("codekeeper_show_note", {"note_id": _NOTE_ID})
+    schema = tool.inputSchema["properties"]["layout_debug"]
+    assert schema["type"] == "boolean" and schema["default"] is False, schema
+    assert schema["description"].startswith("Only when the user asks"), schema
+    assert "layout_debug" not in tool.inputSchema.get("required", []), tool.inputSchema
+    assert json.loads(asked.content[0].text) == {"ok": True, **backend.answer, "editable": False, "layout_debug": True}
+    assert json.loads(plain.content[0].text) == {"ok": True, **backend.answer, "editable": False}
+
+
+def test_layout_debug_enters_the_answer_only_as_true():
+    """רק ``True`` ממש מוסיף את המפתח — כמו ``editable`` (K12 §3)."""
+    for value, expected in ((True, True), (False, None), (None, None), (1, None), ("yes", None)):
+        shown = handlers.show_note(_NoteBackend(), _USER, note_id=_NOTE_ID, is_admin=False, can_write=False, layout_debug=value)
+        assert shown.get("layout_debug") is expected, value
+
+
 async def test_the_largest_possible_note_fits_the_declared_ceiling_whole(production_like_mcp):
     """הכלי מצהיר על תקרת התשובה (כמו ``codekeeper_get_note``), ועומד בה בלי חיתוך גם במקרה הגרוע.
 

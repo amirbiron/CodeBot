@@ -29,6 +29,31 @@
     if (attrs) Object.keys(attrs).forEach(k => el.setAttribute(k, attrs[k]));
     return el;
   }
+
+  /**
+   * בונה SVG מקווקו מתוך מערך צורות — ``[[tag, {attr: value}], ...]`` — בצמתים, בלי ``innerHTML``.
+   * הקווים יורשים את צבע הכפתור דרך ``currentColor``, ולכן די בהגדרה אחת על ה-``svg``, וכפתור מושבת
+   * נצבע כמו הטקסט שלו. הצורות של האייקונים יושבות אצל מי שמשתמש בהם (בפתק — ``SEARCH_ICON_SHAPES``
+   * ודומיו ב-``sticky-notes.js``; בתצוגה בתוך Claude — ``mcp_server/apps/note_view.js``), והבנייה
+   * כאן, פעם אחת לשניהם. השם הנגיש יושב על הכפתור (``aria-label``), ולכן ה-``svg`` מוסתר מקורא מסך.
+   */
+  function buildStrokeIcon(shapes){
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    for (const [tag, attrs] of shapes){
+      const shape = document.createElementNS(SVG_NS, tag);
+      Object.keys(attrs).forEach(k => shape.setAttribute(k, attrs[k]));
+      svg.appendChild(shape);
+    }
+    return svg;
+  }
   // **קוד בשורה: הטקסט והכיוון, דרך ``RtlCode.fillInlineCode``** (``utils/rtl-code.js``, וההסבר שם).
   // קוד רגיל מקבל ``dir="auto"``, כמו בתצוגת המסמך (``MdAutoDirPlugin``); שם קובץ עברי שהדפדפן היה
   // מציג עם הסיומת באמצע מקבל ``dir="rtl"`` והסיומת מבודדת ב-``<bdi>``. ולכן אין ל-``.sticky-md-code``
@@ -1479,5 +1504,7 @@
     // מה לחיצה בתצוגה פוגעת בו: פקד של המנוע, או שורה עם ההיסט שלה במקור.
     isViewControl,
     sourceOffsetAt,
+    // אייקון מקווקו מצורות — לפתק ולתצוגה בתוך Claude.
+    buildStrokeIcon,
   });
 })();

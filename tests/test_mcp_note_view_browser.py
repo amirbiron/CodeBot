@@ -442,9 +442,12 @@ def _launch(pw, chromium_executable, args=None):
             if chromium_executable else pw.chromium.launch(**launch))
 
 
-def _open(pw, chromium_executable, url, *, reduced_motion=None, args=None, console=None):
+def _open(pw, chromium_executable, url, *, reduced_motion=None, args=None, console=None, screen=None, init_script=None):
     browser = _launch(pw, chromium_executable, args)
-    page = browser.new_page(device_scale_factor=1, viewport={"width": 1000, "height": 1000})
+    page = browser.new_page(device_scale_factor=1, viewport={"width": 1000, "height": 1000},
+                            **({"screen": screen} if screen else {}))
+    if init_script:
+        page.add_init_script(init_script)
     if console is not None:
         page.on("console", lambda msg: console.append(f"{msg.type}: {msg.text}"))
     if reduced_motion:
@@ -672,7 +675,8 @@ def test_fullscreen_appears_only_when_offered_and_fills_the_fixed_frame(chromium
     assert full["viewport"] == 600 and full["rootH"] == 600, full
     assert abs(full["paperBottom"] - (600 - 4)) <= 1, full
     assert full["expandShown"] is False, full
-    assert body["scroll"] and body["scrollHeight"] > body["clientHeight"], body
+    # במסך מלא אין שורת כפתורים — לא ▲▼ — והגוף נגלל בעצמו (באצבע או בגלגלת).
+    assert body["bar"] is False and body["scroll"] is False and body["scrollHeight"] > body["clientHeight"], body
 
 
 def test_the_bottom_safe_area_pads_the_view(chromium_executable, frame_host):
@@ -753,7 +757,8 @@ def test_the_system_text_zoom_is_measured_and_undone(chromium_executable, frame_
             browser.close()
 
     assert state["zoomed"] == f"{round(100 * _TEXT_ZOOM)}px", state  # האמולציה פעילה
-    assert (state["line"], state["title"], state["button"]) == ("20px", "13px", "16px"), state
+    # ``.ck-down`` הוא כפתור אייקון (``.ck-btn.ck-icon``, 18px), ולא כפתור טקסט (16px).
+    assert (state["line"], state["title"], state["button"]) == ("20px", "13px", "18px"), state
     if webview == "modern":
         assert state["adjust"].endswith("%") and abs(float(state["adjust"][:-1]) - 100 / _TEXT_ZOOM) < 1e-3, state
         assert state["scale"] == "", state
@@ -1087,7 +1092,7 @@ window.addEventListener('message', (event) => {
                     containerDimensions: {width: 600, maxHeight: 900}}});
   } else if (m.method === 'ui/notifications/initialized') {
     view.postMessage({jsonrpc: '2.0', method: 'ui/notifications/tool-result',
-      params: answer({ok: true, editable: true, note: server.note, target: 'board'})}, '*');
+      params: answer(Object.assign({ok: true, editable: true, note: server.note, target: 'board'}, %(extra)s))}, '*');
   } else if (m.method === 'tools/call') {
     window.toolCalls.push(m.params);
     const a = m.params.arguments;
@@ -1152,10 +1157,12 @@ def edit_host():
     """שרת מקומי: ``/<מקרה>.html`` מארח שעורכים מולו, ו-``/view.html`` הדף עם ה-CSP של המפרט."""
     view = note_view.build_note_view()
     pages = {}
-    for name, note, fixed in (("edit", _EDIT_NOTE, True), ("edit-long", _EDIT_LONG, True),
-                              ("edit-long-flexible", _EDIT_LONG, False)):
+    for name, note, fixed, extra in (("edit", _EDIT_NOTE, True, {}), ("edit-long", _EDIT_LONG, True, {}),
+                                     ("edit-long-flexible", _EDIT_LONG, False, {}),
+                                     ("edit-long-debug", _EDIT_LONG, True, {"layout_debug": True})):
         pages[f"/{name}.html"] = _EDIT_HOST % {
-            "note": json.dumps(note, ensure_ascii=False).replace("<", "\\u003c"), "fixed": "true" if fixed else "false"}
+            "note": json.dumps(note, ensure_ascii=False).replace("<", "\\u003c"), "fixed": "true" if fixed else "false",
+            "extra": json.dumps(extra)}
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802 - שם שה-stdlib מחייב
@@ -1422,3 +1429,193 @@ def test_a_save_that_lands_after_the_editor_closed_still_updates_the_view_and_cl
     assert server["note"]["content"] == sent and server["version"] == 2, server
     assert "נוסף שורה רגילה בעברית" in after["shown"] and after["edit"] is True, after
     assert len(contexts) == 1 and contexts[0]["content"][0]["text"].endswith("\n" + sent), contexts
+
+
+# ── מסך נייד: השטח הגלוי, הסמן, טלפון ─────────────────────────────────────────────────
+
+#: **השטח הגלוי, בשליטת הבדיקה.** המקלדת במכשיר מקטינה את השטח הגלוי (``visualViewport``) בלי לגעת
+#: בפריסה; לכרום של שולחן העבודה אין מקלדת. הסקריפט רץ בתוך מסגרת התצוגה לפני הקוד שלה, ומחליף את
+#: ``visualViewport`` באובייקט עם אותו ממשק: ``height`` / ``offsetTop`` ואירוע ``resize``. כל השאר —
+#: הדף, ה-CSS, הפריסה והגלילה — אמיתי. ``__vv.set(height, top)`` הוא "המקלדת נפתחה".
+_FAKE_VISUAL_VIEWPORT = """(() => {
+  if (!location.pathname.endsWith('/view.html')) return;
+  const target = new EventTarget();
+  let forced = null;
+  Object.defineProperty(target, 'height', { get: () => forced ? forced.h : window.innerHeight });
+  Object.defineProperty(target, 'width', { get: () => window.innerWidth });
+  Object.defineProperty(target, 'offsetTop', { get: () => forced ? forced.top : 0 });
+  Object.defineProperty(target, 'pageTop', { get: () => forced ? forced.top : 0 });
+  Object.defineProperty(target, 'scale', { get: () => 1 });
+  Object.defineProperty(window, 'visualViewport', { configurable: true, get: () => target });
+  window.__vv = { set(h, top) { forced = { h: h, top: top }; target.dispatchEvent(new Event('resize')); } };
+})();"""
+
+_GEOMETRY_STATE = """() => {
+    const r = (sel) => { const el = document.querySelector(sel); const b = el.getBoundingClientRect(); return {top: b.top, bottom: b.bottom, height: b.height}; };
+    const ta = document.querySelector('.ck-editor');
+    const scroller = document.scrollingElement || document.documentElement;
+    return {root: r('#ck-note-root'), paper: r('.ck-paper'), head: r('.ck-head'), save: r('.ck-save'), ta: r('.ck-editor'),
+            scrollY: scroller.scrollTop, docH: scroller.scrollHeight, inner: innerHeight,
+            taScrollable: ta.scrollHeight > ta.clientHeight};
+}"""
+
+
+def _caret_visible(page, view):
+    """**האם הסמן גלוי בתיבה — לפי הדפדפן עצמו, ולא לפי המדידה של הדף.** הקלדה של תו גוללת את התיבה
+    אל הסמן אם הוא מחוץ לה; אם ``scrollTop`` לא זז, הסמן כבר היה גלוי."""
+    before = view.evaluate("() => document.querySelector('.ck-editor').scrollTop")
+    page.keyboard.type("x")
+    after = view.evaluate("() => document.querySelector('.ck-editor').scrollTop")
+    return before, after
+
+
+def test_with_the_keyboard_open_the_editor_fits_the_visible_area_and_only_the_box_scrolls(chromium_executable, edit_host):
+    """**המקלדת נפתחה** — השטח הגלוי קטן ל-300 וזז 120 מראש הפריסה. הפתק מוצמד אליו: ראש הנייר
+    ("שמור" ו"בטל" עם הכותרת) בראש השטח הגלוי, תיבת הטקסט ממלאת את השאר ונגללת בעצמה, הדף עצמו לא
+    נגלל, והסמן — בשורה רחוקה בפתק ארוך — נשאר גלוי בתיבה שהתכווצה."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long.html", init_script=_FAKE_VISUAL_VIEWPORT)
+        try:
+            view.locator(".ck-content .sticky-task-line", has_text="שורה מספר 18 בפתק הארוך").first.click()
+            poll(view, "() => document.documentElement.classList.contains('ck-fill') && innerHeight === 600"
+                       " && !!document.querySelector('.ck-editor') && document.activeElement === document.querySelector('.ck-editor')",
+                 "the editor opened in the fixed frame")
+            full = view.evaluate(_GEOMETRY_STATE)
+            view.evaluate("() => window.__vv.set(300, 120)")
+            poll(view, "() => Math.abs(document.getElementById('ck-note-root').getBoundingClientRect().top - 120) < 1",
+                 "the note moved to the visible area")
+            page.wait_for_timeout(100)
+            shrunk = view.evaluate(_GEOMETRY_STATE)
+            caret = _caret_visible(page, view)
+        finally:
+            browser.close()
+
+    assert abs(full["root"]["height"] - 600) <= 1, full
+    assert abs(shrunk["root"]["top"] - 120) <= 1 and abs(shrunk["root"]["height"] - 300) <= 1, shrunk
+    assert shrunk["save"]["top"] >= 120 and shrunk["head"]["bottom"] <= shrunk["ta"]["top"] + 1, shrunk
+    assert shrunk["ta"]["bottom"] <= shrunk["paper"]["bottom"] + 0.5 and shrunk["paper"]["bottom"] <= 420 + 0.5, shrunk
+    assert shrunk["taScrollable"] is True, shrunk
+    assert shrunk["scrollY"] == 0 and shrunk["docH"] <= shrunk["inner"], shrunk
+    assert caret[0] == caret[1], caret
+
+
+def test_a_tiny_visible_area_keeps_the_box_inside_the_note(chromium_executable, edit_host):
+    """שטח גלוי קטן מאוד (כמו בטלפון עם מקלדת): תיבת הטקסט מתכווצת עם הנייר ואינה בולטת מתחת לגבול
+    שלו — לפני התיקון ``min-height: 4em`` דחף אותה החוצה."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long.html", init_script=_FAKE_VISUAL_VIEWPORT)
+        try:
+            view.click(".ck-edit")
+            poll(view, "() => document.documentElement.classList.contains('ck-fill') && !!document.querySelector('.ck-editor')",
+                 "the editor opened in the fixed frame")
+            view.evaluate("() => window.__vv.set(90, 0)")
+            poll(view, "() => document.getElementById('ck-note-root').getBoundingClientRect().height < 100", "the note shrank")
+            geo = view.evaluate(_GEOMETRY_STATE)
+        finally:
+            browser.close()
+
+    assert geo["ta"]["bottom"] <= geo["paper"]["bottom"] + 0.5, geo
+    assert geo["paper"]["bottom"] <= geo["root"]["bottom"] + 0.5, geo
+
+
+def test_opening_a_far_line_of_a_long_note_shows_the_caret(chromium_executable, edit_host):
+    """לחיצה על שורה רחוקה בפתק ארוך: התיבה נגללת אל הסמן. הסמן מוצב לפני הפוקוס — ``focus()`` הוא
+    שגולל את התיבה אליו; בסדר ההפוך התיבה הציגה מקום אחר, והסמן נשאר מחוץ לה."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long.html")
+        try:
+            view.click(".ck-expand")
+            poll(view, "() => document.documentElement.classList.contains('ck-fill') && innerHeight === 600", "fullscreen")
+            view.locator(".ck-content .sticky-task-line", has_text="שורה מספר 70 בפתק הארוך").first.click()
+            poll(view, "() => !!document.querySelector('.ck-editor') && document.activeElement === document.querySelector('.ck-editor')",
+                 "the editor opened")
+            page.wait_for_timeout(100)
+            start = view.evaluate("() => document.querySelector('.ck-editor').scrollTop")
+            caret = _caret_visible(page, view)
+        finally:
+            browser.close()
+
+    assert start > 0, start
+    assert caret[0] == caret[1], caret
+
+
+def _fake_screen(width, height):
+    """**המסך, בתוך מסגרת התצוגה.** נמדד: ``screen`` של Playwright מגיע לעמוד הראשי ולמסגרת מאותו
+    origin, אבל לא למסגרת המבודדת (``sandbox``) — שם ``screen`` הוא המסך האמיתי של הדפדפן, 800×600.
+    לכן המסך מוחלף בתוך המסגרת, באותה דרך כמו השטח הגלוי (``_FAKE_VISUAL_VIEWPORT``)."""
+    return ("(() => { if (!location.pathname.endsWith('/view.html')) return;"
+            f" Object.defineProperty(window, 'screen', {{ configurable: true, get: () => ({{ width: {width}, height: {height} }}) }}); }})();")
+
+
+@pytest.mark.parametrize("screen,editable", [((390, 844), False), ((844, 390), False), ((800, 1280), True)])
+def test_a_phone_screen_shows_the_note_without_editing(chromium_executable, edit_host, screen, editable):
+    """**טלפון: תצוגה בלבד** — לפי הצלע הקצרה של המסך. טלפון לרוחב (844 רוחב) אינו טאבלט; טאבלט
+    לאורך (800 רוחב) כן."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit.html", init_script=_fake_screen(*screen))
+        try:
+            shown = view.evaluate("() => getComputedStyle(document.querySelector('.ck-edit')).display !== 'none'")
+            view.locator(".ck-content .sticky-task-line", has_text="שורה רגילה בעברית").first.click()
+            page.wait_for_timeout(300)
+            calls = page.evaluate("() => window.toolCalls.length")
+        finally:
+            browser.close()
+
+    assert shown is editable and (calls > 0) is editable, (shown, calls)
+
+
+def test_the_conversation_row_is_icons_close_to_the_bottom_with_a_full_tap_area(chromium_executable, edit_host):
+    """בתוך השיחה: "מסך מלא" (SVG) ו"עריכה" (✎) — אייקונים בלבד, בגודל 36, ואזור הלחיצה 44: נקודה 3
+    פיקסלים מחוץ לקופסה הנראית עדיין פוגעת בכפתור. השורה צמודה לתחתית הנייר."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit.html")
+        try:
+            state = view.evaluate("""() => {
+                const expand = document.querySelector('.ck-expand');
+                const edit = document.querySelector('.ck-edit');
+                const b = edit.getBoundingClientRect();
+                const outside = document.elementFromPoint(b.left + b.width / 2, b.top - 3);
+                const paper = document.querySelector('.ck-paper').getBoundingClientRect();
+                const row = document.querySelector('.ck-controls').getBoundingClientRect();
+                return {svg: !!expand.querySelector('svg path'), expandText: expand.textContent.trim(), editText: edit.textContent,
+                        size: [Math.round(b.width), Math.round(b.height)], hitsEdit: outside === edit,
+                        gap: paper.bottom - row.bottom, label: edit.getAttribute('aria-label')};
+            }""")
+        finally:
+            browser.close()
+
+    assert state["svg"] is True and state["expandText"] == "" and state["editText"] == "✎" and state["label"] == "עריכה", state
+    assert state["size"] == [36, 36] and state["hitsEdit"] is True, state
+    assert state["gap"] <= 8, state
+
+
+def test_layout_debug_shows_live_numbers_over_the_view(chromium_executable, edit_host):
+    """מצב מדידה בדפדפן אמיתי: השורה מציגה את השטח הגלוי, החלון והמסך, ומתעדכנת כשהשטח הגלוי משתנה."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{edit_host}/edit-long-debug.html", init_script=_FAKE_VISUAL_VIEWPORT)
+        try:
+            first = view.evaluate("() => document.querySelector('.ck-debug').textContent")
+            view.click(".ck-edit")
+            poll(view, "() => !!document.querySelector('.ck-editor')", "the editor opened")
+            view.evaluate("() => window.__vv.set(300, 120)")
+            poll(view, "() => /vv h=300 top=120/.test(document.querySelector('.ck-debug').textContent)", "the numbers followed the visible area")
+            after = view.evaluate("() => document.querySelector('.ck-debug').textContent")
+            direction = view.evaluate("() => getComputedStyle(document.querySelector('.ck-debug')).direction")
+        finally:
+            browser.close()
+
+    assert "screen " in first and "edit=true" in first and "inner 600x" in first, first
+    assert "editor " in after and "focus=true" in after, after
+    assert direction == "ltr", direction

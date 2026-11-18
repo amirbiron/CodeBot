@@ -328,6 +328,14 @@ def _build_note_color_doc() -> str:
 
 _NOTE_COLOR_PARAM_DOC = _build_note_color_doc()
 
+# תיאור הפרמטר ``layout_debug`` של ``codekeeper_show_note``. **נפתח במתי להשתמש** — רק כשהמשתמש מבקש,
+# כי זה כלי לבדיקה במכשיר ולא חלק מההצגה — ולקוח שמקצר תיאורי פרמטרים רואה בדיוק את זה.
+_LAYOUT_DEBUG_PARAM_DOC = (
+    "Only when the user asks for layout measurements (to check how the view fits a device). "
+    "Shows live layout numbers over the note view — visible area, window, screen, the frame "
+    "and safe areas the host reported, the editor box. Numbers only, never the note's text."
+)
+
 # תיאור הפרמטר ``include_content``, משותף לשני כלי הרשימה שמקבלים אותו
 # (``codekeeper_list_notes`` ו-``codekeeper_list_board_notes``). קבוע אחד,
 # מאותו נימוק שמאחורי ``_RANGE_DOC``: שני נוסחים לאותה סמנטיקה נסחפים.
@@ -3918,7 +3926,8 @@ def build_mcp(
             "codekeeper_get_note: this tool returns the same note (content, title, color, where "
             "it sits) without threads or version, so a client that shows no view still gets the "
             "full text. A note you do not own answers not_found, and so does a note on a "
-            "mirrored repository unless you are the admin."
+            "mirrored repository unless you are the admin. layout_debug=true only when the user "
+            "asks to see layout measurements."
         ),
         annotations=_READ_ONLY_TOOL,
         # שני ה-``meta`` יחד: הקישור לתצוגה, ותקרת התשובה — אותה הצהרה של ``codekeeper_get_note``,
@@ -3926,11 +3935,15 @@ def build_mcp(
         # הכלי עומד בה בלי חיתוך: גוף חסום ב-``MAX_NOTE_CHARS``, בלי שרשורים, רחוק מ-``OUTPUT_BYTE_BUDGET``.
         meta={**note_view.tool_meta(note_page), **answer_size.declared_size_meta()},
     )
-    def show_note(ctx: Context, note_id: str) -> dict:
+    def show_note(
+        ctx: Context,
+        note_id: str,
+        layout_debug: Annotated[bool, Field(description=_LAYOUT_DEBUG_PARAM_DOC)] = False,
+    ) -> dict:
         user_id = current_user_id(ctx)
         return handlers.show_note(
             backend, user_id, note_id=note_id, is_admin=is_admin_user(user_id),
-            can_write=has_write_scope(ctx),
+            can_write=has_write_scope(ctx), layout_debug=layout_debug,
         )
 
     # **העריכה מהתצוגה נשמרת דרך כלי שרק הדף מפעיל** (``_meta.ui.visibility: ["app"]``, ראו

@@ -79,7 +79,8 @@ class FakeElement {
     this.selection = null;
     this.parentNode = null;
   }
-  focus() { FakeElement.focused = this; }
+  /** ``selectionAtFocus`` — איפה היה הסמן ברגע הפוקוס: ``focus()`` הוא שגולל את התיבה אל הסמן. */
+  focus() { FakeElement.focused = this; this.selectionAtFocus = this.selection; }
   setSelectionRange(start, end) { this.selection = [start, end]; }
   get firstChild() { return this.children[0] || null; }
   get nextSibling() {
@@ -150,6 +151,8 @@ function load(opts = {}) {
     head,
     body,
     createElement(tag) { created.push(tag); return new FakeElement(tag); },
+    /** הפוקוס — ``focus()`` של אלמנט מזויף רושם אותו כאן. */
+    get activeElement() { return FakeElement.focused || null; },
     getElementById(id) {
       for (const el of html.walk()) if (el.id === id) return el;
       return null;
@@ -167,10 +170,24 @@ function load(opts = {}) {
   // ``zoom.tsa: false`` — מנוע שאינו מכבד את התכונה (WebView ישן). ``zoom.raw`` מחליף את התשובה
   // כולה — לבדוק ערך שאינו מספר.
   const zoom = { text: opts.textZoom || 1, raw: null, tsa: opts.tsa !== false };
+  // **המסך** (``screen``) — ``opts.screen`` לטלפון; ברירת המחדל היא מסך של טאבלט או מחשב.
+  // **השטח הגלוי** (``visualViewport``) — ``opts.visualViewport`` מדליק דמה שהבדיקה מזיזה ב-``host.vv``.
+  const vvListeners = {};
+  const vv = opts.visualViewport ? {
+    height: 600, offsetTop: 0, pageTop: 0, scale: 1,
+    addEventListener(type, fn) { (vvListeners[type] = vvListeners[type] || []).push(fn); },
+    move(height, offsetTop) {
+      this.height = height;
+      this.offsetTop = offsetTop;
+      for (const fn of (vvListeners.resize || []).concat(vvListeners.scroll || [])) fn({ type: 'resize' });
+    },
+  } : undefined;
   const win = {
     document,
     parent,
     innerWidth: 600,
+    screen: opts.screen === undefined ? { width: 1280, height: 800 } : opts.screen,
+    visualViewport: vv,
     getComputedStyle(el) {
       if (zoom.raw !== null) return { fontSize: zoom.raw };
       let factor = zoom.text;
@@ -204,6 +221,13 @@ function load(opts = {}) {
   if (!opts.noEngine) {
     const engine = {
       MD_SAFE_LINK: /^https?:\/\//i,
+      /** כמו של המנוע: ``svg`` עם צורה לכל פריט — כאן בלי צמתי SVG אמיתיים. */
+      buildStrokeIcon(shapes) {
+        const svg = document.createElement('svg');
+        svg.className = 'ck-test-icon';
+        svg.shapes = shapes;
+        return svg;
+      },
       isViewControl(t) {
         return !!t && (t.classList.contains('sticky-task-box') || !!t.closest('a.sticky-md-link')
           || !!t.closest('summary.sticky-md-details-summary'));
@@ -245,7 +269,7 @@ function load(opts = {}) {
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   const host = {
-    win, document, main, sent, created, timers, observed, unobserved, parent, zoom, mdCalls,
+    win, document, main, sent, created, timers, observed, unobserved, parent, zoom, mdCalls, vv,
     deliver(data, source = parent) { for (const fn of listeners) fn({ source, data }); },
     methods() { return sent.map((s) => s.message.method || (s.message.error ? 'error' : 'result')); },
     last(method) { return [...sent].reverse().find((s) => s.message.method === method); },
@@ -330,7 +354,9 @@ console.log('\nרינדור הפתק');
   check('הצבע של הפתק על הנייר', paper.style.backgroundColor === '#ffeddb', paper.style.backgroundColor);
   check('has-note-color כשהצבע תקין', paper.className.indexOf('has-note-color') !== -1, paper.className);
   check('הנייר נושא sticky-note — המחלקה שהעיצוב המשותף תחום בה', paper.className.split(' ').indexOf('sticky-note') !== -1, paper.className);
-  const title = paper.children[0];
+  const head = paper.children[0];
+  check('שורת הראש ראשונה בנייר, והכותרת בתוכה', head.className === 'ck-head' && head.children.length === 1, [head.className, head.children.length]);
+  const title = head.children[0];
   check('הכותרת ב-h1, בלי dir — יורשת rtl כמו שם הפתק בוובאפ', title.tagName === 'H1' && title.getAttribute('dir') === null && title.textContent === 'רשימת קניות', [title.getAttribute('dir'), title.textContent]);
   const body = paper.children[1];
   const content = body.children[0];
@@ -402,7 +428,8 @@ console.log('\nפתק ריק');
   initialize(host);
   host.deliver(toolResult({ ok: true, note: { title: '', content: '', color: '#ffffcc' } }));
   const paper = host.main.children[0];
-  check('בלי כותרת ריקה', !paper.children.some((c) => c.className === 'ck-title'), paper.children.map((c) => c.className));
+  check('בלי כותרת ריקה — שורת הראש ריקה', paper.children[0].className === 'ck-head' && paper.children[0].children.length === 0,
+    paper.children.map((c) => c.className));
   check('הודעת "הפתק ריק"', host.main.textContent.indexOf('הפתק ריק') !== -1, host.main.textContent);
 }
 
@@ -687,7 +714,7 @@ console.log('\nבלי המנוע');
 }
 {
   // כל מה שהתצוגה צריכה מהמנוע נבדק במקום אחד, לפני הרינדור — ולא רק מה שהרינדור עצמו קורא.
-  for (const missing of ['render', 'MD_SAFE_LINK', 'isViewControl', 'sourceOffsetAt']) {
+  for (const missing of ['render', 'MD_SAFE_LINK', 'isViewControl', 'sourceOffsetAt', 'buildStrokeIcon']) {
     const host = load({ engineOmit: [missing] });
     initialize(host, {}, { openLinks: {} });
     host.deliver(toolResult({ ok: true, note: { title: 'x', content: '[אתר](https://example.com)', color: '#ffffcc' } }));
@@ -866,7 +893,8 @@ function savedAnswer(content, sha = SHA2) {
 console.log('\nעריכה — מתי מוצעת');
 {
   const host = editableView();
-  check('editable, serverTools ומסך מלא — כפתור "✏️ עריכה" מוצג', host.find('ck-edit').hidden === false && host.find('ck-edit').textContent === '✏️ עריכה',
+  check('editable, serverTools ומסך מלא — כפתור העריכה מוצג: ✎, ושמו בתווית', host.find('ck-edit').hidden === false && host.find('ck-edit').textContent === '✎'
+    && host.find('ck-edit').getAttribute('aria-label') === 'עריכה' && host.find('ck-edit').getAttribute('title') === 'עריכה',
     host.find('ck-edit').hidden);
   check('הפתק נבנה עם ההיסטים של השורות (sourceOffsets)', host.mdCalls[0].options && host.mdCalls[0].options.sourceOffsets === true, host.mdCalls[0].options);
 }
@@ -915,15 +943,18 @@ console.log('\nפתיחת העריכה');
     [host.find('ck-save').textContent, host.find('ck-cancel').textContent]);
   check('ההודעה נוקתה', host.find('ck-notice').hidden === true, host.find('ck-notice').textContent);
   const paper = host.find('ck-paper');
-  check('שורת העורך מעל תיבת הטקסט', paper.children.indexOf(host.find('ck-edit-bar')) < paper.children.indexOf(ta),
-    paper.children.map((c) => c.className));
+  check('"שמור" ו"בטל" בשורת הראש, עם הכותרת — והשורה מעל תיבת הטקסט',
+    host.find('ck-edit-bar').parentNode === host.find('ck-head') && host.find('ck-head').children[0] === host.find('ck-title')
+      && paper.children.indexOf(host.find('ck-head')) < paper.children.indexOf(ta), paper.children.map((c) => c.className));
+  check('הסטטוס בשורה משלו, מוסתר כשהוא ריק', host.find('ck-edit-status').hidden === true && host.find('ck-edit-status').parentNode === paper,
+    host.find('ck-edit-status').hidden);
 }
 {
   const host = editableView();
   host.find('ck-edit').dispatch('click');
   answer(host, host.last('ui/request-display-mode'), { mode: 'fullscreen' });
   answer(host, toolCalls(host, 'codekeeper_show_note')[0], toolAnswer(editNote()));
-  check('"✏️ עריכה" — הסמן בתחילת הפתק', host.find('ck-editor').selection[0] === 0, host.find('ck-editor').selection);
+  check('כפתור העריכה — הסמן בתחילת הפתק', host.find('ck-editor').selection[0] === 0, host.find('ck-editor').selection);
 }
 {
   const host = editableView({ ctx: { ...EDIT_CTX, displayMode: 'fullscreen' } });
@@ -1267,7 +1298,7 @@ function saveThenUndoAndLeave(host, edited) {
   const edited = LINES.join('\n') + '\nנוסף';
   const save = saveThenUndoAndLeave(host, edited);
   check('החזרת הטקסט למקור ויציאה ממסך מלא בזמן שמירה — העורך הנקי נסגר', !host.find('ck-editor'), !!host.find('ck-editor'));
-  check('בזמן שהשמירה בדרך אין "✏️ עריכה"', host.find('ck-edit').hidden === true, host.find('ck-edit').hidden);
+  check('בזמן שהשמירה בדרך אין כפתור עריכה', host.find('ck-edit').hidden === true, host.find('ck-edit').hidden);
   host.find('ck-body').dispatch('click', { target: host.findAll('sticky-task-line')[0] });
   check('ולחיצה על שורה אינה פותחת עורך חדש — ההודעה אומרת שהשמירה עוד בדרך',
     toolCalls(host, 'codekeeper_show_note').length === 1 && host.find('ck-notice').textContent.indexOf('עוד בדרך') !== -1,
@@ -1277,7 +1308,7 @@ function saveThenUndoAndLeave(host, edited) {
   check('וההודעה "נשמר."', host.find('ck-notice').textContent === 'נשמר.', host.find('ck-notice').textContent);
   const ctx = host.last('ui/update-model-context');
   check('והמודל מקבל את הגרסה השמורה', ctx && ctx.message.params.content[0].text.endsWith('\n' + edited), ctx && ctx.message.params.content[0].text);
-  check('"✏️ עריכה" חוזר', host.find('ck-edit').hidden === false, host.find('ck-edit').hidden);
+  check('כפתור העריכה חוזר', host.find('ck-edit').hidden === false, host.find('ck-edit').hidden);
   const ta2 = openEditorAt(host, 0, { ...editNote(), note: { ...editNote().note, content: edited, content_sha256: SHA2 } });
   ta2.value = edited + '!';
   host.find('ck-save').dispatch('click');
@@ -1295,7 +1326,7 @@ function saveThenUndoAndLeave(host, edited) {
     lastRender(host) === 'מהוובאפ' && host.find('ck-notice').textContent.indexOf('השמירה לא עברה') !== -1 && host.find('ck-notice').className === 'ck-notice is-error',
     [lastRender(host), host.find('ck-notice').textContent]);
   check('ובלי עדכון של המודל על גוף שלא נכתב', !host.last('ui/update-model-context'), host.methods().slice(-3));
-  check('"✏️ עריכה" חוזר', host.find('ck-edit').hidden === false, host.find('ck-edit').hidden);
+  check('כפתור העריכה חוזר', host.find('ck-edit').hidden === false, host.find('ck-edit').hidden);
 }
 {
   const host = editableView();
@@ -1397,6 +1428,147 @@ function saveThenUndoAndLeave(host, edited) {
   check('השמירה הבאה מזהה שהראשונה נחתה — ויוצאת שוב על ה-hash שלה, בלי שורת התנגשות',
     third && third.message.params.arguments.content === 'ראשון ושני' && third.message.params.arguments.expected_content_sha256 === SHA2
       && host.find('ck-conflict').hidden === true, third && third.message.params.arguments);
+}
+
+console.log('\nטלפון: תצוגה בלבד — לפי הצלע הקצרה של המסך');
+for (const [name, screen, allowed] of [
+  ['טלפון לאורך (390×844)', { width: 390, height: 844 }, false],
+  ['טלפון לרוחב (844×390) — רחב מטאבלט לאורך, ובכל זאת טלפון', { width: 844, height: 390 }, false],
+  ['צלע קצרה 599', { width: 599, height: 1000 }, false],
+  ['צלע קצרה 600 — הסף עצמו', { width: 600, height: 1000 }, true],
+  ['טאבלט לאורך (800×1280)', { width: 800, height: 1280 }, true],
+  ['טאבלט לרוחב (1280×800)', { width: 1280, height: 800 }, true],
+  ['מסך שאינו נמדד (null)', null, false],
+  ['מסך עם ערכים שאינם מספרים', { width: 'x', height: 800 }, false],
+  ['מסך עם 0', { width: 0, height: 0 }, false],
+]) {
+  const host = load({ screen });
+  initialize(host, EDIT_CTX, EDIT_CAPS);
+  host.deliver(toolResult(editNote()));
+  const buttonShown = host.find('ck-edit').hidden === false;
+  host.find('ck-body').dispatch('click', { target: host.findAll('sticky-task-line')[1] });
+  const opened = toolCalls(host, 'codekeeper_show_note').length > 0;
+  check(`${name} — ${allowed ? 'יש' : 'אין'} עריכה`, buttonShown === allowed && opened === allowed, [buttonShown, opened]);
+  if (!allowed) {
+    check(`${name} — ו"מסך מלא" עדיין מוצע`, host.find('ck-expand').hidden === false, host.find('ck-expand').hidden);
+  }
+}
+
+console.log('\nכפתורי אייקון');
+{
+  const host = editableView();
+  const expand = host.find('ck-expand');
+  const icon = expand.children[0];
+  check('"מסך מלא" — אייקון בלבד, ושמו בתווית ובריחוף', expand.getAttribute('aria-label') === 'מסך מלא' && expand.getAttribute('title') === 'מסך מלא'
+    && expand.children.length === 1 && icon.className === 'ck-test-icon', [expand.getAttribute('aria-label'), expand.children.map((c) => c.className)]);
+  check('והאייקון הוא maximize-2 של Lucide, צורה בצורה', JSON.stringify(icon.shapes) === JSON.stringify([
+    ['path', { d: 'M15 3h6v6' }], ['path', { d: 'm21 3-7 7' }], ['path', { d: 'm3 21 7-7' }], ['path', { d: 'M9 21H3v-6' }]]), icon.shapes);
+  const icons = ['ck-expand', 'ck-edit', 'ck-up', 'ck-down'].map((c) => host.find(c));
+  check('ארבעת כפתורי השורה הם כפתורי אייקון (ck-icon)', icons.every((b) => b.className.split(' ').indexOf('ck-icon') !== -1),
+    icons.map((b) => b.className));
+}
+
+console.log('\nמסך מלא: בלי שורת כפתורים');
+{
+  const host = editableView({ ctx: { ...EDIT_CTX, displayMode: 'fullscreen' } });
+  const body = host.find('ck-body');
+  body.clientHeight = 200;
+  body.scrollHeight = 1000;
+  host.resize();
+  check('פתק ארוך במסך מלא — אין שורת כפתורים: לא ▲▼ ולא עריכה',
+    host.find('ck-controls').hidden === true && host.find('ck-scroll-btns').hidden === true && host.find('ck-edit').hidden === true,
+    [host.find('ck-controls').hidden, host.find('ck-scroll-btns').hidden, host.find('ck-edit').hidden]);
+  host.find('ck-body').dispatch('click', { target: host.findAll('sticky-task-line')[1] });
+  check('ולחיצה על שורה עדיין פותחת עריכה', toolCalls(host, 'codekeeper_show_note').length === 1, host.methods().slice(-2));
+  host.deliver(hostContextChanged({ displayMode: 'inline' }));
+}
+{
+  const host = editableView();
+  host.deliver(hostContextChanged({ displayMode: 'fullscreen' }));
+  host.deliver(hostContextChanged({ displayMode: 'inline' }));
+  check('חזרה לשיחה — השורה חוזרת עם "מסך מלא" ועריכה', host.find('ck-controls').hidden === false && host.find('ck-expand').hidden === false
+    && host.find('ck-edit').hidden === false, [host.find('ck-controls').hidden, host.find('ck-expand').hidden, host.find('ck-edit').hidden]);
+}
+
+console.log('\nהשטח הגלוי → משתני CSS');
+{
+  const host = load({ visualViewport: true });
+  initialize(host, EDIT_CTX, EDIT_CAPS);
+  host.deliver(toolResult(editNote()));
+  const props = host.document.documentElement.style.props;
+  check('אחרי לחיצת היד — הגובה הגלוי והמרחק שלו מראש הפריסה', props['--ck-vv-height'] === '600px' && props['--ck-vv-top'] === '0px', props);
+  host.vv.move(300, 120);
+  check('המקלדת נפתחה (השטח קטן וזז) — המשתנים מתעדכנים', props['--ck-vv-height'] === '300px' && props['--ck-vv-top'] === '120px', props);
+  for (const [h, t] of [[NaN, 0], [300, -5], [0, 0], ['300', 0]]) {
+    host.vv.move(h, t);
+    check(`ערכים לא תקינים (${String(h)}, ${String(t)}) — המשתנים יורדים, וה-CSS חוזר למסגרת כולה`,
+      !('--ck-vv-height' in props) && !('--ck-vv-top' in props), props);
+  }
+}
+{
+  const host = editableView();
+  const props = host.document.documentElement.style.props;
+  check('בלי visualViewport — שום משתנה, העורך ממלא את המסגרת כמו קודם', !('--ck-vv-height' in props) && !('--ck-vv-top' in props), props);
+}
+
+console.log('\nמצב עריכה ב-CSS, והסמן לפני הפוקוס');
+{
+  const host = editableView();
+  const docEl = host.document.documentElement;
+  check('לפני עריכה — אין ck-editing', !docEl.classList.contains('ck-editing'), docEl.className);
+  const ta = openEditorAt(host, 2);
+  check('העורך מוצג — ck-editing על html', docEl.classList.contains('ck-editing'), docEl.className);
+  const offset = LINES[0].length + LINES[1].length + 2;
+  check('הסמן הוצב לפני הפוקוס — כך הפוקוס גולל את התיבה אליו', ta.selectionAtFocus && ta.selectionAtFocus[0] === offset, ta.selectionAtFocus);
+  ta.value = 'שינוי';
+  host.deliver(hostContextChanged({ displayMode: 'inline' }));
+  check('יציאה ממסך מלא עם שינוי — העורך נשאר בזיכרון, אבל ck-editing יורד', host.find('ck-editor') === ta && !docEl.classList.contains('ck-editing'),
+    docEl.className);
+  host.find('ck-drop').dispatch('click');
+  check('והעורך נסגר — עדיין בלי ck-editing', !host.find('ck-editor') && !docEl.classList.contains('ck-editing'), docEl.className);
+}
+{
+  const host = editableView();
+  openEditorAt(host, 1);
+  host.find('ck-cancel').dispatch('click');
+  check('"בטל" במסך מלא — ck-editing יורד', !host.document.documentElement.classList.contains('ck-editing'), host.document.documentElement.className);
+}
+{
+  const host = editableView();
+  const ta = openEditorAt(host, 1);
+  ta.value = 'שינוי';
+  host.find('ck-save').dispatch('click');
+  check('"שומר…" — שורת הסטטוס מוצגת', host.find('ck-edit-status').hidden === false && host.find('ck-edit-status').textContent === 'שומר…',
+    [host.find('ck-edit-status').hidden, host.find('ck-edit-status').textContent]);
+}
+
+console.log('\nמצב מדידה (layout_debug)');
+{
+  const host = editableView();
+  check('בלי layout_debug — אין שורת מדידה', !host.find('ck-debug'), !!host.find('ck-debug'));
+}
+{
+  const host = load({ visualViewport: true });
+  initialize(host, { ...EDIT_CTX, containerDimensions: { width: 600, maxHeight: 900 }, safeAreaInsets: { top: 10, right: 0, bottom: 48, left: 0 } }, EDIT_CAPS);
+  host.deliver(toolResult({ ...editNote(), layout_debug: true }));
+  const debug = host.find('ck-debug');
+  check('layout_debug: true — שורת מדידה משמאל לימין, אחרי שורת הראש', debug && debug.getAttribute('dir') === 'ltr'
+    && host.find('ck-paper').children.indexOf(debug) === 1, debug && debug.getAttribute('dir'));
+  const text = debug.textContent;
+  check('המספרים: השטח הגלוי, החלון, המסך, ומה שהמארח מסר', /vv h=600 top=0/.test(text) && /inner 600x/.test(text) && /screen 1280x800 edit=true/.test(text)
+    && /mode=inline dims=\{"width":600,"maxHeight":900\} safe=\{"top":10,"right":0,"bottom":48,"left":0\}/.test(text), text);
+  check('ובלי תוכן הפתק', LINES.every((line) => text.indexOf(line) === -1), text);
+  host.vv.move(300, 120);
+  check('המקלדת נפתחה — המספרים מתעדכנים', /vv h=300 top=120/.test(host.find('ck-debug').textContent), host.find('ck-debug').textContent);
+  openEditorAt(host, 1);
+  check('העריכה נפתחה (קריאה טרייה בלי layout_debug) — שורת המדידה נשארת, ועם תיבת הטקסט',
+    !!host.find('ck-debug') && /editor /.test(host.find('ck-debug').textContent), host.find('ck-debug') && host.find('ck-debug').textContent);
+}
+{
+  for (const value of ['true', 1, {}, null]) {
+    const host = editableView({ note: { ...editNote(), layout_debug: value } });
+    check(`layout_debug שאינו בדיוק true (${JSON.stringify(value)}) — אין שורת מדידה`, !host.find('ck-debug'), !!host.find('ck-debug'));
+  }
 }
 
 console.log('\nביטול, ויציאה ממסך מלא');
