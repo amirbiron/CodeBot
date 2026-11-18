@@ -70,6 +70,15 @@ Resilience לשירותים חיצוניים
 
    דוגמה למסלול שמשתמש בשני התיקונים: ``services/mcp_analytics_service.py``.
 
+.. _resilience-failure-severity:
+
+הדיווח על בקשה שנכשלה
+---------------------
+
+בקשה שנכשלה סופית, אחרי הניסיונות החוזרים, יוצאת כאירוע ``external_request_failure`` (:ref:`events-external-request-failure`), ובברירת המחדל בחומרת ``error`` — כלומר issue ב-Sentry. ``http_async.request`` מקבל ``failure_severity="warning"`` לקורא שכישלון בודד שלו אינו תקלה בפני עצמו, כמו דגימה תקופתית שמחליטה בעצמה מתי להתריע; אז האירוע נשאר בלוג. ערך שאינו ב-``_FAILURE_SEVERITIES`` זורק ``ValueError`` לפני שנשלחת בקשה. ב-``http_sync.request`` אין פרמטר כזה.
+
+קורא שמסווג חריגה שנזרקה מהבקשה — תקלת תחבורה או באג — משתמש ב-``http_async.is_transport_error``, שנשען על אותה הגדרה כמו הניסיונות החוזרים: מעגל פתוח, timeout ו-``aiohttp.ClientError``. כל חריגה אחרת היא באג, וצריכה לעלות. הקורא הראשון של שניהם הוא הסמפולר של הבוט מול ``/metrics`` של הוובאפ (:ref:`events-webapp-metrics-outage`).
+
 דיאגרמת טיפול בשגיאות
 ---------------------
 

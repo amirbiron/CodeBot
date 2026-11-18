@@ -6821,6 +6821,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
     # Predictive Health sampler: scrape webapp /metrics and feed predictive engine
     try:
+        # מצב שעובר בין הרצות של הדגימה: התדירות שנקבעה בתזמון למטה, ומונה ההשבתה שנבנה ממנה בהרצה הראשונה
+        # (``services/webapp_metrics_outage.py``). בלי תדירות — כשהתזמון נכשל והדגימה רצה פעם אחת — אין "ברצף" ואין מונה.
+        _sampler_state: dict = {"interval_secs": None, "outage": None}
+
         async def _predictive_sampler_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
             from services.job_tracker import get_job_tracker, JobAlreadyRunningError
 
@@ -6864,21 +6868,23 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     return
                 # Normalize URL and build metrics path
                 url = base.rstrip("/") + "/metrics"
-                text: str | None = None
-                try:
-                    from http_async import request as async_request  # type: ignore
-                    async with async_request("GET", url, service="webapp", endpoint="/metrics") as resp:
-                        if getattr(resp, "status", 0) == 200:
-                            # aiohttp response supports .text() coroutine
-                            try:
-                                text = await resp.text()  # type: ignore[attr-defined]
-                            except Exception:
-                                try:
-                                    text = (await resp.read()).decode("utf-8", "ignore")  # type: ignore[attr-defined]
-                                except Exception:
-                                    text = None
-                except Exception:
-                    text = None
+                from services.webapp_metrics_outage import (
+                    OutageTracker,
+                    read_outage_alert_secs,
+                    scrape_and_track,
+                )
+
+                if _sampler_state["outage"] is None and _sampler_state["interval_secs"] is not None:
+                    _sampler_state["outage"] = OutageTracker(
+                        threshold_secs=read_outage_alert_secs(),
+                        interval_secs=_sampler_state["interval_secs"],
+                    )
+                # כישלון בודד (למשל בדיפלוי של הוובאפ) נרשם בלוג בלבד; ההתראה יוצאת רק כשהוא נמשך לאורך הסף.
+                # חריגה שאינה תקלת תחבורה עולה מכאן ונרשמת כהרצה שנכשלה, ולא נספרת כ"הוובאפ לא זמין".
+                scrape = await scrape_and_track(url, _sampler_state["outage"])
+                text: str | None = scrape.text
+                if not scrape.ok:
+                    tracker.add_log(run.run_id, "warning", f"metrics scrape failed: {scrape.failure_reason}")
 
                 cur_lat = cur_err = thr_lat = thr_err = None
                 if text:
@@ -6938,14 +6944,16 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             # חריגות מנוהלות ע"י ה-context manager
 
         try:
-            interval_secs = int(os.getenv("PREDICTIVE_SAMPLER_INTERVAL_SECS", "60") or 60)
+            interval_secs = max(15, int(os.getenv("PREDICTIVE_SAMPLER_INTERVAL_SECS", "60") or 60))
             first_secs = int(os.getenv("PREDICTIVE_SAMPLER_FIRST_SECS", "10") or 10)
             application.job_queue.run_repeating(
                 _predictive_sampler_job,
-                interval=max(15, interval_secs),
+                interval=interval_secs,
                 first=max(0, first_secs),
                 name="predictive_sampler",
             )
+            # אחרי שהתזמון הצליח: התדירות שבה הג'וב באמת רץ, וממנה מונה ההשבתה גוזר כמה בדיקות הן הסף.
+            _sampler_state["interval_secs"] = interval_secs
         except Exception:
             # בסביבות שבהן ה-JobQueue לא זמין (למשל חלק מהטסטים), הרץ פעם אחת מידית.
             # שם משלו, כמו ``_CtxMaint`` ו-``_CtxBkp``: ``_Ctx`` כבר מוגדר באותה

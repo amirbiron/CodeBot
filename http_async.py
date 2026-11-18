@@ -60,6 +60,24 @@ def _is_retryable_exception(exc: Exception) -> bool:
     return isinstance(exc, retryable)
 
 
+def is_transport_error(exc: BaseException) -> bool:
+    """האם החריגה אומרת "הצד השני לא ענה כמו שצריך", ולא באג אצלנו.
+
+    שלושה סוגים: :class:`CircuitOpenError` (המעגל פתוח ולא נשלחה בקשה), ומה ש-:func:`_is_retryable_exception`
+    מנסה שוב — timeout ו-``aiohttp.ClientError``. קורא שמסווג כשל של בקשה לפי זה נשען על אותה הגדרה כמו
+    הניסיונות החוזרים כאן, ולא על עותק משלו. כל חריגה אחרת (``TypeError``, ``AttributeError``) היא באג, ומי
+    שמסווג לפי הפונקציה הזו צריך לתת לה לעלות.
+    """
+    if isinstance(exc, CircuitOpenError):
+        return True
+    return isinstance(exc, Exception) and _is_retryable_exception(exc)
+
+
+#: החומרות ש-``failure_severity`` של :func:`request` מקבל. ``error`` נשלח ל-Sentry דרך ``emit_event``, ו-``warning``
+#: נשאר בלוג. ערך אחר נדחה, כדי ששגיאת כתיב לא תוריד את הדיווח בשקט לרמת ``info``.
+_FAILURE_SEVERITIES = frozenset({"error", "warning"})
+
+
 async def _async_sleep_with_backoff(attempt: int, policy: RetryPolicy) -> None:
     delay = compute_backoff_delay(attempt, policy)
     if delay <= 0:
@@ -210,10 +228,12 @@ class _ResilientRequestContext:
         backoff_base_override: Optional[float],
         backoff_cap_override: Optional[float],
         jitter_override: Optional[float],
+        failure_severity: str = "error",
         **kwargs,
     ) -> None:
         self.method = str(method).upper()
         self.url = str(url)
+        self._failure_severity = failure_severity
         self._session = session
         self._request_kwargs = dict(kwargs)
         self._service_hint = service
@@ -324,7 +344,7 @@ class _ResilientRequestContext:
                         try:
                             _emit_event(
                                 "external_request_failure",
-                                severity="error",
+                                severity=self._failure_severity,
                                 service=self._display_service,
                                 endpoint=self._display_endpoint,
                                 error_signature="HTTPStatus",
@@ -370,7 +390,7 @@ class _ResilientRequestContext:
             try:
                 _emit_event(
                     "external_request_failure",
-                    severity="error",
+                    severity=self._failure_severity,
                     service=self._display_service,
                     endpoint=self._display_endpoint,
                     error_signature=self._last_error_signature or type(self._error).__name__,
@@ -383,7 +403,7 @@ class _ResilientRequestContext:
         try:
             _emit_event(
                 "external_request_failure",
-                severity="error",
+                severity=self._failure_severity,
                 service=self._display_service,
                 endpoint=self._display_endpoint,
                 error_signature="CircuitOpen",
@@ -444,6 +464,12 @@ def get_session() -> "aiohttp.ClientSession":  # type: ignore[name-defined]
 
 
 def request(method: str, url: str, **kwargs) -> _ResilientRequestContext:
+    """בקשה עם Retry ו-Circuit Breaker, כ-``async with``.
+
+    ``failure_severity`` (ברירת מחדל ``"error"``): החומרה של ``external_request_failure`` כשהבקשה נכשלה סופית.
+    קורא שכישלון בודד שלו אינו תקלה בפני עצמו — דגימה תקופתית, שמחליטה בעצמה מתי להתריע — מעביר ``"warning"``.
+    הערכים המותרים הם :data:`_FAILURE_SEVERITIES`, וערך אחר זורק ``ValueError`` כבר כאן, לפני שנשלחת בקשה.
+    """
     session = kwargs.pop("session", None)
     retry_policy = kwargs.pop("retry_policy", None)
     circuit_policy = kwargs.pop("circuit_policy", None)
@@ -453,6 +479,12 @@ def request(method: str, url: str, **kwargs) -> _ResilientRequestContext:
     backoff_base_override = kwargs.pop("backoff_base", None)
     backoff_cap_override = kwargs.pop("backoff_cap", None)
     jitter_override = kwargs.pop("jitter", None)
+    failure_severity = kwargs.pop("failure_severity", "error")
+    # בדיקת הטיפוס לפני החברות: ``in`` על frozenset מגבב את הערך, וערך שאינו hashable היה זורק TypeError מבלבל.
+    if not isinstance(failure_severity, str) or failure_severity not in _FAILURE_SEVERITIES:
+        raise ValueError(
+            f"failure_severity must be one of {sorted(_FAILURE_SEVERITIES)}, got {failure_severity!r}"
+        )
 
     return _ResilientRequestContext(
         method,
@@ -466,6 +498,7 @@ def request(method: str, url: str, **kwargs) -> _ResilientRequestContext:
         backoff_base_override=backoff_base_override,
         backoff_cap_override=backoff_cap_override,
         jitter_override=jitter_override,
+        failure_severity=failure_severity,
         **kwargs,
     )
 

@@ -805,6 +805,14 @@ class ConfigService:
             description="בסיס ה-URL שממנו הסמפלר מושך סטטיסטיקות — עקיפה מפורשת, שיכולה להיות כתובת פנימית. ריק = WEBAPP_URL (webapp_url.py); בלי כתובת תקינה ההרצה מדולגת",
             category="predictive",
         ),
+        # ברירת המחדל היא DEFAULT_OUTAGE_ALERT_SECS ב-services/webapp_metrics_outage.py; טסט משווה בין השניים.
+        "PREDICTIVE_SAMPLER_OUTAGE_ALERT_SECS": ConfigDefinition(
+            key="PREDICTIVE_SAMPLER_OUTAGE_ALERT_SECS",
+            services=("bot",),
+            default="120",
+            description="כמה שניות ברצף הסמפלר לא מצליח לקרוא את /metrics של הוובאפ לפני שיוצאת התראה (webapp_metrics_unreachable). כישלון קצר יותר, כמו בדיפלוי של הוובאפ, נרשם בלוג בלבד. 0 = התראה כבר בכישלון הראשון",
+            category="predictive",
+        ),
         "PREDICTIVE_SAMPLER_RUN_IN_TESTS": ConfigDefinition(
             key="PREDICTIVE_SAMPLER_RUN_IN_TESTS",
             services=("bot",),

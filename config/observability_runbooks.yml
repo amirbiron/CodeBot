@@ -397,6 +397,18 @@ runbooks:
       - id: after_last_attempt
         title: "אם גם הניסיון האחרון נכשל"
         description: "בלוג של הוובאפ תופיע השורה repo mirror fill gave up. ריפו שעדיין חסר יחזור בהפעלה מחדש של הוובאפ, או בייבוא מחדש שלו."
+  # ההתראה ש-services/webapp_metrics_outage.py שולח כשהסמפלר של הבוט (predictive_sampler ב-main.py) לא מצליח לקרוא את
+  # /metrics של הוובאפ לאורך PREDICTIVE_SAMPLER_OUTAGE_ALERT_SECS (ALERT_UNREACHABLE שם). כישלון קצר יותר נרשם בלוג בלבד.
+  webapp_metrics_unreachable:
+    title: "הבוט לא מצליח לקרוא את /metrics של הוובאפ"
+    description: "הסמפלר של הבוט נכשל ברצף לאורך הסף, ובזמן הזה המנוע החזוי לא מקבל מדידות מהוובאפ. דיפלוי רגיל של הוובאפ מכבה אותו לבערך דקה (לשירות מחובר דיסק קבוע, ולכן אין דיפלוי בלי השבתה), ולא אמור להגיע לסף."
+    steps:
+      - id: check_reason
+        title: "בדוק את last_reason בהתראה"
+        description: "HTTP 5xx, ClientConnectorError או TimeoutError: הוובאפ לא עונה — בדוק ב-Render אם הוא נפל, או אם דיפלוי נתקע באמצע. HTTP 4xx: הוובאפ עונה, אבל לא ב-/metrics — בדוק את PREDICTIVE_SAMPLER_METRICS_URL ואת WEBAPP_URL בבוט. circuit_open: המעגל של webapp:/metrics נפתח אחרי הכישלונות, והבדיקה הבאה תנסה שוב."
+      - id: wait_for_recovery
+        title: "חכה להתראת החזרה"
+        description: "כשהקריאה מצליחה שוב מגיעה webapp_metrics_recovered, עם משך ההשבתה. עד אז לא תגיע התראה נוספת על אותה השבתה."
   generic_incident_flow:
     title: "פלייבוק כללי להתראות"
     description: "Fallback בסיסי המתאים לכל alert_type ללא Runbook ייעודי."
