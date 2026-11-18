@@ -108,7 +108,7 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     # מיובאת, ולערכה בהירה אין דרך לקבוע אותם. כל טוקן נקרא בכלל שצובע היום את הרכיב, עם
     # fallback לערך שנצבע בו היום:
     # - שדות טופס: .form-field ב-webapp/static/css/file-editor.css (עריכה והעלאה), וה-style
-    #   של שדות הסינון ב-webapp/templates/files.html.
+    #   של שדות הסינון ב-webapp/templates/files.html ושל השדה ותיבות הבחירה ב-webapp/templates/settings.html.
     # - הפיד והפוש בדשבורד: .timeline-item, .timeline-group, .timeline-badge-*, .status-*
     #   ב-webapp/templates/dashboard.html.
     # - שורת החיפוש בתצוגת ה-Markdown: .md-search-capsule ב-webapp/templates/md_preview.html, ובתצוגת הקוד
@@ -118,6 +118,8 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     #   ו-.md-toolbar-trigger ב-webapp/static/css/markdown-toolbar.css.
     # - סרגל החיפוש ומלבני הפרטים בתצוגת הקוד: .editor-toolbar, .search-capsule, .icon-btn, .search-count,
     #   .divider, .fullscreen-btn ו-.meta-item ב-webapp/templates/view_file.html.
+    # - כרטיס בתוך כרטיס: ה-style של ה-.glass-card הפנימיים ב-webapp/templates/settings.html וב-
+    #   webapp/templates/settings_push_debug.html.
     "--form-field-border-override",
     "--form-field-bg-override",
     "--form-field-focus-border-override",
@@ -141,6 +143,7 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     "--code-search-capsule-bg-override",
     "--code-search-capsule-focus-border-override",
     "--file-meta-item-bg-override",
+    "--nested-card-bg-override",
 
     # Level 3 - צבעי המסמך (תצוגת ה-Markdown והתצוגה החיה)
     # התצוגה המרונדרת של VS Code צובעת כותרות והדגשה ב-editor.foreground, בלי מפתח משלהן, ולכן אין להם מקור
