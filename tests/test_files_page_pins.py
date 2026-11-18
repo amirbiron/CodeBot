@@ -34,10 +34,12 @@ FIELD = snt.FILES_PAGE_PIN_FIELD
 # ---------------------------------------------------------------------------
 
 
-def test_the_field_is_not_called_pinned_and_the_cap_is_four():
-    """``pinned`` תפוס פעמיים (``is-pinned`` בפתקים, ``is_pinned`` בקבצים). התקרה — הכרעת המשתמש."""
+def test_the_field_is_not_called_pinned_and_the_cap_is_five():
+    """``pinned`` תפוס פעמיים (``is-pinned`` בפתקים, ``is_pinned`` בקבצים). התקרה — הכרעת המשתמש: חמישה,
+    כי בטאבלט שלו נכנסים חמישה כרטיסים (עד נובמבר 2026 — ארבעה). שאר הבדיקות בקובץ הזה גוזרות אותו
+    מהקבוע, כדי ששינוי של התקרה ישנה כאן שורה אחת."""
     assert FIELD == "files_page_pinned_at"
-    assert snt.MAX_FILES_PAGE_PINNED_NOTES == 4
+    assert snt.MAX_FILES_PAGE_PINNED_NOTES == 5
 
 
 def test_the_pinned_filter_is_the_shape_the_index_answers():
@@ -56,11 +58,11 @@ def test_the_pinned_filter_is_built_on_the_active_filter_and_not_a_copy_of_it(mo
 @pytest.mark.parametrize(
     ("value", "given", "expected"),
     [
-        (None, False, (4, None)),          # לא נשלח — התקרה הכללית
-        (None, True, (4, None)),           # null — כמו לא נשלח
+        (None, False, (snt.MAX_FILES_PAGE_PINNED_NOTES, None)),   # לא נשלח — התקרה הכללית
+        (None, True, (snt.MAX_FILES_PAGE_PINNED_NOTES, None)),    # null — כמו לא נשלח
         (2, True, (2, None)),              # מכשיר צר מוריד
         (0, True, (0, None)),              # אין מקום לכרטיס בכלל
-        (9, True, (4, None)),              # מכשיר רחב אינו מעלה
+        (9, True, (snt.MAX_FILES_PAGE_PINNED_NOTES, None)),       # מכשיר רחב אינו מעלה
         (True, True, (0, "invalid_device_limit")),   # ``bool`` הוא ``int`` בפייתון
         (2.0, True, (0, "invalid_device_limit")),
         ("2", True, (0, "invalid_device_limit")),
@@ -175,7 +177,7 @@ def test_only_a_board_note_can_be_pinned(client):
     assert res.get_json()["error"] == "not_a_board_note"
 
 
-def test_the_cap_refuses_the_fifth_and_does_not_unpin_the_old_ones(client):
+def test_the_cap_refuses_one_more_and_does_not_unpin_the_old_ones(client):
     coll = client.db.sticky_notes
     for i in range(snt.MAX_FILES_PAGE_PINNED_NOTES):
         coll.docs.append(_pinned(i))
@@ -185,10 +187,11 @@ def test_the_cap_refuses_the_fifth_and_does_not_unpin_the_old_ones(client):
 
     assert res.status_code == 409
     assert res.get_json() == {
-        "ok": False, "error": "files_page_pins_full", "max": 4, "pinned": 4, "device_limited": False,
+        "ok": False, "error": "files_page_pins_full",
+        "max": snt.MAX_FILES_PAGE_PINNED_NOTES, "pinned": snt.MAX_FILES_PAGE_PINNED_NOTES, "device_limited": False,
     }
     assert FIELD not in coll.docs[-1]
-    assert all(isinstance(d[FIELD], dt.datetime) for d in coll.docs[:4])
+    assert all(isinstance(d[FIELD], dt.datetime) for d in coll.docs[:snt.MAX_FILES_PAGE_PINNED_NOTES])
 
 
 def test_an_admin_is_not_exempt_from_the_cap(client, monkeypatch):
@@ -203,9 +206,10 @@ def test_an_admin_is_not_exempt_from_the_cap(client, monkeypatch):
 
 
 def test_an_archived_note_that_somehow_kept_its_pin_is_not_counted(client):
-    """הספירה היא של פתקים פעילים בלבד — ``files_page_pinned_filter``."""
+    """הספירה היא של פתקים פעילים בלבד — ``files_page_pinned_filter``. **מקום אחד פנוי בתקרה**, כך
+    שהפתק שבארכיון, אילו נספר, היה ממלא אותו — ובלי זה הבדיקה עוברת גם כשהוא נספר."""
     coll = client.db.sticky_notes
-    for i in range(3):
+    for i in range(snt.MAX_FILES_PAGE_PINNED_NOTES - 1):
         coll.docs.append(_pinned(i))
     coll.docs.append({"_id": "f" * 24, "user_id": USER, "archived_at": NOW, FIELD: NOW})
     coll.docs.append(_board_note())
@@ -249,7 +253,7 @@ def test_a_wide_device_does_not_raise_the_cap(client):
     res = _pin(client, body={"device_limit": 10})
 
     assert res.status_code == 409
-    assert res.get_json()["max"] == 4 and res.get_json()["device_limited"] is False
+    assert res.get_json()["max"] == snt.MAX_FILES_PAGE_PINNED_NOTES and res.get_json()["device_limited"] is False
 
 
 @pytest.mark.parametrize("bad", [True, "2", -1, 2.5, [1], {"n": 1}])
@@ -378,7 +382,7 @@ def test_the_list_is_in_pin_order_with_labels_and_only_active_pinned_notes(clien
 
     assert res.status_code == 200, body
     assert [n["label"] for n in body["notes"]] == ["נעוץ 0", "שורה ראשונה", "נעוץ 2"]
-    assert body["count"] == 3 and body["max"] == 4
+    assert body["count"] == 3 and body["max"] == snt.MAX_FILES_PAGE_PINNED_NOTES
     assert set(body["notes"][0]) == {"id", "label", "color", "color_id", FIELD}
     assert re.fullmatch(r"#[0-9A-Fa-f]{6}", body["notes"][0]["color"])
     [(_, query, projection)] = _calls(coll, "find")
@@ -504,7 +508,7 @@ def test_a_restored_board_note_comes_back_pinned_with_its_pin_time():
 
 
 def test_without_room_the_note_comes_back_unpinned_and_the_summary_says_so():
-    sticky = _Coll([_pinned(i) for i in range(3)])
+    sticky = _Coll([_pinned(i) for i in range(snt.MAX_FILES_PAGE_PINNED_NOTES - 1)])
     raw, count, errors = _restore([_backup_note("מאוחר", pinned_minutes=9), _backup_note("מוקדם", pinned_minutes=1)], sticky)
 
     assert count == 2
@@ -533,7 +537,7 @@ class _CountsPinCounts(_Coll):
 def test_once_the_files_page_is_full_the_remaining_pins_are_skipped_without_counting_each():
     """השחזור רק מוסיף נעיצות, ולכן כשהתקרה מלאה גם השאר לא ייכנסו. ספירה לכל נעיצה שנשארה הייתה
     שולחת, בגיבוי של אלפי פתקי לוח, אלפי ספירות אחרי שכבר ברור שאין מקום."""
-    sticky = _CountsPinCounts([_pinned(i) for i in range(3)])
+    sticky = _CountsPinCounts([_pinned(i) for i in range(snt.MAX_FILES_PAGE_PINNED_NOTES - 1)])
     raw, count, errors = _restore([_backup_note(f"פתק {i}", pinned_minutes=i + 1) for i in range(6)], sticky)
 
     assert count == 6
@@ -724,7 +728,7 @@ def test_the_answer_shapes_the_browser_reads_are_the_ones_the_server_sends(clien
                 "'files_page_pins_full'", "note_quota_unknown", "note_archived", "not_a_board_note"):
         assert key in js, key
     coll = client.db.sticky_notes
-    for i in range(4):
+    for i in range(snt.MAX_FILES_PAGE_PINNED_NOTES):
         coll.docs.append(_pinned(i))
     coll.docs.append(_board_note())
     assert set(json.loads(_pin(client).get_data())) == {"ok", "error", "max", "pinned", "device_limited"}

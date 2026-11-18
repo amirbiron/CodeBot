@@ -264,19 +264,20 @@ def test_archiving_a_pinned_note_takes_it_off_the_files_page(api, db):
 
 def test_the_cap_and_the_device_limit_against_the_database(api, db):
     board = insert_board(db, USER)
-    notes = [insert_note(db, USER, board_id=board, title=f"פ{i}") for i in range(6)]
+    cap = snt.MAX_FILES_PAGE_PINNED_NOTES
+    notes = [insert_note(db, USER, board_id=board, title=f"פ{i}") for i in range(cap + 1)]
     client = api.client()
     for note in notes[:2]:
         assert client.post(f"/api/sticky-notes/note/{note}/files-page-pin", json={"device_limit": 2}).status_code == 200
     # מכשיר שנכנסים בו שניים — מלא
     full = client.post(f"/api/sticky-notes/note/{notes[2]}/files-page-pin", json={"device_limit": 2})
     assert full.status_code == 409 and full.get_json()["device_limited"] is True
-    # מכשיר רחב — עד ארבעה, ולא יותר
-    for note in notes[2:4]:
+    # מכשיר רחב — עד התקרה, ולא יותר
+    for note in notes[2:cap]:
         assert client.post(f"/api/sticky-notes/note/{note}/files-page-pin", json={}).status_code == 200
-    capped = client.post(f"/api/sticky-notes/note/{notes[4]}/files-page-pin", json={"device_limit": 9})
-    assert capped.status_code == 409 and capped.get_json()["max"] == 4
-    assert [n["id"] for n in client.get("/api/sticky-notes/files-page").get_json()["notes"]] == notes[:4]
+    capped = client.post(f"/api/sticky-notes/note/{notes[cap]}/files-page-pin", json={"device_limit": 9})
+    assert capped.status_code == 409 and capped.get_json()["max"] == cap
+    assert [n["id"] for n in client.get("/api/sticky-notes/files-page").get_json()["notes"]] == notes[:cap]
 
 
 def test_a_pinned_note_survives_backup_and_restore_into_an_empty_account(api, db):

@@ -720,6 +720,66 @@
             box-shadow: 0 6px 20px color-mix(in srgb, var(--primary) 40%, transparent);
         }
 
+        /* חלון "הוסף לאוסף" (``#addToCollectionModal``). ה-``display`` של השכבה אינו כאן: הוא המצב
+           שהסקריפט מחליף (``flex`` בפתיחה, ``none`` בסגירה), ולכן הוא נשאר inline.
+           **גובה מרבי לחלון, והרשימה נגללת בתוכו.** בלי גובה מרבי, חלון ממורכז עם רשימת אוספים ארוכה
+           גולש גם למעלה וגם למטה — הכותרת והכפתורים יוצאים מהמסך. כאן הכותרת והכפתורים קבועים, ורק
+           ``.add-to-collection-body`` נגלל. 70% — כמו החלון "קבצים אחרונים" (``.recent-files-modal``).
+           ``vh`` קודם כנפילה: ``vh`` מחושב לפי המסך כשסרגל הדפדפן מקופל (CSS Values 4, 6.1.2.1, "large
+           viewport size"), ובטאבלט עם סרגל כתובת גלוי זה יותר ממה שרואים; ``dvh`` עוקב אחרי מה שגלוי
+           בפועל ("dynamic viewport size"). דפדפן שאינו מכיר ``dvh`` מתעלם מההצהרה השנייה, כמו ב-
+           ``note-boards.css``. הגובה נקבע רק כאן — אין לו חישוב ב-JS. */
+        .add-to-collection-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .add-to-collection-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        .add-to-collection-dialog {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            max-width: 420px;
+            width: 90%;
+            max-height: 70vh;
+            max-height: 70dvh;
+            padding: 1rem;
+            background: var(--solid-surface-bg, rgba(255, 255, 255, 0.98));
+            color: var(--solid-surface-text, #111827);
+            border-radius: 12px;
+            border: 1px solid var(--solid-surface-border, rgba(0, 0, 0, 0.12));
+            box-shadow: var(--solid-surface-shadow, 0 14px 30px rgba(17, 23, 41, 0.16));
+        }
+
+        .add-to-collection-title {
+            flex: 0 0 auto;
+            margin-top: 0;
+        }
+
+        /* ``min-height: 0`` מפורש: הגוף מתכווץ לגובה שנשאר בין הכותרת לכפתורים גם בלי להישען על כך
+           ש-``overflow`` שאינו ``visible`` משנה את הגודל המינימלי של פריט flex. */
+        .add-to-collection-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .add-to-collection-actions {
+            flex: 0 0 auto;
+            display: flex;
+            gap: .5rem;
+            justify-content: flex-end;
+            margin-top: 1rem;
+        }
+
         .collection-option {
             display: flex;
             align-items: center;
@@ -2100,14 +2160,15 @@
         </div>
     </main>
     <!-- Modal: Add to Collection -->
-    <div id="addToCollectionModal" style="display:none; position:fixed; inset:0; z-index:9999; align-items:center; justify-content:center;">
-      <div onclick="closeAddToCollectionModal()" style="position:absolute; inset:0; background: rgba(0,0,0,0.5);"></div>
-      <div style="position:relative; background:var(--solid-surface-bg, rgba(255,255,255,0.98)); color:var(--solid-surface-text, #111827); border-radius:12px; border: 1px solid var(--solid-surface-border, rgba(0,0,0,0.12)); box-shadow: var(--solid-surface-shadow, 0 14px 30px rgba(17, 23, 41, 0.16)); max-width:420px; width:90%; padding:1rem;">
-        <h3 style="margin-top:0">הוסף לאוסף</h3>
-        <div id="addToCollectionBody">
+    {# העיצוב — ``.add-to-collection-*`` בבלוק הסגנונות למעלה. ``display:none`` נשאר כאן: זה המצב שהסקריפט מחליף. #}
+    <div id="addToCollectionModal" class="add-to-collection-modal" style="display:none;">
+      <div class="add-to-collection-backdrop" onclick="closeAddToCollectionModal()"></div>
+      <div class="add-to-collection-dialog">
+        <h3 class="add-to-collection-title">הוסף לאוסף</h3>
+        <div id="addToCollectionBody" class="add-to-collection-body">
           <div>טוען…</div>
         </div>
-        <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:1rem;">
+        <div class="add-to-collection-actions">
           <button class="btn btn-secondary" onclick="closeAddToCollectionModal()">בטל</button>
           <button class="btn btn-primary" onclick="confirmAddToCollection()">הוסף</button>
         </div>
@@ -2758,6 +2819,32 @@
         // מונה הפתיחות של החלון: בקשה שחוזרת אחרי שהחלון נסגר ונפתח מחדש יודעת שהחלון
         // שמוצג עכשיו אינו שלה (``confirmAddToCollection``).
         let addToCollectionOpenCount = 0;
+        // טוען את האוספים לתוך החלון — אחד לשתי הפתיחות (קובץ יחיד ובחירה מרובה).
+        //
+        // **האוסף המסומן גלוי.** הרשימה נגללת בתוך החלון (``.add-to-collection-body``), והאוסף שנבחר
+        // בפעם הקודמת מסומן מראש — ובלי גלילה אליו הוא יכול לשבת מתחת לחלק הנראה, והמשתמש לוחץ "הוסף"
+        // בלי לראות לאן. ``block: 'nearest'`` אינו מזיז אזור גלילה שהאפשרות כבר גלויה בו (CSSOM View,
+        // "determine the scroll-into-view position"), ולכן אוסף שגלוי ממילא אינו מזיז כלום. והעמוד שמתחת
+        // לשכבה אינו זז — זה לא כתוב במפרט אלא נמדד בכרומיום (``tests/test_bulk_collection_modal_browser.py``).
+        // **רק אם זו עדיין אותה פתיחה:** תשובה שמגיעה אחרי שהחלון נסגר, או אחרי שנפתח שוב, אינה גוללת
+        // את מה שמוצג עכשיו.
+        async function fillAddToCollectionBody(modal, body){
+            const openCount = addToCollectionOpenCount;
+            try {
+              const res = await fetch('/api/collections');
+              const data = await res.json();
+              if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
+              const last = getLastCollectionId();
+              body.innerHTML = renderCollectionOptions(data.collections, last);
+            } catch (e) {
+              body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
+              return;
+            }
+            if (openCount !== addToCollectionOpenCount || modal.style.display === 'none') return;
+            const checked = body.querySelector('input[name="collectionId"]:checked');
+            const option = checked && checked.closest('.collection-option');
+            if (option) option.scrollIntoView({ block: 'nearest' });
+        }
         window.openAddToCollectionModal = async function(fileName){
             const modal = document.getElementById('addToCollectionModal');
             const body = document.getElementById('addToCollectionBody');
@@ -2767,15 +2854,7 @@
             modal.removeAttribute('data-file-names');
             bulkAddToCollectionOnSuccess = null;
             modal.setAttribute('data-file-name', String(fileName||''));
-            try {
-              const res = await fetch('/api/collections');
-              const data = await res.json();
-              if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
-              const last = getLastCollectionId();
-              body.innerHTML = renderCollectionOptions(data.collections, last);
-            } catch (e) {
-              body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
-            }
+            await fillAddToCollectionBody(modal, body);
         }
         // גרסה לבאלק: fileNames=Array<string>; ``options.onSuccess`` רץ אחרי שהשרת אישר את ההוספה.
         window.openBulkAddToCollectionModal = async function(fileNames, options){
@@ -2786,15 +2865,7 @@
             modal.removeAttribute('data-file-name');
             modal.setAttribute('data-file-names', JSON.stringify(Array.isArray(fileNames)?fileNames:[]));
             bulkAddToCollectionOnSuccess = (options && typeof options.onSuccess === 'function') ? options.onSuccess : null;
-            try {
-              const res = await fetch('/api/collections');
-              const data = await res.json();
-              if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
-              const last = getLastCollectionId();
-              body.innerHTML = renderCollectionOptions(data.collections, last);
-            } catch (e) {
-              body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
-            }
+            await fillAddToCollectionBody(modal, body);
         }
         window.closeAddToCollectionModal = function(){
             const modal = document.getElementById('addToCollectionModal');
