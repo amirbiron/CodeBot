@@ -1,10 +1,15 @@
-"""חלון "הוסף לאוסף" ב-``base.html`` — מה שהוספה מרובה מבקשת להריץ, רץ רק אחרי אישור השרת.
+"""חלון "הוסף לאוסף" ב-``base.html`` — מה שהוספה מרובה מבקשת להריץ, רץ רק אחרי אישור השרת;
+ורשימת אוספים ארוכה נגללת בתוך החלון.
 
 בעמוד הקבצים, הוספה לאוסף של קבצים שנבחרו בבחירה מרובה פותחת את החלון המשותף עם
 ``onSuccess`` (``openBulkAddToCollectionModal(names, {onSuccess})``), ושם — יציאה ממצב
 הבחירה. כאן נבדק החלון עצמו, בעמוד אמיתי: ``onSuccess`` רץ אחרי שהשרת אישר; לא רץ
 כשמבטלים, וגם לא כשהשרת דוחה; ולא זולג לפתיחה של קובץ יחיד שבאה אחרי פתיחה מרובה.
 שאר השרשרת — מ-``bulk-actions.js`` ועד היציאה מהמצב — ב-``tests/files-bulk-exit-mode.test.js``.
+
+**והגובה של החלון** (``.add-to-collection-dialog``): עם הרבה אוספים הכותרת והכפתורים נשארים
+בתוך המסך, הרשימה נגללת בתוכו, והאוסף שנבחר בפעם הקודמת — שמסומן מראש — גלוי בלי שהעמוד
+שמתחת זז. עד נובמבר 2026 לחלון לא היה גובה מרבי, והוא גלש מהמסך למעלה ולמטה.
 
 **העמוד אמיתי, המסד לא.** ``/settings`` מרונדר דרך ``test_client``, כמו ב-
 ``tests/test_search_on_enter_browser.py``. החלון נמצא ב-``base.html``, ולכן הוא שם
@@ -61,8 +66,11 @@ def page_factory(browser, monkeypatch):
     monkeypatch.setattr(wa, "get_db", lambda: db)
     contexts = []
 
-    def make(*, accept_items: bool, hold: list | None = None, added: int | None = None):
-        """``hold`` — רשימה: בקשת ההוספה נשמרת בה ולא נענית, עד שהטסט עונה עליה."""
+    def make(*, accept_items: bool, hold: list | None = None, added: int | None = None,
+             collections: dict | None = None, viewport: dict | None = None):
+        """``hold`` — רשימה: בקשת ההוספה נשמרת בה ולא נענית, עד שהטסט עונה עליה.
+        ``collections`` — התשובה של ``/api/collections`` (ברירת מחדל: אוסף אחד); ``viewport`` — גודל החלון."""
+        collections_answer = json.dumps(COLLECTIONS if collections is None else collections)
         client = wa.app.test_client()
         client.environ_base["HTTP_X_FORWARDED_FOR"] = f"192.0.2.{next(_ADDRESSES) % 250 + 1}"
         with client.session_transaction() as sess:
@@ -75,7 +83,7 @@ def page_factory(browser, monkeypatch):
             if u.hostname != HOST:
                 return route.abort()
             if u.path == "/api/collections" and request.method == "GET":
-                return route.fulfill(status=200, content_type="application/json", body=json.dumps(COLLECTIONS))
+                return route.fulfill(status=200, content_type="application/json", body=collections_answer)
             if u.path == "/api/collections/c1/items" and request.method == "POST":
                 posted.append(json.loads(request.post_data or "{}"))
                 if hold is not None:
@@ -93,7 +101,7 @@ def page_factory(browser, monkeypatch):
             headers = {k: v for k, v in r.headers.items() if k.lower() in FORWARDED_HEADERS}
             route.fulfill(status=r.status_code, body=r.data, headers=headers)
 
-        ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+        ctx = browser.new_context(viewport=viewport or {"width": 1280, "height": 900})
         contexts.append(ctx)
         ctx.route("**/*", handle)
         page = ctx.new_page()
@@ -222,3 +230,141 @@ def test_a_partial_add_shows_how_many_and_keeps_everything(page_factory):
     assert alerts == ["נוספו 1 מתוך 2 קבצים לאוסף. אפשר לנסות שוב."]
     assert page.evaluate("document.getElementById('addToCollectionModal').style.display") == "flex"
     assert page.evaluate("window.__success") == 0
+
+
+# ---------------------------------------------------------------------------
+# רשימה ארוכה: הגובה של החלון והגלילה בתוכו
+# ---------------------------------------------------------------------------
+
+#: הרבה אוספים, כמו אצל משתמש שהרשימה שלו גדלה: "שולחן עבודה" ואחריו ארבעים.
+MANY = {"ok": True, "collections": [{"id": "ws", "name": "שולחן עבודה"}]
+        + [{"id": f"c{i}", "name": f"אוסף מספר {i}"} for i in range(1, 41)]}
+
+#: טאבלט לרוחב (בערך המסך שבו התגלה הבאג), טלפון לרוחב — החלון הנמוך ביותר — וטלפון לאורך.
+VIEWPORTS = {
+    "tablet": {"width": 1360, "height": 690},
+    "phone-landscape": {"width": 780, "height": 360},
+    "phone-portrait": {"width": 390, "height": 844},
+}
+
+#: המדידה של החלון כשהוא פתוח: מקום הכותרת, הכפתורים והרשימה ביחס למסך, ואם הרשימה נגללת.
+_MEASURE = """() => {
+  const vh = window.innerHeight;
+  const dialog = document.querySelector('#addToCollectionModal .add-to-collection-dialog').getBoundingClientRect();
+  const title = document.querySelector('#addToCollectionModal h3').getBoundingClientRect();
+  const buttons = [...document.querySelectorAll('#addToCollectionModal button')].map(b => b.getBoundingClientRect());
+  const body = document.getElementById('addToCollectionBody');
+  return {
+    vh, dialogTop: dialog.top, dialogBottom: dialog.bottom, dialogHeight: dialog.height,
+    titleTop: title.top,
+    buttonsTop: Math.min(...buttons.map(r => r.top)), buttonsBottom: Math.max(...buttons.map(r => r.bottom)),
+    scrolls: body.scrollHeight > body.clientHeight,
+  };
+}"""
+
+_LOADED = "() => document.querySelectorAll('#addToCollectionBody input[name=collectionId]').length > 1"
+
+
+@pytest.mark.parametrize("screen", list(VIEWPORTS))
+def test_a_long_list_scrolls_inside_the_window_and_the_title_and_buttons_stay_on_screen(page_factory, screen):
+    page, _, _ = page_factory(accept_items=True, collections=MANY, viewport=VIEWPORTS[screen])
+    page.evaluate("openAddToCollectionModal('a.py')")
+    poll(page, _LOADED, "האוספים נטענו")
+
+    m = page.evaluate(_MEASURE)
+
+    # הכותרת והכפתורים בתוך המסך — עד היום הם גלשו ממנו, למעלה ולמטה
+    assert m["titleTop"] >= 0 and m["dialogTop"] >= 0, m
+    assert m["buttonsTop"] >= 0 and m["buttonsBottom"] <= m["vh"], m
+    # החלון בגובה המרבי שלו (70% מהמסך, ``.add-to-collection-dialog``), והרשימה נגללת בתוכו
+    assert m["dialogHeight"] <= m["vh"] * 0.7 + 1, m
+    assert m["scrolls"] is True, m
+
+    # האוסף האחרון נגיש: גלילה של הרשימה עד הסוף מביאה אותו לתוכה, והכפתורים לא זזים
+    reach = page.evaluate("""() => {
+      const body = document.getElementById('addToCollectionBody');
+      body.scrollTop = body.scrollHeight;
+      const box = body.getBoundingClientRect();
+      const inputs = body.querySelectorAll('input[name=collectionId]');
+      const last = inputs[inputs.length - 1].closest('label').getBoundingClientRect();
+      return { inside: last.top >= box.top - 0.5 && last.bottom <= box.bottom + 0.5,
+               buttonsBottom: Math.max(...[...document.querySelectorAll('#addToCollectionModal button')]
+                                         .map(b => b.getBoundingClientRect().bottom)) };
+    }""")
+    assert reach["inside"] is True, reach
+    assert reach["buttonsBottom"] == m["buttonsBottom"], (reach, m)
+
+
+def _choice_state(page):
+    return page.evaluate("""() => {
+      const body = document.getElementById('addToCollectionBody');
+      const box = body.getBoundingClientRect();
+      const checked = body.querySelector('input[name=collectionId]:checked');
+      const opt = checked.closest('label').getBoundingClientRect();
+      return { value: checked.value, scrollTop: body.scrollTop,
+               page: [window.scrollY, document.documentElement.scrollTop, document.body.scrollTop],
+               visible: opt.top >= box.top - 0.5 && opt.bottom <= box.bottom + 0.5 };
+    }""")
+
+
+def _with_tall_page_scrolled(page, y: int) -> list:
+    """עמוד ארוך שגלול למטה — כדי שגלילה של העמוד שמתחת לשכבה, אם הייתה, תימדד.
+
+    **מה שנגלל בעמוד הוא ``body`` ולא החלון:** ``html, body { height: 100%; overflow-x: hidden }``
+    ב-``base.html`` הופך את ``body`` לקופסת הגלילה, ו-``window.scrollY`` נשאר 0 (נמדד). לכן נמדדים
+    שלושתם, ומוחזר המצב שאחרי הגלילה."""
+    page.evaluate("""(y) => {
+      const spacer = document.createElement('div'); spacer.style.height = '4000px';
+      document.body.appendChild(spacer); document.body.scrollTop = y;
+    }""", y)
+    before = page.evaluate("[window.scrollY, document.documentElement.scrollTop, document.body.scrollTop]")
+    assert before[2] == y, before
+    return before
+
+
+def test_the_previously_chosen_collection_is_scrolled_into_view_and_the_page_does_not_move(page_factory):
+    """האוסף מהפעם הקודמת מסומן מראש. ברשימה שנגללת הוא היה יושב מתחת לחלק הנראה."""
+    page, _, _ = page_factory(accept_items=True, collections=MANY, viewport=VIEWPORTS["tablet"])
+    page.evaluate("localStorage.setItem('last_collection_id', 'c35')")
+    before = _with_tall_page_scrolled(page, 600)
+    page.evaluate("openAddToCollectionModal('a.py')")
+    poll(page, _LOADED, "האוספים נטענו")
+
+    state = _choice_state(page)
+
+    assert state["value"] == "c35", state
+    assert state["visible"] is True and state["scrollTop"] > 0, state
+    # העמוד שמתחת לשכבה לא זז. אין מוטציה מציאותית שמפילה את זה — נמדד שגם ``block: 'center'`` אינו
+    # גולל את ``body`` בשביל אפשרות שבתוך השכבה ה-``fixed`` — ולכן זה תיעוד של מה שנמדד, לא שומר על באג ידוע.
+    assert state["page"] == before, (state, before)
+
+
+def test_a_chosen_collection_that_is_already_visible_does_not_scroll_the_list(page_factory):
+    """בקרה: ``block: 'nearest'`` — אוסף שגלוי ממילא אינו מזיז את הרשימה.
+
+    **האוסף הוא האחרון שגלוי במלואו לפני כל גלילה**, ונמדד כאן ולא נבחר מראש: אוסף בראש הרשימה
+    לא היה מבדיל בין ``nearest`` ל-``center`` — את ראש הרשימה אי אפשר למרכז, והגלילה נעצרת ב-0
+    (נמדד: עם ``center`` ואוסף שלישי מלמעלה, הבדיקה עברה)."""
+    page, _, _ = page_factory(accept_items=True, collections=MANY, viewport=VIEWPORTS["tablet"])
+    page.evaluate("openAddToCollectionModal('a.py')")
+    poll(page, _LOADED, "האוספים נטענו")
+    last_visible = page.evaluate("""() => {
+      const body = document.getElementById('addToCollectionBody');
+      const box = body.getBoundingClientRect();
+      const shown = [...body.querySelectorAll('input[name=collectionId]')]
+        .filter(i => {
+          const r = i.closest('label').getBoundingClientRect();
+          return r.top >= box.top && r.bottom <= box.bottom;
+        });
+      return shown[shown.length - 1].value;
+    }""")
+    page.click("#addToCollectionModal button.btn-secondary")
+    page.evaluate("(id) => localStorage.setItem('last_collection_id', id)", last_visible)
+    page.evaluate("openAddToCollectionModal('a.py')")
+    poll(page, _LOADED, "האוספים נטענו")
+
+    state = _choice_state(page)
+
+    assert last_visible not in ("ws", "c1", "c2"), last_visible
+    assert state["value"] == last_visible and state["visible"] is True, state
+    assert state["scrollTop"] == 0, state

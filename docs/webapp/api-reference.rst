@@ -161,10 +161,10 @@ Endpoints
      - ``{"ok": true, "already_unpinned": false, "files_page_pinned_at": null}``
    * - ``/api/sticky-notes/files-page``
      - GET
-     - כרטיסי ראש עמוד הקבצים — הפתקים הנעוצים, מהראשון שננעץ לאחרון. ``label`` הוא השם, ובלעדיו השורה הראשונה של הפתק (``sticky_notes_target.note_label``). ``max`` היא התקרה הכללית. שאילתה שנכשלה ← ``500``, ולא רשימה ריקה
+     - כרטיסי ראש עמוד הקבצים — הפתקים הנעוצים, מהראשון שננעץ לאחרון. ``label`` הוא השם, ובלעדיו השורה הראשונה של הפתק (``sticky_notes_target.note_label``). ``max`` היא התקרה הכללית (``sticky_notes_target.MAX_FILES_PAGE_PINNED_NOTES``). שאילתה שנכשלה ← ``500``, ולא רשימה ריקה
      - ✅
      - -
-     - ``{"ok": true, "notes": [{"id": "...", "label": "...", "color": "#...", "color_id": "...", "files_page_pinned_at": "..."}], "count": 1, "max": 4}``
+     - ``{"ok": true, "notes": [{"id": "...", "label": "...", "color": "#...", "color_id": "...", "files_page_pinned_at": "..."}], "count": 1, "max": 5}``
    * - ``/api/sticky-notes/files-page/<note_id>``
      - GET
      - פתק נעוץ אחד, מלא, עם תקצירי השרשורים שלו — כשפותחים כרטיס בעמוד הקבצים. פתק שאינו נעוץ, בארכיון או אינו של המשתמש ← ``404 note_not_found``; מזהה פגום ← ``400 invalid_note_id``. כשל בקריאת השרשורים: ``threads_unavailable: true``
