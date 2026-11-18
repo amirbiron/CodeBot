@@ -986,6 +986,14 @@
     let currentThemeSyntaxColors = {};
     // 🆕 שמירת משתנים מקוריים של הערכה הנטענת (לשימור בפרסום)
     let currentThemeOriginalVariables = {};
+    // ערכי הטופס כמו שהם מיד אחרי טעינת ערכה קיימת. שמירה ופרסום שולחים רק מה שהשתנה מהם (_changedThemeValues):
+    // הטופס אינו מייצג כל ערכה במדויק — Pickr מנרמל צבעים, ומחוון השקיפות אינו יודע מה צבע הזכוכית — ולכן ערך
+    // שהמשתמש לא נגע בו אסור שייכתב חזרה. null — ערכה חדשה, שאין לה ערכים מקוריים, וכל הטופס הוא הערכה.
+    let loadedFormBaseline = null;
+    // הצבע (בלי השקיפות) של שלושת משתני הזכוכית. מחוון השקיפות משנה רק את השקיפות, וכל משתנה שומר את הצבע שלו
+    // מהערכה שנטענה. ערכה חדשה, ואיפוס לברירות מחדל, — לבן, כמו שהבונה כתב תמיד.
+    const WHITE_RGB = { r: 255, g: 255, b: 255 };
+    let glassBaseRgb = { glass: WHITE_RGB, border: WHITE_RGB, hover: WHITE_RGB };
 
     // ========== DOM Elements ==========
     const themesList = document.getElementById('themesList');
@@ -1206,14 +1214,32 @@
     }
 
     // ========== Contrast (WCAG 2.1) ==========
+    // צבע CSS בצורות שהרשימה הלבנה מקבלת (is_valid_color ב-services/theme_parser_service.py): #rgb, #rgba,
+    // #rrggbb, #rrggbbaa, rgb() ו-rgba(). מחזיר { r, g, b, a }, או null לכל דבר אחר.
+    function _parseCssColor(value) {
+        const v = String(value || '').trim().toLowerCase();
+        const hex = v.match(/^#([0-9a-f]{3,8})$/);
+        if (hex) {
+            let h = hex[1];
+            if (h.length === 3 || h.length === 4) h = h.split('').map((c) => c + c).join('');
+            if (h.length !== 6 && h.length !== 8) return null;
+            const n = (i) => parseInt(h.slice(i, i + 2), 16);
+            return { r: n(0), g: n(2), b: n(4), a: h.length === 8 ? n(6) / 255 : 1 };
+        }
+        const fn = v.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*([\d.]+)\s*)?\)$/);
+        if (fn) {
+            const [r, g, b] = [fn[1], fn[2], fn[3]].map(Number);
+            const a = fn[4] === undefined ? 1 : Number(fn[4]);
+            if ([r, g, b].some((x) => x > 255) || !(a >= 0 && a <= 1)) return null;
+            return { r, g, b, a };
+        }
+        return null;
+    }
+
     function _hexToRgb(hex) {
-        const h = String(hex || '').trim().replace('#', '');
-        if (h.length !== 6) return null;
-        const r = parseInt(h.slice(0, 2), 16);
-        const g = parseInt(h.slice(2, 4), 16);
-        const b = parseInt(h.slice(4, 6), 16);
-        if ([r, g, b].some((v) => Number.isNaN(v))) return null;
-        return { r, g, b };
+        if (!String(hex || '').trim().startsWith('#')) return null;
+        const c = _parseCssColor(hex);
+        return c && c.a === 1 ? { r: c.r, g: c.g, b: c.b } : null;
     }
 
     function _luminance({ r, g, b }) {
@@ -1318,8 +1344,10 @@
         opacitySlider.addEventListener('input', () => {
             const val = opacitySlider.value;
             opacityValue.textContent = val + '%';
-            const rgba = `rgba(255, 255, 255, ${(val / 100).toFixed(2)})`;
-            updatePreview('--glass', rgba);
+            const glassVars = _glassValues(parseInt(val, 10));
+            updatePreview('--glass', glassVars['--glass']);
+            updatePreview('--glass-border', glassVars['--glass-border']);
+            updatePreview('--glass-hover', glassVars['--glass-hover']);
             _onStateChanged();
         });
 
@@ -1333,7 +1361,7 @@
         // Initial update
         opacityValue.textContent = opacitySlider.value + '%';
         blurValue.textContent = blurSlider.value + 'px';
-        updatePreview('--glass', `rgba(255, 255, 255, ${(opacitySlider.value / 100).toFixed(2)})`);
+        Object.entries(_glassValues(parseInt(opacitySlider.value, 10))).forEach(([name, value]) => updatePreview(name, value));
         updatePreview('--glass-blur', blurSlider.value + 'px');
     }
 
@@ -1352,18 +1380,47 @@
         // Glass
         const opacitySlider = document.getElementById('glassOpacity');
         const blurSlider = document.getElementById('glassBlur');
-        const opacityVal = parseInt(opacitySlider.value, 10);
-        // Clamp alpha values to valid 0-1 range
-        const glassAlpha = (opacityVal / 100).toFixed(2);
-        const borderAlpha = Math.min(1, (opacityVal + 10) / 100).toFixed(2);
-        const hoverAlpha = Math.min(1, (opacityVal + 5) / 100).toFixed(2);
-        variables['--glass'] = `rgba(255, 255, 255, ${glassAlpha})`;
-        variables['--glass-border'] = `rgba(255, 255, 255, ${borderAlpha})`;
-        variables['--glass-hover'] = `rgba(255, 255, 255, ${hoverAlpha})`;
+        Object.assign(variables, _glassValues(parseInt(opacitySlider.value, 10)));
         variables['--glass-blur'] = blurSlider.value + 'px';
 
         return variables;
     }
+
+    // שלושת משתני הזכוכית לפי מחוון השקיפות: הגבול והריחוף שקופים פחות מהזכוכית עצמה, כמו שהבונה חישב תמיד, וכל
+    // אחד בצבע שלו (glassBaseRgb). בערכה שנבנתה בבונה הצבע לבן, ולכן התוצאה זהה למה שהבונה כתב עד היום.
+    function _glassValues(opacityVal) {
+        const rgba = ({ r, g, b }, alpha) => `rgba(${r}, ${g}, ${b}, ${Math.min(1, alpha).toFixed(2)})`;
+        return {
+            '--glass': rgba(glassBaseRgb.glass, opacityVal / 100),
+            '--glass-border': rgba(glassBaseRgb.border, (opacityVal + 10) / 100),
+            '--glass-hover': rgba(glassBaseRgb.hover, (opacityVal + 5) / 100),
+        };
+    }
+
+    function _rgbOf(value) {
+        const c = _parseCssColor(value);
+        return c ? { r: c.r, g: c.g, b: c.b } : WHITE_RGB;
+    }
+
+    // רווחים ואותיות גדולות אינם שינוי: Pickr כותב hex באותיות גדולות, והערכה שנטענה כתובה בקטנות.
+    function _sameValue(a, b) {
+        const norm = (x) => String(x === undefined || x === null ? '' : x).toLowerCase().replace(/\s+/g, '');
+        return norm(a) === norm(b);
+    }
+
+    // docs:theme-builder-changed-values:start — מוטמע ב-docs/webapp/custom_themes_guide.rst ("שמירת משתנים בפרסום"); אל תסיר
+    // מה שהשתנה בטופס מאז שהערכה נטענה (loadedFormBaseline). שמירה ופרסום שולחים רק את זה, ולכן ערך שהטופס אינו
+    // יודע לייצג — כמו צבע הזכוכית — לא נדרס כשלא נגעו בו. ערכה חדשה, בלי בסיס, שולחת את כל הטופס.
+    function _changedThemeValues(current) {
+        const values = current || collectThemeValues();
+        if (!loadedFormBaseline) return values;
+        const changed = {};
+        Object.entries(values).forEach(([name, value]) => {
+            if (!_sameValue(value, loadedFormBaseline[name])) changed[name] = value;
+        });
+        return changed;
+    }
+    // docs:theme-builder-changed-values:end
 
     // ========== API Functions ==========
     function _formatMaxAllowed(maxAllowed) {
@@ -1650,6 +1707,11 @@
         currentThemeSyntaxColors = (theme && typeof theme.syntax_colors === 'object' && theme.syntax_colors) ? theme.syntax_colors : {};
         // 🆕 שמירת כל המשתנים המקוריים (כולל אלו שאינם בטופס) לשימור בפרסום
         currentThemeOriginalVariables = { ...variables };
+        glassBaseRgb = {
+            glass: _rgbOf(variables['--glass']),
+            border: _rgbOf(variables['--glass-border']),
+            hover: _rgbOf(variables['--glass-hover']),
+        };
 
         Object.entries(VAR_MAP).forEach(([pickrId, varName]) => {
             const textInput = document.getElementById(pickrId + 'Text');
@@ -1678,6 +1740,8 @@
                 updatePreview('--glass', String(variables['--glass']));
             }
         }
+        if (variables['--glass-border']) updatePreview('--glass-border', String(variables['--glass-border']));
+        if (variables['--glass-hover']) updatePreview('--glass-hover', String(variables['--glass-hover']));
 
         if (variables['--glass-blur']) {
             const blurSlider = document.getElementById('glassBlur');
@@ -1688,6 +1752,8 @@
             if (blurValue) blurValue.textContent = v + 'px';
             updatePreview('--glass-blur', vRaw);
         }
+        // אחרי שכל הפקדים קיבלו את ערכי הערכה (ו-Pickr כבר כתב אותם בצורה שלו) — זה הבסיס שמולו נמדד "שינוי".
+        loadedFormBaseline = collectThemeValues();
         } finally {
             _suppressTracking = false;
         }
@@ -1705,6 +1771,8 @@
         currentThemeSyntaxCss = '';
         currentThemeSyntaxColors = {};
         currentThemeOriginalVariables = {};
+        loadedFormBaseline = null;
+        glassBaseRgb = { glass: WHITE_RGB, border: WHITE_RGB, hover: WHITE_RGB };
         renderThemesList();
 
         _suppressTracking = true;
@@ -1845,13 +1913,14 @@
             const description = (document.getElementById('publishDescription')?.value || '').trim();
             const isFeatured = !!document.getElementById('publishFeatured')?.checked;
 
-            // 🆕 מיזוג: משתנים מקוריים (כולל --code-bg, --md-inline-code-bg וכו') + ערכים מהטופס
-            // ערכים מהטופס דורסים את המקוריים (למקרה שהמשתמש שינה צבע)
-            const formValues = collectThemeValues();
+            // docs:theme-builder-publish-merge:start — מוטמע ב-docs/webapp/custom_themes_guide.rst ("שמירת משתנים בפרסום"); אל תסיר
+            // מיזוג: המשתנים המקוריים של הערכה (כולל אלו שאינם בטופס, כמו --code-bg), ומעליהם רק מה שהמשתמש שינה
+            // בטופס. ערך שלא נגעו בו נשאר המקורי — הטופס אינו יודע לייצג אותו במדויק (_changedThemeValues).
             const colors = {
-                ...(currentThemeOriginalVariables || {}),  // משתנים מקוריים (כולל אלו שאינם בטופס)
-                ...formValues,  // ערכים מהטופס (דורסים)
+                ...(currentThemeOriginalVariables || {}),
+                ..._changedThemeValues(),
             };
+            // docs:theme-builder-publish-merge:end
 
             try {
                 if (publishSubmitBtn) publishSubmitBtn.disabled = true;
@@ -1937,8 +2006,12 @@
                 await selectTheme(newId);
             }
         } else {
-            const ok = await updateExistingTheme(selectedThemeId, { name: name, variables: variables });
+            // רק מה שהשתנה מאז הטעינה: update_theme ב-webapp/themes_api.py ממזג אותו מעל המשתנים השמורים.
+            const changed = _changedThemeValues(variables);
+            const ok = await updateExistingTheme(selectedThemeId, { name: name, variables: changed });
             if (ok) {
+                currentThemeOriginalVariables = { ...currentThemeOriginalVariables, ...changed };
+                loadedFormBaseline = variables;
                 _clearDraftForCurrent();
                 await fetchThemes();
             }
@@ -1954,6 +2027,7 @@
         if (!confirm('לאפס את הערכים לברירות מחדל? (לא שומר אוטומטית)')) {
             return;
         }
+        glassBaseRgb = { glass: WHITE_RGB, border: WHITE_RGB, hover: WHITE_RGB };
 
         Object.entries(VAR_MAP).forEach(([pickrId, varName]) => {
             const textInput = document.getElementById(pickrId + 'Text');
