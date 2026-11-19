@@ -62,8 +62,12 @@
   --ck-paper-border: 1px;
   --ck-edit-pad: 6px;
   --ck-head-gap: 4px;
-  /* המרווח בין המסגרת של קטע מסומן לשורות שלו (``.ck-section-frame``), והמקום שהגוף מפנה לה. */
-  --ck-mark-gap: 6px;
+  /* המרווח בין המסגרת של קטע מסומן לשורות שלו (``.ck-section-frame``), והמקום שהגוף מפנה לה. **לגובה
+     ``.1em``, פחות מהשוליים שמעל כותרת** (``.sticky-md-h`` ב-``sticky-md-render.css``: ``.15em`` של כותרת
+     שגודלה ``1.02em`` לפחות) — קטע תמיד מתחיל בכותרת, ומרווח גדול יותר היה מעביר את הקו העליון לתוך
+     השורה שמעליה (נמדד: 3.4 פיקסלים בין שורה לכותרת ``##``). ``em`` — כדי שהיחס יישמר בכל גודל טקסט. */
+  --ck-mark-gap-inline: 6px;
+  --ck-mark-gap-block: .1em;
 }
 
 html, body {
@@ -237,9 +241,9 @@ html.ck-expanded #ck-note-root {
 
 .ck-section-frame {
   position: absolute;
-  inset-inline: calc(-1 * var(--ck-mark-gap));
-  inset-block-start: calc(var(--ck-frame-top, 0px) - var(--ck-mark-gap));
-  block-size: calc(var(--ck-frame-height, 0px) + 2 * var(--ck-mark-gap));
+  inset-inline: calc(-1 * var(--ck-mark-gap-inline));
+  inset-block-start: calc(var(--ck-frame-top, 0px) - var(--ck-mark-gap-block));
+  block-size: calc(var(--ck-frame-height, 0px) + 2 * var(--ck-mark-gap-block));
   box-sizing: border-box;
   border: 1.5px dashed currentColor;
   border-radius: 8px;
@@ -252,13 +256,13 @@ html.ck-expanded #ck-note-root {
 }
 
 /* **מקום למסגרת בתוך הגוף.** הגוף הוא מכל הגלילה, ומה שיוצא ממנו נחתך — ולכן, כשיש מסגרת, הגוף מפנה לה
-   ``--ck-mark-gap`` מכל צד. לרוחב בלי שהטקסט זז: הריפוד מתקזז עם שוליים שליליים, שאוכלים מהריפוד של הנייר.
+   את המרווח שלה מכל צד. לרוחב בלי שהטקסט זז: הריפוד מתקזז עם שוליים שליליים, שאוכלים מהריפוד של הנייר.
    לגובה ריפוד רגיל — השורות יורדות במרווח הזה, וזה מה שנותן למסגרת של קטע בראש הפתק מקום מעליו. פתק בלי
    מסגרת אינו משתנה בכלל. */
 .ck-paper.ck-has-frame .ck-body {
-  padding-block: var(--ck-mark-gap);
-  padding-inline: var(--ck-mark-gap);
-  margin-inline: calc(-1 * var(--ck-mark-gap));
+  padding-block: var(--ck-mark-gap-block);
+  padding-inline: var(--ck-mark-gap-inline);
+  margin-inline: calc(-1 * var(--ck-mark-gap-inline));
 }
 
 /* **``query``: ההדגשה של החיפוש בתוך פתק בוובאפ** — עותק של ``.sticky-note-search-hit`` מ-

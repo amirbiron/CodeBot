@@ -657,6 +657,28 @@ def test_the_view_copies_the_ink_spacing_and_default_size_of_a_webapp_note():
     assert _css_value(view_title, "font-weight") == "var(--ck-title-weight)"
 
 
+def _declarations(block: str) -> list[str]:
+    """ההצהרות של בלוק, אחת לשורה, בלי רווחים מסביב — כדי להשוות שני בלוקים בלי תלות בהזחה."""
+    return [d.strip() for d in block.split(";") if d.strip()]
+
+
+def test_the_view_copies_the_in_note_search_highlight_of_the_webapp():
+    """הסימון של ``query`` בתצוגה נראה כמו החיפוש בתוך פתק בוובאפ — אותה מחלקה, ואותם כללים.
+
+    ``note_view.js`` מדגיש עם ``NOTE_SEARCH_HIT_CLASS`` של ``sticky-notes.js``, והכללים שלה יושבים ב-
+    ``sticky-notes.css``, שהדף אינו כולל (הוא מביא איתו את השלד של הפתק בלוח). ולכן הם מועתקים ל-
+    ``note_view.css``, והטסט הזה משווה את שני הבלוקים — הרגיל והפעיל — הצהרה מול הצהרה.
+    """
+    webapp_js = (_REPO / "webapp" / "static" / "js" / "sticky-notes.js").read_text(encoding="utf-8")
+    view_js = (_REPO / "mcp_server" / "apps" / "note_view.js").read_text(encoding="utf-8")
+    webapp_class = re.search(r"const NOTE_SEARCH_HIT_CLASS = '([\w-]+)';", webapp_js).group(1)
+    assert re.search(r"var MARK_HIT_CLASS = '([\w-]+)';", view_js).group(1) == webapp_class
+    webapp_css = (_REPO / "webapp" / "static" / "css" / "sticky-notes.css").read_text(encoding="utf-8")
+    view_css = (_REPO / "mcp_server" / "apps" / "note_view.css").read_text(encoding="utf-8")
+    for selector in (f".{webapp_class}", f".{webapp_class}.is-active"):
+        assert _declarations(_css_block(view_css, selector)) == _declarations(_css_block(webapp_css, selector)), selector
+
+
 def _new_note_height() -> int:
     """``NEW_NOTE_H`` מ-``sticky-notes.js`` — הגובה של פתק חדש בוובאפ, הבעלים של הגובה הקבוע בתצוגה."""
     js = (_REPO / "webapp" / "static" / "js" / "sticky-notes.js").read_text(encoding="utf-8")
