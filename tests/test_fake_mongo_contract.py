@@ -26,14 +26,36 @@ def coll():
     [
         {"a": {"$regex": "^1"}},
         {"a": {"$type": "int"}},
-        {"$or": [{"a": 1}, {"a": 2}]},
         {"$expr": {"$gt": ["$a", 1]}},
         {"$and": [{"a": 1}]},
+        {"$nor": [{"a": 1}]},
+        {"$or": [{"a": {"$regex": "^1"}}]},
     ],
 )
 def test_an_unimplemented_query_operator_raises_instead_of_matching_everything(coll, query):
     with pytest.raises(NotImplementedError, match="does not implement"):
         list(coll.find(query))
+
+
+def test_or_matches_any_branch_and_still_requires_the_other_keys_like_mongo(coll):
+    """``$or`` כמו במונגו: מסמך שעונה על אחד הענפים — ובנוסף על שאר המפתחות של השאילתה."""
+    coll.insert_one({"a": 3, "tags": ["x"]})
+    assert sorted(d["a"] for d in coll.find({"$or": [{"a": 1}, {"a": 3}]})) == [1, 3]
+    assert [d["a"] for d in coll.find({"tags": ["x"], "$or": [{"a": 2}, {"a": 3}]})] == [3]
+    assert [d["a"] for d in coll.find({"$or": [{"missing": {"$exists": True}}, {"a": 2}]})] == [2]
+
+
+def test_an_upsert_with_a_top_level_operator_raises_instead_of_writing_it_as_a_field():
+    empty = FakeCollection()
+    with pytest.raises(NotImplementedError, match="does not implement"):
+        empty.update_one({"$or": [{"a": 1}]}, {"$set": {"b": 1}}, upsert=True)
+    assert list(empty.find({})) == []
+
+
+@pytest.mark.parametrize("branches", [[], {"a": 1}, [1]])
+def test_an_or_that_is_not_a_non_empty_list_of_filters_raises_like_mongo(coll, branches):
+    with pytest.raises(ValueError, match=r"\$or must be"):
+        list(coll.find({"$or": branches}))
 
 
 def test_not_over_an_operator_matches_a_missing_field_like_mongo(coll):

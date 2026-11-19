@@ -135,7 +135,7 @@
             <div class="pinned-card" data-pinned-card data-file-id="{{ file.id }}">
                 <div class="pinned-card__icon">{{ lang_icon(file.language, LANG_ICON_SIZES.file_row) }}</div>
                 <div class="pinned-card__content">
-                    <a class="pinned-card__name" href="/file/{{ file.id }}" title="{{ file.file_name }}">
+                    <a class="pinned-card__name" href="/file/{{ file.id }}" target="_blank" rel="noopener" title="{{ file.file_name }}">
                         {{ file.file_name|file_name }}
                     </a>
                     <div class="pinned-card__meta">
