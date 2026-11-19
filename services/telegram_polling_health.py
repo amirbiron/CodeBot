@@ -17,8 +17,8 @@
 **למה זמן מאז ההצלחה האחרונה, ולא ספירת כשלים ב-``error_handler``.** שתי עובדות על python-telegram-bot 22.5
 (``telegram/ext/_utils/networkloop.py``, ``network_retry_loop``): ``TimedOut`` ו-``RetryAfter`` נתפסים שם לפני שה-callback
 של השגיאות נקרא, ולכן השבתה שמתבטאת ב-timeouts בלבד לא מגיעה ל-``error_handler`` אף פעם; ואין שום callback על הצלחה,
-ולכן אין מי שיאפס מונה. האות היחיד שמכסה כל סוג של השבתה הוא ``getUpdates`` שהצליח — :class:`PollingHeartbeatRequest`
-רושם אותו. ``tests/helpers/ptb_polling_contract_probe.py`` מקבע את שתי העובדות מול הספרייה המותקנת, כדי ששדרוג שמשנה
+ולכן אין מי שיאפס מונה. האות היחיד שמכסה כל סוג של השבתה הוא ``getUpdates`` שהצליח — תשובה תקינה של Bot API, ולא כל
+סטטוס 2xx (:func:`is_successful_get_updates_payload`) — ו-:class:`PollingHeartbeatRequest` רושם אותו. ``tests/helpers/ptb_polling_contract_probe.py`` מקבע את שתי העובדות מול הספרייה המותקנת, כדי ששדרוג שמשנה
 אותן ייכשל ב-CI.
 """
 
@@ -28,7 +28,6 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from http import HTTPStatus
 from typing import Any, Callable, Optional
 
 import httpx
@@ -244,18 +243,34 @@ class PollingHealthMonitor:
         return self._last_error
 
 
+def is_successful_get_updates_payload(data: object) -> bool:
+    """האם תשובה מפוענחת של Bot API היא ``getUpdates`` שהצליח: ``ok`` אמת, ו-``result`` הוא רשימה (של עדכונים).
+
+    זו ההגדרה של Bot API עצמו לבקשה שהצליחה — "If 'ok' equals True, the request was successful and the result of the
+    query can be found in the 'result' field" (https://core.telegram.org/bots/api#making-requests) — ועוד הצורה של
+    ``getUpdates``, שמחזיר "an Array of Update objects". קוד סטטוס 2xx לבדו אינו הצלחה: proxy שמחזיר 200 עם דף HTML, או
+    JSON בלי ``result``, גורמים ל-PTB לזרוק (``TelegramError`` או ``KeyError`` ב-``BaseRequest.post``), והבוט לא מקבל אף
+    עדכון. הערך הגיע מחוץ לתהליך, ולכן בודקים שהוא מילון לפני שניגשים לשדות שלו.
+    """
+    return isinstance(data, dict) and data.get("ok") is True and isinstance(data.get("result"), list)
+
+
 class PollingHeartbeatRequest(HTTPXRequest):
-    """בקשת ה-HTTP של ``getUpdates``, שמדווחת על כל תשובה מוצלחת.
+    """בקשת ה-HTTP של ``getUpdates``, שמדווחת על כל תשובה תקינה של Bot API (:func:`is_successful_get_updates_payload`).
 
     נכנסת לאפליקציה דרך ``ApplicationBuilder.get_updates_request``. ב-python-telegram-bot 22.5 ה-``Bot`` מחזיק שתי בקשות,
-    ומשתמש בזו רק ל-``getUpdates`` (``telegram/_bot.py``, ``Bot._do_post``); לכן כל תשובה מוצלחת שעוברת כאן היא
-    ``getUpdates`` שהצליח. "מוצלחת" — אותו כלל ש-PTB משתמש בו כדי להחליט אם לזרוק (``BaseRequest._request_wrapper``):
-    סטטוס 200 עד 299.
+    ומשתמש בזו רק ל-``getUpdates`` (``telegram/_bot.py``, ``Bot._do_post``); לכן כל תשובה תקינה שעוברת כאן היא
+    ``getUpdates`` שהצליח.
 
-    הדריסה היא של ``do_request`` — המתודה ש-``BaseRequest`` מגדיר כנקודת ההרחבה. ``post`` ו-``_request_wrapper`` מסומנים
-    ``@final``. רישום ההצלחה עטוף ב-``try``: כשל בו לעולם לא מגיע ל-PTB, והתשובה חוזרת כמו שהיא. בלי זה, באג ב-heartbeat
-    היה נעטף כ-``NetworkError`` (``_request_wrapper``) ומשבית את ה-polling כולו. הכשל נרשם עם traceback, ואם הוא חוזר, הג'וב
-    יתריע על השבתה — כי בעיני המוניטור אין הצלחות.
+    הדריסה היא של ``parse_json_payload`` — נקודת הרחבה מתועדת של ``BaseRequest`` ("You can override it"), ובפענוח של PTB
+    עצמו, בלי פענוח שני. ‏``post`` ו-``_request_wrapper`` מסומנים ``@final``. PTB קורא לה דרך ``self`` בשני מקומות
+    (``telegram/request/_baserequest.py``): על התשובה של בקשה שהצליחה ב-``post``, ועל גוף של תשובת שגיאה (לא 2xx) ב-
+    ``_request_wrapper``, כדי לקרוא ממנו את התיאור. בתשובת שגיאה ``ok`` הוא ``false`` לפי Bot API, ולכן היא לא נספרת.
+    גוף שאינו JSON נכשל בפענוח של PTB עצמו, לפני הבדיקה, והחריגה עולה כרגיל.
+
+    רישום ההצלחה עטוף ב-``try``: כשל בו לעולם לא מגיע ל-PTB, והתשובה חוזרת כמו שהיא. בלי זה, באג ב-heartbeat היה הופך כל
+    ``getUpdates`` לכישלון ומשבית את ה-polling כולו. הכשל נרשם עם traceback, ואם הוא חוזר, הג'וב יתריע על השבתה — כי בעיני
+    המוניטור אין הצלחות.
     """
 
     __slots__ = ("_on_success",)
@@ -264,9 +279,10 @@ class PollingHeartbeatRequest(HTTPXRequest):
         super().__init__(**kwargs)
         self._on_success = on_success
 
-    async def do_request(self, *args: Any, **kwargs: Any) -> tuple[int, bytes]:
-        code, payload = await super().do_request(*args, **kwargs)
-        if HTTPStatus.OK <= code <= 299:
+    def parse_json_payload(self, payload: bytes) -> Any:
+        # ב-``BaseRequest`` המתודה סטטית; כאן היא צריכה את ``self`` בשביל ה-callback. PTB קורא לה כ-``self.parse_json_payload``.
+        data = super().parse_json_payload(payload)
+        if is_successful_get_updates_payload(data):
             try:
                 self._on_success()
             except Exception:
@@ -274,7 +290,7 @@ class PollingHeartbeatRequest(HTTPXRequest):
                     "telegram polling heartbeat: recording a successful getUpdates failed; "
                     "the response goes back to PTB unchanged"
                 )
-        return code, payload
+        return data
 
 
 def report_polling_event(event: PollingHealthEvent) -> None:

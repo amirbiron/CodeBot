@@ -9,7 +9,8 @@
   השבתה נשענת על heartbeat ולא על ספירת שגיאות ב-``error_handler``.
 - ``network_error_subclasses`` — הסיווג מבחין ב-``NetworkError`` לפי הטיפוס המדויק; תת-מחלקה חדשה בשדרוג צריכה החלטה.
 - ``request_vs_builder_default`` — הבקשה שהבוט מעביר ל-``get_updates_request`` זהה למה שה-builder היה בונה בעצמו.
-- ``heartbeat`` — הבקשה מדווחת על 200, לא על 502, וכשל ברישום ההצלחה לא נוגע בתשובה ש-PTB מקבל.
+- ``heartbeat`` — הבקשה מדווחת על תשובה תקינה של Bot API, לא על 502 ולא על 2xx שאינו תשובה תקינה (HTML, JSON בלי
+  ``result``), וכשל ברישום ההצלחה לא נוגע בתשובה ש-PTB מקבל.
 - ``classification`` — :func:`is_transient_polling_error` על חריגות שהספרייה עצמה זרקה מול Bot API מדומה, ולא על
   חריגות שנבנו ביד.
 
@@ -126,6 +127,25 @@ async def _heartbeat(api: FakeBotApi, base_url: str, log: _ListHandler) -> dict:
         except NetworkError as exc:
             result["502_raised"] = type(exc).__name__
         result["after_502"] = len(successes)
+
+        # 2xx שאינו תשובה תקינה של Bot API: PTB לא מוסר עדכונים, ולכן גם לא heartbeat. לכל מקרה — מה PTB עשה, והאם נרשם.
+        result["malformed_2xx"] = {}
+        for name, reply in {
+            "html_body": Reply(raw=b"<html>proxy error</html>", content_type="text/html"),
+            "json_without_result": Reply(payload={"ok": True}),
+            "ok_false": Reply(payload={"ok": False, "description": "not ok"}),
+            "ok_false_with_a_result": Reply(payload={"ok": False, "result": []}),
+            "result_not_a_list": Reply(payload={"ok": True, "result": {"update_id": 1}}),
+            "json_array": Reply(payload=[]),
+        }.items():
+            before = len(successes)
+            api.script("getUpdates", reply)
+            try:
+                await bot.get_updates(timeout=0)
+                ptb = "returned"
+            except Exception as exc:  # noqa: BLE001 - הפרוב מדווח, והטסט מחליט
+                ptb = f"raised {type(exc).__name__}"
+            result["malformed_2xx"][name] = {"ptb": ptb, "heartbeat": len(successes) > before}
 
     # כשל ברישום ההצלחה: התשובה חוזרת ל-PTB כרגיל, והכשל נרשם עם traceback.
     def broken_on_success() -> None:

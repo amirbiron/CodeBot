@@ -43,7 +43,8 @@ class Reply:
     """תשובת HTTP: ``payload`` כ-JSON, או ``raw`` כמו שהוא (למשל עמוד HTML של proxy). ``delay`` — המתנה לפני התשובה."""
 
     status: int = 200
-    payload: Optional[dict] = None
+    # בדרך כלל מילון; כל ערך ש-``json.dumps`` מקבל — גם רשימה, כדי לבדוק תשובה שאינה אובייקט.
+    payload: Optional[object] = None
     raw: Optional[bytes] = None
     content_type: str = "application/json"
     delay: float = 0.0

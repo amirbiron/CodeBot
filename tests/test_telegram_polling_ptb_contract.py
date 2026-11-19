@@ -72,6 +72,32 @@ def test_only_a_successful_get_updates_counts_as_a_heartbeat(report):
     assert heartbeat["after_502"] == 1
 
 
+@pytest.mark.parametrize(
+    "case",
+    ["html_body", "json_without_result", "ok_false", "ok_false_with_a_result", "result_not_a_list", "json_array"],
+)
+def test_a_2xx_that_is_not_a_valid_bot_api_answer_is_not_a_heartbeat(report, case):
+    """proxy שמחזיר 200 עם דף HTML, או JSON בלי ``result``: הבוט לא מקבל עדכונים, ולכן זה גם לא heartbeat.
+
+    אילו זה היה נספר, תשובות כאלה היו מאפסות את המוניטור שוב ושוב, ו-``telegram_polling_stalled`` לא היה יוצא לעולם.
+    ``ok`` שקר עם רשימה נכלל כאן כי Bot API מגדיר אותו ככישלון, אף ש-PTB מחזיר בו את הרשימה בלי לבדוק את ``ok``.
+    """
+    outcome = report["heartbeat"]["malformed_2xx"][case]
+    assert outcome["heartbeat"] is False, outcome
+
+
+def test_ptb_delivers_no_updates_on_those_2xx_answers(report):
+    """הצד של PTB: על התשובות האלה הוא זורק, ולכן ``getUpdates`` באמת לא הצליח — ו-``parse_json_payload`` שלנו לא משנה איזו
+    חריגה הוא זורק. ``json_array`` נועל בדיוק את זה: בלי בדיקת ה-``dict`` לפני ``.get``, הקוד שלנו היה זורק
+    ``AttributeError`` במקום ה-``TypeError`` של PTB. ‏``result`` שאינו רשימה ו-``ok`` שקר עם רשימה לא נבדקים כאן — מה PTB
+    עושה בהם אינו מה שהבוט נשען עליו."""
+    malformed = report["heartbeat"]["malformed_2xx"]
+    assert malformed["html_body"]["ptb"] == "raised TelegramError", malformed
+    assert malformed["json_without_result"]["ptb"] == "raised KeyError", malformed
+    assert malformed["ok_false"]["ptb"] == "raised KeyError", malformed
+    assert malformed["json_array"]["ptb"] == "raised TypeError", malformed
+
+
 def test_a_failure_in_recording_the_success_does_not_reach_ptb(report):
     """כשל ברישום ההצלחה — מכל סיבה — לא שובר את התשובה: העדכון חוזר ל-PTB, והכשל נרשם עם traceback."""
     heartbeat = report["heartbeat"]
