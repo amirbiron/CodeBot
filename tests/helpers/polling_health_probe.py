@@ -8,7 +8,8 @@ python-telegram-bot עצמו — ``run_polling`` ← ``network_retry_loop`` ← 
 שלו ו-``error_handler`` שלו; ו-``run_polling`` של PTB. **מה מדומה:** טלגרם (``fake_bot_api.py``), ושליחת ההתראות —
 ``internal_alerts.emit_internal_alert`` מוחלף ברשימה, כדי שלא תצא הודעה לשום מקום.
 
-**התסריט.** ``getUpdates`` מחזיר 502 שלוש פעמים, אחר כך 400, ואז מצליח. PTB 22.5 ממתין בין כישלונות 1, 1.5, 2.25 ו-3.375
+**התסריט.** ``getUpdates`` מחזיר 502 שלוש פעמים — הראשון עם גוף HTML, כמו מ-proxy, והשניים האחרים עם ה-JSON של טלגרם —
+אחר כך 400, ואז מצליח. PTB 22.5 ממתין בין כישלונות 1, 1.5, 2.25 ו-3.375
 שניות (``network_retry_loop``), כלומר כשמונה שניות בלי הצלחה. הסף שהטסט קובע (``TELEGRAM_POLLING_STALL_ALERT_SECS``)
 קצר מזה, ולכן ההשבתה צריכה להתריע, ואחרי ההצלחה — לדווח חזרה. במקביל רצים שני כשלים מחוץ ל-polling: ג'וב שזורק
 ``NetworkError``, ומשימה של ``application.create_task`` בלי ``update`` שזורקת ``NetworkError`` (כמו ``_milestones_job``).
@@ -55,11 +56,15 @@ def main() -> int:
     report: dict = {"outcome": None}
     alerts: list[dict] = []
     handler_records = _ListHandler()
+    # הרשומות של PTB עצמו: ERROR מכל logger תחת ``telegram`` נפתח כ-issue ב-Sentry, בלי קשר ל-``error_handler``.
+    ptb_records = _ListHandler()
+    logging.getLogger("telegram").addHandler(ptb_records)
 
     api = FakeBotApi()
     api.script(
         "getUpdates",
-        Reply(status=502, payload=BAD_GATEWAY_PAYLOAD),
+        # 502 עם גוף HTML, כמו מ-proxy או CDN לפני טלגרם: PTB לא מצליח לפענח אותו כ-JSON.
+        Reply(status=502, raw=b"<html>Bad Gateway</html>", content_type="text/html"),
         Reply(status=502, payload=BAD_GATEWAY_PAYLOAD),
         Reply(status=502, payload=BAD_GATEWAY_PAYLOAD),
         Reply(status=400, payload={"ok": False, "error_code": 400, "description": "Bad Request: wrong offset"}),
@@ -73,6 +78,11 @@ def main() -> int:
         ]
         # כל מה שנשלח ל-``emit_internal_alert``, גם התראות שאינן של ה-polling (למשל של העלייה). הטסט מסנן לפי שם.
         report["alerts"] = list(alerts)
+        report["ptb_error_records"] = [
+            {"logger": rec.name, "message": rec.getMessage()[:300]}
+            for rec in ptb_records.records
+            if rec.levelno >= logging.ERROR
+        ]
         report["get_updates_calls"] = api.calls.count("getUpdates")
         report["fake_server_errors"] = list(api.server_errors)
         with open(result_path, "w", encoding="utf-8") as fh:

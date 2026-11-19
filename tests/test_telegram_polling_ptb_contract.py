@@ -107,6 +107,45 @@ def test_a_failure_in_recording_the_success_does_not_reach_ptb(report):
     assert logged["has_traceback"] is True
 
 
+# --- רשומות הלוג של PTB עצמו ----------------------------------------------------------------------------------------
+
+
+def test_ptb_logs_an_error_on_a_502_html_body_without_us(report):
+    """הבקרה: דרך הבקשה של PTB, 502 עם גוף HTML כותב רשומת ERROR ב-``telegram.request.BaseRequest`` — כלומר issue ב-Sentry.
+    בלי זה, הטסט הבא היה עובר גם אילו הבדיקה פשוט לא ראתה את הרשומות."""
+    logged = report["ptb_error_logs"]["502_html_ptb"]["ptb_error_records"]
+    assert [rec["level"] for rec in logged] == ["ERROR"], logged
+
+
+@pytest.mark.parametrize("case", ["502_html_ours", "503_html_ours", "502_json_ours"])
+def test_a_transient_5xx_leaves_no_ptb_error_record(report, case):
+    """5xx הוא תקלה חולפת, ו-``error_handler`` רושם אותו ב-warning. גם PTB עצמו לא כותב עליו ERROR, ולכן אין issue."""
+    outcome = report["ptb_error_logs"][case]
+    assert outcome["ptb_error_records"] == [], outcome
+
+
+def test_the_502_html_failure_is_the_same_exception_as_without_us(report):
+    """הפענוח בלי שורת הלוג אינו משנה את מה ש-PTB זורק: אותו טיפוס, אותה הודעה (כולל גוף התשובה), ואותה סיבה — ולכן גם
+    אותו סיווג (``502_html`` בבדיקות הסיווג)."""
+    logs = report["ptb_error_logs"]
+    assert logs["502_html_ours"]["raised"] == logs["502_html_ptb"]["raised"], logs
+    assert logs["502_json_ours"]["raised"] == logs["502_json_ptb"]["raised"], logs
+    assert "<html>Bad Gateway</html>" in logs["502_html_ours"]["raised"]["message"]
+
+
+def test_the_status_of_one_answer_is_not_reused_for_the_next_parse(report):
+    """הסטטוס נשמר לפענוח של אותה תשובה בלבד. פענוח אחר באותו task חוזר לפענוח של PTB, עם השורה שלו."""
+    stale = report["ptb_error_logs"]["stale_status"]
+    assert stale == {"raised": "TelegramError", "ptb_error_loggers": ["telegram.request.BaseRequest"]}, stale
+
+
+@pytest.mark.parametrize("case", ["200_html_ours", "400_html_ours"])
+def test_other_unparsable_answers_keep_the_ptb_error_record(report, case):
+    """רק 5xx מפוענח בלי השורה של PTB. ‏200 עם HTML — הבוט לא מקבל עדכונים; 400 — אנחנו שלחנו משהו שגוי. שניהם לא חולפים."""
+    logged = report["ptb_error_logs"][case]["ptb_error_records"]
+    assert [rec["logger"] for rec in logged] == ["telegram.request.BaseRequest"], logged
+
+
 # --- הסיווג ---------------------------------------------------------------------------------------------------------
 
 TRANSIENT = [

@@ -24,9 +24,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -243,6 +245,28 @@ class PollingHealthMonitor:
         return self._last_error
 
 
+#: קוד הסטטוס של התשובה ש-``PollingHeartbeatRequest.do_request`` קיבל עכשיו, בשביל ``parse_json_payload`` שבא אחריו באותה
+#: בקשה. ``ContextVar`` ולא שדה על המופע: ``BaseRequest.post`` קורא לשתיהן ברצף באותו task (``_request_wrapper`` ← ``do_request``,
+#: ואז הפענוח), וכך גם שתי בקשות מקבילות על אותו מופע לא רואות כל אחת את הסטטוס של השנייה.
+_RESPONSE_STATUS: ContextVar[Optional[int]] = ContextVar("telegram_get_updates_response_status", default=None)
+
+
+def _parse_server_error_body_quietly(payload: bytes) -> Any:
+    """הפענוח של ``BaseRequest.parse_json_payload`` (python-telegram-bot 22.5), בלי שורת הלוג שלו בכשל.
+
+    שם, גוף שאינו JSON נרשם ב-``_LOGGER.exception`` (ה-logger ``telegram.request.BaseRequest``) — רשומה ברמת ERROR, ו-
+    ``LoggingIntegration`` של Sentry פותח עליה issue. בתשובת 5xx עם גוף HTML (proxy או CDN לפני טלגרם) זה היה עוקף את כל
+    הסינון: ``NetworkError`` שאחריה מסווג כחולף ונרשם ב-warning, אבל ה-issue כבר נפתח מהשורה של PTB. הגוף עצמו לא הולך
+    לאיבוד: PTB מצרף אותו להודעה של ה-``NetworkError`` ("Parsing the server response ... failed"), ו-``error_handler`` רושם
+    אותה. כל השאר זהה למקור — אותו פענוח, ואותה ``TelegramError`` כ-``__cause__``; ``tests/helpers/ptb_polling_contract_probe.py``
+    משווה מול הבקשה של PTB.
+    """
+    try:
+        return json.loads(payload.decode("utf-8", "replace"))
+    except ValueError as exc:
+        raise TelegramError("Invalid server response") from exc
+
+
 def is_successful_get_updates_payload(data: object) -> bool:
     """האם תשובה מפוענחת של Bot API היא ``getUpdates`` שהצליח: ``ok`` אמת, ו-``result`` הוא רשימה (של עדכונים).
 
@@ -271,6 +295,11 @@ class PollingHeartbeatRequest(HTTPXRequest):
     רישום ההצלחה עטוף ב-``try``: כשל בו לעולם לא מגיע ל-PTB, והתשובה חוזרת כמו שהיא. בלי זה, באג ב-heartbeat היה הופך כל
     ``getUpdates`` לכישלון ומשבית את ה-polling כולו. הכשל נרשם עם traceback, ואם הוא חוזר, הג'וב יתריע על השבתה — כי בעיני
     המוניטור אין הצלחות.
+
+    **תשובת 5xx מפוענחת בלי שורת ה-ERROR של PTB** (:func:`_parse_server_error_body_quietly`): זו תקלה חולפת בצד של טלגרם או
+    של proxy לפניו, ש-``is_transient_polling_error`` מוריד ל-warning — ושורת הלוג של PTB על גוף שאינו JSON הייתה פותחת עליה
+    issue ב-Sentry בכל זאת. בשביל זה ``do_request`` שומר את הסטטוס (:data:`_RESPONSE_STATUS`). כל תשובה אחרת עוברת בפענוח
+    של PTB כמו שהוא, כולל השורה שלו: 2xx עם גוף HTML הוא תקלה שהבוט לא מקבל בה עדכונים, ו-4xx עם גוף HTML אינו חולף.
     """
 
     __slots__ = ("_on_success",)
@@ -279,9 +308,20 @@ class PollingHeartbeatRequest(HTTPXRequest):
         super().__init__(**kwargs)
         self._on_success = on_success
 
+    async def do_request(self, *args: Any, **kwargs: Any) -> tuple[int, bytes]:
+        code, payload = await super().do_request(*args, **kwargs)
+        _RESPONSE_STATUS.set(code)
+        return code, payload
+
     def parse_json_payload(self, payload: bytes) -> Any:
         # ב-``BaseRequest`` המתודה סטטית; כאן היא צריכה את ``self`` בשביל ה-callback. PTB קורא לה כ-``self.parse_json_payload``.
-        data = super().parse_json_payload(payload)
+        status = _RESPONSE_STATUS.get()
+        # ניקוי מיד אחרי הקריאה: פענוח שלא קדם לו ``do_request`` באותו task לא יראה סטטוס של בקשה קודמת.
+        _RESPONSE_STATUS.set(None)
+        if status is not None and 500 <= status <= 599:
+            data = _parse_server_error_body_quietly(payload)
+        else:
+            data = super().parse_json_payload(payload)
         if is_successful_get_updates_payload(data):
             try:
                 self._on_success()

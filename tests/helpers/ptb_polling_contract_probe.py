@@ -11,6 +11,8 @@
 - ``request_vs_builder_default`` — הבקשה שהבוט מעביר ל-``get_updates_request`` זהה למה שה-builder היה בונה בעצמו.
 - ``heartbeat`` — הבקשה מדווחת על תשובה תקינה של Bot API, לא על 502 ולא על 2xx שאינו תשובה תקינה (HTML, JSON בלי
   ``result``), וכשל ברישום ההצלחה לא נוגע בתשובה ש-PTB מקבל.
+- ``ptb_error_logs`` — רשומות ERROR של ה-loggers של PTB עצמו: על 5xx עם גוף HTML אין (אחרת Sentry פותח issue לפני
+  הסיווג), על כל תשובה אחרת יש — בהשוואה לבקשה של PTB, שמראה שהשורה נכתבת בלעדינו.
 - ``classification`` — :func:`is_transient_polling_error` על חריגות שהספרייה עצמה זרקה מול Bot API מדומה, ולא על
   חריגות שנבנו ביד.
 
@@ -169,6 +171,81 @@ async def _heartbeat(api: FakeBotApi, base_url: str, log: _ListHandler) -> dict:
     return result
 
 
+async def _ptb_error_logs(api: FakeBotApi, base_url: str) -> dict:
+    """אילו רשומות ERROR ה-loggers של PTB עצמו (``telegram.*``) כותבים על תשובה, דרך הבקשה שלנו ודרך הבקשה של PTB.
+
+    רשומה כזו נפתחת כ-issue ב-Sentry (``LoggingIntegration`` עם ``event_level=ERROR``) בלי קשר לסיווג שאחריה, ולכן אותו
+    502 עם גוף HTML שהסיווג מוריד ל-warning לא יכול להשאיר אותה. הבקשה של PTB היא הבקרה: היא מראה שהשורה נכתבת בלעדינו,
+    כלומר שהבדיקה מסוגלת לראות אותה.
+    """
+    captured = _ListHandler()
+    ptb_logger = logging.getLogger("telegram")
+    ptb_logger.addHandler(captured)
+
+    async def run(request: HTTPXRequest, reply: Reply) -> dict:
+        captured.records.clear()
+        api.script("getUpdates", reply)
+        bot = Bot(TOKEN, base_url=base_url, get_updates_request=request)
+        raised: dict = {"type": None}
+        try:
+            await bot.get_updates(timeout=0)
+        except Exception as exc:  # noqa: BLE001 - הפרוב מדווח, והטסט מחליט
+            # השרשרת עד שתי רמות: ה-``NetworkError``, הסיבה שלו (``TelegramError`` של הפענוח) והסיבה שלה — כדי ש"זהה ל-PTB"
+            # ייבדק גם בתוך השרשרת, ולא רק בהודעה שבראשה.
+            cause = exc.__cause__
+            cause_of_cause = None if cause is None else cause.__cause__
+            raised = {
+                "type": f"{type(exc).__module__}.{type(exc).__qualname__}",
+                "message": str(exc)[:300],
+                "cause": None if cause is None else f"{type(cause).__module__}.{type(cause).__qualname__}",
+                "cause_message": None if cause is None else str(cause),
+                "cause_of_cause": None
+                if cause_of_cause is None
+                else f"{type(cause_of_cause).__module__}.{type(cause_of_cause).__qualname__}",
+            }
+        finally:
+            await request.shutdown()
+        errors = [
+            {"logger": rec.name, "level": rec.levelname, "message": rec.getMessage()[:200]}
+            for rec in captured.records
+            if rec.levelno >= logging.ERROR and rec.name.startswith("telegram")
+        ]
+        return {"raised": raised, "ptb_error_records": errors}
+
+    def ours() -> HTTPXRequest:
+        return tph.PollingHeartbeatRequest(lambda: None, connection_pool_size=1)
+
+    def html(status: int) -> Reply:
+        return Reply(status=status, raw=b"<html>Bad Gateway</html>", content_type="text/html")
+
+    async def stale_status_is_not_reused() -> dict:
+        # אחרי 502 באותו task, פענוח שלא קדם לו ``do_request`` משלו חוזר לפענוח של PTB, עם השורה שלו — הסטטוס לא נשאר.
+        request = ours()
+        await run(request, html(502))
+        captured.records.clear()
+        try:
+            request.parse_json_payload(b"<html>not json</html>")
+            raised = None
+        except Exception as exc:  # noqa: BLE001
+            raised = type(exc).__name__
+        errors = [rec.name for rec in captured.records if rec.levelno >= logging.ERROR]
+        return {"raised": raised, "ptb_error_loggers": errors}
+
+    try:
+        return {
+            "stale_status": await stale_status_is_not_reused(),
+            "502_html_ours": await run(ours(), html(502)),
+            "502_html_ptb": await run(HTTPXRequest(connection_pool_size=1), html(502)),
+            "503_html_ours": await run(ours(), html(503)),
+            "502_json_ours": await run(ours(), Reply(status=502, payload=BAD_GATEWAY_PAYLOAD)),
+            "502_json_ptb": await run(HTTPXRequest(connection_pool_size=1), Reply(status=502, payload=BAD_GATEWAY_PAYLOAD)),
+            "200_html_ours": await run(ours(), html(200)),
+            "400_html_ours": await run(ours(), html(400)),
+        }
+    finally:
+        ptb_logger.removeHandler(captured)
+
+
 class _BrokenTransport(HTTPXRequest):
     """שכבת HTTP עם באג: PTB עוטף את החריגה ב-``NetworkError("Unknown error in HTTP implementation")``."""
 
@@ -261,6 +338,7 @@ async def _main(result_path: str) -> None:
         "network_error_subclasses": sorted(cls.__name__ for cls in NetworkError.__subclasses__()),
         "request_vs_builder_default": _request_vs_builder_default(),
         "heartbeat": await _heartbeat(api, base_url, log),
+        "ptb_error_logs": await _ptb_error_logs(api, base_url),
         "classification": await _classification(api, base_url),
         "fake_server_errors": list(api.server_errors),
     }

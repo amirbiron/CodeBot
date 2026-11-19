@@ -60,6 +60,11 @@ def test_polling_through_the_real_bot(report):
     assert len(transient) == 3, records
     assert all("NetworkError: Bad Gateway" in rec["message"] and not rec["has_traceback"] for rec in transient), records
     assert not _records(report, "ERROR", "Bad Gateway"), records
+    # גוף ה-HTML של ה-502 הראשון נשאר בהודעה של ה-warning — הוא לא הולך לאיבוד כשהשורה של PTB לא נכתבת.
+    assert any("<html>Bad Gateway</html>" in rec["message"] for rec in transient), records
+
+    # 1א. וגם PTB עצמו לא כתב ERROR — אחרת Sentry פותח issue על ה-502 עם ה-HTML, לפני ש-``error_handler`` בכלל רואה אותו.
+    assert report["ptb_error_records"] == [], report["ptb_error_records"]
 
     # 2. 400 על ``getUpdates`` הוא באג אצלנו, לא רשת: נשאר error, עם traceback.
     (bad_request,) = _records(report, "ERROR", "Wrong offset")
