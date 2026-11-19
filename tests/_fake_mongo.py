@@ -2,7 +2,8 @@
 
 Repo convention is hand-rolled fakes (no mongomock). Several suites need the
 same duck-typed stand-in, so the collection semantics — filter matching
-(``$ne``, ``$in``, ``$nin``, ``$exists``, the range operators, and ``$not`` over them), inclusion
+(``$ne``, ``$in``, ``$nin``, ``$exists``, the range operators, and ``$not`` over them; ``$or`` at
+the top level), inclusion
 and exclusion projections, ``find_one`` with pymongo's positional projection and ``sort``,
 upsert with ``$setOnInsert``, ``$push`` with ``$each``/``$slice``, ``$unset``,
 ``update_many``, ``delete_many``, ``bulk_write`` of ``ReplaceOne``, counting, and
@@ -117,6 +118,8 @@ class _BulkRes:
 #: silently matching everything (or silently doing nothing): a test that reaches
 #: the fake with ``$regex`` must fail loudly, not pass for the wrong reason.
 QUERY_OPERATORS = frozenset({"$ne", "$in", "$nin", "$exists", "$lt", "$lte", "$gt", "$gte", "$not"})
+#: Top-level operators of a filter. Only ``$or`` — ``$and``, ``$nor``, ``$expr`` and ``$where`` still raise.
+TOP_LEVEL_QUERY_OPERATORS = frozenset({"$or"})
 UPDATE_OPERATORS = frozenset({"$set", "$unset", "$push", "$setOnInsert"})
 PUSH_MODIFIERS = frozenset({"$each", "$slice"})
 
@@ -188,10 +191,18 @@ class FakeCollection:
 
     @staticmethod
     def _match(doc, q):
-        top = [k for k in q if str(k).startswith("$")]
-        if top:  # $or / $and / $expr / $where …
+        top = [k for k in q if str(k).startswith("$") and k not in TOP_LEVEL_QUERY_OPERATORS]
+        if top:  # $and / $nor / $expr / $where …
             raise _unsupported("query operator(s)", top)
         for k, v in q.items():
+            if k == "$or":
+                # Like Mongo: a non-empty array of filter documents. The document matches when one of
+                # them does — and, as with any other key, together with the rest of ``q``.
+                if not (isinstance(v, list) and v and all(isinstance(sub, dict) for sub in v)):
+                    raise ValueError(f"$or must be a non-empty list of filter documents, got {v!r}")
+                if not any(FakeCollection._match(doc, sub) for sub in v):
+                    return False
+                continue
             found = _get_path(doc, k)
             actual = None if found is _MISSING else found
             if isinstance(v, dict) and any(str(op).startswith("$") for op in v):
@@ -343,6 +354,11 @@ class FakeCollection:
                     self._apply(d, u)
                     return _Res(modified=1, matched=1)
             if upsert:
+                # The new document is seeded from plain equality keys only. A top-level operator
+                # (``$or``) raises instead of being written into it as a field named ``$or``.
+                seed_ops = [k for k in q if str(k).startswith("$")]
+                if seed_ops:
+                    raise _unsupported("upsert seed from top-level operator(s)", seed_ops)
                 self._id += 1
                 nd = {"_id": self._id}
                 for k, v in q.items():

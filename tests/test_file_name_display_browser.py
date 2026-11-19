@@ -470,7 +470,8 @@ def test_the_name_in_pages_that_build_it_in_javascript(place, fixed, admin_live_
 
 def test_a_file_name_with_quotes_is_shown_whole_in_a_collection_card(admin_live_server, chromium_executable):
     """בכרטיס של אוסף השם נקרא מ-``data-open`` (``fillCardNames`` ב-``collections.js``), והמאפיין נבנה ב-``escapeHtml`` של
-    אותו קובץ. בלי קידוד של מרכאות, שם עם ``"`` היה נחתך במאפיין — ונחתך גם בכרטיס, וגם בפתיחה."""
+    אותו קובץ. בלי קידוד של מרכאות, שם עם ``"`` היה נחתך במאפיין — ונחתך גם בכרטיס, וגם בפתיחה: ה-``href`` של הקישור
+    (``openFileLinkAttrs``) נבנה מאותו שם, ועובר באותו ``escapeHtml``."""
     api = {"/api/collections/c1/items": {"ok": True, "items": [{"source": "regular", "file_name": QUOTED_NAME, "id": "i1"}],
                                          "total": 1, "page": 1, "per_page": 20},
            "/api/collections/c1": {"ok": True, "collection": _COLLECTION},
@@ -498,9 +499,11 @@ def test_a_file_name_with_quotes_is_shown_whole_in_a_collection_card(admin_live_
         link.wait_for(state="attached")
         text = link.evaluate("(el) => el.textContent")
         data_open = link.get_attribute("data-open")
+        opened_name = link.evaluate("(el) => new URL(el.href).searchParams.get('name')")
         attrs = link.evaluate("(el) => el.getAttributeNames()")
         assert not errors, errors
     assert data_open == QUOTED_NAME, data_open
+    assert opened_name == QUOTED_NAME, opened_name
     assert text == QUOTED_NAME, text
     assert "onmouseover" not in attrs, attrs
 

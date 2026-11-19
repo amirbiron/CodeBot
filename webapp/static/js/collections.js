@@ -159,6 +159,9 @@
   // סרגל תגיות (סינון/מיון/ייבוא/ייצוא/בחירה מרובה) – ניתן לכיבוי ברמת מסך
   let TAGS_TOOLBAR_ENABLED = true;
   const MAX_TAGS_PER_ITEM = 10;
+  // הכתובת שקישורי הפתיחה בכרטיסים מצביעים אליה — ``open_file_by_name`` בשרת, דרך
+  // ``data-open-file-url`` שהתבנית בונה ב-``url_for`` (``initOpenFileUrl``).
+  let OPEN_FILE_URL = '';
 
   // מטא-מידע על תגיות (default עד שיטען מהשרת)
   const DEFAULT_TAGS_METADATA = {
@@ -319,6 +322,62 @@
         TAGS_FEATURE_ENABLED = String(raw).trim() !== '0';
       }
     } catch (_err) {}
+  }
+
+  function initOpenFileUrl() {
+    const container = document.getElementById('collectionsContent');
+    OPEN_FILE_URL = (container && container.getAttribute('data-open-file-url')) || '';
+    if (!OPEN_FILE_URL) {
+      console.error('collections: data-open-file-url חסר בתבנית — קישורי הפתיחה בכרטיסים לא ייבנו');
+    }
+  }
+
+  /**
+   * הכתובת שפותחת קובץ לפי השם. הכרטיס מחזיק שם ולא מזהה, והשרת (``open_file_by_name``) מפנה
+   * ממנה לגרסה האחרונה ברגע הלחיצה — ולכן אין כאן בקשה לשרת לפני הפתיחה.
+   * @param {string} fileName
+   * @param {string} [view] סוג תצוגה ישירה (``getDirectViewMode``); ריק — עמוד הקובץ
+   * @returns {string} הכתובת, או מחרוזת ריקה כשהתבנית לא מסרה ``data-open-file-url``
+   */
+  function openFileUrl(fileName, view){
+    if (!OPEN_FILE_URL) return '';
+    const params = new URLSearchParams({ name: fileName });
+    if (view) params.set('view', view);
+    return `${OPEN_FILE_URL}?${params.toString()}`;
+  }
+
+  /** המאפיינים של שם הקובץ בכרטיס: קישור אמיתי ללשונית חדשה — ``href``, ``target`` ו-``rel``, מקודדים. */
+  function openFileLinkAttrs(fileName){
+    const url = openFileUrl(fileName);
+    return url ? `href="${escapeHtml(url)}" target="_blank" rel="noopener"` : '';
+  }
+
+  /**
+   * כפתור 🌐 לתצוגה הישירה של Markdown, HTML או SVG; מחרוזת ריקה לסיומת אחרת. הלחיצה —
+   * ``openDirectView``.
+   *
+   * **נשאר ``<button>`` ולא קישור.** קישור יורש את הגופן של העמוד ולא את גופן הכפתורים, ובערכת
+   * ניגודיות גבוהה חלים עליו כללי הקישורים ולא של הכפתורים (``high-contrast.css``). נמדד בכרומיום,
+   * נובמבר 2026: כקישור, כל שורת הכפתורים בכרטיס גבהה, ובניגודיות גבוהה קיבל קו תחתון צהוב
+   * ומסגרת דקה במקום המסגרת הלבנה של הכפתורים שלידו.
+   */
+  function directViewButtonHtml(fileName){
+    const mode = getDirectViewMode(fileName);
+    if (!mode) return '';
+    const label = directViewTitle(mode);
+    return `<button type="button" class="open-view" data-view="${escapeHtml(mode)}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">🌐</button>`;
+  }
+
+  /**
+   * פתיחת התצוגה הישירה בלשונית חדשה. **חייב לרוץ בתוך הלחיצה עצמה, בלי ``await`` לפניו:** הדפדפן
+   * מרשה ``window.open`` רק זמן קצר אחרי לחיצה, וכל מנוע קובע כמה (WHATWG, "transient activation
+   * duration"). עד נובמבר 2026 הפתיחה חיכתה קודם לתשובה מ-``/api/files/resolve``; עכשיו הכתובת
+   * נבנית מהשם, והשרת מברר את הגרסה.
+   */
+  function openDirectView(fileName, view){
+    const url = openFileUrl(String(fileName || '').trim(), view);
+    if (!url) return;
+    window.open(url, '_blank', 'noopener');
   }
 
   function initTagsToolbarFlag() {
@@ -2152,10 +2211,17 @@
           return;
         }
 
+        // שם הקובץ הוא קישור אמיתי (``openFileLinkAttrs``), והדפדפן פותח אותו בלשונית חדשה בעצמו.
+        // אין כאן ``preventDefault`` — הוא היה מבטל את הפתיחה.
+        if (ev.target.closest('.collection-card__link')) {
+          return;
+        }
+
+        // לפני כל ``await`` בפונקציה הזו — ראו ``openDirectView``.
         const openBtn = ev.target.closest('.open-view');
         if (openBtn) {
           ev.preventDefault();
-          await handleDirectViewClick(row, openBtn, name);
+          openDirectView(name, openBtn.getAttribute('data-view') || '');
           return;
         }
 
@@ -2163,18 +2229,6 @@
         if (previewBtn) {
           ev.preventDefault();
           await handlePreviewClick(row, previewBtn, name);
-          return;
-        }
-
-        if (ev.target.closest('.card-code-preview-wrapper')) {
-          return;
-        }
-        // Support both old and new link selectors
-        const link = ev.target.closest('a.collection-card__link[data-open]') || ev.target.closest('a.file[data-open]');
-        if (link) {
-          ev.preventDefault();
-          const fname = link.getAttribute('data-open') || '';
-          await openFileByName(fname);
           return;
         }
       });
@@ -2330,84 +2384,6 @@
     return 'פתח תצוגה';
   }
 
-  // הראוט שאליו נפתחת כל תצוגה ישירה, לפי המצב שנגזר מסיומת הקובץ
-  const DIRECT_VIEW_ROUTES = { md: '/md/', html: '/html/', svg: '/svg/' };
-
-  function directViewUrl(mode, fileId){
-    const prefix = DIRECT_VIEW_ROUTES[mode] || DIRECT_VIEW_ROUTES.html;
-    return `${prefix}${encodeURIComponent(fileId)}`;
-  }
-
-  async function handleDirectViewClick(row, button, rawName){
-    if (!row || !button) return;
-    const fname = String(rawName || '').trim();
-    if (!fname) {
-      alert('שם הקובץ חסר');
-      return;
-    }
-    const mode = String(button.getAttribute('data-view') || '').trim() || getDirectViewMode(fname);
-    if (!mode) {
-      // אם זה לא Markdown/HTML, נפול חזרה להתנהגות הרגילה
-      await openFileByName(fname);
-      return;
-    }
-
-    let fileId = row.getAttribute('data-file-id') || '';
-    if (!fileId) {
-      const restore = setPreviewLoading(button);
-      try {
-        fileId = await resolveFileId(fname);
-        if (fileId) {
-          row.setAttribute('data-file-id', fileId);
-        }
-      } catch (err) {
-        const code = (err && (err.code || err.message)) || 'error';
-        if (code === 'in_recycle_bin') {
-          alert(RECYCLE_BIN_ALERT);
-        } else if (code === 'not_found') {
-          alert('הקובץ לא נמצא לפתיחה');
-        } else if (code === 'missing_name') {
-          alert('שם הקובץ חסר');
-        } else {
-          alert('שגיאה בפתיחת התצוגה');
-        }
-        return;
-      } finally {
-        restore();
-      }
-    }
-    if (!fileId) {
-      alert('הקובץ לא נמצא לפתיחה');
-      return;
-    }
-
-    // דרישת UX: לפתוח באותו טאב (לא בכרטיסייה חדשה)
-    window.location.href = directViewUrl(mode, fileId);
-  }
-
-  // פתיחת קובץ לפי שם הקובץ (שימושי גם ללחיצה על כל השורה)
-  async function openFileByName(fname){
-    const name = String(fname || '').trim();
-    if (!name) return;
-    try {
-      const fileId = await resolveFileId(name);
-      if (fileId) {
-        window.location.href = `/file/${encodeURIComponent(fileId)}`;
-      } else {
-        alert('הקובץ לא נמצא לצפייה');
-      }
-    } catch (err) {
-      const code = (err && (err.code || err.message)) || 'error';
-      if (code === 'in_recycle_bin') {
-        alert(RECYCLE_BIN_ALERT);
-      } else if (code === 'not_found') {
-        alert('הקובץ לא נמצא לצפייה');
-      } else if (code !== 'missing_name') {
-        alert('שגיאה בפתיחת הקובץ');
-      }
-    }
-  }
-
   function isWorkspaceCollection(col){
     if (!col) return false;
     try {
@@ -2482,11 +2458,7 @@
     const rawItemId = item.id || item._id || '';
     const itemId = String(rawItemId || '');
     const fileName = String(item.file_name || '').trim();
-    const mode = getDirectViewMode(fileName);
-    const btnLabel = directViewTitle(mode);
-    const directBtn = mode
-      ? `<button type="button" class="open-view" data-view="${escapeHtml(mode)}" title="${escapeHtml(btnLabel)}" aria-label="${escapeHtml(btnLabel)}">🌐</button>`
-      : '';
+    const directBtn = directViewButtonHtml(fileName);
     const tagsHtml = buildItemTagsHtml(item.tags || [], itemId);
     const tagBtn = (TAGS_FEATURE_ENABLED && itemId)
       ? `<button type="button" class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
@@ -2502,7 +2474,7 @@
           <button class="workspace-card__drag" type="button" aria-label="גרור להזזת הפריט">⋮⋮</button>
           <div class="workspace-card__body">
             <div class="workspace-card__name">
-              <a class="workspace-card__link" href="#" data-open="${escapeHtml(item.file_name || '')}"></a>
+              <a class="workspace-card__link" ${openFileLinkAttrs(fileName)} data-open="${escapeHtml(item.file_name || '')}"></a>
             </div>
             <div class="workspace-card__meta">
               <span class="workspace-card__tag">
@@ -2885,11 +2857,7 @@
     const rawItemId = item.id || item._id || '';
     const itemId = String(rawItemId || '');
     const fileName = String(item.file_name || '').trim();
-    const mode = getDirectViewMode(fileName);
-    const btnLabel = directViewTitle(mode);
-    const directBtn = mode
-      ? `<button type="button" class="open-view" data-view="${escapeHtml(mode)}" title="${escapeHtml(btnLabel)}" aria-label="${escapeHtml(btnLabel)}">🌐</button>`
-      : '';
+    const directBtn = directViewButtonHtml(fileName);
     const tagsHtml = buildItemTagsHtml(item.tags || [], itemId);
     const tagBtn = (TAGS_FEATURE_ENABLED && itemId)
       ? `<button type="button" class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
@@ -2908,7 +2876,7 @@
           <div class="collection-card__body">
             <div class="collection-card__title-row">
               <div class="collection-card__name">
-                <a class="collection-card__link" href="#" draggable="false" data-open="${escapeHtml(fileName)}"></a>
+                <a class="collection-card__link" ${openFileLinkAttrs(fileName)} draggable="false" data-open="${escapeHtml(fileName)}"></a>
               </div>
               ${item.description ? `<button type="button" class="desc-info" data-description="${escapeHtml(item.description)}" title="הצג תיאור" aria-label="הצג תיאור">ℹ️</button>` : ''}
             </div>
@@ -3005,10 +2973,16 @@
         return;
       }
 
+      // קישור אמיתי, כמו בכרטיס של אוסף רגיל: הדפדפן פותח אותו, ואין כאן ``preventDefault``.
+      if (ev.target.closest('.workspace-card__link')) {
+        return;
+      }
+
+      // לפני כל ``await`` בפונקציה הזו — ראו ``openDirectView``.
       const openBtn = ev.target.closest('.open-view');
       if (openBtn) {
         ev.preventDefault();
-        await handleDirectViewClick(card, openBtn, name);
+        openDirectView(name, openBtn.getAttribute('data-view') || '');
         return;
       }
 
@@ -3016,17 +2990,6 @@
       if (previewBtn) {
         ev.preventDefault();
         await handlePreviewClick(card, previewBtn, name);
-        return;
-      }
-
-      if (ev.target.closest('.workspace-card__drag')) {
-        return;
-      }
-      const link = ev.target.closest('a[data-open]');
-      if (link) {
-        ev.preventDefault();
-        const fname = link.getAttribute('data-open') || '';
-        await openFileByName(fname);
         return;
       }
     });
@@ -3535,8 +3498,9 @@
     }, { offset: Number.NEGATIVE_INFINITY }).element;
   }
 
-  // מקודד גם מרכאות: הפונקציה בונה גם ערכי מאפיינים (``data-open``, ``data-name``, ``data-description``), ושם עם ``"``
-  // היה נחתך שם. ``fillCardNames`` קורא את השם מ-``data-open``, ולכן הוא חייב להיות השם המלא. בטקסט — אותה תצוגה.
+  // מקודד גם מרכאות: הפונקציה בונה גם ערכי מאפיינים (``data-open``, ``href`` של ``openFileLinkAttrs``, ``data-name``,
+  // ``data-description``), ושם עם ``"`` היה נחתך שם. ``fillCardNames`` קורא את השם מ-``data-open``, ולכן הוא חייב
+  // להיות השם המלא. בטקסט — אותה תצוגה.
   function escapeHtml(s){
     return String(s||'').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -3545,7 +3509,8 @@
   /**
    * השם של כל כרטיס — באוסף רגיל ובשולחן העבודה — נכנס אחרי ה-``innerHTML``, דרך ``FileName.fill``
    * (``utils/file-name.js``), ולא כמחרוזת: כך שם עברי שנגמר בחלק לטיני מוצג עם הסיומת בקצה השמאלי. השם נקרא מ-
-   * ``data-open`` של הקישור — אותו ערך שהפתיחה קוראת — כי הכרטיסים מקובצים לפי תיקיות, וסדרם בעמוד אינו סדר הפריטים.
+   * ``data-open`` של הקישור — אותו שם שה-``href`` שלו נבנה ממנו (``openFileLinkAttrs``) — כי הכרטיסים מקובצים לפי
+   * תיקיות, וסדרם בעמוד אינו סדר הפריטים.
    * חייב לרוץ לפני ``autoFitText``, שמודד את רוחב השם.
    */
   function fillCardNames(root){
@@ -3684,6 +3649,7 @@
   async function initCollectionsPage(){
     initTagsFeatureFlag();
     initTagsToolbarFlag();
+    initOpenFileUrl();
     await initTagsMetadata();
     const initialId = consumeInitialCollectionId();
     // טען את הסיידבר במקביל לטעינת הפריטים כדי לא "לשרשר" שתי בקשות ברצף בתחילת העמוד.

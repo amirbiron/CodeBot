@@ -15265,6 +15265,50 @@ def _latest_active_version_doc(
     return db_ref.code_snippets.find_one(query, projection, sort=_LATEST_VERSION_SORT)
 
 
+def _resolve_file_doc_by_name(
+    db_ref,
+    user_id: int,
+    file_name: str,
+    projection: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    """הקובץ הרגיל ששמו ``file_name``, כפי שמשתמש שמחזיק רק את השם מתכוון אליו — ``(doc, state)``.
+
+    * ``'active'`` — ``doc`` הוא הגרסה הפעילה האחרונה (:func:`_latest_active_version_doc`).
+    * ``'in_recycle_bin'`` — אין גרסה פעילה, ו-``doc`` הוא הגרסה האחרונה מבין אלה שבסל.
+    * ``'not_found'`` — אין למשתמש קובץ בשם הזה ב-``code_snippets``. ``doc`` הוא ``None``.
+
+    שני הקוראים: ``api_resolve_file_by_name`` (JSON — טופס השמירה והתצוגה המקדימה באוספים)
+    ו-``open_file_by_name`` (הפניה — הקישורים באוספים). ההגדרה כאן אחת, כדי ש"קיים",
+    "בסל" ו"לא קיים" יהיו אותה תשובה בשניהם.
+
+    **שגיאת מסד עולה, ואינה נבלעת לתוך "לא נמצא".** ``api_resolve_file_by_name`` תפס עד
+    נובמבר 2026 כל חריגה בשתי השאילתות והמשיך כאילו לא נמצא כלום. טופס השמירה
+    (``resolveExisting`` ב-``file-form-manager.js``) קרא את זה כ"אין קובץ בשם הזה" ושמר
+    בלי לשאול אם לדרוס; תשובת שגיאה מביאה אותו לשאלה "לא הצלחנו לבדוק" שנבנתה בשביל זה.
+
+    ``projection`` חל על שתי השאילתות: הקוראים צריכים מזהה ומטא-דאטה, ולא את התוכן.
+    """
+    doc = _latest_active_version_doc(db_ref, user_id, file_name, projection)
+    if doc:
+        return doc, 'active'
+    trashed_doc = db_ref.code_snippets.find_one(
+        {
+            'user_id': user_id,
+            'file_name': file_name,
+            '$or': [
+                {'is_active': False},
+                {'deleted_at': {'$exists': True}},
+                {'deleted_expires_at': {'$exists': True}},
+            ],
+        },
+        projection,
+        sort=_LATEST_VERSION_SORT,
+    )
+    if trashed_doc:
+        return trashed_doc, 'in_recycle_bin'
+    return None, 'not_found'
+
+
 def _note_file_target_id(db_ref, user_id: int, note: Dict[str, Any]) -> str:
     """המזהה שהקישור הקבוע של פתק על קובץ (``/note/<id>``) מפנה אליו: הגרסה הפעילה
     האחרונה של **הקובץ**, ולא הגרסה שעליה הפתק נוצר.
@@ -16828,6 +16872,9 @@ def api_resolve_file_by_name():
     """Resolve latest active file id by exact file_name for current user.
 
     Returns JSON: {ok: bool, id?: str, language?: str, file_name?: str}
+
+    ההכרעה בין קיים, בסל ולא קיים — ב-:func:`_resolve_file_doc_by_name`. שגיאת מסד מגיעה
+    לכאן כ-``internal_error`` (500), ולא כ-``not_found``.
     """
     try:
         db = get_db()
@@ -16836,48 +16883,73 @@ def api_resolve_file_by_name():
         if not name:
             return jsonify({'ok': False, 'error': 'missing name'}), 400
 
-        try:
-            # הגרסה הפעילה האחרונה — אותה הגדרה של עמוד הקובץ ושל הקישור הקבוע של פתק.
-            doc = _latest_active_version_doc(db, user_id, name)
-        except Exception:
-            doc = None
-
-        if not doc:
-            trashed_doc = None
-            try:
-                trashed_doc = db.code_snippets.find_one(
-                    {
-                        'user_id': user_id,
-                        'file_name': name,
-                        '$or': [
-                            {'is_active': False},
-                            {'deleted_at': {'$exists': True}},
-                            {'deleted_expires_at': {'$exists': True}},
-                        ],
-                    },
-                    sort=_LATEST_VERSION_SORT,
-                )
-            except Exception:
-                trashed_doc = None
-
-            if trashed_doc:
-                return jsonify({
-                    'ok': False,
-                    'error': 'in_recycle_bin',
-                    'file_name': trashed_doc.get('file_name'),
-                    'deleted_at': safe_iso(trashed_doc.get('deleted_at'), 'deleted_at'),
-                    'recycle_expires_at': safe_iso(trashed_doc.get('deleted_expires_at'), 'deleted_expires_at'),
-                })
+        doc, state = _resolve_file_doc_by_name(db, user_id, name, {
+            '_id': 1, 'file_name': 1, 'programming_language': 1, 'deleted_at': 1, 'deleted_expires_at': 1,
+        })
+        if state == 'in_recycle_bin':
+            return jsonify({
+                'ok': False,
+                'error': 'in_recycle_bin',
+                'file_name': doc.get('file_name'),
+                'deleted_at': safe_iso(doc.get('deleted_at'), 'deleted_at'),
+                'recycle_expires_at': safe_iso(doc.get('deleted_expires_at'), 'deleted_expires_at'),
+            })
+        if state == 'not_found':
             return jsonify({'ok': False, 'error': 'not_found'})
 
         lang = (doc.get('programming_language') or 'text').lower()
         return jsonify({'ok': True, 'id': str(doc.get('_id')), 'file_name': doc.get('file_name'), 'language': lang})
-    except Exception as e:
-        try:
-            logger.error('api_resolve_file_by_name failed: %s', e)
-        except Exception:
-            pass
+    except Exception:
+        logger.exception('api_resolve_file_by_name failed')
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+#: סוג התצוגה הישירה (``view``, הכפתור 🌐 באוספים) ← ה-endpoint שמגיש אותה. המיפוי גר רק כאן:
+#: הדפדפן שולח את הסוג, והכתובת נבנית ב-``url_for`` מהראוט עצמו.
+_DIRECT_VIEW_ENDPOINTS = {'md': 'md_preview', 'html': 'html_preview', 'svg': 'svg_preview'}
+
+
+@app.route('/file/by-name')
+@login_required
+def open_file_by_name():
+    """קישור לקובץ לפי השם — ומשם הפניה לגרסה שלו, ברגע הלחיצה.
+
+    כרטיס באוסף מחזיק את **שם** הקובץ ולא מזהה: כל שמירה יוצרת מסמך עם ``_id`` חדש. עד
+    נובמבר 2026 הדף שאל את ``/api/files/resolve`` מה המזהה, ורק אחרי התשובה עבר אליו.
+    ניווט שמתחיל אחרי המתנה לרשת אינו יכול לפתוח לשונית חדשה באמינות — הדפדפן מרשה
+    ``window.open`` רק זמן קצר אחרי הלחיצה, וכל מנוע קובע כמה (WHATWG, "transient activation
+    duration") — ולכן הבירור עבר לכאן, והדף פותח את הכתובת הזו מיד בלחיצה: שם הקובץ הוא
+    קישור עם ``target="_blank"``, ו-🌐 קורא ל-``window.open`` בלי המתנה (``openDirectView``
+    ב-``collections.js``). אותו דפוס כמו ``note_permalink`` (``/note/<id>``).
+
+    * ``name`` — שם הקובץ. חסר: 400.
+    * ``view`` — אופציונלי: סוג תצוגה מתוך :data:`_DIRECT_VIEW_ENDPOINTS`. ערך אחר: 400.
+
+    לאן מפנים — לפי :func:`_resolve_file_doc_by_name`:
+
+    * קובץ פעיל — לתצוגה שביקשו (בלי ``view``: עמוד הקובץ), בגרסה הפעילה האחרונה.
+    * קובץ בסל — לעמוד הקובץ, **גם כשביקשו תצוגה**: הבאנר "הקובץ נמצא בסל המיחזור"
+      (``_version_banner.html``) מוצג בו, ובתצוגת ה-HTML וה-SVG אין אותו.
+    * אין קובץ — 404.
+
+    שגיאת מסד אינה נתפסת כאן: ``handle_exception`` רושם אותה עם traceback ומחזיר 500.
+    """
+    name = (request.args.get('name') or '').strip()
+    if not name:
+        abort(400)
+    view = (request.args.get('view') or '').strip()
+    endpoint = 'view_file'
+    if view:
+        endpoint = _DIRECT_VIEW_ENDPOINTS.get(view)
+        if endpoint is None:
+            abort(400)
+
+    doc, state = _resolve_file_doc_by_name(get_db(), session['user_id'], name, {'_id': 1})
+    if state == 'not_found':
+        abort(404)
+    if state == 'in_recycle_bin':
+        endpoint = 'view_file'
+    return redirect(url_for(endpoint, file_id=str(doc['_id'])))
 
 
 def _sync_sticky_notes_after_rename(db, user_id: int, old_name: str, new_name: str, new_file_id: str = '', old_file_ids=None) -> None:
