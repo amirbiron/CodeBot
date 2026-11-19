@@ -2981,7 +2981,7 @@ def _note_highlight(note: Any, note_id: str, *, section: Any, query: Any) -> dic
     **``query``: אותה סריקה של** ``codekeeper_get_file`` (:func:`scan_file_query`) — מחרוזת מילולית,
     בלי רגישות לרישיות, שורה אחר שורה. ההבדל המכוון: שם אפס מופעים הוא הצלחה עם רשימה ריקה, וכאן
     הוא :data:`SHOW_NOTE_NO_MATCH`, כי כרטיס בלי סימון היה נראה לסוכן כמו סימון שעבד. מה הכרטיס מסמן
-    בפועל — ``TextHighlight`` על הטקסט המוצג; ראו ``applyHighlight`` ב-``note_view.js``.
+    בפועל — ``TextHighlight`` על הטקסט המוצג; ראו ``applyMark`` ב-``note_view.js``.
 
     ``docs_handlers`` מיובא **בתוך הפונקציה**: הוא מייבא מהמודול הזה, וייבוא ברמת המודול היה מעגלי
     — אותו נימוק כמו ב-:func:`file_section_error`.

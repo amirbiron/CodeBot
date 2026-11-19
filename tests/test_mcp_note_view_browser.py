@@ -290,6 +290,10 @@ _MARK_SECTION_LINES = (["# מדריך"] + [f"פתיחה {i}" for i in range(1, 2
                           "סוף ההתקנה", "## שימוש"] + [f"הפעלה {i}" for i in range(1, 16)])
 _MARK_SECTION = _shown({"id": "5" * 24, "title": "מדריך", "color": NOTE_COLORS["yellow"]["hex"],
                         "content": "\n".join(_MARK_SECTION_LINES)}, section="התקנה")
+#: קטע שנגמר בכותרת של בלוק מתקפל, כשהתוכן של הבלוק פותח את הקטע הבא (``## ב`` בתוכו). השורה של הבלוק בקטע היא
+#: רק הכותרת שלו (``summary``) — והיא גלויה גם כשהבלוק סגור, ולכן הוא נשאר סגור.
+_MARK_SUMMARY = _shown({"id": "3" * 24, "title": "כותרת בלוק", "color": NOTE_COLORS["yellow"]["hex"],
+                        "content": "## א\nטקסט\n::: details פרטים\n## ב\nתוכן של ב\n:::\nסוף"}, section="א")
 #: שלושה מופעים של ``דוגמה``: בראש הפתק, בתוך בלוק מתקפל סגור באמצע, ובהדגשה בסוף.
 _MARK_QUERY_LINES = (["שורה עם דוגמה בהתחלה"] + [f"מילוי {i}" for i in range(1, 26)]
                      + ["::: details פתחו", "בתוך הבלוק: דוגמה שנייה", ":::"] + [f"עוד מילוי {i}" for i in range(1, 11)]
@@ -337,6 +341,8 @@ _CASES = {
                                  "availableDisplayModes": ["inline", "fullscreen"], "displayMode": "inline"}, 600),
     "mark-hidden": (_MARK_HIDDEN, {"containerDimensions": {"width": 600, "maxHeight": 900},
                                    "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
+    "mark-summary": (_MARK_SUMMARY, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                                     "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
 }
 
 #: ``hostCapabilities`` שהמארח מוסר בלחיצת היד, כשהוא אינו ריק. ``openLinks`` — "Host supports opening
@@ -1113,6 +1119,10 @@ _FRAME_STATE = """() => {
         paperInner: {left: pb.left + parseFloat(ps.borderLeftWidth) + parseFloat(ps.paddingLeft),
                      right: pb.right - parseFloat(ps.borderRightWidth) - parseFloat(ps.paddingRight)},
         style: fs && {border: fs.borderTopStyle, pointer: fs.pointerEvents},
+        // הדיו של הפתק כצבע מחושב: אלמנט בדיקה זמני בתוך הנייר, עם ``color: var(--note-ink)``.
+        ink: (() => { const p = document.createElement('span'); p.style.color = 'var(--note-ink)'; paper.appendChild(p);
+                      const c = getComputedStyle(p).color; p.remove(); return c; })(),
+        frameColor: fs && fs.borderTopColor,
     };
 }"""
 
@@ -1162,10 +1172,37 @@ def test_a_section_opens_framed_and_scrolled_to_with_its_folded_block_open(chrom
     assert rtl["open"] is True and rtl["hiddenShown"] is True, rtl
     assert rtl["scrollTop"] > 0, rtl
     assert rtl["style"] == {"border": "dashed", "pointer": "none"}, rtl
+    assert rtl["frameColor"] == rtl["ink"] and rtl["ink"] not in ("", "rgb(0, 0, 0)"), rtl  # הדיו של הפתק
     _assert_frame_around(rtl, "rtl")
     _assert_frame_around(ltr, "ltr")
     assert folded["open"] is False and folded["last"]["top"] < rtl["last"]["top"], (rtl, folded)
     _assert_frame_around(folded, "folded")
+
+
+def test_a_section_that_ends_at_a_folded_block_title_leaves_the_block_closed(chromium_executable, frame_host):
+    """הקטע ``## א`` נגמר בכותרת של בלוק מתקפל, והתוכן של הבלוק שייך לקטע הבא. מהבלוק, בקטע יש רק הכותרת — והיא
+    גלויה גם כשהבלוק סגור — ולכן הבלוק נשאר סגור, והמסגרת נגמרת בכותרת שלו. הכלל של ``openDetailsAround`` במנוע,
+    המשותף לחיפוש בתוך פתק בוובאפ."""
+    from playwright.sync_api import sync_playwright
+
+    assert _MARK_SUMMARY["highlight"]["line_range"] == [1, 3], _MARK_SUMMARY
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/mark-summary.html")
+        try:
+            _settled(page, view, "the frame took the reported height")
+            state = poll(view, """() => {
+                const frame = document.querySelector('.ck-section-frame');
+                const summary = document.querySelector('.ck-content summary');
+                const f = frame.getBoundingClientRect();
+                const s = summary.getBoundingClientRect();
+                const gap = parseFloat(getComputedStyle(document.querySelector('.ck-body')).paddingBottom);
+                return {ok: f.height > 0, open: summary.parentElement.open, bottom: f.bottom, summaryBottom: s.bottom, gap};
+            }""", "the frame was placed")
+        finally:
+            browser.close()
+
+    assert state["open"] is False, state
+    assert abs(state["bottom"] - (state["summaryBottom"] + state["gap"])) <= 1, state
 
 
 #: ההתאמות של ``query``: כמה, מי פעילה, האם היא גלויה בתוך הגוף, והשורה.
