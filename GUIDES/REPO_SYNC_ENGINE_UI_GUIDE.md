@@ -309,6 +309,8 @@
 
 צור קובץ `webapp/static/css/repo-browser.css`:
 
+> ⚠️ **פסי גלילה — לא בקובץ הזה.** גרסה קודמת של המדריך הציעה כאן `::-webkit-scrollbar` בלי בורר, בצבעים קבועים. כלל כזה חל על כל רכיב נגלל בעמוד — גם פתקים ומודאלים מהנבבר — ודורס את צבעי הערכה ואת העובי של שאר האתר. העמוד יורש את פסי הגלילה מ-`base.html` ומקובצי הערכות, ו-`tests/test_page_wide_scrollbar_owners.py` נכשל על כלל כזה. רכיב שצריך פס אחר כותב כלל עם הבורר שלו. ראו `docs/webapp/theming_and_css.rst`, "הנחיות למפתחים".
+
 ```css
 /* ========================================
    Repo Browser - Modern UI Styles
@@ -341,8 +343,6 @@
     --accent-teal: #94e2d5;
     
     --border-color: #313244;
-    --scrollbar-thumb: #45475a;
-    --scrollbar-track: #1e1e2e;
 }
 
 /* Light theme override */
@@ -978,23 +978,7 @@
    Scrollbars
    ======================================== */
 
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-}
-
-::-webkit-scrollbar-track {
-    background: var(--scrollbar-track);
-}
-
-::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb);
-    border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
-}
+/* אין כאן כללי פס גלילה. העמוד יורש את הכללים הגלובליים של base.html (הבלוק "Scrollbar styling", עובי מ---scrollbar-width בשני הצירים) ואת הדריסות לפי ערכה מ-dark-mode.css ומ-high-contrast.css — כמו כל עמוד אחר באתר. */
 
 /* ========================================
    Responsive
