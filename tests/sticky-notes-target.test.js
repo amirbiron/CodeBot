@@ -6581,6 +6581,72 @@ check('מנוע: mixInto מסרב לדרוס שם שכבר קיים, וה-API ק
   eq(StickyNotesManager.prototype._parseInline === R.Engine.prototype._parseInline, true, 'המנהל משתמש באותה פונקציה, לא בעותק');
 });
 
+// ---------- תגובות בשרשור: הצרכן השני של מצב הקריאה בלבד ----------
+//
+// גוף תגובה נבנה ב-``_buildThreadComments`` דרך ``StickyMdRender.render``, ולא בפרסר משלו: פרסר נפרד היה
+// ניב שלישי, ותגובה הייתה מציגה קלט אחר מהפתק שהיא יושבת עליו. הבדיקות כאן רצות בסנדבוקס הזה בכוונה —
+// הוא טוען את ``admonition-icons.js``, ``utils/file-name.js`` ו-``utils/rtl-code.js`` לפני המנוע, כמו כל
+// תבנית. בלעדיהם אלרט, כיוון של קוד בשורה ובלוק עברי היו עוברים כאן דרך המסלול של "אין יכולת", ושני
+// הצדדים של ההשוואה היו מסכימים מהסיבה הלא נכונה.
+
+/** גופי התגובות כפי ש-``_buildThreadComments`` בונה אותם, עם ``this`` מדומה שמחזיק רק את מצב החלונית. */
+function threadCommentBodies(bodies){
+  const st = { open: { expanded: new Set() }, panel: null };
+  const host = { _getEntry: () => ({ threads: st }) };
+  const comments = bodies.map((body, i) => ({
+    id: 'c' + i, body, label: 'Claude', initials: 'CL', tone: 'claude', workingOn: '', createdAt: null,
+  }));
+  const list = StickyNotesManager.prototype._buildThreadComments.call(host, new FakeEl('div'), comments, {});
+  return list.querySelectorAll('.sticky-thread-comment-body');
+}
+
+/** מה שהתגובה מבקשת: Markdown שסוכנים ומשתמשים כותבים בתגובות, ושורה בלי שום מבנה. */
+const THREAD_CORPUS = [
+  '**מודגש** ו-==מרקר== ו-`קוד בשורה`', '1. ראשון\n2. שני\n- תבליט\n  - מקונן', '> ציטוט\n---\nאחרי הקו',
+  '::: details פרטים\nבפנים\n:::', 'שורה רגילה בלי שום מבנה',
+];
+
+check('תגובה בשרשור: הגוף נבנה כמו הפתק — אותו מבנה מאותו קלט, בלי מה ששייך לעריכה', () => {
+  const R = sandbox.window.StickyMdRender;
+  const asNote = { node: (n) => n._classes.has('sticky-md-code-copy'), data: (k) => k === 'charOffset' || k === 'taskIndex', prop: (p) => p === 'disabled' };
+  const asComment = { node: () => false, data: () => false, prop: (p) => p === 'disabled' };
+  const texts = THREAD_CORPUS.concat(ENGINE_CORPUS);
+  const bodies = threadCommentBodies(texts);
+  eq(bodies.length, texts.length, 'גוף אחד לכל תגובה');
+  texts.forEach((text, i) => {
+    const body = bodies[i];
+    const inner = body.children.map((c) => dumpView(c, asComment)).join('');
+    const note = renderMd(mdMgr, text).view;
+    if (!note.children.length){
+      // טקסט בלי שום מבנה: הפתק נשאר ``textarea``, ולתגובה אין ``textarea`` — היא מציגה אותו כשורות טקסט,
+      // בדיוק כמו ``render`` לקריאה בלבד (ההבדל המתועד ב-:ref:`sticky-notes-md-engine-module`).
+      const view = R.render(new FakeEl('div'), text);
+      eq(inner, view.children.map((c) => dumpView(c, asComment)).join(''), 'כמו render: ' + JSON.stringify(text).slice(0, 40));
+      eq(body.textContent, text, 'והטקסט כמו שהוא');
+      return;
+    }
+    eq(inner, note.children.map((c) => dumpView(c, asNote)).join(''), 'כמו הפתק: ' + JSON.stringify(text).slice(0, 40));
+  });
+});
+
+check('תגובה בשרשור: בלי היסטים, צ\'קבוקס קבוע, בלי כפתור העתקה, וזריקה מוצגת כטקסט', () => {
+  const walk = (n, out) => { if (n.tagName){ out.push(n); n.children.forEach((c) => walk(c, out)); } return out; };
+  const [body] = threadCommentBodies([ENGINE_CORPUS.join('\n')]);
+  const nodes = walk(body, []);
+  eq(nodes.some((n) => 'charOffset' in n.dataset), false, 'אף אלמנט אינו נושא היסט — אין כניסה לעריכה מתגובה');
+  const boxes = nodes.filter((n) => n._classes.has('sticky-task-box'));
+  eq(boxes.length >= 2 && boxes.every((b) => b.disabled === true && !('taskIndex' in b.dataset)), true,
+    'הצ\'קבוקסים מושבתים ובלי סידור — אין מסלול בשרת שמשנה תגובה');
+  eq(nodes.some((n) => n._classes.has('sticky-md-code-copy')), false, 'אין כפתור העתקה');
+  eq(nodes.some((n) => String(n.tagName).toLowerCase() === 'script'), false, 'אין אלמנט script');
+  eq(body.textContent.includes('<script>alert(1)</script>'), true, 'התגית מוצגת כטקסט');
+  const links = nodes.filter((n) => String(n.tagName).toLowerCase() === 'a');
+  eq(links.length, 1, 'קישור אחד בלבד — זה של https');
+  eq([links[0].getAttribute('href'), links[0].getAttribute('target'), links[0].getAttribute('rel')].join(' '),
+    'https://example.com _blank noopener noreferrer', 'נפתח בלשונית חדשה');
+  eq(body.textContent.includes('[רע](javascript:alert(1))'), true, 'javascript: אינו קישור, ומוצג כמו שהוקלד');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log(`\n${passed} עברו, ${failed} נכשלו`);

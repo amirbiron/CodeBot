@@ -5600,6 +5600,12 @@
        * (העיצוב: 6 שורות; 3 בשרשור שנפתר). **החיתוך נמדד ולא מונח**: אחרי שהתגובה
        * בעמוד, ``scrollHeight`` מול ``clientHeight`` אומר אם היא באמת ארוכה מהחלון —
        * מספר תווים לא היה אומר את זה, כי רוחב החלונית ושבירת השורות קובעים.
+       *
+       * **גוף התגובה עובר במנוע של הפתק, במצב קריאה בלבד** (``StickyMdRender.render``), ולא בפרסר
+       * משלו: פרסר נפרד לתגובות היה ניב שלישי, לצד המסמך והפתק, ותגובה הייתה מציגה קלט אחר מהפתק
+       * שהיא יושבת עליו. התוכן כתוב בידי סוכנים, ולכן הוא טקסט לא מהימן — והמנוע בונה צמתים בלי
+       * ``innerHTML``. מה שמצב הקריאה בלבד נותן כאן, ולמה: :ref:`sticky-notes-md-engine-threads`; הצבעים
+       * של מה שהוא בונה בתוך החלונית והחיתוך של תגובה ארוכה: :ref:`sticky-notes-threads-markdown`.
        */
       _buildThreadComments(el, comments, opts){
         const st = this._getEntry(el).threads;
@@ -5626,15 +5632,22 @@
           when.textContent = window.RelativeTime ? window.RelativeTime.format(c.createdAt, { compact: narrow }) : '';
           head.appendChild(when);
           const text = createEl('div', 'sticky-thread-comment-body');
-          text.textContent = c.body;
+          StickyMdRender.render(text, c.body);
           card.appendChild(head); card.appendChild(text);
           const key = c.id || '';
           if (opts && opts.clampLines && !(key && open.expanded.has(key))) {
             text.classList.add('is-clamped');
             text.style.setProperty('--thread-clamp', String(opts.clampLines));
-            pending.push({ card, text, key, length: codePointLength(c.body) });
+            const p = { card, text, key, open, length: codePointLength(c.body), more: null };
+            pending.push(p);
+            // **בלוק מתקפל שנפתח בתוך תגובה חתוכה משנה את השאלה "האם היא ארוכה".** תגובה שנכנסה
+            // בגובה בזמן הבנייה גולשת אחרי שפותחים בה ``::: details``, והמכל החתוך (``overflow: hidden``)
+            // היה מסתיר את ההמשך בלי כפתור ובלי שום דרך להגיע אליו. לכן ההכרעה רצה שוב בכל פתיחה
+            // וסגירה. ``toggle`` נורה על ה-``details`` בלי ``bubbles`` (HTML Standard, "queue a details
+            // toggle event task"), ולכן המאזין יושב על הגוף של התגובה בשלב הלכידה.
+            text.addEventListener('toggle', () => this._syncThreadCommentMore(el, p), true);
           } else if (key && open.expanded.has(key)) {
-            pending.push({ card, text, key, length: codePointLength(c.body), expanded: true });
+            pending.push({ card, text, key, open, length: codePointLength(c.body), expanded: true, more: null });
           }
           list.appendChild(card);
         }
@@ -5643,21 +5656,35 @@
         // אינה נחשבת ארוכה.)
         const measure = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (fn) => fn();
         measure(() => {
-          for (const p of pending) {
-            if (!p.card.isConnected) continue;
-            if (!p.expanded && p.text.scrollHeight <= p.text.clientHeight + 1) continue;
-            const more = createEl('button', 'sticky-thread-more-text', { type: 'button' });
-            more.textContent = p.expanded ? 'הצגת פחות' : `הצגת הכול · ${formatCount(p.length)} תווים`;
-            more.addEventListener('click', (ev) => {
-              ev.stopPropagation();
-              if (p.expanded) open.expanded.delete(p.key);
-              else if (p.key) open.expanded.add(p.key);
-              this._renderThreadPanel(el);
-            });
-            p.card.appendChild(more);
-          }
+          for (const p of pending) this._syncThreadCommentMore(el, p);
         });
         return list;
+      }
+
+      /**
+       * הכפתור "הצגת הכול" של תגובה אחת — קיים בדיוק כשיש מה להציג: התגובה פתוחה (ואז הוא "הצגת פחות"),
+       * או שהתוכן שלה גבוה מהמכל החתוך. נקרא אחרי הבנייה, וגם כשבלוק מתקפל בתוכה נפתח או נסגר.
+       * ``p.open`` הוא מצב החלונית מרגע הבנייה, ולא מה שיש בה עכשיו: הכפתור שייך לרינדור שבנה אותו.
+       */
+      _syncThreadCommentMore(el, p){
+        if (!p.card.isConnected) return;
+        const open = p.open;
+        const wanted = p.expanded || p.text.scrollHeight > p.text.clientHeight + 1;
+        if (!wanted) {
+          if (p.more) { p.more.remove(); p.more = null; }
+          return;
+        }
+        if (p.more) return;
+        const more = createEl('button', 'sticky-thread-more-text', { type: 'button' });
+        more.textContent = p.expanded ? 'הצגת פחות' : `הצגת הכול · ${formatCount(p.length)} תווים`;
+        more.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (p.expanded) open.expanded.delete(p.key);
+          else if (p.key) open.expanded.add(p.key);
+          this._renderThreadPanel(el);
+        });
+        p.card.appendChild(more);
+        p.more = more;
       }
 
       /**

@@ -1203,18 +1203,39 @@
   color: #5b6885;
   white-space: nowrap;
 }
+/* **גוף התגובה הוא Markdown של פתק.** המנוע של הפתק בונה אותו (``StickyMdRender.render`` ב-
+   ``_buildThreadComments``), ו-``sticky-md-render.css`` מעצב אותו כמו בפתק — החלונית היא ילד של
+   ``.sticky-note``, ולכן כל הכללים שלו חלים כאן כמו שהם. המכל נותן לשורות של המנוע את מה ש-
+   ``.sticky-note-tasks`` נותן להן בפתק: שבירת שורות (``white-space`` ו-``overflow-wrap``).
+
+   **הצבעים של התוכן נקראים מטוקני הדיו, והגוף מספק להם ערך משלו כשהערך של הנייר אינו עומד עליו.**
+   הטוקנים נבחרו לנייר הצהוב של הפתק, והגוף יושב על כרטיס התגובה — משטח אחר (בניגודיות גבוהה —
+   שחור; ראו בסוף הקובץ). ``--note-ink-muted`` (ציטוט, מספר או תבליט של רשימה, גבול של תא) נמדד
+   בדגימת פיקסל 4.05 על כרטיס התגובה של CC, ובפתק עצמו 4.56 — ולכן כאן הגוון העמום של החלונית,
+   ``#5b6885``, כמו הזמן ו"N תגובות" (ההערה בראש הסעיף). הטוקן מוצהר על הגוף ולא על החלונית:
+   ה-placeholder של תיבת הכתיבה קורא אותו גם הוא, ונמדד שם בנפרד. */
 .sticky-thread-comment-body {
+  --note-ink-muted: #5b6885;
   font-size: 14.5px;
   line-height: 1.55;
   text-wrap: pretty;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-/* תגובה ארוכה: חתוכה ב-``--thread-clamp`` שורות (6, ובשרשור שנפתר 3), עם "הצגת הכול". */
+/* **תגובה ארוכה: חתוכה בגובה של ``--thread-clamp`` שורות** (6, ובשרשור שנפתר 3), עם "הצגת הכול".
+
+   **גובה, ולא ``-webkit-line-clamp``.** line-clamp סופר שורות רק בהקשר העיצוב של המכל, ושורת רשימה
+   של המנוע (``display: flex``), טבלה, בלוק קוד ובלוק מתקפל פותחים הקשר משלהם. נמדד בכרומיום: תגובה
+   של אחת-עשרה שורות טקסט נחתכה לשש, ותגובה של אחד-עשר פריטי רשימה — ותגובה שמתחילה בכותרת ואחריה
+   רשימה — נשארו בגובה המלא, בלי "הצגת הכול". ``1lh`` הוא ה-``line-height`` המחושב של הגוף עצמו
+   (MDN, ``<length>``), ולכן הגובה נגזר מה-``line-height`` שלמעלה ואינו עותק שני שלו.
+
+   **המחיר:** החיתוך הוא בגובה ולא בשורה. שורה של המנוע שגבוהה משורת טקסט (כותרת, פריט רשימה) יכולה
+   להיחתך בכמה פיקסלים בתחתית, ואין "…" בסוף השורה האחרונה — זה מה ש-line-clamp הוסיף. והחלטת
+   "האם היא ארוכה" אינה כאן אלא ב-JS (``_syncThreadCommentMore``), שמודד ``scrollHeight`` — גם אחרי
+   שבלוק מתקפל בתוך תגובה חתוכה נפתח, אחרת ההמשך היה נבלע ב-``overflow: hidden`` בלי כפתור. */
 .sticky-thread-comment-body.is-clamped {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: var(--thread-clamp, 6);
+  max-height: calc(var(--thread-clamp, 6) * 1lh);
   overflow: hidden;
 }
 .sticky-thread-more-text {
@@ -1651,6 +1672,26 @@
 [data-theme="high-contrast"] .sticky-note .sticky-thread-comment {
   background: #000;
   border: 1px solid #fff;
+}
+/* **וגוף התגובה, על הכרטיס השחור, מספק ערך לכל טוקן שהתוכן שלו קורא** — אותו כלל של הבלוק המתקפל
+   בפתק (``sticky-md-render.css``, ההערה מעל ``--details-bg``): משטח קשיח חייב לספק ערך לכל טוקן
+   שרכיב בתוכו קורא. בלי זה התוכן קרא את הדיו של הנייר הצהוב על שחור — נמדד בדגימת פיקסל ב-19.11.2026:
+   כותרת של בלוק מתקפל 2.02:1, ציטוט ותבליט 4.48, והקו המפריד, הקו של הציטוט והרקע של קוד בשורה
+   נבלעו בשחור. ``--note-ink`` הוא גם הבסיס של הגוונים האלה (``color-mix``), ולכן לבן כאן מחזיר
+   אותם. ``--summary-color`` ו-``--summary-arrow-color`` מוצהרים שוב, כי על ``.sticky-note`` הם
+   ``var(--note-ink)`` שכבר הוכרע שם — מאפיין מותאם יורש את הערך המחושב, לא את ההפניה. המרקר
+   אינו קורא את ``--note-ink`` אלא את ``--sticky-mark-ink``, מאותה סיבה בדיוק: הוא יושב על הרקע
+   הוורוד של עצמו, וטקסט לבן עליו היה בלתי קריא. הערכים אטומים, בלי ``rgba``, כמו בשאר הכללים של
+   הערכה הזו (``FEATURE_SUGGESTIONS/theme_matrix.md``), והריחוף הוא ``--details-hover`` שהערכה עצמה
+   נותנת לבלוק המתקפל ב-``markdown-enhanced.css``. */
+[data-theme="high-contrast"] .sticky-note .sticky-thread-comment-body {
+  --note-ink: #fff;
+  --note-ink-muted: #d0d0d0;
+  --summary-color: #fff;
+  --summary-arrow-color: #fff;
+  --summary-bg: #000;
+  --details-border: #fff;
+  --details-hover: #1a1a1a;
 }
 [data-theme="high-contrast"] .sticky-note :is(.sticky-thread-meta, .sticky-thread-working-on, .sticky-thread-time,
   .sticky-thread-counter, .sticky-thread-hint, .sticky-thread-status, .sticky-thread-resolved-count,
