@@ -1650,6 +1650,39 @@ def test_edit_file_over_the_wire_counts_what_the_transport_delivered(
     assert len(store.code_snippets.docs) == versions
 
 
+@pytest.mark.parametrize("tool", ["codekeeper_save_file", "codekeeper_append_file"])
+@pytest.mark.parametrize(("on_the_wire", "arrives_as_text"), [(2, True), (1, False), (4, False)],
+                         ids=["the_escape_as_text", "the_character", "two_backslashes_as_text"])
+def test_a_file_write_over_the_wire_counts_what_the_transport_delivered(
+        store, backend, tool, on_the_wire, arrives_as_text):
+    """שמירה והוספה דרך ``POST /mcp``, עם הצהרה על escape אחד: מה שהתעבורה מסרה הוא שנספר (#3692).
+
+    שני לוכסנים על החוט הם לוכסן אחד בטקסט — ששת התווים, קריאה של לקוח שלא המיר — והיא נכתבת.
+    לוכסן אחד על החוט הוא התו עצמו — מה שמגיע מלקוח שהמיר — ונדחה. **וארבעה** על החוט הם שני
+    לוכסנים בטקסט: המקרה שנמדד מהאפליקציה ב-19.11.2026, שעד #3692 עבר את השער (התבנית ספרה את
+    הרצף שמתחיל בלוכסן השני). עכשיו גם הוא נדחה, ושום דבר לא נכתב.
+    """
+    target = "new.md" if tool == "codekeeper_save_file" else "log.md"
+    body_param = "code" if tool == "codekeeper_save_file" else "content"
+    text = "x " + _BS * on_the_wire + "u200F"
+    with TestClient(app_in_mode("pat", backend, tokens=TOKENS)) as client:
+        seeded = _tool_call_with_raw_arguments(
+            client, WRITE_A, "codekeeper_save_file", '{"file_name": "log.md", "code": "head\\n"}')
+        assert seeded["ok"] is True, seeded
+        versions = len(store.code_snippets.docs)
+        res = _tool_call_with_raw_arguments(
+            client, WRITE_A, tool,
+            '{"file_name": "' + target + '", "' + body_param + '": "' + text + '", "expected_unicode_escapes": 1}')
+
+    if arrives_as_text:
+        assert res["ok"] is True, res
+        assert _stored_code(store, res["file"]["id"]).endswith("x " + _ESCAPE_AS_TEXT)
+        return
+    assert (res["ok"], res["error"], res["expected"], res["received"]) == (False, "unicode_escapes_mismatch", 1, 0), res
+    assert set(res) == {"ok", "error", "expected", "received", "hint"}
+    assert len(store.code_snippets.docs) == versions
+
+
 def test_pairs_uploaded_as_a_file_are_decoded_exactly_once(store, backend, call, reached_apply_edit, tmp_path):
     """מקצה לקצה: קובץ ← ``PUT /api/agent/upload`` ← ``edits_upload_id`` — פענוח JSON אחד, של השרת.
 
@@ -2082,10 +2115,64 @@ def test_a_declared_count_checks_the_pairs_file_as_it_decodes(
     assert (res["received_in_old_string"], res["received_in_new_string"]) == (0, 0)
     assert "two backslashes" in res["hint"] and "upload it again" in res["hint"] and "edits_upload_id" in res["hint"]
     assert "once more" not in res["hint"]
+    # בקובץ ה-JSON לוכסן כטקסט **נכתב** כשניים, ולכן משפט הזוגיות ("doubling is no way through")
+    # אינו שייך לכאן: הוא היה סותר את ההוראה שלפניו (#3692).
+    assert "Two backslashes and u are not an escape" not in res["hint"]
     assert _RLM not in json.dumps(res, ensure_ascii=False)
     assert len(store.uploads.docs) == 1 and "upload_consumed" not in res
     assert len(store.code_snippets.docs) == versions
     assert len(store.raw["push_events"].docs) == pushes
+
+
+@pytest.mark.parametrize("tool", ["codekeeper_save_file", "codekeeper_append_file"])
+def test_a_declared_count_checks_an_uploaded_text_and_a_refusal_keeps_the_upload(store, backend, call, tool):
+    """``upload_id`` בשמירה ובהוספה: הספירה על הטקסט שנשלף — וסירוב משאיר את ההעלאה חיה (#3692).
+
+    **זו הבדיקה היחידה שרואה קובץ מקומי שנכתב בלקוח שממיר:** הקובץ כבר מחזיק את התו, והשוואת
+    hash מולו אינה רואה דבר, כי שני הצדדים עברו אותה המרה. כאן ההעלאה מחזיקה את התו, הסוכן
+    הצהיר על escape אחד, והתשובה ``unicode_escapes_mismatch`` — אחרי השליפה ולפני השער של
+    ההעלאה, ולכן היא עדיין שם ושום דבר לא נכתב. ה-``hint`` אינו "שלח שוב" — אותה העלאה תיספר
+    תמיד אותו דבר — אלא לתקן את הקובץ ולהעלות אותו מחדש, בשם הפרמטר של הכלי; ולוכסן כפול
+    אינו דרך, כי הקובץ אינו מפוענח ושני לוכסנים בו נשמרים כשניים. ואחרי זה העלאה שמחזיקה את
+    ה-escape כטקסט עוברת, ונצרכת.
+
+    **המוטציה שחייבת להפיל אותו — הספירה אחרי השער של ההעלאה:** אז ההעלאה נצרכת בסירוב.
+    """
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+    target = "new.md" if tool == "codekeeper_save_file" else "log.md"
+    versions, pushes = len(store.code_snippets.docs), len(store.raw["push_events"].docs)
+    holds_the_character = _create(backend, "x " + _RLM + "\n")
+
+    res = call(tool, file_name=target, upload_id=holds_the_character, expected_unicode_escapes=1)
+
+    assert (res["ok"], res["error"], res["expected"], res["received"]) == (
+        False, "unicode_escapes_mismatch", 1, 0), res
+    assert set(res) == {"ok", "error", "expected", "received", "hint"}, res
+    assert "The upload is still there, unused" in res["hint"]
+    assert "upload it again and pass the new id in upload_id" in res["hint"]
+    assert "Two backslashes and u are not an escape" in res["hint"]
+    assert "once more" not in res["hint"] and "edits_upload_id" not in res["hint"]
+    assert [d["upload_id"] for d in store.uploads.docs] == [holds_the_character]
+    assert len(store.code_snippets.docs) == versions
+    assert len(store.raw["push_events"].docs) == pushes
+
+    holds_the_text = _create(backend, "x " + _ESCAPE_AS_TEXT + "\n")
+    passed = call(tool, file_name=target, upload_id=holds_the_text, expected_unicode_escapes=1)
+
+    assert passed["ok"] is True and passed["content_changed"] is False, passed
+    assert _stored_code(store, passed["file"]["id"]).endswith("x " + _ESCAPE_AS_TEXT + "\n")
+    assert [d["upload_id"] for d in store.uploads.docs] == [holds_the_character]
+
+
+@pytest.mark.parametrize("tool", ["codekeeper_save_file", "codekeeper_append_file"])
+def test_a_declaration_that_is_not_a_count_is_refused_before_the_upload_is_read(store, call, tool):
+    """מספר שלילי עם ``upload_id``: ``invalid_expected_unicode_escapes`` — לפני שההעלאה נשלפת.
+
+    המזהה כאן אינו של שום העלאה; אילו השליפה הייתה קודמת, התשובה הייתה ``upload_not_found``.
+    """
+    res = call(tool, file_name="log.md", upload_id=mcp_uploads.new_upload_id(), expected_unicode_escapes=-1)
+
+    assert (res["ok"], res["error"]) == (False, "invalid_expected_unicode_escapes"), res
 
 
 # ---------------------------------------------------------------------------

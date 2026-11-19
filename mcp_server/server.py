@@ -612,13 +612,22 @@ _GET_FILE_SHA256_DOC = (
     + "."
 )
 
-# שלושת כלי הכתיבה חולקים משפט אחד: ה-hash הוא של מה שנקרא **חזרה** מהאחסון,
+# כלי הכתיבה חולקים משפט אחד: ה-hash הוא של מה שנקרא **חזרה** מהאחסון,
 # ו-``content_changed`` משווה אותו למה שהכלי התכוון לשמור. המשפט האחרון הוא
 # הגבול של הבדיקה: ה-SDK ממיר ארגומנטים לפני שגוף הכלי רץ, ולכן שינוי שקרה
-# בדרך אל הכלי נראה רק לסוכן שמשווה ל-hash שחישב בעצמו.
+# בדרך אל הכלי אינו נראה בה. **שתי בדיקות רואות אותו**, והמשפט נוקב בשתיהן: hash
+# שהסוכן חישב בעצמו, ו-``expected_unicode_escapes`` — שהיה גם היחיד שרואה escape של
+# יוניקוד שהומר, כי קובץ מקומי שנכתב באותו לקוח עבר אותה המרה, וה-hash שלו מסכים עם
+# זה שנשמר (ההערה מעל ``UNICODE_ESCAPE_RE`` ב-``handlers.py``). עד #3692 המשפט נגמר ב-
+# "the only check of what reached the tool", וזה כבר לא נכון בשום כלי שנושא אותו: כל
+# כלי שכותב קובץ או גוף של פתק נושא את השער (``handlers.UNICODE_ESCAPES_COUNTED``). וזה
+# גם **הגילוי** של הפרמטר, לסוכן שקורא רק את תיאור הכלי. ``codekeeper_comment_note``
+# נושא את המשפט הזה בלי הפתיח על ``content_sha256`` — ה-hash שלו הוא ``comment.body_sha256``.
+# קצר בכוונה: ``codekeeper_multi_edit_file`` יושב קרוב לתקרת תיאור כלי
+# (``_TOOL_DESCRIPTION_MAX_CHARS`` ב-``tests/test_mcp_server_build.py``).
 _WRITE_HASH_SCOPE_DOC = (
-    "That covers only tool-to-storage; comparing the hash "
-    "with your own is the only check of what reached the tool."
+    "That covers only tool-to-storage; what reached the tool is checked by your own hash "
+    "and by expected_unicode_escapes."
 )
 _WRITE_SHA256_DOC = (
     " file.content_sha256 is the SHA-256 hex of the exact UTF-8 bytes of the "
@@ -902,6 +911,11 @@ _NEW_STRING_PARAM_DOC = (
 #: **משפט החוזה הוא קבוע משלו**, כי הוא כתוב גם בתיאור ``edits``: זוג של
 #: ``codekeeper_multi_edit_file`` נושא את אותה הצהרה, ומי שקורא רק את הכלי ההוא צריך לפגוש
 #: את החוזה שם, ולא רק בהפניה "exactly as in codekeeper_edit_file".
+#:
+#: **כאן ההסבר המלא, ובמקום אחד** (#3692): תיאור הפרמטר בשמונת כלי הכתיבה האחרים נושא את
+#: הכלל, מה קורה כשהמספר אחר, והפניה לכאן (:func:`_expected_unicode_escapes_param_doc`).
+#: ``tools/list`` נטען לכל סוכן בכל סשן, ושמונה עותקים של ההסבר הם שמונה מקומות לסנכרן.
+#: ותנאי הזוגיות — ``handlers.DOUBLED_BACKSLASH_IN_WORDS`` — כתוב כאן וב-``hint`` של כל סירוב.
 _ESCAPE_COUNTS_AS_TEXT_DOC = (
     "An escape written in the call counts as text: to match or to write the character "
     "itself, send the character, not its escape"
@@ -910,6 +924,7 @@ _EXPECTED_UNICODE_ESCAPES_PARAM_DOC = (
     f"{handlers.EXPECTED_UNICODE_ESCAPES_RULE}. A Unicode escape meant as text is "
     f"{handlers.UNICODE_ESCAPE_IN_WORDS}: count every such sequence in old_string and in "
     "new_string, and the tool counts them in both as they arrived. "
+    f"{handlers.DOUBLED_BACKSLASH_IN_WORDS}. "
     f"{_ESCAPE_COUNTS_AS_TEXT_DOC}. The reason: a total cannot see one string that lost an "
     "escape and "
     "another that gained one, and that happens only when an escape is written to get a "
@@ -923,6 +938,59 @@ _EXPECTED_UNICODE_ESCAPES_PARAM_DOC = (
     "it refuses when an escape arrived. A value that is not a whole number of 0 or more is "
     f"refused as {handlers.EXPECTED_UNICODE_ESCAPES_INVALID}. Omitted: no check."
 )
+
+
+def _expected_unicode_escapes_param_doc(tool: str, *, upload: bool = False, optional_text: bool = False) -> str:
+    """תיאור ``expected_unicode_escapes`` בכלי כתיבה שאינו ``codekeeper_edit_file`` (#3692).
+
+    **הכלל, מה קורה כשהמספר אחר, והפניה** — ההסבר המלא נשאר במקום אחד, בתיאור הפרמטר של
+    ``codekeeper_edit_file`` (ההערה מעל ``_EXPECTED_UNICODE_ESCAPES_PARAM_DOC``). המשפט הראשון
+    נבנה **משמות המחרוזות שהכלי סופר** (``handlers.UNICODE_ESCAPES_COUNTED``, דרך
+    ``handlers.expected_unicode_escapes_rule``), כי לקוח שמקצר תיאור פרמטר רואה רק אותו.
+    שמות השדות שבסירוב מ-``handlers.unicode_escapes_mismatch_keys``, והקודים מהקבועים שהגוף
+    מחזיר — שום דבר מהם אינו מוקלד כאן. ``invalid_expected_unicode_escapes`` אינו נקוב כאן,
+    בכוונה: דרך MCP רק מספר שלילי מגיע אליו, והסירוב נושא ``hint`` משלו; התיאור המלא נוקב בו.
+
+    ``upload`` — הכלי מקבל ``upload_id``, והטקסט שבו הוא שנספר; סירוב משאיר את ההעלאה.
+    ``optional_text`` — המחרוזת שנספרת יכולה לא להישלח (``null`` בסכימה), ואז הצהרה בלעדיה
+    נענית בקוד משלה. ``test_the_declaration_in_every_write_tool_is_described_from_what_it_counts``
+    ב-``tests/test_mcp_multi_edit.py`` גוזר את שני התנאים מהסכימה ומשווה.
+    """
+    names = handlers.UNICODE_ESCAPES_COUNTED[tool]
+    fields = handlers.unicode_escapes_mismatch_keys(names)
+    numbers = f"{', '.join(fields[:-1])} and {fields[-1]}"
+    upload_doc = (
+        "With upload_id, the uploaded text is what is counted, and a refusal leaves the upload "
+        "unused. "
+        if upload
+        else ""
+    )
+    without_doc = (
+        f"Sent without {names[0]}, it is refused as "
+        f"{handlers.EXPECTED_UNICODE_ESCAPES_WITHOUT_TEXT.format(names[0])}. "
+        if optional_text
+        else ""
+    )
+    return (
+        f"{handlers.expected_unicode_escapes_rule(names)}. A Unicode escape meant as text is "
+        f"{handlers.UNICODE_ESCAPE_IN_WORDS}, counted as it reached the tool; one written in "
+        f"the call counts as text. A different {'total' if len(names) > 1 else 'number'} is "
+        f"refused as {handlers.UNICODE_ESCAPES_MISMATCH}, before anything is written, with "
+        f"{numbers} (numbers only). {upload_doc}{without_doc}Omitted: no check. Why, and what "
+        "to do after a refusal: expected_unicode_escapes of codekeeper_edit_file."
+    )
+
+
+# תיאורי ``expected_unicode_escapes`` של שמונת כלי הכתיבה — ברמת המודול ולא בתוך ``build_mcp``:
+# ההערות בחתימה מוערכות מול המשתנים הגלובליים (ראו ``_param_docs``).
+_SAVE_ESCAPES_DOC = _expected_unicode_escapes_param_doc("codekeeper_save_file", upload=True)
+_APPEND_ESCAPES_DOC = _expected_unicode_escapes_param_doc("codekeeper_append_file", upload=True)
+_CREATE_NOTE_ESCAPES_DOC = _expected_unicode_escapes_param_doc("codekeeper_create_note")
+_CREATE_BOARD_NOTE_ESCAPES_DOC = _expected_unicode_escapes_param_doc("codekeeper_create_board_note")
+_CREATE_REPO_NOTE_ESCAPES_DOC = _expected_unicode_escapes_param_doc("codekeeper_create_repo_note")
+_UPDATE_NOTE_ESCAPES_DOC = _expected_unicode_escapes_param_doc("codekeeper_update_note", optional_text=True)
+_NOTE_STR_REPLACE_ESCAPES_DOC = _expected_unicode_escapes_param_doc("codekeeper_note_str_replace")
+_COMMENT_ESCAPES_DOC = _expected_unicode_escapes_param_doc("codekeeper_comment_note", optional_text=True)
 
 
 # הורדה במקום קריאה להקשר (``GET /api/agent/download``, ``mcp_server/downloads.py``) — **אותו
@@ -3289,6 +3357,10 @@ def build_mcp(
         language: str | None = None,
         description: str = "",
         upload_id: str | None = None,
+        # ``StrictInt | None`` — הנימוק בפרמטר של ``codekeeper_edit_file``.
+        expected_unicode_escapes: Annotated[
+            StrictInt | None, Field(description=_SAVE_ESCAPES_DOC)
+        ] = None,
     ) -> dict:
         require_write(ctx)  # reject a read-only token before touching anything
         return handlers.save_file(
@@ -3299,6 +3371,7 @@ def build_mcp(
             language=language,
             description=description,
             upload_id=upload_id,
+            expected_unicode_escapes=expected_unicode_escapes,
         )
 
     @mcp.tool(
@@ -3443,6 +3516,10 @@ def build_mcp(
             str | None, Field(description=_EXPECTED_SHA256_PARAM_DOC)
         ] = None,
         upload_id: str | None = None,
+        # ``StrictInt | None`` — הנימוק בפרמטר של ``codekeeper_edit_file``.
+        expected_unicode_escapes: Annotated[
+            StrictInt | None, Field(description=_APPEND_ESCAPES_DOC)
+        ] = None,
     ) -> dict:
         require_write(ctx)  # reject a read-only token before touching anything
         return handlers.append_file(
@@ -3452,6 +3529,7 @@ def build_mcp(
             content=content,
             expected_content_sha256=expected_content_sha256,
             upload_id=upload_id,
+            expected_unicode_escapes=expected_unicode_escapes,
         )
 
     @mcp.tool(
@@ -3596,6 +3674,10 @@ def build_mcp(
         line: int | None = None,
         color: Annotated[str | None, Field(description=_NOTE_COLOR_PARAM_DOC)] = None,
         anchor_text: str | None = None,
+        # ``StrictInt | None`` — הנימוק בפרמטר של ``codekeeper_edit_file``.
+        expected_unicode_escapes: Annotated[
+            StrictInt | None, Field(description=_CREATE_NOTE_ESCAPES_DOC)
+        ] = None,
     ) -> dict:
         require_write(ctx)  # דחיית טוקן קריאה-בלבד לפני כל נגיעה בנתונים
         return handlers.create_note(
@@ -3606,6 +3688,7 @@ def build_mcp(
             line=line,
             color=color,
             anchor_text=anchor_text,
+            expected_unicode_escapes=expected_unicode_escapes,
         )
 
     @mcp.tool(
@@ -3662,6 +3745,10 @@ def build_mcp(
         color: Annotated[str | None, Field(description=_NOTE_COLOR_PARAM_DOC)] = None,
         mode: str | None = None,
         title: str | None = None,
+        # ``StrictInt | None`` — הנימוק בפרמטר של ``codekeeper_edit_file``.
+        expected_unicode_escapes: Annotated[
+            StrictInt | None, Field(description=_CREATE_BOARD_NOTE_ESCAPES_DOC)
+        ] = None,
     ) -> dict:
         require_write(ctx)  # דחיית טוקן קריאה-בלבד לפני כל נגיעה בנתונים
         return handlers.create_board_note(
@@ -3672,6 +3759,7 @@ def build_mcp(
             color=color,
             mode=mode,
             title=title,
+            expected_unicode_escapes=expected_unicode_escapes,
         )
 
     @mcp.tool(
@@ -3695,6 +3783,10 @@ def build_mcp(
         color: Annotated[str | None, Field(description=_NOTE_COLOR_PARAM_DOC)] = None,
         anchor_text: str | None = None,
         is_minimized: bool | None = None,
+        # ``StrictInt | None`` — הנימוק בפרמטר של ``codekeeper_edit_file``.
+        expected_unicode_escapes: Annotated[
+            StrictInt | None, Field(description=_UPDATE_NOTE_ESCAPES_DOC)
+        ] = None,
     ) -> dict:
         require_write(ctx)  # דחיית טוקן קריאה-בלבד לפני כל נגיעה בנתונים
         return handlers.update_note(
@@ -3706,6 +3798,7 @@ def build_mcp(
             color=color,
             anchor_text=anchor_text,
             is_minimized=is_minimized,
+            expected_unicode_escapes=expected_unicode_escapes,
         )
 
     # -- פתקי ריפו + חיפוש -------------------------------------------------
@@ -3770,6 +3863,10 @@ def build_mcp(
         color: Annotated[str | None, Field(description=_NOTE_COLOR_PARAM_DOC)] = None,
         mode: str | None = None,
         title: str | None = None,
+        # ``StrictInt | None`` — הנימוק בפרמטר של ``codekeeper_edit_file``.
+        expected_unicode_escapes: Annotated[
+            StrictInt | None, Field(description=_CREATE_REPO_NOTE_ESCAPES_DOC)
+        ] = None,
     ) -> dict:
         # **אדמין לפני כתיבה, ולא ההפך.** בסדר ההפוך משתמש רגיל היה מקבל
         # "צריך טוקן כתיבה" — רמז שטוקן אחר יפתח לו את הכלי, וזה שקר.
@@ -3784,6 +3881,7 @@ def build_mcp(
             color=color,
             mode=mode,
             title=title,
+            expected_unicode_escapes=expected_unicode_escapes,
         )
 
     @mcp.tool(
@@ -3837,6 +3935,10 @@ def build_mcp(
         old_string: str,
         new_string: str,
         replace_all: bool = False,
+        # ``StrictInt | None`` — הנימוק בפרמטר של ``codekeeper_edit_file``.
+        expected_unicode_escapes: Annotated[
+            StrictInt | None, Field(description=_NOTE_STR_REPLACE_ESCAPES_DOC)
+        ] = None,
     ) -> dict:
         require_write(ctx)  # דחיית טוקן קריאה-בלבד לפני כל נגיעה בנתונים
         return handlers.note_str_replace(
@@ -3846,6 +3948,7 @@ def build_mcp(
             old_string=old_string,
             new_string=new_string,
             replace_all=replace_all,
+            expected_unicode_escapes=expected_unicode_escapes,
         )
 
     @mcp.tool(
@@ -4015,7 +4118,9 @@ def build_mcp(
             f"{note_threads.MAX_COMMENTS_PER_THREAD} comments (then thread_full) and a bounded "
             "total size (then thread_too_long): continue in a new thread. Requires write "
             "permission. The answer is read back from the database: comment.body_sha256 is the "
-            "SHA-256 hex of the stored body's UTF-8 bytes (null when it could not be read back)."
+            "SHA-256 hex of the stored body's UTF-8 bytes (null when it could not be read back). "
+            # המשפט המשותף לכל כלי שכותב קובץ או גוף — ההערה מעל ``_WRITE_HASH_SCOPE_DOC``.
+            + _WRITE_HASH_SCOPE_DOC
         ),
         annotations=_WRITE_TOOL,
     )
@@ -4027,6 +4132,10 @@ def build_mcp(
         thread_id: Annotated[str | None, Field(description=_COMMENT_THREAD_ID_PARAM_DOC)] = None,
         resolve: Annotated[bool, Field(description=_RESOLVE_PARAM_DOC)] = False,
         reopen: Annotated[bool, Field(description=_REOPEN_PARAM_DOC)] = True,
+        # ``StrictInt | None`` — הנימוק בפרמטר של ``codekeeper_edit_file``.
+        expected_unicode_escapes: Annotated[
+            StrictInt | None, Field(description=_COMMENT_ESCAPES_DOC)
+        ] = None,
     ) -> dict:
         require_write(ctx)
         user_id = current_user_id(ctx)
@@ -4041,6 +4150,7 @@ def build_mcp(
             reopen=reopen,
             client=connected_client_name(ctx),
             is_admin=is_admin_user(user_id),
+            expected_unicode_escapes=expected_unicode_escapes,
         )
 
     # החיפוש **אינו** אדמין: הוא ``user_id``-scoped ולכן יכול להחזיר רק
