@@ -917,19 +917,17 @@ _EMBEDDING_HEALTH_LOCK = threading.Lock()
 
 
 def _maybe_start_embedding_health_check() -> None:
+    """מרים את הבדיקה ב-thread, כשהחיפוש הסמנטי פעיל ויש ``GEMINI_API_KEY``.
+
+    נקרא רק מתהליך השרת של הוובאפ — הבלוק שאחרי ``_is_webapp_runtime``, ולא בכל ייבוא של הקובץ.
+    """
     global _EMBEDDING_HEALTH_THREAD
-    try:
-        enabled = True
-        if cfg is not None:
-            enabled = bool(getattr(cfg, "SEMANTIC_SEARCH_ENABLED", True))
-        if not enabled:
-            return
-    except Exception:
+    enabled = True
+    if cfg is not None:
+        enabled = bool(getattr(cfg, "SEMANTIC_SEARCH_ENABLED", True))
+    if not enabled:
         return
-    try:
-        if not str(os.getenv("GEMINI_API_KEY", "") or "").strip():
-            return
-    except Exception:
+    if not str(os.getenv("GEMINI_API_KEY", "") or "").strip():
         return
 
     with _EMBEDDING_HEALTH_LOCK:
@@ -943,18 +941,13 @@ def _maybe_start_embedding_health_check() -> None:
                 )
 
                 sync_probe_and_upgrade()
-            except Exception as exc:
-                logger.warning("Embedding health-check thread failed: %s", exc)
+            except Exception:
+                # גבול ה-thread: חריגה כאן הייתה מסתיימת בשקט עם ה-thread. נרשמת עם traceback.
+                logger.warning("Embedding health-check thread failed", exc_info=True)
 
         t = threading.Thread(target=_runner, daemon=True, name="embedding-healthcheck")
         _EMBEDDING_HEALTH_THREAD = t
         t.start()
-
-
-try:
-    _maybe_start_embedding_health_check()
-except Exception:
-    pass
 
 # --- Background warmup: heavy observability reports (fire & forget) ---
 _OBS_WARMUP_THREAD: Optional[threading.Thread] = None
@@ -1206,6 +1199,21 @@ if _is_webapp_runtime():
         start_webapp_repo_threads()
     except Exception:
         logger.warning("Failed to start the repo mirror fill and the sync worker", exc_info=True)
+
+# בדיקת מודל ה-embedding מול Gemini (``_maybe_start_embedding_health_check``) — רק בשרת הוובאפ. עד נובמבר 2026 היא
+# קמה בכל ייבוא של הקובץ: בבוט, שמריץ בעלייה בדיקה משלו (``maybe_upgrade_embedding_model_on_startup`` ב-``main.py``);
+# בסקריפטים שמייבאים מכאן רק את ``get_db``; ובתהליך הטסטים — עם בקשה אמיתית ל-Gemini כשהמפתח מוגדר בסביבה. כשהמודל
+# מחזיר 404 הבדיקה גם משדרגת מודל ומסמנת את כל הקבצים לאינדוקס מחדש, כך שזו לא רק בקשת רשת מיותרת.
+if _is_webapp_runtime():
+    try:
+        _maybe_start_embedding_health_check()
+    except Exception:
+        logger.warning("Failed to start the embedding health-check", exc_info=True)
+else:
+    logger.info(
+        "Skipping embedding health-check: webapp.app imported from non-webapp process (argv0=%s)",
+        (sys.argv[0] if sys.argv else "<empty>"),
+    )
 
 
 # --- Observability: Alert Tags indexes warmup (best-effort) ---
