@@ -203,6 +203,12 @@
      - ``300``
      - ``300``
      - Bot
+   * - ``TELEGRAM_POLLING_STALL_ALERT_SECS``
+     - כמה שניות בלי ``getUpdates`` מוצלח לפני שנשלחת ההתראה ``telegram_polling_stalled``. כשל רשת קצר יותר נרשם בלוג ברמת ``warning`` בלבד, ואינו נפתח כ-issue ב-Sentry. חייב להיות גבוה בהרבה מ-``TELEGRAM_LONG_POLL_TIMEOUT_SECS``: בין שתי הצלחות תקינות עובר עד ה-long poll ועוד ה-read timeout של הבקשה, ו-polling שקט עם סף נמוך מזה יתריע. מספר שלם, ``1`` ומעלה; ערך לא תקין מוחלף בברירת המחדל (``DEFAULT_STALL_ALERT_SECS`` ב-``services/telegram_polling_health.py``). ראו :ref:`events-telegram-polling-health`.
+     - לא
+     - ``120``
+     - ``300``
+     - Bot
    * - ``GITHUB_TOKEN``
      - טוקן GitHub לשימוש בפעולות API, וגם לאימות clone/fetch של המראות לבעלים שאינו ב-``GITHUB_TOKENS``. במראות הוא נשלח רק לריפו שדורש הזדהות, ככותרת ולא בתוך ה-URL — ראו :ref:`mcp-mirror-credentials`. למינימום הרשאות ראו טבלת Scopes בהמשך.
      - לא

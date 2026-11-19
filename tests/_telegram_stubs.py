@@ -213,7 +213,16 @@ terr = types.ModuleType('telegram.error')
 class TelegramError(Exception):
     pass
 
-class BadRequest(TelegramError):
+# אותה היררכיה כמו ב-python-telegram-bot 22.5 (``telegram/error.py``): ``BadRequest`` ו-``TimedOut`` הן תת-מחלקות
+# של ``NetworkError``. ``services/telegram_polling_health.py`` מסווג לפיה; הסיווג עצמו נבדק מול הספרייה האמיתית
+# ב-``tests/helpers/ptb_polling_contract_probe.py``.
+class NetworkError(TelegramError):
+    pass
+
+class BadRequest(NetworkError):
+    pass
+
+class TimedOut(NetworkError):
     pass
 
 class RetryAfter(TelegramError):
@@ -225,7 +234,9 @@ class Forbidden(TelegramError):
     pass
 
 terr.TelegramError = TelegramError
+terr.NetworkError = NetworkError
 terr.BadRequest = BadRequest
+terr.TimedOut = TimedOut
 terr.RetryAfter = RetryAfter
 terr.Forbidden = Forbidden
 sys.modules['telegram.error'] = terr
@@ -233,3 +244,19 @@ sys.modules['telegram.error'] = terr
 # Also expose telegram.error under the root telegram module for
 # call sites using `import telegram; telegram.error.BadRequest`
 telegram.error = terr
+
+# --- telegram.request module stub ---
+# ``services/telegram_polling_health.py`` יורש מ-``HTTPXRequest``. כאן רק הצורה: בנאי שמקבל את הארגומנטים של
+# המקורי. התנהגות הבקשה האמיתית נבדקת מול הספרייה ב-``tests/helpers/ptb_polling_contract_probe.py``.
+trequest = types.ModuleType('telegram.request')
+
+class HTTPXRequest:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def do_request(self, *args, **kwargs):
+        raise NotImplementedError("telegram.request.HTTPXRequest stub does not send requests")
+
+trequest.HTTPXRequest = HTTPXRequest
+sys.modules['telegram.request'] = trequest
+telegram.request = trequest

@@ -354,6 +354,14 @@ class ConfigService:
             description="חלון זמן מקסימלי (שניות) לרצף conflicts לפני יציאה מהתהליך כדי לשחרר lock ולאפשר recovery. 0/שלילי = ללא הגבלה (לא מומלץ).",
             category="telegram",
         ),
+        # ברירת המחדל היא DEFAULT_STALL_ALERT_SECS ב-services/telegram_polling_health.py; טסט משווה בין השניים.
+        "TELEGRAM_POLLING_STALL_ALERT_SECS": ConfigDefinition(
+            key="TELEGRAM_POLLING_STALL_ALERT_SECS",
+            services=("bot",),
+            default="120",
+            description="כמה שניות בלי getUpdates מוצלח לפני שיוצאת ההתראה telegram_polling_stalled. כשל רשת קצר יותר נרשם בלוג ב-warning בלבד, ואינו נפתח ב-Sentry. חייב להיות גבוה בהרבה מ-TELEGRAM_LONG_POLL_TIMEOUT_SECS, אחרת polling שקט יתריע. מספר שלם, 1 ומעלה",
+            category="telegram",
+        ),
         # --- Distributed Lock (Mongo Lease + Heartbeat) ---
         "SERVICE_ID": ConfigDefinition(
             key="SERVICE_ID",

@@ -409,6 +409,9 @@ def _build_bot(monkeypatch, tmp_path):
         def post_init(self, *a, **k):
             return self
 
+        def get_updates_request(self, *a, **k):
+            return self
+
         def build(self):
             return _MiniApp()
 

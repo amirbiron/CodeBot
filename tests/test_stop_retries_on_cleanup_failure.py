@@ -46,6 +46,7 @@ async def test_stop_retries_when_first_cleanup_failed(monkeypatch):
         def defaults(self, *a, **k): return self
         def persistence(self, *a, **k): return self
         def post_init(self, *a, **k): return self
+        def get_updates_request(self, *a, **k): return self
         def build(self): return _MiniApp()
 
     class _AppNS:
