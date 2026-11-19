@@ -362,7 +362,7 @@ Sentry בבדיקות
 
 - ``tests/conftest.py`` מוסיף את ``pymongo`` לרשימת ההתעלמות של freezegun (``freezegun.configure(extend_ignore_list=...)``), כך שהדרייבר רואה תמיד שעון אמיתי. ``tests/test_freezegun_leaves_the_mongo_driver_clock_alone.py`` מוכיח את זה, ונופל בלי ההגדרה.
 - **ספרייה נוספת שממתינה לפי השעון** בתהליכון רקע, ונתקעת באותה צורה, מתווספת לאותה רשימה — ולא נעקפת בטסט שמקפיא.
-- **שולח הפושים כבר לא קם בתהליך הטסטים:** הוא קם רק בתהליך השרת של הוובאפ (:doc:`/deployment/workers`). זה לא נכון לכל תהליכוני הרקע של ``webapp.app``: חלקם עדיין קמים בכל ייבוא, למשל בדיקת מודל ה-embeddings (``_maybe_start_embedding_health_check``) כשמוגדר ``GEMINI_API_KEY``. לכן ההחרגה של ``pymongo`` שבתחילת הסעיף היא ההגנה הכללית מפני התקיעה, ולא השומר של השולח.
+- **שולח הפושים ובדיקת מודל ה-embeddings כבר לא קמים בתהליך הטסטים:** שניהם קמים רק בתהליך השרת של הוובאפ, לפי ``_is_webapp_runtime`` (:doc:`/deployment/workers`). עד נובמבר 2026 בדיקת ה-embeddings (``_maybe_start_embedding_health_check``) קמה בכל ייבוא, וכשמוגדר ``GEMINI_API_KEY`` הרצה של טסט בודד שלחה בקשה ל-Gemini. זה לא נכון לכל תהליכוני הרקע של ``webapp.app``: חלקם עדיין קמים בכל ייבוא, למשל טעינת pygments מראש (``_preload_heavy_assets_async``, ה-thread ``preload-assets``). לכן ההחרגה של ``pymongo`` שבתחילת הסעיף היא ההגנה הכללית מפני התקיעה, ולא השומר של השולח. בדיקה שמה ייבוא של ``webapp.app`` מרים בתהליך שאינו השרת — בתת-תהליך, דרך ``tests/_webapp_import_probe.py``.
 
 בדיקות ביצועים (Performance)
 -----------------------------

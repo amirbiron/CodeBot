@@ -8,16 +8,9 @@
 ``tests/test_freezegun_leaves_the_mongo_driver_clock_alone.py``). ``docs/deployment/workers.rst``
 קובע שהשולח הוא thread בתוך תהליך הוובאפ, ושתהליך נפרד אינו שולח.
 
-**מה נבדק, ואיך.** כל טעינה רצה בתת-תהליך נקי עם ``-B`` (בלי ``__pycache__`` בריפו), כי השאלה
-היא מה הייבוא עצמו מרים, ובתהליך הטסטים ``webapp.app`` כבר מיובא. ההבדל בין המקרים הוא רק
-``sys.argv[0]`` — הדבר היחיד ש-``_is_webapp_runtime`` קורא: שם של שרת WSGI (כמו ש-gunicorn
-נראה ב-``scripts/start_webapp.sh``) מול כל דבר אחר. ריצת הבקרה עם gunicorn היא מה שמוכיח שהבדיקה
-מסוגלת לראות שולח בכלל.
-
-**השם, לא התווים.** הזיהוי השווה פעם מילים כמו "flask" לכל הנתיב, ולכן סקריפט שיושב בתיקייה
-בשם ``flask-migrations`` נחשב לשרת. המקרים כאן כוללים נתיב כזה, וגם את ``python -m gunicorn``,
-שבו ``sys.argv[0]`` הוא ``gunicorn/__main__.py`` — נמדד ב-Python 3.13: ``python -m <חבילה>``
-מציב שם את הנתיב המלא ל-``__main__.py``.
+**מה נבדק, ואיך.** כל טעינה רצה בתת-תהליך נקי, וההבדל בין המקרים הוא רק ``sys.argv[0]`` — המנגנון
+והמקרים ב-``tests/_webapp_import_probe.py``. ריצת הבקרה עם gunicorn היא מה שמוכיח שהבדיקה מסוגלת
+לראות שולח בכלל.
 
 **ושולח שלא קם — נראה בלוג.** עד התיקון ``start_sender_if_enabled`` בלע כשל בהרמת ה-thread וגם
 את סוף הלולאה, ושולח מושבת נראה כמו עלייה תקינה. לכן ה-probe מדפיס את הלוג ל-stderr, ויכול לגרום
@@ -26,28 +19,24 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-GUNICORN = "/opt/render/project/.venv/bin/gunicorn"
+# ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
+from _webapp_import_probe import GUNICORN, NOT_THE_SERVER, THE_SERVER, import_webapp_as, printed_flag
 
-_PROBE = (
-    "import logging, sys, threading, time\n"
-    "logging.basicConfig(level=logging.INFO, stream=sys.stderr)\n"
-    "sys.argv[0] = {argv0!r}\n"
-    "if {fail_thread_start!r}:\n"
-    "    _real_start = threading.Thread.start\n"
-    "    def _start(self):\n"
-    "        if self.name == 'push-sender':\n"
-    "            raise RuntimeError('cannot start new thread (probe)')\n"
-    "        return _real_start(self)\n"
-    "    threading.Thread.start = _start\n"
-    "import webapp.app\n"
+_FAIL_PUSH_SENDER_START = (
+    "_real_start = threading.Thread.start\n"
+    "def _start(self):\n"
+    "    if self.name == 'push-sender':\n"
+    "        raise RuntimeError('cannot start new thread (probe)')\n"
+    "    return _real_start(self)\n"
+    "threading.Thread.start = _start\n"
+)
+
+_PRINT_PUSH_SENDER_RUNNING = (
     "time.sleep(0.5)\n"
     "names = sorted(t.name for t in threading.enumerate())\n"
     "print('PUSH_SENDER_RUNNING=' + str('push-sender' in names))\n"
@@ -58,53 +47,30 @@ def _import_webapp_as(
     argv0: str, tmp_path: Path, *, fail_thread_start: bool = False, extra_env: dict | None = None,
 ) -> subprocess.CompletedProcess:
     env = {
-        **os.environ,
         "PUSH_NOTIFICATIONS_ENABLED": "true",
         # הנעילה של השולח בתוך tmp_path: כל תת-תהליך משיג אותה בעצמו, ולא מתחרה בתהליך אחר.
         "PUSH_SENDER_LOCK_FILE": str(tmp_path / "push-sender.lock"),
         # מתזמן הגיבויים נשען על אותו שומר, ובריצה עם gunicorn היה קם וכותב לדיסק.
         "DISABLE_BACKUP_SCHEDULER": "1",
-        # בלי מפתח, ``_maybe_start_embedding_health_check`` לא פונה בייבוא ל-API של Gemini.
+        # גם בדיקת מודל ה-embedding נשענת על אותו שומר, ובריצה עם gunicorn הייתה פונה ל-API של Gemini.
+        # בלי מפתח ``_maybe_start_embedding_health_check`` לא מרים אותה.
         "GEMINI_API_KEY": "",
         **(extra_env or {}),
     }
-    return subprocess.run(
-        [sys.executable, "-B", "-c", _PROBE.format(argv0=argv0, fail_thread_start=fail_thread_start)],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-        timeout=50,
-        env=env,
-    )
+    before = _FAIL_PUSH_SENDER_START if fail_thread_start else ""
+    return import_webapp_as(argv0, before=before, after=_PRINT_PUSH_SENDER_RUNNING, env=env)
 
 
 def _push_sender_running(proc: subprocess.CompletedProcess) -> bool:
-    lines = [line for line in proc.stdout.splitlines() if line.startswith("PUSH_SENDER_RUNNING=")]
-    tail = "\n".join((proc.stdout + proc.stderr).strip().splitlines()[-15:])
-    assert proc.returncode == 0 and len(lines) == 1, tail
-    return lines[0].split("=", 1)[1] == "True"
+    return printed_flag(proc, "PUSH_SENDER_RUNNING")
 
 
-@pytest.mark.parametrize(
-    "argv0",
-    [
-        "/srv/app/main.py",
-        "-c",
-        "/usr/bin/pytest",
-        "/srv/flask-migrations/reindex.py",
-        "/home/dev/gunicorn-tools/CodeBot/main.py",
-    ],
-    ids=["bot", "script", "pytest", "script-in-a-flask-folder", "bot-in-a-gunicorn-folder"],
-)
+@pytest.mark.parametrize("argv0", list(NOT_THE_SERVER.values()), ids=list(NOT_THE_SERVER))
 def test_importing_the_webapp_outside_the_server_does_not_start_the_push_sender(tmp_path, argv0):
     assert not _push_sender_running(_import_webapp_as(argv0, tmp_path))
 
 
-@pytest.mark.parametrize(
-    "argv0",
-    [GUNICORN, "/opt/render/project/.venv/lib/python3.11/site-packages/gunicorn/__main__.py"],
-    ids=["gunicorn", "python-m-gunicorn"],
-)
+@pytest.mark.parametrize("argv0", list(THE_SERVER.values()), ids=list(THE_SERVER))
 def test_the_webapp_server_still_starts_the_push_sender(tmp_path, argv0):
     """ריצת הבקרה: בלי שולח בתהליך הוובאפ אין תזכורות בכלל, לאף משתמש."""
     proc = _import_webapp_as(argv0, tmp_path)
