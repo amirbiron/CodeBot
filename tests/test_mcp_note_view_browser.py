@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from _browser_harness import WAIT_S, Touch, poll
-from mcp_server import note_view
+from mcp_server import handlers, note_view
 from sticky_notes_target import NOTE_COLORS
 
 #: ברירת המחדל של המפרט כשהמשאב אינו מצהיר על ``ui.csp``: "If `ui.csp` is omitted, Host MUST use"
@@ -265,6 +265,45 @@ _MD_DETAILS_LONG = {"ok": True, "note": {"id": "8" * 24, "title": "מתקפל ב
                                          + "\n::: details לחצו לפתיחה\n"
                                          + "\n".join(f"שורה מוסתרת {i}" for i in range(1, 21)) + "\n:::"}}
 
+class _OneNote:
+    """backend שמחזיק פתק אחד — מה ש-``handlers.show_note`` קורא (``get_note``) לפתק בלוח."""
+
+    def __init__(self, note):
+        self.note = note
+
+    def get_note(self, user_id, *, note_id, with_version=False):
+        return {"ok": True, "note": dict(self.note), "target": "board", "board_id": "b" * 24}
+
+
+def _shown(note, **params):
+    """**התשובה של השרת עצמו** — ``handlers.show_note`` עם ``section`` / ``query`` — ולא ``highlight`` שנכתב ביד:
+    הכרטיס נבדק מול מה שהשרת באמת שולח, כך ששינוי במספור השורות בצד אחד מפיל כאן."""
+    answer = handlers.show_note(_OneNote(note), 1, note_id=note["id"], is_admin=False, can_write=False, **params)
+    assert answer.get("ok") is True and "highlight" in answer, answer
+    return answer
+
+
+#: קטע באמצע פתק ארוך, ובתוכו בלוק מתקפל סגור: ``## התקנה`` (שורה 27) ועד ``סוף ההתקנה`` (שורה 33), לפני
+#: ``## שימוש``.
+_MARK_SECTION_LINES = (["# מדריך"] + [f"פתיחה {i}" for i in range(1, 26)]
+                       + ["## התקנה", "שלב ראשון", "::: details פרטים נוספים", "פרט מוסתר 1", "פרט מוסתר 2", ":::",
+                          "סוף ההתקנה", "## שימוש"] + [f"הפעלה {i}" for i in range(1, 16)])
+_MARK_SECTION = _shown({"id": "5" * 24, "title": "מדריך", "color": NOTE_COLORS["yellow"]["hex"],
+                        "content": "\n".join(_MARK_SECTION_LINES)}, section="התקנה")
+#: קטע שנגמר בכותרת של בלוק מתקפל, כשהתוכן של הבלוק פותח את הקטע הבא (``## ב`` בתוכו). השורה של הבלוק בקטע היא
+#: רק הכותרת שלו (``summary``) — והיא גלויה גם כשהבלוק סגור, ולכן הוא נשאר סגור.
+_MARK_SUMMARY = _shown({"id": "3" * 24, "title": "כותרת בלוק", "color": NOTE_COLORS["yellow"]["hex"],
+                        "content": "## א\nטקסט\n::: details פרטים\n## ב\nתוכן של ב\n:::\nסוף"}, section="א")
+#: שלושה מופעים של ``דוגמה``: בראש הפתק, בתוך בלוק מתקפל סגור באמצע, ובהדגשה בסוף.
+_MARK_QUERY_LINES = (["שורה עם דוגמה בהתחלה"] + [f"מילוי {i}" for i in range(1, 26)]
+                     + ["::: details פתחו", "בתוך הבלוק: דוגמה שנייה", ":::"] + [f"עוד מילוי {i}" for i in range(1, 11)]
+                     + ["ושוב **דוגמה** בסוף"])
+_MARK_QUERY = _shown({"id": "6" * 24, "title": "חיפוש", "color": NOTE_COLORS["blue_light"]["hex"],
+                      "content": "\n".join(_MARK_QUERY_LINES)}, query="דוגמה")
+#: ``tool`` רק בכתובת של הקישור — השרת מוצא אותו במקור, ובטקסט המוצג הוא אינו.
+_MARK_HIDDEN = _shown({"id": "4" * 24, "title": "קישור", "color": NOTE_COLORS["ivory"]["hex"],
+                       "content": "[קישור](https://example.com/tool)\nשורה"}, query="tool")
+
 #: מקרה לכל בדיקה: הפתק, ההקשר שהמארח מוסר בלחיצת היד, ורוחב המסגרת. הצורה של
 #: ``containerDimensions`` בתוך השיחה — ``width`` ו-``maxHeight`` — היא מה ש-Claude מוסר שם
 #: (עמוד "Display modes" בתיעוד של Claude, נקרא ב-15.11.2026).
@@ -296,6 +335,14 @@ _CASES = {
                                  "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
     "md-details-long": (_MD_DETAILS_LONG, {"containerDimensions": {"width": 600, "maxHeight": 900},
                                            "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
+    "mark-section": (_MARK_SECTION, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                                     "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
+    "mark-query": (_MARK_QUERY, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                                 "availableDisplayModes": ["inline", "fullscreen"], "displayMode": "inline"}, 600),
+    "mark-hidden": (_MARK_HIDDEN, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                                   "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
+    "mark-summary": (_MARK_SUMMARY, {"containerDimensions": {"width": 600, "maxHeight": 900},
+                                     "availableDisplayModes": ["inline"], "displayMode": "inline"}, 600),
 }
 
 #: ``hostCapabilities`` שהמארח מוסר בלחיצת היד, כשהוא אינו ריק. ``openLinks`` — "Host supports opening
@@ -318,6 +365,7 @@ const iframe = document.getElementById('view');
 window.sizes = [];
 window.modeRequests = [];
 window.openLinks = [];
+window.modelContexts = [];
 window.fixedFrame = false;
 // מחסום: ``ping`` הלוך-חזור. הודעות מאותה מסגרת מגיעות בסדר שנשלחו, ולכן כשהתשובה כאן — כל מה
 // שהדף שלח לפניה כבר הגיע.
@@ -337,6 +385,9 @@ window.addEventListener('message', (event) => {
   } else if (m.method === 'ui/open-link') {
     // התשובה של המפרט להצלחה: ``result: {}  // Empty result on success`` ("Requests (View → Host)").
     window.openLinks.push(m.params);
+    view.postMessage({jsonrpc: '2.0', id: m.id, result: {}}, '*');
+  } else if (m.method === 'ui/update-model-context') {
+    window.modelContexts.push(m.params);
     view.postMessage({jsonrpc: '2.0', id: m.id, result: {}}, '*');
   } else if (m.id === 'barrier') {
     window.barrierDone = true;
@@ -1037,6 +1088,204 @@ def test_a_folded_block_opened_at_the_bottom_enables_scrolling_down(chromium_exe
     assert bottom["scroll"] is True and bottom["down"] is True, bottom
     assert opened["scrollHeight"] > bottom["scrollHeight"] and opened["clientHeight"] == bottom["clientHeight"], (bottom, opened)
     assert opened["doc"] == bottom["doc"], (bottom, opened)  # הדף לא שינה גודל — רק התוכן
+
+
+# ── סימון קטע (``highlight`` מ-``codekeeper_show_note``) ─────────────────────────────────────
+
+#: המסגרת של קטע מול השורות שלו, הגוף והנייר. המרווחים נקראים מהריפוד המחושב של הגוף — אותם משתנים
+#: (``--ck-mark-gap-*``), אחרי שהדפדפן פתר את ה-``em`` — ולא נכתבים כאן שוב.
+_FRAME_STATE = """() => {
+    const r = (el) => { const b = el.getBoundingClientRect(); return {top: b.top, bottom: b.bottom, left: b.left, right: b.right}; };
+    const rows = [...document.querySelectorAll('.ck-content .sticky-task-line')];
+    const row = (text) => rows.find((el) => el.textContent.trim() === text);
+    const frame = document.querySelector('.ck-section-frame');
+    const body = document.querySelector('.ck-body');
+    const paper = document.querySelector('.ck-paper');
+    const ps = getComputedStyle(paper);
+    const pb = paper.getBoundingClientRect();
+    const fs = frame ? getComputedStyle(frame) : null;
+    const bb = body.getBoundingClientRect();
+    const bs = getComputedStyle(body);
+    return {
+        gapBlock: parseFloat(bs.paddingTop), gapInline: parseFloat(bs.paddingLeft),
+        gapBlockEnd: parseFloat(bs.paddingBottom), gapInlineEnd: parseFloat(bs.paddingRight),
+        frames: document.querySelectorAll('.ck-section-frame').length,
+        frame: frame && fs.display !== 'none' ? r(frame) : null,
+        heading: r(row('התקנה')), last: r(row('סוף ההתקנה')), before: r(row('פתיחה 25')), after: r(row('שימוש')),
+        hiddenShown: row('פרט מוסתר 2').checkVisibility(),
+        open: document.querySelector('.ck-content details').open,
+        content: r(document.querySelector('.ck-content')),
+        bodyTop: bb.top + body.clientTop, bodyLeft: bb.left, bodyRight: bb.right, scrollTop: body.scrollTop,
+        paperInner: {left: pb.left + parseFloat(ps.borderLeftWidth) + parseFloat(ps.paddingLeft),
+                     right: pb.right - parseFloat(ps.borderRightWidth) - parseFloat(ps.paddingRight)},
+        style: fs && {border: fs.borderTopStyle, pointer: fs.pointerEvents},
+        // הדיו של הפתק כצבע מחושב: אלמנט בדיקה זמני בתוך הנייר, עם ``color: var(--note-ink)``.
+        ink: (() => { const p = document.createElement('span'); p.style.color = 'var(--note-ink)'; paper.appendChild(p);
+                      const c = getComputedStyle(p).color; p.remove(); return c; })(),
+        frameColor: fs && fs.borderTopColor,
+    };
+}"""
+
+
+def _assert_frame_around(state, what):
+    """המסגרת עוטפת בדיוק את שורות הקטע, במרווח שלה מכל צד, ובתוך תיבת הגלילה של הגוף — והטקסט לא זז לרוחב.
+    **והקו העליון והתחתון אינם נכנסים לשורות השכנות** — השורה שלפני הקטע והכותרת שאחריו."""
+    f, block, inline = state["frame"], state["gapBlock"], state["gapInline"]
+    assert f and state["frames"] == 1 and block > 0 and inline > 0, (what, state)
+    assert state["gapBlockEnd"] == block and state["gapInlineEnd"] == inline, (what, state)
+    assert abs(f["top"] - (state["heading"]["top"] - block)) <= 1, (what, state)
+    assert abs(f["bottom"] - (state["last"]["bottom"] + block)) <= 1, (what, state)
+    assert state["before"]["bottom"] <= f["top"] and state["after"]["top"] >= f["bottom"], (what, state)
+    assert abs(f["left"] - (state["content"]["left"] - inline)) <= 1, (what, state)
+    assert abs(f["right"] - (state["content"]["right"] + inline)) <= 1, (what, state)
+    assert state["bodyLeft"] <= f["left"] + 0.5 and f["right"] <= state["bodyRight"] + 0.5, (what, state)
+    assert abs(state["content"]["left"] - state["paperInner"]["left"]) <= 1, (what, state)
+    assert abs(state["content"]["right"] - state["paperInner"]["right"]) <= 1, (what, state)
+
+
+def test_a_section_opens_framed_and_scrolled_to_with_its_folded_block_open(chromium_executable, frame_host):
+    """``section``: מסגרת מקווקוות אחת סביב הקטע כולו — מהכותרת ועד השורה שלפני הכותרת הבאה ברמתה — והבלוק
+    המתקפל שבתוכו נפתח. הגוף נגלל כך שראש המסגרת בראש השטח הגלוי, והטקסט לא זז לרוחב. הרוחב ב-CSS לוגי, ולכן
+    המסגרת נכונה גם בפריסה משמאל לימין (``amir-bug-patterns`` H7: מדידה בשתי הפריסות). ומשתמש שמקפל את הבלוק —
+    המסגרת מתכווצת לשורות שעדיין מצוירות, ולחיצה בתוך המסגרת מגיעה לשורה."""
+    from playwright.sync_api import sync_playwright
+
+    assert _MARK_SECTION["highlight"] == {"kind": "section", "title": "התקנה", "line_range": [27, 33]}, _MARK_SECTION
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/mark-section.html")
+        try:
+            _settled(page, view, "the frame took the reported height")
+            # הגלילה רכה (``scroll-behavior`` של הגוף) — מחכים שראש המסגרת יגיע לראש השטח הגלוי.
+            rtl = poll(view, "() => { const s = (" + _FRAME_STATE + ")(); s.ok = !!s.frame"
+                             " && Math.abs(s.frame.top - s.bodyTop) <= 1; return s; }",
+                       "the body scrolled to the top of the frame")
+            view.evaluate("() => { document.documentElement.dir = 'ltr'; }")
+            ltr = view.evaluate(_FRAME_STATE)
+            view.evaluate("() => { document.documentElement.dir = 'rtl'; }")
+            view.locator(".ck-content summary").click()
+            folded = poll(view, "() => { const s = (" + _FRAME_STATE + ")(); s.ok = !s.hiddenShown && !!s.frame"
+                                " && Math.abs(s.frame.bottom - (s.last.bottom + s.gapBlock)) <= 1; return s; }",
+                          "the frame shrank to the rows still drawn after the block was folded")
+        finally:
+            browser.close()
+
+    assert rtl["open"] is True and rtl["hiddenShown"] is True, rtl
+    assert rtl["scrollTop"] > 0, rtl
+    assert rtl["style"] == {"border": "dashed", "pointer": "none"}, rtl
+    assert rtl["frameColor"] == rtl["ink"] and rtl["ink"] not in ("", "rgb(0, 0, 0)"), rtl  # הדיו של הפתק
+    _assert_frame_around(rtl, "rtl")
+    _assert_frame_around(ltr, "ltr")
+    assert folded["open"] is False and folded["last"]["top"] < rtl["last"]["top"], (rtl, folded)
+    _assert_frame_around(folded, "folded")
+
+
+def test_a_section_that_ends_at_a_folded_block_title_leaves_the_block_closed(chromium_executable, frame_host):
+    """הקטע ``## א`` נגמר בכותרת של בלוק מתקפל, והתוכן של הבלוק שייך לקטע הבא. מהבלוק, בקטע יש רק הכותרת — והיא
+    גלויה גם כשהבלוק סגור — ולכן הבלוק נשאר סגור, והמסגרת נגמרת בכותרת שלו. הכלל של ``openDetailsAround`` במנוע,
+    המשותף לחיפוש בתוך פתק בוובאפ."""
+    from playwright.sync_api import sync_playwright
+
+    assert _MARK_SUMMARY["highlight"]["line_range"] == [1, 3], _MARK_SUMMARY
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/mark-summary.html")
+        try:
+            _settled(page, view, "the frame took the reported height")
+            state = poll(view, """() => {
+                const frame = document.querySelector('.ck-section-frame');
+                const summary = document.querySelector('.ck-content summary');
+                const f = frame.getBoundingClientRect();
+                const s = summary.getBoundingClientRect();
+                const gap = parseFloat(getComputedStyle(document.querySelector('.ck-body')).paddingBottom);
+                return {ok: f.height > 0, open: summary.parentElement.open, bottom: f.bottom, summaryBottom: s.bottom, gap};
+            }""", "the frame was placed")
+        finally:
+            browser.close()
+
+    assert state["open"] is False, state
+    assert abs(state["bottom"] - (state["summaryBottom"] + state["gap"])) <= 1, state
+
+
+#: ההתאמות של ``query``: כמה, מי פעילה, האם היא גלויה בתוך הגוף, והשורה.
+_HITS_STATE = """() => {
+    const body = document.querySelector('.ck-body');
+    const bb = body.getBoundingClientRect();
+    const top = bb.top + body.clientTop;
+    const bottom = top + body.clientHeight;
+    const hits = [...document.querySelectorAll('.ck-content .sticky-note-search-hit:not([data-hl-continuation])')];
+    const active = hits.findIndex((h) => h.classList.contains('is-active'));
+    const hit = hits[active];
+    const hb = hit ? hit.getBoundingClientRect() : null;
+    const shown = (sel) => getComputedStyle(document.querySelector(sel)).display !== 'none';
+    return {count: hits.length, active, counter: document.querySelector('.ck-mark-count').textContent,
+            activeVisible: !!hb && hit.checkVisibility() && hb.top >= top - 1 && hb.bottom <= bottom + 1,
+            open: document.querySelector('.ck-content details').open,
+            bar: shown('.ck-controls'), nav: shown('.ck-mark-nav'), expand: shown('.ck-expand'), scroll: shown('.ck-scroll-btns'),
+            bg: hits.length ? getComputedStyle(hits[0]).backgroundColor : null,
+            outline: hit ? getComputedStyle(hit).outlineStyle : null,
+            fill: document.documentElement.classList.contains('ck-fill') && innerHeight === 600};
+}"""
+
+
+def _hits_when(view, condition, what):
+    return poll(view, "() => { const s = (" + _HITS_STATE + ")(); s.ok = " + condition + "; return s; }", what)
+
+
+def test_a_query_marks_every_match_and_prev_next_opens_the_folded_one(chromium_executable, frame_host):
+    """``query``: כל המופעים בהדגשה של החיפוש בתוך פתק בוובאפ, הראשון פעיל וגלוי. "הבא" עובר לשני — שבתוך
+    בלוק מתקפל סגור — פותח את הבלוק וגולל אליו; אחרי האחרון חוזר לראשון. במסך מלא השורה נשארת, ובה רק
+    "הקודם/הבא" (החלטת המשתמש)."""
+    from playwright.sync_api import sync_playwright
+
+    assert _MARK_QUERY["highlight"] == {"kind": "query", "query": "דוגמה"}, _MARK_QUERY
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/mark-query.html")
+        try:
+            _settled(page, view, "the frame took the reported height")
+            first = _hits_when(view, "s.active === 0 && s.activeVisible", "the first match is active and visible")
+            view.click(".ck-mark-next")
+            second = _hits_when(view, "s.active === 1 && s.activeVisible", "next opened the folded block and scrolled to it")
+            view.click(".ck-mark-next")
+            third = _hits_when(view, "s.active === 2 && s.activeVisible", "next reached the last match")
+            view.click(".ck-expand")
+            full = _hits_when(view, "s.fill", "the view went fullscreen")
+            view.click(".ck-mark-next")
+            wrapped = _hits_when(view, "s.active === 0 && s.activeVisible", "next after the last wrapped to the first")
+        finally:
+            browser.close()
+
+    assert first["count"] == 3 and first["counter"] == "1/3" and first["open"] is False, first
+    assert first["bar"] is True and first["nav"] is True, first
+    assert first["bg"] == "rgb(255, 215, 0)" and first["outline"] == "solid", first
+    assert second["counter"] == "2/3" and second["open"] is True, second
+    assert third["counter"] == "3/3", third
+    assert full["bar"] is True and full["nav"] is True and full["expand"] is False and full["scroll"] is False, full
+    assert full["counter"] == "3/3", full
+    assert wrapped["counter"] == "1/3", wrapped
+
+
+def test_a_query_only_in_markdown_syntax_says_so_and_tells_claude(chromium_executable, frame_host):
+    """השרת מצא את ``tool`` בכתובת של הקישור, ובטקסט המוצג הוא אינו. הפתק מוצג בלי סימון, שורה מתחתיו אומרת את
+    זה, ו-Claude מקבל ``ui/update-model-context`` שהסימון לא עבד (החלטת המשתמש)."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{frame_host}/mark-hidden.html")
+        try:
+            _settled(page, view, "the frame took the reported height")
+            poll(page, "() => window.modelContexts.length === 1", "the view told Claude the mark was not found")
+            contexts = page.evaluate("() => window.modelContexts")
+            state = view.evaluate("""() => ({
+                hits: document.querySelectorAll('.sticky-note-search-hit').length,
+                notice: document.querySelector('.ck-notice').textContent,
+                noticeShown: getComputedStyle(document.querySelector('.ck-notice')).display !== 'none',
+                link: document.querySelector('.ck-content a.sticky-md-link').textContent})""")
+        finally:
+            browser.close()
+
+    assert state["hits"] == 0 and state["link"] == "קישור", state
+    assert state["noticeShown"] is True and state["notice"] == '"tool" לא נמצא בטקסט המוצג, ולכן הפתק מוצג בלי סימון.', state
+    text = contexts[0]["content"][0]["text"]
+    assert '"tool"' in text and "note_id: " + "4" * 24 in text and "codekeeper_show_note" in text, text
 
 
 # ── עריכה ────────────────────────────────────────────────────────────────────────
