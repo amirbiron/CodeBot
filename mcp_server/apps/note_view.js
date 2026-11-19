@@ -58,7 +58,11 @@
    והפתק נגמר בתחילת בלוק ההקלדה — ``syncEditBottom``. אנדרואיד דוחף את המסגרת כשהמקלדת נפתחת מעל
    הסמן, ולכן במסך מגע שורת הסמן עולה לראש התיבה לפני הפוקוס — ``beginKeyboardWait``. במסך שהצלע
    הקצרה שלו צרה (טלפון) אין עריכה — ``screenAllowsEditing``.
-   ו-``layout_debug`` מהכלי מציג מספרים חיים על הפריסה, לבדיקה במכשיר — ``updateDebug``. */
+   ו-``layout_debug`` מהכלי מציג מספרים חיים על הפריסה, לבדיקה במכשיר — ``updateDebug``.
+
+   **סימון קטע** (``section`` / ``query`` של הכלי, שהשרת כבר בדק — ``highlight`` בתשובה). קטע מקבל מסגרת
+   מקווקוות אחת סביב כל השורות שלו, ``query`` מקבל את ההדגשה של החיפוש בתוך פתק בוובאפ (``TextHighlight``),
+   והתצוגה נפתחת עליו. הסימון נשאר עד הכניסה לעריכה, ושייך רק לטקסט שהשרת בדק — ``applyMark``. */
 (function (root) {
   'use strict';
 
@@ -110,6 +114,11 @@
    *  ולא אימוג'י, ולכן הוא מקבל את ה-``color`` של הכפתור. */
   var EDIT_GLYPH = '\u270E';
   var MODEL_STALE_TEXT = 'Claude לא עודכן על השינוי האחרון. כדי שיעבוד על הגרסה השמורה, בקשו ממנו לקרוא את הפתק מחדש.';
+  /** המחלקה של התאמה מסומנת — **אותה מחלקה כמו החיפוש בתוך פתק בוובאפ** (``NOTE_SEARCH_HIT_CLASS`` ב-
+   *  ``sticky-notes.js``), כדי שהסימון ייראה אותו דבר. העיצוב שלה מועתק ל-``note_view.css``, ו-
+   *  ``tests/test_mcp_note_view.py`` משווה אותו למקור ב-``sticky-notes.css``. */
+  var MARK_HIT_CLASS = 'sticky-note-search-hit';
+  var MARK_INVALID_TEXT = 'הסימון שהתבקש לא הגיע בצורה תקינה, ולכן הפתק מוצג בלי סימון.';
 
   /** קוד שגיאה מהשרת מוצג רק כשהוא בצורה של קוד — מילה אחת באותיות קטנות. */
   var ERROR_CODE_RE = /^[a-z][a-z0-9_]{0,63}$/;
@@ -123,7 +132,13 @@
     rate_limited: 'יותר מדי קריאות בדקה האחרונה. נסו שוב בעוד רגע.',
     empty_content: 'אי אפשר לשמור פתק ריק.',
     content_too_long: 'הפתק ארוך מדי לשמירה.',
-    insufficient_scope: 'לחיבור הזה אין הרשאת כתיבה, ולכן אי אפשר לשמור. אפשר לחבר את CodeKeeper מחדש עם הרשאת כתיבה.'
+    insufficient_scope: 'לחיבור הזה אין הרשאת כתיבה, ולכן אי אפשר לשמור. אפשר לחבר את CodeKeeper מחדש עם הרשאת כתיבה.',
+    // הסירובים של סימון קטע (``show_note`` ב-``mcp_server/handlers.py``): השרת אינו מציג פתק בלי הסימון
+    // שהתבקש, ו-Claude מקבל את אותה תשובה עם ההצעות — כאן רק מה שהמשתמש רואה בינתיים.
+    section_not_found: 'הכותרת שהתבקשה לסימון לא נמצאה בפתק.',
+    ambiguous_section: 'הכותרת שהתבקשה לסימון מופיעה בפתק יותר מפעם אחת.',
+    no_match: 'הטקסט שהתבקש לסימון לא מופיע בפתק.',
+    section_and_query: 'אפשר לסמן כותרת או טקסט, לא את שניהם יחד.'
   };
 
   function isObject(value) {
@@ -184,6 +199,8 @@
     this.modelSeq = 0;
     /** מצב מדידה — ``layout_debug: true`` בתוצאת הכלי (``updateDebug``). */
     this.layoutDebug = false;
+    /** הסימון — ``{spec, content, count, active}`` (``applyMark``), או ``null``. */
+    this.mark = null;
     /** העותק הנסתר של תיבת הטקסט שבו נמדד מקום הסמן (``revealCaret``), או ``null``. */
     this.caretMirror = null;
     this.revealScheduled = false;
@@ -494,10 +511,13 @@
       v.bar.hidden = true;
       return;
     }
+    var navShown = this.markNavShown();
+    v.nav.hidden = !navShown;
     // **במסך מלא אין שורת כפתורים** (החלטת המשתמש): הגוף נגלל באצבע או בגלגלת, "מסך מלא" כבר אינו
-    // רלוונטי, ועריכה נפתחת בלחיצה על שורה. הפתק מקבל את כל הגובה.
+    // רלוונטי, ועריכה נפתחת בלחיצה על שורה. הפתק מקבל את כל הגובה. **החריג — "הקודם/הבא"** (החלטת
+    // המשתמש): בלעדיהם אין במסך מלא דרך לעבור בין ההתאמות, ולכן השורה מוצגת עם הם בלבד.
     if (this.hostContext.displayMode === 'fullscreen') {
-      v.bar.hidden = true;
+      v.bar.hidden = !navShown;
       v.expand.hidden = true;
       v.edit.hidden = true;
       v.group.hidden = true;
@@ -505,7 +525,7 @@
     }
     v.expand.hidden = !this.canFullscreen();
     v.edit.hidden = !(this.canEdit() && !this.editor && !this.pendingEdit && !this.saving);
-    var actionShown = !v.expand.hidden || !v.edit.hidden;
+    var actionShown = !v.expand.hidden || !v.edit.hidden || navShown;
     // שלב 1: השורה מוצגת לפי מה שכבר ידוע. שלב 2: האם הגוף גולש, **בגובה שהיה לו בלי ▲▼** —
     // כשהשורה מוצגת רק בגללם, הגובה שלה חוזר לגוף. כך ההחלטה אינה תלויה במצב הקודם של
     // הכפתורים, ואין הבהוב בין "גולש" ל"לא גולש".
@@ -613,6 +633,9 @@
   NoteView.prototype.measureAndReport = function () {
     this.measureTextScale();
     this.updateControls();
+    // המסגרת של קטע נמדדת מהשורות שלו, וכל מה שמזיז אותן — בלוק שנפתח, רוחב אחר, גופן שנטען — מגיע לכאן
+    // דרך ``ResizeObserver`` על התוכן או ``resize`` של המסגרת.
+    this.placeFrame();
     var docEl = this.doc.documentElement;
     // כמו ה-SDK: גובה התוכן נמדד עם ``height: max-content`` זמני — ``fit-content`` היה נחתך
     // בגובה ה-viewport — והרוחב נלקח מ-``innerWidth``, בלי למדוד רוחב תוכן.
@@ -901,8 +924,35 @@
       return { error: code, max: isLength(answer.max, false) ? answer.max : null };
     }
     if (!isObject(answer.note) || typeof answer.note.content !== 'string') return { error: null };
-    return { note: answer.note, editable: answer.editable === true, layoutDebug: answer.layout_debug === true };
+    return { note: answer.note, editable: answer.editable === true, layoutDebug: answer.layout_debug === true,
+      highlight: readHighlight(answer.highlight) };
   };
+
+  /** שורה במקור — מספר שלם מ-1 ומעלה. ``NaN`` עובר כל השוואה כ-``false``, ולכן ``isFinite`` קודם. */
+  function isLineNumber(value) {
+    return typeof value === 'number' && isFinite(value) && Math.floor(value) === value && value >= 1;
+  }
+
+  /** ``highlight`` מתשובת הכלי, אחרי בדיקת צורה (``amir-bug-patterns`` U3): ``undefined`` כשאין שדה, ``null``
+   *  כשהשדה בצורה שהשרת אינו מייצר, ואחרת ``{kind: 'section', lines: [a, b], title}`` או ``{kind: 'query',
+   *  query}`` — בדיוק מה ש-``_note_highlight`` ב-``mcp_server/handlers.py`` מחזיר. ``line_range`` הוא שני שלמים
+   *  חיוביים בסדר עולה; ``query`` מחרוזת לא ריקה. ``title`` נכנס רק להודעה למשתמש, ולכן שדה שאינו מחרוזת אינו
+   *  פוסל את הסימון — הוא פשוט לא מוצג. */
+  function readHighlight(value) {
+    if (value === undefined) return undefined;
+    if (!isObject(value)) return null;
+    if (value.kind === 'section') {
+      var range = value.line_range;
+      if (!Array.isArray(range) || range.length !== 2 || !isLineNumber(range[0]) || !isLineNumber(range[1])
+          || range[0] > range[1]) return null;
+      return { kind: 'section', lines: [range[0], range[1]], title: typeof value.title === 'string' ? value.title : '' };
+    }
+    if (value.kind === 'query') {
+      if (typeof value.query !== 'string' || value.query === '') return null;
+      return { kind: 'query', query: value.query };
+    }
+    return null;
+  }
 
   /** הודעה למשתמש על סירוב מהשרת — הטקסט הידוע לקוד, או קוד השגיאה עצמו. */
   NoteView.prototype.errorText = function (read, fallback) {
@@ -928,6 +978,9 @@
     this.current = { note: read.note, editable: read.editable === true };
     // מצב המדידה נקבע מהקריאה של המודל בלבד — הקריאות הטריות של העריכה אינן מבקשות אותו.
     this.layoutDebug = read.layoutDebug === true;
+    // **וכך גם הסימון**, ששייך לטקסט שהשרת בדק בקריאה הזו (``content``) — ``applyMark``.
+    this.mark = read.highlight ? { spec: read.highlight, content: read.note.content, count: 0, active: -1 } : null;
+    if (read.highlight === null) this.setNotice(MARK_INVALID_TEXT, true);
     this.render(read.note);
   };
 
@@ -943,10 +996,16 @@
     // נשפטים מולו (``onLinkClick`` מקבל אותו), כך שבזמן הלחיצה אין בדיקה שנייה ואין קריאה שנייה של
     // ``window`` — מנוע שעבר את הבדיקה הזו הוא המנוע של כל מה שקורה בפתק עד הרינדור הבא. גם
     // ``isViewControl`` ו-``sourceOffsetAt`` — מה לחיצה בגוף הפתק פוגעת בו (``onBodyClick``) — ו-
-    // ``buildStrokeIcon`` לאייקונים של הכפתורים.
+    // ``buildStrokeIcon`` לאייקונים של הכפתורים. ולסימון (``applyMark``): ``openDetailsAround`` ו-
+    // ``GENERATED_TEXT_CLASS`` מהמנוע, ומודול ההדגשה ``TextHighlight``, שגם הוא נכנס לדף ב-``build_note_view``.
+    var hl = this.win.TextHighlight;
     if (!md || typeof md.render !== 'function' || !md.MD_SAFE_LINK || typeof md.MD_SAFE_LINK.test !== 'function'
         || typeof md.isViewControl !== 'function' || typeof md.sourceOffsetAt !== 'function'
-        || typeof md.buildStrokeIcon !== 'function') {
+        || typeof md.buildStrokeIcon !== 'function' || typeof md.openDetailsAround !== 'function'
+        || typeof md.GENERATED_TEXT_CLASS !== 'string'
+        || !hl || typeof hl.highlightWithin !== 'function' || typeof hl.hitsWithin !== 'function'
+        || typeof hl.setActive !== 'function' || typeof hl.clearHighlights !== 'function'
+        || typeof hl.scrollIntoViewWithin !== 'function' || typeof hl.isRendered !== 'function') {
       this.settle();
       this.showStatus('התצוגה של הפתק לא נטענה במלואה, ולכן הפתק לא מוצג.', true);
       return;
@@ -988,16 +1047,23 @@
     this.view.paper = paper;
     this.view.notice = notice;
     this.view.md = md;
+    this.view.highlighter = hl;
     this.view.head = head;
     this.view.debug = debug;
     this.view.title = null;
+    this.view.frame = null;
+    this.view.frameRows = null;
     this.paint(note);
     this.syncNotice();
     host.textContent = '';
     host.appendChild(paper);
     if (this.sizeObserver) this.sizeObserver.observe(content);
     this.settle();
+    // **הסימון אחרי שהפתק בדף** — המסגרת נמדדת מהשורות. ``updateControls`` אחריו, כי "הקודם/הבא" תלוי
+    // במספר ההתאמות; והגלילה אל הסימון אחרון, כשהגוף כבר בגובה שיש לו עם שורת הכפתורים.
+    this.applyMark(note);
     this.updateControls();
+    this.revealMark();
     this.updateDebug();
     if (this.initialized) this.scheduleSize();
   };
@@ -1040,6 +1106,210 @@
     }
     this.updateControls();
     if (this.initialized) this.scheduleSize();
+  };
+
+  // -- סימון קטע (``highlight``) ------------------------------------------------------------
+
+  /** **מסמן את מה שהשרת בדק** — ``this.mark``, מ-``renderResult`` — בפתק ש-``render`` בנה עכשיו. הסימון שייך
+   *  לטקסט שהשרת בדק בו (``mark.content``): פתק בגרסה אחרת — קריאה טרייה של העריכה שהראתה שינוי — מוצג בלי
+   *  סימון, כי השורות והמופעים שלו אחרים. */
+  NoteView.prototype.applyMark = function (note) {
+    var mark = this.mark;
+    if (!mark || !this.view) return;
+    if (note.content !== mark.content) {
+      this.clearMark();
+      return;
+    }
+    if (mark.spec.kind === 'section') this.markSection(note);
+    else this.markQuery();
+  };
+
+  /** **קטע: מסגרת אחת סביב כל השורות שלו.** ``lines`` הוא ``line_range`` של השרת — מהכותרת ועד לפני הכותרת
+   *  הבאה באותה רמה או גבוהה ממנה, באותה התאמה כמו ``codekeeper_get_file`` עם ``section``. השורות נמצאות לפי
+   *  ההיסט שהמנוע מציב על כל שורה (``sourceOffsets`` ב-``paint``, ``sourceOffsetAt``): תחילת כל שורת מקור מחושבת
+   *  כאן באותו חשבון שבו המנוע מציב אותה — פיצול ב-``'\n'``, ואורך השורה ועוד 1 לכל שורה (``render`` ו-
+   *  ``_renderMarkdownView`` ב-``sticky-md-render.js``) — והשרת מונה שורות באותו פיצול (``md_parser``). כך אין
+   *  כאן פרסור שני של הכותרות. בלוק מתקפל סגור שמסתיר שורה מהקטע נפתח (``openDetailsAround``), כמו בחיפוש
+   *  בתוך פתק בוובאפ. **אלמנט אחד ולא מסגרת לכל שורה:** שורות הקטע יכולות לשבת בתוך רשימה, טבלה או בלוק
+   *  מתקפל, ומסגרות נפרדות לא היו נסגרות לצורה אחת. */
+  NoteView.prototype.markSection = function (note) {
+    var v = this.view;
+    var lines = note.content.split('\n');
+    var first = this.mark.spec.lines[0];
+    var last = Math.min(this.mark.spec.lines[1], lines.length);
+    var from = 0;
+    for (var i = 0; i < first - 1 && i < lines.length; i += 1) from += lines[i].length + 1;
+    var to = from;
+    for (var j = first - 1; j < last - 1; j += 1) to += lines[j].length + 1;
+    var rows = [];
+    var all = v.content.querySelectorAll('.sticky-task-line');
+    for (var k = 0; k < all.length; k += 1) {
+      var at = v.md.sourceOffsetAt(all[k]);
+      if (at !== null && at >= from && at <= to) rows.push(all[k]);
+    }
+    if (!rows.length) {
+      this.markMissing();
+      return;
+    }
+    for (var r = 0; r < rows.length; r += 1) v.md.openDetailsAround(rows[r], v.content);
+    var frame = this.doc.createElement('div');
+    frame.className = 'ck-section-frame';
+    frame.setAttribute('aria-hidden', 'true');
+    v.content.appendChild(frame);
+    // ``ck-has-frame`` — הגוף מפנה מקום למסגרת (``note_view.css``).
+    v.paper.classList.toggle('ck-has-frame', true);
+    v.frame = frame;
+    v.frameRows = rows;
+  };
+
+  /** **המיקום והגובה של המסגרת** — מראש השורה המצוירת הראשונה של הקטע ועד תחתית האחרונה, יחסית למכל התוכן,
+   *  ב-``--ck-frame-top`` וב-``--ck-frame-height``. **רק אנכי, ורק מדידה:** הרוחב, והמרווח בין המסגרת לשורות,
+   *  הם ב-``note_view.css`` (``.ck-section-frame``), בתכונות לוגיות — הנוסחה שם ולא כאן (``amir-bug-patterns``
+   *  H7, "שתי נוסחאות לאותו מימד"). שורה שאינה מצוירת — בבלוק שהמשתמש קיפל — אינה נכנסת: המלבן שלה אינו מתאר
+   *  שום דבר על המסך (``TextHighlight.isRendered``). כשאף שורה אינה מצוירת המסגרת מוסתרת, וחוזרת כשהבלוק נפתח. */
+  NoteView.prototype.placeFrame = function () {
+    var v = this.view;
+    if (!v || !v.frame || !v.frameRows) return;
+    var top = Infinity;
+    var bottom = -Infinity;
+    for (var i = 0; i < v.frameRows.length; i += 1) {
+      var row = v.frameRows[i];
+      if (!v.highlighter.isRendered(row)) continue;
+      var box = row.getBoundingClientRect();
+      if (box.top < top) top = box.top;
+      if (box.bottom > bottom) bottom = box.bottom;
+    }
+    if (!(bottom > top)) {
+      v.frame.hidden = true;
+      return;
+    }
+    var base = v.content.getBoundingClientRect();
+    v.frame.hidden = false;
+    v.frame.style.setProperty('--ck-frame-top', (top - base.top) + 'px');
+    v.frame.style.setProperty('--ck-frame-height', (bottom - top) + 'px');
+  };
+
+  /** **``query``: כל המופעים בטקסט המוצג, בהדגשה של החיפוש בתוך פתק בוובאפ** — אותו מודול (``TextHighlight``),
+   *  אותה מחלקה ואותו דילוג על טקסט שהמנוע מייצר (``_applyNoteSearch`` ב-``sticky-notes.js``). הראשון פעיל, ובלוק
+   *  מתקפל סגור סביבו נפתח. **ההתאמה כאן היא של הדפדפן** (``splitMatches``: ``RegExp`` עם ``'gi'``), ובשרת
+   *  ``casefold`` (``scan_file_query``); הן חלוקות רק על אותיות נדירות, כמו ``ß`` מול ``ss``. אז, כמו במופע שכולו
+   *  בתחביר של Markdown, השרת מצא והטקסט המוצג לא — ``markMissing``. */
+  NoteView.prototype.markQuery = function () {
+    var v = this.view;
+    var mark = this.mark;
+    var hits = v.highlighter.highlightWithin(v.content, mark.spec.query, {
+      className: MARK_HIT_CLASS,
+      skip: '.' + v.md.GENERATED_TEXT_CLASS
+    });
+    mark.count = hits.length;
+    mark.active = hits.length ? 0 : -1;
+    if (!hits.length) {
+      this.markMissing();
+      return;
+    }
+    v.highlighter.setActive(v.content, MARK_HIT_CLASS, hits[0]);
+    v.md.openDetailsAround(hits[0], v.content);
+    this.syncMarkNav();
+  };
+
+  /** ההתאמה הפעילה, מהעץ (``hitsWithin``) — או ``null``. */
+  NoteView.prototype.activeHit = function () {
+    var v = this.view;
+    var mark = this.mark;
+    if (!v || !mark || mark.active < 0) return null;
+    return v.highlighter.hitsWithin(v.content, MARK_HIT_CLASS)[mark.active] || null;
+  };
+
+  /** **התצוגה נפתחת על הסימון** — גלילה של גוף הפתק בלבד, ולא של הדף. קטע: ראש המסגרת לראש השטח הגלוי של
+   *  הגוף, כשהמסגרת אינה גלויה כולה — כך הכותרת גלויה גם כשהקטע ארוך מהגובה. ``query``: ההתאמה הפעילה, דרך
+   *  ``scrollIntoViewWithin`` — כמו בחיפוש בתוך פתק בוובאפ. גלילה אנכית בלבד בקטע; רכה או קופצת לפי
+   *  ``scroll-behavior`` של ``.ck-body``. */
+  NoteView.prototype.revealMark = function () {
+    var v = this.view;
+    var mark = this.mark;
+    if (!v || !mark) return;
+    if (mark.spec.kind === 'query') {
+      var hit = this.activeHit();
+      if (hit) v.highlighter.scrollIntoViewWithin(v.body, hit);
+      return;
+    }
+    this.placeFrame();
+    if (!v.frame || v.frame.hidden) return;
+    var b = v.body.getBoundingClientRect();
+    var f = v.frame.getBoundingClientRect();
+    var top = b.top + v.body.clientTop;
+    if (f.top < top || f.bottom > top + v.body.clientHeight) v.body.scrollTop += f.top - top;
+  };
+
+  /** האם להציג "הקודם/הבא" — ``query`` עם יותר מהתאמה אחת בטקסט המוצג (החלטת המשתמש). */
+  NoteView.prototype.markNavShown = function () {
+    return !!this.mark && this.mark.spec.kind === 'query' && this.mark.count > 1;
+  };
+
+  NoteView.prototype.syncMarkNav = function () {
+    var v = this.view;
+    if (!v || !v.count) return;
+    v.count.textContent = this.markNavShown() ? (this.mark.active + 1) + '/' + this.mark.count : '';
+  };
+
+  /** "הקודם" (``-1``) / "הבא" (``1``), במעגל — כמו ``_stepNoteSearch`` בוובאפ. ההתאמות נמצאות מחדש מהעץ
+   *  (``hitsWithin``): התאמה שעוברת בין צמתים עטופה בכמה חלקים, וכל חלק היה נספר כהתאמה. */
+  NoteView.prototype.stepMark = function (direction) {
+    var v = this.view;
+    var mark = this.mark;
+    if (!v || !this.markNavShown()) return;
+    var hits = v.highlighter.hitsWithin(v.content, MARK_HIT_CLASS);
+    var n = hits.length;
+    if (!n) return;
+    mark.count = n;
+    mark.active = (mark.active + direction + n) % n;
+    var hit = hits[mark.active];
+    v.highlighter.setActive(v.content, MARK_HIT_CLASS, hit);
+    v.md.openDetailsAround(hit, v.content);
+    v.highlighter.scrollIntoViewWithin(v.body, hit);
+    this.syncMarkNav();
+  };
+
+  /** מסיר את הסימון מהמסך ומהזיכרון — בכניסה לעריכה, ובפתק בגרסה אחרת מזו שהשרת בדק (``applyMark``). בלוק
+   *  מתקפל שנפתח בשביל הסימון נשאר פתוח עד הרינדור הבא. */
+  NoteView.prototype.clearMark = function () {
+    this.mark = null;
+    var v = this.view;
+    if (!v) return;
+    if (v.frame && v.frame.parentNode) v.frame.parentNode.removeChild(v.frame);
+    v.frame = null;
+    v.frameRows = null;
+    if (v.paper) v.paper.classList.toggle('ck-has-frame', false);
+    if (v.content && v.highlighter) v.highlighter.clearHighlights(v.content, MARK_HIT_CLASS);
+    this.syncMarkNav();
+    this.updateControls();
+  };
+
+  /** **הסימון לא נמצא בטקסט המוצג**, אף שהשרת מצא אותו במקור — מופע שכולו בתחביר של Markdown (כתובת של קישור,
+   *  סימן של כותרת או רשימה, צ'קבוקס), או שעובר בין חלקים שמוצגים בנפרד. הפתק מוצג בלי סימון, ושני הצדדים
+   *  יודעים: המשתמש בשורה שמתחת לפתק, ו-Claude ב-``ui/update-model-context`` (החלטת המשתמש) — אחרת הוא היה מניח
+   *  שהתצוגה נפתחה על הקטע.
+   *
+   *  **רק כשהמקום של הדף אצל המודל עוד פנוי** (``modelSeq`` הוא 0): כל עדכון מחליף את הקודם ("Each request
+   *  overwrites the previous context sent by the View", המפרט), ועדכון של שמירה (``updateModelContext``) נושא את
+   *  הגוף העדכני של הפתק — הודעה על סימון הייתה מוחקת אותו. */
+  NoteView.prototype.markMissing = function () {
+    var spec = this.mark.spec;
+    var name = spec.kind === 'query' ? spec.query : spec.title;
+    this.setNotice((name ? '"' + name + '" ' : '') + 'לא נמצא בטקסט המוצג, ולכן הפתק מוצג בלי סימון.', true);
+    var note = this.current && this.current.note;
+    if (this.modelSeq !== 0 || !note) return;
+    var what = spec.kind === 'query' ? 'the query ' + JSON.stringify(spec.query) : 'the section ' + JSON.stringify(spec.title);
+    var lines = ['---', 'note_id: ' + note.id, '---', '',
+      'The note view could not mark ' + what + ': the server found it in the note text, but nothing in the note as '
+      + 'displayed matches it. It is only in Markdown syntax that is not shown as text (a link address, a heading or '
+      + 'list marker, a checkbox), or it spans parts that are displayed separately. The note is shown without a mark. '
+      + 'To point the user at this part, call codekeeper_show_note again with a phrase from the visible text, or with '
+      + 'section= for its heading.'];
+    this.request('ui/update-model-context', { content: [{ type: 'text', text: lines.join('\n') }] }, function () {
+      // **התשובה אינה משנה דבר:** שום דבר לא מוחזק בזמן ההמתנה, ושום דבר על המסך אינו תלוי בה — המשתמש כבר
+      // רואה שהסימון לא נמצא. סירוב של המארח משאיר את Claude בלי ההודעה, ואין ערוץ אחר להעביר אותה בו.
+    });
   };
 
   // -- קישורים -------------------------------------------------------------------
@@ -1119,19 +1389,43 @@
     down.textContent = '▼';
     group.appendChild(up);
     group.appendChild(down);
+    // **"הקודם" / "הבא" בין ההתאמות של ``query``** — כפתורי טקסט, נפרדים מ-▲▼ שגוללים, ומונה ביניהם בצורה של
+    // החיפוש בתוך פתק בוובאפ ("2/5"). טקסט ולא חץ: חץ כיווני היה צריך להתהפך בפריסה מימין לשמאל
+    // (``rtl-geometry-and-clamp``, סעיף 6). השם שעל הכפתור הוא השם הנגיש שלו, ו-``title`` מפרט.
+    var nav = doc.createElement('span');
+    nav.className = 'ck-mark-nav';
+    var textButton = function (className, text, hint) {
+      var b = doc.createElement('button');
+      b.setAttribute('type', 'button');
+      b.className = 'ck-btn ' + className;
+      b.setAttribute('title', hint);
+      b.textContent = text;
+      return b;
+    };
+    var prev = textButton('ck-mark-prev', 'הקודם', 'ההתאמה הקודמת');
+    var count = doc.createElement('span');
+    count.className = 'ck-mark-count';
+    var next = textButton('ck-mark-next', 'הבא', 'ההתאמה הבאה');
+    nav.appendChild(prev);
+    nav.appendChild(count);
+    nav.appendChild(next);
     bar.appendChild(expand);
     bar.appendChild(edit);
+    bar.appendChild(nav);
     bar.appendChild(group);
     bar.hidden = true;
     expand.hidden = true;
     edit.hidden = true;
+    nav.hidden = true;
     group.hidden = true;
     expand.addEventListener('click', function () { self.requestFullscreen(); });
     edit.addEventListener('click', function () { self.beginEdit(null); });
+    prev.addEventListener('click', function () { self.stepMark(-1); });
+    next.addEventListener('click', function () { self.stepMark(1); });
     up.addEventListener('click', function () { self.scrollStep(-1); });
     down.addEventListener('click', function () { self.scrollStep(1); });
     body.addEventListener('scroll', function () { self.updateScrollButtons(); });
-    this.view = { body: body, bar: bar, expand: expand, edit: edit, group: group, up: up, down: down };
+    this.view = { body: body, bar: bar, expand: expand, edit: edit, nav: nav, count: count, group: group, up: up, down: down };
     return bar;
   };
 
@@ -1285,6 +1579,9 @@
   NoteView.prototype.openEditor = function (offset) {
     var v = this.view;
     if (!v || !v.paper) return;
+    // **הכניסה לעריכה מסירה את הסימון** (החלטת המשתמש): השורות שהוא סימן הן של הטקסט שלפני העריכה. גם
+    // כשהגוף חוזר למסך באמצע עריכה (יציאה ממסך מלא עם שינוי שלא נשמר) — בלי סימון.
+    this.clearMark();
     var self = this;
     var doc = this.doc;
     var note = this.current.note;

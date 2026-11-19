@@ -405,6 +405,10 @@
    * — כך מוסתר התוכן של ``<details>`` סגור בכרומיום (MDN,
    * ‏Element.checkVisibility(), זמין בכל הדפדפנים ממרץ 2024). דפדפן ישן
    * בלעדיו נבדק לפי ``getClientRects``, שתופס לפחות את ``display: none``.
+   *
+   * מיוצא גם לצרכן שמודד בעצמו את מה שהוא מסמן — המסגרת של קטע בתצוגת הפתק
+   * בתוך Claude (``mcp_server/apps/note_view.js``) נמתחת רק על שורות מצוירות,
+   * מאותה סיבה: המלבן של שורה בבלוק סגור אינו מתאר שום דבר על המסך.
    */
   function isRendered(el) {
     if (typeof el.checkVisibility === 'function') return el.checkVisibility();
@@ -422,6 +426,7 @@
       setActive: setActive,
       clearHighlights: clearHighlights,
       scrollIntoViewWithin: scrollIntoViewWithin,
+      isRendered: isRendered,
     });
   }
 })();

@@ -107,6 +107,11 @@ class FakeElement {
     for (const el of this.walk()) if (el !== this && el.className.split(/\s+/).indexOf(cls) !== -1) return el;
     return null;
   }
+  /** ``querySelectorAll`` ל-``.class`` בלבד, בסדר המסמך — מה שהדף שואל (השורות של קטע מסומן). */
+  querySelectorAll(selector) {
+    const cls = selector.replace(/^\./, '');
+    return [...this.walk()].filter((el) => el !== this && el.className.split(/\s+/).indexOf(cls) !== -1);
+  }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
   dispatch(type, extra) {
     const event = Object.assign({ type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }, extra || {});
@@ -221,6 +226,49 @@ function load(opts = {}) {
   // נבדק בדפדפן (``tests/test_mcp_note_view_browser.py``) ובבדיקות שלו; כאן — מה שהדף עושה סביבו.
   // ``opts.engineOmit`` — מנוע שחסר בו חלק מהחוזה (דף שנבנה עם מנוע אחר).
   const mdCalls = [];
+  const detailsCalls = [];
+  // **דמה של מודול ההדגשה** (``utils/text-highlight.js``), בחוזה שלו: ``highlightWithin`` מנקה הדגשות קודמות
+  // ומחזיר עטיפה לכל מופע (כאן — לפי ``_text`` של כל אלמנט, בלי הבדל רישיות), ``hitsWithin`` מוצא אותן מהעץ,
+  // ``setActive`` מסמן אחת. הכללים עצמם (רצפים, דילוג, גלילה) נבדקים על המודול האמיתי — בטסטים שלו ובדפדפן.
+  // ``opts.highlighterOmit`` — מודול שחסר בו חלק מהחוזה; ``opts.noHighlighter`` — בלי המודול.
+  const hl = { calls: [] };
+  if (!opts.noHighlighter) {
+    const highlighter = {
+      highlightWithin(root, term, o) {
+        hl.calls.push({ fn: 'highlightWithin', root, term, opts: o });
+        this.clearHighlights(root, o.className);
+        const heads = [];
+        for (const el of [...root.walk()]) {
+          if (el === root || el.isHit || !el._text) continue;
+          const n = el._text.toLowerCase().split(String(term).toLowerCase()).length - 1;
+          for (let i = 0; i < n; i += 1) {
+            const w = document.createElement('span');
+            w.className = o.className;
+            w.isHit = true;
+            el.appendChild(w);
+            heads.push(w);
+          }
+        }
+        return heads;
+      },
+      hitsWithin(root, cls) { return [...root.walk()].filter((el) => el.isHit && el.className.split(/\s+/).indexOf(cls) !== -1); },
+      setActive(root, cls, hit) {
+        hl.calls.push({ fn: 'setActive', root, hit });
+        for (const el of this.hitsWithin(root, cls)) el.classList.toggle('is-active', el === hit);
+        return hit ? [hit] : [];
+      },
+      clearHighlights(root, cls) {
+        hl.calls.push({ fn: 'clearHighlights', root });
+        const hits = this.hitsWithin(root, cls);
+        for (const el of hits) el.parentNode.removeChild(el);
+        return hits.length;
+      },
+      scrollIntoViewWithin(root, hit) { hl.calls.push({ fn: 'scrollIntoViewWithin', root, hit }); },
+      isRendered() { return true; },
+    };
+    for (const key of opts.highlighterOmit || []) delete highlighter[key];
+    win.TextHighlight = Object.freeze(highlighter);
+  }
   if (!opts.noEngine) {
     const engine = {
       MD_SAFE_LINK: /^https?:\/\//i,
@@ -239,6 +287,12 @@ function load(opts = {}) {
         const row = t ? t.closest('.sticky-task-line') : null;
         const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
         return Number.isFinite(offset) ? offset : null;
+      },
+      GENERATED_TEXT_CLASS: 'sticky-md-generated',
+      /** נרשם בלבד — הפתיחה עצמה (מה נפתח ומה לא) נבדקת על המנוע האמיתי, בדפדפן. */
+      openDetailsAround(node, root) {
+        detailsCalls.push({ node, root });
+        return [];
       },
       render(container, text, options) {
         mdCalls.push({ container, text, options });
@@ -272,7 +326,7 @@ function load(opts = {}) {
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   const host = {
-    win, document, main, sent, created, timers, observed, unobserved, parent, zoom, mdCalls, vv,
+    win, document, main, sent, created, timers, observed, unobserved, parent, zoom, mdCalls, vv, hl, detailsCalls,
     deliver(data, source = parent) { for (const fn of listeners) fn({ source, data }); },
     methods() { return sent.map((s) => s.message.method || (s.message.error ? 'error' : 'result')); },
     last(method) { return [...sent].reverse().find((s) => s.message.method === method); },
@@ -717,7 +771,8 @@ console.log('\nבלי המנוע');
 }
 {
   // כל מה שהתצוגה צריכה מהמנוע נבדק במקום אחד, לפני הרינדור — ולא רק מה שהרינדור עצמו קורא.
-  for (const missing of ['render', 'MD_SAFE_LINK', 'isViewControl', 'sourceOffsetAt', 'buildStrokeIcon']) {
+  for (const missing of ['render', 'MD_SAFE_LINK', 'isViewControl', 'sourceOffsetAt', 'buildStrokeIcon',
+    'openDetailsAround', 'GENERATED_TEXT_CLASS']) {
     const host = load({ engineOmit: [missing] });
     initialize(host, {}, { openLinks: {} });
     host.deliver(toolResult({ ok: true, note: { title: 'x', content: '[אתר](https://example.com)', color: '#ffffcc' } }));
@@ -1703,6 +1758,256 @@ function touchEditor(opts = {}) {
   answer(host, toolCalls(host, 'codekeeper_show_note').pop(), toolAnswer(editNote()));
   const ta = host.find('ck-editor');
   check('מסך מלא בגובה גמיש (ck-expanded) — אין ריפוד זמני גם במסך מגע', ta && !/\bck-opening\b/.test(ta.classAtFocus || ''), ta && ta.classAtFocus);
+}
+
+// ── סימון קטע (``highlight`` מ-``codekeeper_show_note``) ─────────────────────────────────
+
+const SECTION_LINES = ['# מדריך', 'פתיחה', '## התקנה', 'שלב ראשון', '### פרטים', 'פרט פנימי', '## שימוש', 'הפעלה'];
+const MARK_INVALID = 'הסימון שהתבקש לא הגיע בצורה תקינה, ולכן הפתק מוצג בלי סימון.';
+/** פתק עם ``highlight`` — בצורה ש-``_note_highlight`` ב-``mcp_server/handlers.py`` מחזיר. */
+const marked = (highlight, lines = SECTION_LINES, base = NOTE) => ({ ...base, note: { ...base.note, content: lines.join('\n') }, highlight });
+const sectionMark = (a, b, title = 'התקנה') => ({ kind: 'section', title, line_range: [a, b] });
+const queryMark = (query) => ({ kind: 'query', query });
+const hlCalls = (host, fn) => host.hl.calls.filter((c) => c.fn === fn);
+
+console.log('\nסימון קטע — section');
+{
+  const host = load();
+  initialize(host);
+  host.deliver(toolResult(marked(sectionMark(3, 6))));
+  const rows = host.findAll('sticky-task-line');
+  const content = host.find('ck-content');
+  const opened = host.detailsCalls.map((c) => rows.indexOf(c.node));
+  check('השורות 3–6 בדיוק (מהכותרת ועד לפני הכותרת הבאה ברמתה) — כל אחת עוברת ב-openDetailsAround, בתוך התוכן',
+    JSON.stringify(opened) === '[2,3,4,5]' && host.detailsCalls.every((c) => c.root === content), opened);
+  const frames = host.findAll('ck-section-frame');
+  check('מסגרת אחת, בתוך מכל התוכן, מוסתרת מקורא מסך',
+    frames.length === 1 && frames[0].parentNode === content && frames[0].getAttribute('aria-hidden') === 'true',
+    frames.map((f) => [f.parentNode && f.parentNode.className, f.getAttribute('aria-hidden')]));
+  check('הנייר נושא ck-has-frame — הגוף מפנה מקום למסגרת', host.find('ck-paper').classList.contains('ck-has-frame'), host.find('ck-paper').className);
+  check('קטע אינו מדגיש טקסט, ואין "הקודם/הבא"', hlCalls(host, 'highlightWithin').length === 0 && host.find('ck-mark-nav').hidden === true,
+    [hlCalls(host, 'highlightWithin').length, host.find('ck-mark-nav').hidden]);
+  check('בלי הודעה מתחת לפתק', host.find('ck-notice').hidden === true, host.find('ck-notice').textContent);
+}
+{
+  const host = load();
+  initialize(host);
+  host.deliver(toolResult(marked(sectionMark(7, 8, 'שימוש'))));
+  const rows = host.findAll('sticky-task-line');
+  check('קטע בסוף הפתק — שתי השורות האחרונות', JSON.stringify(host.detailsCalls.map((c) => rows.indexOf(c.node))) === '[6,7]',
+    host.detailsCalls.map((c) => rows.indexOf(c.node)));
+}
+{
+  const host = load();
+  initialize(host);
+  host.deliver(toolResult(marked(sectionMark(1, 8, 'מדריך'))));
+  check('קטע מהשורה הראשונה ועד הסוף — כל השורות', host.detailsCalls.length === SECTION_LINES.length, host.detailsCalls.length);
+}
+{
+  const host = load();
+  initialize(host);
+  host.deliver(toolResult(marked({ kind: 'section', title: 7, line_range: [3, 6] })));
+  check('title שאינו מחרוזת אינו פוסל את הסימון — הוא רק לא מוצג', host.findAll('ck-section-frame').length === 1 && host.find('ck-notice').hidden === true,
+    [host.findAll('ck-section-frame').length, host.find('ck-notice').textContent]);
+}
+
+console.log('\nסימון קטע — צורה שהשרת אינו מייצר');
+{
+  const BAD = ['x', 5, [1, 2], null, {},
+    { kind: 'section', line_range: [0, 2] }, { kind: 'section', line_range: [3, 2] }, { kind: 'section', line_range: [1.5, 2] },
+    { kind: 'section', line_range: ['1', 2] }, { kind: 'section', line_range: [1] }, { kind: 'section', line_range: [1, 2, 3] },
+    { kind: 'section', line_range: [null, 2] }, { kind: 'section', line_range: '1-2' }, { kind: 'section' },
+    { kind: 'query', query: '' }, { kind: 'query', query: 5 }, { kind: 'query' }, { kind: 'other', query: 'x' }];
+  for (const bad of BAD) {
+    const host = load();
+    initialize(host);
+    host.deliver(toolResult(marked(bad)));
+    check(`highlight ${JSON.stringify(bad)} — הפתק מוצג בלי סימון, והודעה אומרת את זה`,
+      !!host.find('ck-paper') && host.findAll('ck-section-frame').length === 0 && hlCalls(host, 'highlightWithin').length === 0
+        && host.find('ck-notice').textContent === MARK_INVALID && host.find('ck-notice').hidden === false,
+      [!!host.find('ck-paper'), host.findAll('ck-section-frame').length, host.find('ck-notice') && host.find('ck-notice').textContent]);
+  }
+}
+{
+  const host = load();
+  initialize(host);
+  host.deliver(toolResult(NOTE));
+  check('בלי highlight — בלי סימון ובלי הודעה', host.findAll('ck-section-frame').length === 0 && hlCalls(host, 'highlightWithin').length === 0
+    && host.find('ck-notice').hidden === true, host.find('ck-notice').textContent);
+}
+
+console.log('\nסימון קטע — query, והקודם/הבא');
+{
+  const host = load();
+  initialize(host);
+  host.deliver(toolResult(marked(queryMark('tool'), ['Tool אחד', 'בלי', 'tool שני וגם TOOL'])));
+  const content = host.find('ck-content');
+  const body = host.find('ck-body');
+  const call = hlCalls(host, 'highlightWithin')[0];
+  check('highlightWithin על התוכן — אותה מחלקה ואותו דילוג כמו בחיפוש בתוך פתק בוובאפ',
+    call && call.root === content && call.term === 'tool' && call.opts.className === 'sticky-note-search-hit' && call.opts.skip === '.sticky-md-generated',
+    call && [call.term, call.opts]);
+  const hits = host.findAll('sticky-note-search-hit');
+  check('שלוש התאמות; הראשונה פעילה', hits.length === 3 && hits[0].classList.contains('is-active') && !hits[1].classList.contains('is-active'),
+    hits.map((h) => h.className));
+  check('בלוק מתקפל סביב הראשונה נפתח, והגוף נגלל אליה', host.detailsCalls.length === 1 && host.detailsCalls[0].node === hits[0]
+    && hlCalls(host, 'scrollIntoViewWithin').length === 1 && hlCalls(host, 'scrollIntoViewWithin')[0].root === body
+    && hlCalls(host, 'scrollIntoViewWithin')[0].hit === hits[0], hlCalls(host, 'scrollIntoViewWithin').length);
+  check('"הקודם/הבא" מוצגים עם מונה 1/3, והשורה מוצגת בגללם', host.find('ck-mark-nav').hidden === false && host.find('ck-mark-count').textContent === '1/3'
+    && host.find('ck-controls').hidden === false, [host.find('ck-mark-nav').hidden, host.find('ck-mark-count').textContent, host.find('ck-controls').hidden]);
+  check('כפתורי טקסט, עם הסבר ב-title', host.find('ck-mark-prev').textContent === 'הקודם' && host.find('ck-mark-next').textContent === 'הבא'
+    && host.find('ck-mark-prev').getAttribute('title') === 'ההתאמה הקודמת' && host.find('ck-mark-next').getAttribute('title') === 'ההתאמה הבאה',
+    [host.find('ck-mark-prev').textContent, host.find('ck-mark-next').textContent]);
+  host.find('ck-mark-next').dispatch('click');
+  const scrolls = hlCalls(host, 'scrollIntoViewWithin');
+  check('"הבא" — 2/3, השנייה פעילה, הבלוק שלה נפתח והגוף נגלל אליה', host.find('ck-mark-count').textContent === '2/3'
+    && hits[1].classList.contains('is-active') && !hits[0].classList.contains('is-active')
+    && host.detailsCalls[host.detailsCalls.length - 1].node === hits[1] && scrolls[scrolls.length - 1].hit === hits[1],
+    host.find('ck-mark-count').textContent);
+  host.find('ck-mark-prev').dispatch('click');
+  host.find('ck-mark-prev').dispatch('click');
+  check('"הקודם" מהראשונה — חוזר לאחרונה (3/3), במעגל', host.find('ck-mark-count').textContent === '3/3' && hits[2].classList.contains('is-active'),
+    host.find('ck-mark-count').textContent);
+  host.find('ck-mark-next').dispatch('click');
+  check('"הבא" מהאחרונה — חוזר לראשונה (1/3)', host.find('ck-mark-count').textContent === '1/3' && hits[0].classList.contains('is-active'),
+    host.find('ck-mark-count').textContent);
+}
+{
+  const host = load();
+  initialize(host);
+  host.deliver(toolResult(marked(queryMark('שני'), ['tool אחד', 'tool שני'])));
+  check('התאמה אחת — מסומנת, בלי "הקודם/הבא", ובלי שורת כפתורים', host.findAll('sticky-note-search-hit').length === 1
+    && host.find('ck-mark-nav').hidden === true && host.find('ck-controls').hidden === true,
+    [host.findAll('sticky-note-search-hit').length, host.find('ck-mark-nav').hidden, host.find('ck-controls').hidden]);
+}
+
+console.log('\nסימון קטע — במסך מלא: שורה רק עם "הקודם/הבא"');
+{
+  const host = load();
+  initialize(host, { availableDisplayModes: ['inline', 'fullscreen'], displayMode: 'fullscreen' }, EDIT_CAPS);
+  host.deliver(toolResult(marked(queryMark('tool'), ['tool אחד', 'tool שני'], editNote())));
+  check('כמה התאמות — השורה מוצגת, ובה רק "הקודם/הבא"', host.find('ck-controls').hidden === false && host.find('ck-mark-nav').hidden === false
+    && host.find('ck-expand').hidden === true && host.find('ck-edit').hidden === true && host.find('ck-scroll-btns').hidden === true,
+    ['ck-controls', 'ck-mark-nav', 'ck-expand', 'ck-edit', 'ck-scroll-btns'].map((c) => host.find(c).hidden));
+}
+{
+  const host = load();
+  initialize(host, { availableDisplayModes: ['inline', 'fullscreen'], displayMode: 'fullscreen' }, EDIT_CAPS);
+  host.deliver(toolResult(marked(queryMark('אחד'), ['tool אחד', 'tool שני'], editNote())));
+  check('התאמה אחת — אין שורה במסך מלא, כמו בלי סימון', host.find('ck-controls').hidden === true, host.find('ck-controls').hidden);
+}
+
+console.log('\nסימון קטע — לא נמצא בטקסט המוצג');
+{
+  const host = load();
+  initialize(host);
+  // השרת מצא את "tool" בכתובת של הקישור; בתצוגה רק התווית.
+  host.deliver(toolResult(marked(queryMark('tool'), ['[קישור](https://example.com/tool)', 'שורה'])));
+  const notice = host.find('ck-notice');
+  check('הודעה מתחת לפתק, בלי "הקודם/הבא"', notice.hidden === false && notice.textContent === '"tool" לא נמצא בטקסט המוצג, ולכן הפתק מוצג בלי סימון.'
+    && /\bis-error\b/.test(notice.className) && host.find('ck-mark-nav').hidden === true, [notice.textContent, notice.className]);
+  const ctx = host.sent.filter((s) => s.message.method === 'ui/update-model-context');
+  const text = ctx.length === 1 ? ctx[0].message.params.content[0].text : '';
+  check('Claude לומד שהסימון לא עבד (ui/update-model-context) — המזהה, ה-query, ומה לעשות',
+    ctx.length === 1 && text.indexOf('note_id: ' + NOTE.note.id) !== -1 && text.indexOf('"tool"') !== -1 && text.indexOf('codekeeper_show_note') !== -1
+      && text.indexOf('section=') !== -1, text);
+  check('בלי גלילה ובלי פתיחת בלוקים', hlCalls(host, 'scrollIntoViewWithin').length === 0 && host.detailsCalls.length === 0,
+    [hlCalls(host, 'scrollIntoViewWithin').length, host.detailsCalls.length]);
+}
+{
+  const host = load();
+  initialize(host);
+  host.deliver(toolResult(marked(sectionMark(20, 21, 'פרק'))));
+  check('קטע שאין לו שורות בתצוגה — הודעה עם שם הקטע, ובלי מסגרת', host.find('ck-notice').textContent === '"פרק" לא נמצא בטקסט המוצג, ולכן הפתק מוצג בלי סימון.'
+    && host.findAll('ck-section-frame').length === 0 && !host.find('ck-paper').classList.contains('ck-has-frame'),
+    host.find('ck-notice').textContent);
+}
+{
+  // אחרי שמירה המקום של הדף אצל המודל תפוס בגוף העדכני — הודעה על סימון הייתה מוחקת אותו.
+  const host = editableView();
+  const ta = openEditorAt(host, 1);
+  ta.value = 'שורה ראשונה\nערוכה\nשורה שלישית';
+  host.find('ck-save').dispatch('click');
+  answer(host, toolCalls(host, 'codekeeper_note_view_save')[0], savedAnswer(ta.value));
+  const before = host.sent.filter((s) => s.message.method === 'ui/update-model-context').length;
+  host.deliver(toolResult(marked(queryMark('tool'), ['[קישור](https://example.com/tool)'], editNote())));
+  check('אחרי שמירה — ההודעה למשתמש מוצגת, ו-Claude אינו מקבל עדכון שידרוס את הגוף השמור',
+    before === 1 && host.sent.filter((s) => s.message.method === 'ui/update-model-context').length === 1
+      && host.find('ck-notice').textContent.indexOf('לא נמצא בטקסט המוצג') !== -1,
+    [before, host.sent.filter((s) => s.message.method === 'ui/update-model-context').length, host.find('ck-notice').textContent]);
+}
+
+console.log('\nסימון קטע — עריכה מסירה אותו');
+{
+  const host = editableView({ note: marked(sectionMark(1, 2, 'x'), LINES, editNote()) });
+  check('לפני העריכה — מסגרת', host.findAll('ck-section-frame').length === 1, host.findAll('ck-section-frame').length);
+  openEditorAt(host, 1, marked(undefined, LINES, editNote()));
+  check('בכניסה לעריכה — המסגרת יוצאת, והגוף כבר לא מפנה לה מקום', host.findAll('ck-section-frame').length === 0
+    && !host.find('ck-paper').classList.contains('ck-has-frame'), [host.findAll('ck-section-frame').length, host.find('ck-paper').className]);
+  host.find('ck-cancel').dispatch('click');
+  check('ביציאה מהעריכה — הפתק בלי סימון', !host.find('ck-editor') && host.findAll('ck-section-frame').length === 0,
+    [!!host.find('ck-editor'), host.findAll('ck-section-frame').length]);
+}
+{
+  const host = editableView({ note: marked(queryMark('שורה'), LINES, editNote()) });
+  check('לפני העריכה — שלוש התאמות ו"הקודם/הבא"', host.findAll('sticky-note-search-hit').length === 3 && host.find('ck-mark-nav').hidden === false,
+    host.findAll('sticky-note-search-hit').length);
+  const ta = openEditorAt(host, 0, marked(undefined, LINES, editNote()));
+  check('בכניסה לעריכה — ההדגשות יוצאות מהתוכן', host.findAll('sticky-note-search-hit').length === 0
+    && hlCalls(host, 'clearHighlights').some((c) => c.root === host.find('ck-content')), host.findAll('sticky-note-search-hit').length);
+  ta.value = LINES.join('\n') + '\nעוד';
+  host.deliver({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: 'inline' } });
+  check('יציאה ממסך מלא עם שינוי שלא נשמר — הגוף חוזר בלי הדגשות ובלי "הקודם/הבא"', host.find('ck-body').hidden === false
+    && host.findAll('sticky-note-search-hit').length === 0 && host.find('ck-mark-nav').hidden === true,
+    [host.find('ck-body').hidden, host.findAll('sticky-note-search-hit').length, host.find('ck-mark-nav').hidden]);
+}
+{
+  // הקריאה הטרייה של העריכה הראתה שהפתק השתנה, ו-Claude לא פתח מסך מלא — הפתק החדש מוצג בלי הסימון.
+  const host = editableView({ note: marked(sectionMark(1, 2, 'x'), LINES, editNote()) });
+  host.find('ck-body').dispatch('click', { target: host.findAll('sticky-task-line')[0] });
+  answer(host, host.last('ui/request-display-mode'), { mode: 'inline' });
+  answer(host, toolCalls(host, 'codekeeper_show_note').pop(), toolAnswer({ ...editNote(), note: { ...editNote().note, content: 'אחר\nלגמרי', content_sha256: SHA2 } }));
+  check('גרסה אחרת — בלי מסגרת, ובלי הודעה שהסימון "לא נמצא"', host.mdCalls[host.mdCalls.length - 1].text === 'אחר\nלגמרי'
+    && host.findAll('ck-section-frame').length === 0 && host.find('ck-notice').textContent.indexOf('לא נמצא') === -1,
+    [host.findAll('ck-section-frame').length, host.find('ck-notice').textContent]);
+}
+{
+  const host = editableView({ note: marked(sectionMark(1, 2, 'x'), LINES, editNote()) });
+  host.find('ck-body').dispatch('click', { target: host.findAll('sticky-task-line')[0] });
+  answer(host, host.last('ui/request-display-mode'), { mode: 'inline' });
+  answer(host, toolCalls(host, 'codekeeper_show_note').pop(), toolAnswer(editNote()));
+  check('אותה גרסה, והעריכה לא נפתחה — הסימון נשאר', !host.find('ck-editor') && host.findAll('ck-section-frame').length === 1,
+    [!!host.find('ck-editor'), host.findAll('ck-section-frame').length]);
+}
+
+console.log('\nסימון קטע — סירובים של השרת');
+{
+  const TEXTS = {
+    section_not_found: 'הכותרת שהתבקשה לסימון לא נמצאה בפתק.',
+    ambiguous_section: 'הכותרת שהתבקשה לסימון מופיעה בפתק יותר מפעם אחת.',
+    no_match: 'הטקסט שהתבקש לסימון לא מופיע בפתק.',
+    section_and_query: 'אפשר לסמן כותרת או טקסט, לא את שניהם יחד.',
+  };
+  for (const [code, text] of Object.entries(TEXTS)) {
+    const host = load();
+    initialize(host);
+    host.deliver(toolResult({ ok: false, error: code, suggestions: ['התקנה'] }));
+    check(`${code} — הודעה בעברית, בלי פתק`, host.main.textContent === text && !host.find('ck-paper'), host.main.textContent);
+  }
+}
+
+console.log('\nסימון קטע — בלי מודול ההדגשה');
+{
+  const host = load({ noHighlighter: true });
+  initialize(host);
+  host.deliver(toolResult(NOTE));
+  check('בלי TextHighlight — הודעה, כמו בלי המנוע', host.main.textContent.indexOf('לא נטענה במלואה') !== -1 && !host.find('ck-paper'), host.main.textContent);
+  for (const missing of ['highlightWithin', 'hitsWithin', 'setActive', 'clearHighlights', 'scrollIntoViewWithin', 'isRendered']) {
+    const h = load({ highlighterOmit: [missing] });
+    initialize(h);
+    h.deliver(toolResult(NOTE));
+    check(`TextHighlight בלי ${missing} — הודעה`, h.main.textContent.indexOf('לא נטענה במלואה') !== -1 && !h.find('ck-paper'), h.main.textContent);
+  }
 }
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);

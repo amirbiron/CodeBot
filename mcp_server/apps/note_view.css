@@ -62,6 +62,8 @@
   --ck-paper-border: 1px;
   --ck-edit-pad: 6px;
   --ck-head-gap: 4px;
+  /* המרווח בין המסגרת של קטע מסומן לשורות שלו (``.ck-section-frame``), והמקום שהגוף מפנה לה. */
+  --ck-mark-gap: 6px;
 }
 
 html, body {
@@ -222,6 +224,56 @@ html.ck-expanded #ck-note-root {
   }
 }
 
+/* -- סימון קטע (``applyMark`` ב-``note_view.js``) ----------------------------------------- */
+
+/* **קטע: מסגרת מקווקוות אחת סביב כל השורות שלו** (החלטת המשתמש — פס בצד דומה מדי לבלוק קוד ולציטוט).
+   ``note_view.js`` מודד רק את הקצה העליון והגובה של השורות (``placeFrame``: ``--ck-frame-top``,
+   ``--ck-frame-height``), יחסית ל-``.ck-content``; הרוחב והמרווח סביב השורות כאן, בתכונות לוגיות
+   (``amir-bug-patterns`` H7, "שתי נוסחאות לאותו מימד"). ``pointer-events: none`` — לחיצה על שורה בתוך
+   המסגרת פותחת עריכה כמו בלעדיה. הצבע — הדיו של הפתק על נייר צבוע, וצבע הטקסט של המארח בלעדיו. */
+.ck-content {
+  position: relative;
+}
+
+.ck-section-frame {
+  position: absolute;
+  inset-inline: calc(-1 * var(--ck-mark-gap));
+  inset-block-start: calc(var(--ck-frame-top, 0px) - var(--ck-mark-gap));
+  block-size: calc(var(--ck-frame-height, 0px) + 2 * var(--ck-mark-gap));
+  box-sizing: border-box;
+  border: 1.5px dashed currentColor;
+  border-radius: 8px;
+  opacity: .7;
+  pointer-events: none;
+}
+
+.ck-paper.has-note-color .ck-section-frame {
+  border-color: var(--note-ink);
+}
+
+/* **מקום למסגרת בתוך הגוף.** הגוף הוא מכל הגלילה, ומה שיוצא ממנו נחתך — ולכן, כשיש מסגרת, הגוף מפנה לה
+   ``--ck-mark-gap`` מכל צד. לרוחב בלי שהטקסט זז: הריפוד מתקזז עם שוליים שליליים, שאוכלים מהריפוד של הנייר.
+   לגובה ריפוד רגיל — השורות יורדות במרווח הזה, וזה מה שנותן למסגרת של קטע בראש הפתק מקום מעליו. פתק בלי
+   מסגרת אינו משתנה בכלל. */
+.ck-paper.ck-has-frame .ck-body {
+  padding-block: var(--ck-mark-gap);
+  padding-inline: var(--ck-mark-gap);
+  margin-inline: calc(-1 * var(--ck-mark-gap));
+}
+
+/* **``query``: ההדגשה של החיפוש בתוך פתק בוובאפ** — עותק של ``.sticky-note-search-hit`` מ-
+   ``sticky-notes.css``, שהדף הזה אינו כולל (הוא מביא איתו את השלד של הפתק בלוח). ``tests/test_mcp_note_view.py``
+   משווה את שני הכללים, כך ששינוי באחד בלי השני מפיל את ה-CI. */
+.sticky-note-search-hit {
+  background: #ffd700;
+  color: #222;
+  border-radius: 2px;
+}
+.sticky-note-search-hit.is-active {
+  outline: 2px solid var(--note-ink, #2b3f6a);
+  outline-offset: 1px;
+}
+
 /* שורת הכפתורים בתחתית הפתק: "מסך מלא" ו"עריכה" בתחילת השורה, ▲▼ בסופה. **צמודה לתחתית הנייר**
    (החלטת המשתמש): ``margin-block-end`` שלילי אוכל חלק מהריפוד התחתון של הנייר, רק כשהשורה מוצגת —
    שורה מוסתרת היא ``display: none``, והריפוד המלא נשאר לטקסט. */
@@ -238,6 +290,21 @@ html.ck-expanded #ck-note-root {
   display: flex;
   gap: 8px;
   margin-inline-start: auto;
+}
+
+/* "הקודם", המונה ו"הבא" בין ההתאמות של ``query`` — אחרי "מסך מלא" ו"עריכה", ולפני ▲▼. במסך מלא הם
+   הדבר היחיד בשורה (``updateControls``). */
+.ck-mark-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ck-mark-count {
+  min-inline-size: 3ch;
+  text-align: center;
+  font-size: calc(var(--font-text-sm-size, 14px) / var(--ck-text-scale, 1));
+  font-variant-numeric: tabular-nums;
 }
 
 /* 44 על 44 לפחות — "Make every tap target at least 44pt" (Claude, "Design guidelines"). */
