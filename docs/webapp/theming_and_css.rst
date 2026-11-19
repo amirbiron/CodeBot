@@ -102,7 +102,7 @@
      - ``webapp/templates/base.html`` (קטע ``:root``) + Overrides ב‑תמות בהירות
    * - ``--scrollbar-width-base`` / ``--scrollbar-width``
      - Level 1
-     - רוחב פס גלילה גלובלי לפי מכשיר (מובייל שליש, טאבלט/דסקטופ חצי)
+     - עובי פס הגלילה בכל האתר לפי מכשיר (מובייל שליש, טאבלט/דסקטופ חצי) — של הפס האנכי (``width``) ושל האופקי (``height``) בכלל הגלובלי ``::-webkit-scrollbar``
      - ``webapp/templates/base.html`` (בלוק ``:root`` + media query)
    * - ``--btn-primary-bg`` / ``--btn-primary-color`` / ``--btn-primary-border`` / ``--btn-primary-shadow``
      - Level 2
@@ -278,9 +278,9 @@ Markdown Viewer ו‑Split View
 
 - ❌ אין לציין HEX בקבצי רכיבים (למעט חריגים מתועדים).  
   ✅ תמיד להשתמש ב‑``var(--token-name)`` ולוודא שהטוקן עלה לטבלת הרפרנס.
-- כשצריך פס גלילה צר ברכיב מקומי:  
-  - הגדירו ``::-webkit-scrollbar`` עם ``width``/``height`` על בסיס ``var(--scrollbar-width)``.  
-  - הוסיפו ``scrollbar-width: thin`` כדי לכסות גם Firefox.
+- **פס גלילה ברכיב — בדרך כלל בלי כלל משלו.** הכלל הגלובלי ``::-webkit-scrollbar`` בבלוק ה‑``<style>`` של ``base.html`` קובע את העובי בשני הצירים (``width`` לפס האנכי, ``height`` לאופקי) מ‑``var(--scrollbar-width)``, והצבעים מגיעים מהכללים הגלובליים שם ומהדריסות לפי ערכה ב‑``dark-mode.css`` וב‑``high-contrast.css``. רכיב שצריך עובי או צבע אחרים כותב כלל עם הבורר שלו, כמו ``.result-card-snippet ::-webkit-scrollbar`` ב‑``global_search.css``.
+- **אין** ``::-webkit-scrollbar`` **בלי בורר בקובץ של עמוד או רכיב.** כלל כזה חל על כל רכיב נגלל בעמוד — הסייר, הקוד, פתקים ומודאלים מהנבבר — ודורס את הכללים הגלובליים. כך היה ב‑``repo-browser.css`` עד נובמבר 2026: בדפדפן הריפו הפסים היו בצבע כהה קבוע בכל ערכה שאין לה דריסה משלה, ובעובי שלא תאם לשאר האתר. ``tests/test_page_wide_scrollbar_owners.py`` נכשל על כלל כזה מחוץ ל‑``base.html`` ולשני קובצי הערכות.
+- **ערך שאינו** ``auto`` **ב‑**\ ``scrollbar-width`` **או ב‑**\ ``scrollbar-color`` **מכבה את** ``::-webkit-scrollbar`` **באותו אלמנט, גם בכרום.** האלמנט עובר לפס הגלילה הסטנדרטי של הדפדפן, בלי העובי ובלי הצבעים של הערכה (MDN, העמוד של ``::-webkit-scrollbar``). נמדד בכרומיום 153, נובמבר 2026: אלמנט עם ``scrollbar-width: thin`` לבדו, ואלמנט עם ``scrollbar-color`` לבדו, קיבלו שניהם פס עבה יותר בצבעי הדפדפן במקום הפס של הערכה. לכן ``scrollbar-width: thin`` אינו תוספת שקופה "בשביל Firefox": מוסיפים אותו רק לרכיב שמוותר בכוונה על פס הגלילה של הערכה.
 - כלל אצבע:  
   - צריך צבע שחוזר בכמה קומפוננטות → טוקן סמנטי (Level 2).  
   - צריך גוון שמזוהה עם רכיב מסוים (צלחמת חיפוש, טאב מסוים) → טוקן רכיב (Level 3) + Overrides.  

@@ -984,8 +984,10 @@
             }
         }
 
+        /* width הוא העובי של הפס האנכי, ו-height של האופקי. בלי height הפס האופקי מקבל את העובי של הדפדפן ולא את --scrollbar-width. */
         ::-webkit-scrollbar {
             width: var(--scrollbar-width);
+            height: var(--scrollbar-width);
         }
         
         ::-webkit-scrollbar-track {
