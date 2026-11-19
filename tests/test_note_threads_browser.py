@@ -30,6 +30,7 @@ import io
 import json
 import re
 import time
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote, urlsplit
 
@@ -349,6 +350,20 @@ class ThreadsPage:
         self.settle()
         return self.panel(nid)
 
+    def wait_more_text(self, nid, index, text):
+        """הכפתור שמתחת לתגובה ``index`` נושא את ``text`` ("הצגת הכול · N תווים" או "הצגת פחות"), ואז החלונית.
+
+        **הכפתור נבנה בפריים שאחרי הרינדור** (``requestAnimationFrame`` ב-``_buildThreadComments``), כי ההכרעה
+        "האם התגובה ארוכה" דורשת פריסה. קריאה של החלונית מיד אחרי לחיצה מגיעה לפעמים לפני הפריים הזה: נמדד
+        ב-19.11.2026, ``test_open_thread_panel_matches_the_design_wide_and_narrow`` נכשל ב-3 מתוך 6 ריצות על
+        הקוד שלפני השינוי, עם ``None`` במקום "הצגת פחות"."""
+        poll(self.page, """([nid, i, text]) => {
+              const c = document.querySelectorAll(`.sticky-note[data-note-id="${nid}"] .sticky-thread-comment`)[i];
+              const m = c && c.querySelector('.sticky-thread-more-text');
+              return {ok: !!m && m.textContent === text, text: m ? m.textContent : null};
+            }""", f'הכפתור "{text}" מתחת לתגובה {index}', [nid, index, text])
+        return self.panel(nid)
+
     def hit(self, x, y):
         return self.page.evaluate(HIT_JS, [x, y])
 
@@ -644,7 +659,9 @@ def test_open_thread_panel_matches_the_design_wide_and_narrow(
         tp.goto(f"/boards/{board}")
         row = tp.wait_bubbles(wide, 1)
         tp.bubble(wide, t1).click()
-        panel = tp.wait_panel(wide, "open", 6)
+        tp.wait_panel(wide, "open", 6)
+        # הכפתור של התגובה הארוכה נבנה בפריים שאחרי הרינדור — ורק אחריו "אין כפתור" בשאר התגובות הוא טענה.
+        panel = tp.wait_more_text(wide, 1, f"הצגת הכול · {len(LONG_TEXT)} תווים")
         pad = row["pad"]
         bubble = tp.bubbles(wide)["slots"][0]
 
@@ -676,7 +693,7 @@ def test_open_thread_panel_matches_the_design_wide_and_narrow(
         assert long["more"] == f"הצגת הכול · {len(LONG_TEXT)} תווים"
         assert [c["more"] for c in comments if c is not long] == [None] * 5
         tp.note(wide).get_by_role("button", name=long["more"]).click()
-        opened = tp.panel(wide)["comments"][1]
+        opened = tp.wait_more_text(wide, 1, "הצגת פחות")["comments"][1]
         assert not opened["clamped"] and opened["bodyHeight"] > 6 * opened["lineHeight"]
         assert opened["more"] == "הצגת פחות"
         tp.note(wide).get_by_role("button", name="הצגת פחות").click()
@@ -1295,6 +1312,251 @@ def test_text_in_the_panel_is_readable(wired_mongo, admin_live_server, chromium_
         assert expected in names, (expected, sorted(names))
     low = [(name, value) for name, value in measured if value < 4.5]
     assert low == [], f"טקסט מתחת ל-4.5:1: {low}"
+
+
+# --- Markdown בתגובות ------------------------------------------------------------------
+#
+# גוף התגובה נבנה במנוע של הפתק, במצב קריאה בלבד (``StickyMdRender.render`` ב-``_buildThreadComments``).
+# מה שהמנוע בונה מאיזה קלט נבדק ב-node, מול הפתק (``tests/sticky-notes-target.test.js``, "תגובה בשרשור");
+# כאן — מה שרק דפדפן רואה: איך זה נראה בחלונית, בכל ערכה וברוחב צר, והחיתוך של תגובה ארוכה.
+
+#: תגובה עם כל מה שסוכן כותב בתגובה — וגם מה שבדרך כלל לא (טבלה רחבה, בלוק קוד, אלרט), כי המנוע מציג
+#: הכול כמו בפתק, וזה צריך להיות קריא ולא לשבור את החלונית.
+MD_COMMENT = (
+    "# כותרת ראשית\n## כותרת משנה\nטקסט רגיל עם **מודגש** ו-==מרקר== ו-`קוד בשורה` ו-[קישור](https://example.com)\n"
+    "1. ראשון\n2. שני\n- תבליט\n  - מקונן\n> ציטוט של משהו\n---\n- [ ] משימה פתוחה\n- [x] משימה סגורה\n"
+    "::: details פרטים נוספים\nתוכן בתוך הבלוק המתקפל\n:::\n"
+    "| עמודה ראשונה | עמודה שנייה ארוכה מאוד | עמודה שלישית ארוכה עוד יותר |\n|---|---|---|\n| א | ב | ג |\n"
+    "```python\nprint('a very long line of code that should not fit in the narrow panel at all')\n```\n"
+    "::: note\nתוכן של אלרט\n:::\n<script>window.__injected = 1</script>"
+)
+#: אחד-עשר פריטי רשימה — כל שורה של המנוע היא ``display: flex``, ו-``-webkit-line-clamp`` לא היה חותך אותה.
+MD_LIST_COMMENT = "\n".join(f"- פריט **מספר {i}** עם `קוד` וטקסט שממשיך עוד קצת" for i in range(1, 12))
+#: תגובה קצרה עם בלוק מתקפל ארוך — נכנסת בגובה כשהבלוק סגור, וגולשת כשהוא נפתח.
+MD_DETAILS_COMMENT = "קצר\n::: details עוד פרטים\n" + "\n".join(f"שורה {i} בתוך הבלוק" for i in range(1, 10)) + "\n:::"
+
+#: הצבע של הקישור בפתק (``--note-link`` ב-``sticky-md-render.css``) — נבחר בעין, ובכוונה אינו נמדד מול סף.
+NOTE_LINK = "rgb(119, 122, 188)"
+
+#: המבנה שבגוף התגובה הראשונה בחלונית — מה שנבנה, ומה שאסור שייבנה בתצוגה לקריאה בלבד.
+MD_SHAPE_JS = """(nid) => {
+  const p = document.querySelector(`.sticky-note[data-note-id="${nid}"] > [data-testid="thread-panel"]`);
+  const body = p.querySelector('.sticky-thread-comment-body');
+  const link = body.querySelector('a.sticky-md-link');
+  const has = (sel) => !!body.querySelector(sel);
+  return {
+    built: ['.sticky-md-h1', '.sticky-md-bold', 'mark.sticky-md-mark', 'code.sticky-md-code', '.sticky-md-li.is-ol',
+            '.sticky-md-li.is-ul', '.sticky-md-quote', '.sticky-md-rule', 'details.sticky-md-details', '.sticky-md-table',
+            '.sticky-md-code-block', '.admonition'].filter((s) => !has(s)),
+    link: link ? [link.getAttribute('href'), link.getAttribute('target'), link.getAttribute('rel')] : null,
+    boxes: [...body.querySelectorAll('input.sticky-task-box')].map((b) => b.disabled),
+    offsets: p.querySelectorAll('[data-char-offset]').length,
+    copy: p.querySelectorAll('.sticky-md-code-copy').length,
+    script: p.querySelectorAll('script').length, injected: window.__injected === 1,
+    scriptText: body.textContent.includes('<script>window.__injected = 1</script>'),
+  };
+}"""
+
+#: רוחב: העמוד אינו נגלל לרוחב, הטבלה נגללת בתוך העטיפה שלה, ובלוק הקוד נשבר לשורות כמו בפתק.
+MD_WIDTH_JS = """(nid) => {
+  const p = document.querySelector(`.sticky-note[data-note-id="${nid}"] > [data-testid="thread-panel"]`);
+  const body = p.querySelector('.sticky-thread-comment-body');
+  const card = body.closest('.sticky-thread-comment').getBoundingClientRect();
+  const wrap = body.querySelector('.sticky-md-table-wrap');
+  const code = body.querySelector('.sticky-md-code-block');
+  const inside = (el) => { const r = el.getBoundingClientRect(); return r.left >= card.left - 0.5 && r.right <= card.right + 0.5; };
+  return {page: [document.documentElement.scrollWidth, document.documentElement.clientWidth],
+          body: [body.scrollWidth, body.clientWidth], wrap: [wrap.scrollWidth, wrap.clientWidth, inside(wrap)],
+          code: [code.scrollWidth, code.clientWidth, inside(code)]};
+}"""
+
+#: מלבן של אלמנט בגוף התגובה הראשונה, אחרי גלילה אליו בתוך החלונית, וצבע הטקסט שלו. ``hit`` — הנקודה
+#: שבמרכזו היא האלמנט או צאצא שלו, כלומר הדגימה היא של האלמנט ולא של מה שמעליו.
+MD_ELEMENT_JS = """([nid, sel]) => {
+  const p = document.querySelector(`.sticky-note[data-note-id="${nid}"] > [data-testid="thread-panel"]`);
+  const el = p.querySelector('.sticky-thread-comment-body').querySelector(sel);
+  if (!el) return null;
+  el.scrollIntoView({block: 'center'});
+  const r = el.getBoundingClientRect();
+  const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  return {x: r.left, y: r.top, w: r.width, h: r.height, color: getComputedStyle(el).color,
+          hit: !!at && (at === el || el.contains(at))};
+}"""
+
+#: מה שנמדד מול 4.5:1 בכל ערכה — טקסט התוכן. **מחוץ לרשימה, בכוונה:** הקישור (``NOTE_LINK``, צבע הפתק
+#: שנבחר בעין), הכותרת של אלרט (צבע ליטרלי של ``markdown-enhanced.css``, אותו אלרט כמו בתצוגת המסמך),
+#: ותווית השפה של בלוק קוד (תווית קטנה בדיו העמום, כמו בפתק).
+MD_TEXT_SELECTORS = (
+    ".sticky-task-line.is-text", ".sticky-md-h1", ".sticky-md-bold", ".sticky-md-mark", ".sticky-md-code",
+    ".sticky-md-li-body", ".sticky-md-bullet", ".sticky-md-quote", ".sticky-task-text", ".sticky-md-details-summary",
+    ".details-content", ".sticky-md-cell", ".sticky-md-pre",
+)
+
+#: ערכה מיובאת כהה, עם טוקני בלוק מתקפל משלה — אם החלונית הייתה יורשת אותם, הם היו נראים כאן.
+DARK_IMPORTED = (
+    "--bg-primary:#1e1e1e;--bg-secondary:#252526;--text-primary:#d4d4d4;--text-secondary:#a0a0a0;--primary:#569cd6;"
+    "--details-bg:#1b2b34;--details-border:#2d3f4a;--summary-bg:#22333d;--summary-color:#e0e0e0;"
+    "--summary-arrow-color:#99aabb;--details-hover:#253945"
+)
+MD_THEMES = (("classic", None), ("dark", None), ("rose-pine-dawn", None), ("high-contrast", None),
+             ("imported-dark", DARK_IMPORTED))
+
+
+def _rgb_of(css):
+    nums = [float(x) for x in re.findall(r"[\d.]+", css)]
+    alpha = nums[3] if len(nums) > 3 else 1.0
+    return nums[:3], alpha
+
+
+def _wcag(a, b):
+    def lum(rgb):
+        f = [c / 255 for c in rgb]
+        f = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in f]
+        return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]
+    x, y = lum(a), lum(b)
+    return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+
+
+def _shot(tp, box):
+    """צילום של המלבן — הרקע שמתחת לטקסט נדגם בפיקסלים, ולא נקרא מ-``getComputedStyle``: רקע שקוף, גרדיאנט
+    או משטח של אב לא היו נראים שם (``sticky-notes-details-colors``: ``transparent`` שנמדד על קוד שבור)."""
+    from PIL import Image
+
+    clip = {"x": box["x"], "y": box["y"], "width": max(box["w"], 1), "height": max(box["h"], 1)}
+    return Image.open(io.BytesIO(tp.page.screenshot(clip=clip))).convert("RGB")
+
+
+def _set_theme(tp, theme, variables):
+    tp.page.evaluate(
+        """([t, v]) => { const r = document.documentElement;
+          r.setAttribute('data-theme', t === 'imported-dark' ? 'custom' : t);
+          if (t === 'imported-dark') r.setAttribute('data-theme-type', 'custom'); else r.removeAttribute('data-theme-type');
+          r.style.cssText = v || ''; }""", [theme, variables])
+    tp.settle()
+
+
+def test_markdown_in_a_comment_is_drawn_like_the_note(wired_mongo, admin_live_server, chromium_executable):
+    """תגובה עם Markdown מוצגת עם Markdown — ולקריאה בלבד: בלי היסטים של עריכה, צ'קבוקס שאי אפשר לסמן, בלי
+    כפתור העתקה, ו-``<script>`` כטקסט. קישור נפתח בלשונית חדשה, ולחיצה על שורה אינה נכנסת לעריכה של הפתק.
+    ובחלונית צרה (280) העמוד אינו נגלל לרוחב: הטבלה נגללת בעטיפה שלה, ובלוק הקוד נשבר לשורות כמו בפתק."""
+    db = wired_mongo.get_db()
+    with threads_page(admin_live_server, chromium_executable, db) as tp:
+        board = _board(tp)
+        nid = _board_note(tp, board, x=760, y=300, w=NARROW_BELOW - 1, h=260)
+        tid = _thread(db, nid, (CC, MD_COMMENT, 20))
+        tp.goto(f"/boards/{board}")
+        tp.wait_bubbles(nid, 1)
+        tp.bubble(nid, tid).click()
+        panel = tp.wait_panel(nid, "open", 1)
+        assert panel["narrow"], panel
+        tp.note(nid).locator(".sticky-thread-more-text").click()       # התגובה ארוכה — נפתחת כולה
+        tp.wait_panel(nid, "open", 1)
+
+        shape = tp.page.evaluate(MD_SHAPE_JS, nid)
+        assert shape["built"] == [], f"לא נבנו: {shape['built']}"
+        assert shape["link"] == ["https://example.com", "_blank", "noopener noreferrer"], shape
+        assert shape["boxes"] == [True, True], shape                    # מוצגים, ומושבתים
+        assert (shape["offsets"], shape["copy"]) == (0, 0), shape
+        assert (shape["script"], shape["injected"], shape["scriptText"]) == (0, False, True), shape
+
+        width = tp.page.evaluate(MD_WIDTH_JS, nid)
+        assert width["page"][0] <= width["page"][1], width
+        assert width["body"][0] <= width["body"][1], width              # שום דבר אינו דוחף את הגוף
+        assert width["wrap"][0] > width["wrap"][1] and width["wrap"][2], width
+        assert width["code"][0] <= width["code"][1] and width["code"][2], width
+
+        # לחיצה על שורה בתגובה: החלונית נשארת, והפתק אינו נכנס לעריכה.
+        tp.note(nid).locator(".sticky-thread-comment-body .sticky-md-quote").click()
+        assert tp.panel(nid)["open"]
+        assert tp.page.evaluate("(nid) => document.activeElement === document.querySelector("
+                                "`.sticky-note[data-note-id=\"${nid}\"] .sticky-note-content`)", nid) is False
+        # קישור: לשונית חדשה, והעמוד נשאר במקומו. המארח החיצוני נקטע (``_local_only``), ולכן נבדקת הפתיחה.
+        url = tp.page.url
+        with tp.context.expect_page() as popup:
+            tp.note(nid).locator(".sticky-thread-comment-body a.sticky-md-link").click()
+        popup.value.close()
+        assert tp.page.url == url and tp.panel(nid)["open"]
+        _assert_clean(tp)
+
+
+def test_a_long_markdown_comment_is_clamped_and_an_opened_block_inside_extends_it(
+        wired_mongo, admin_live_server, chromium_executable):
+    """תגובה ארוכה עם Markdown נחתכת לגובה של 6 שורות, עם "הצגת הכול" — גם כשהשורות שלה הן פריטי רשימה
+    (``-webkit-line-clamp`` השאיר אותה בגובה המלא, בלי כפתור). ותגובה קצרה עם בלוק מתקפל: כשהבלוק נפתח והיא
+    גולשת, "הצגת הכול" מופיע — בלעדיו ההמשך היה נבלע ב-``overflow: hidden`` — וכשהוא נסגר, הכפתור יורד."""
+    db = wired_mongo.get_db()
+    with threads_page(admin_live_server, chromium_executable, db) as tp:
+        board = _board(tp)
+        nid = _board_note(tp, board, x=60, y=300, w=420, h=260)
+        tid = _thread(db, nid, (CC, MD_LIST_COMMENT, 20), (USER, MD_DETAILS_COMMENT, 10))
+        tp.goto(f"/boards/{board}")
+        tp.wait_bubbles(nid, 1)
+        tp.bubble(nid, tid).click()
+        tp.wait_panel(nid, "open", 2)
+        listed, short = tp.wait_more_text(nid, 0, f"הצגת הכול · {len(MD_LIST_COMMENT)} תווים")["comments"]
+        assert listed["clamped"] and _near(listed["bodyHeight"], 6 * listed["lineHeight"], 1), listed
+        assert listed["more"] == f"הצגת הכול · {len(MD_LIST_COMMENT)} תווים", listed
+        assert short["clamped"] and short["more"] is None, short       # הבלוק סגור — נכנסת בגובה
+
+        tp.note(nid).locator(".sticky-thread-comment").nth(1).locator("summary").click()
+        poll(tp.page, "(nid) => { const c = document.querySelectorAll(`.sticky-note[data-note-id=\"${nid}\"] "
+                      ".sticky-thread-comment`)[1]; const m = c.querySelector('.sticky-thread-more-text');"
+                      " return {ok: !!m, text: m && m.textContent}; }", "הצגת הכול אחרי פתיחת הבלוק", nid)
+        assert tp.panel(nid)["comments"][1]["more"] == f"הצגת הכול · {len(MD_DETAILS_COMMENT)} תווים"
+        tp.note(nid).locator(".sticky-thread-comment").nth(1).locator("summary").click()
+        poll(tp.page, "(nid) => !document.querySelectorAll(`.sticky-note[data-note-id=\"${nid}\"] "
+                      ".sticky-thread-comment`)[1].querySelector('.sticky-thread-more-text')",
+             "הכפתור יורד כשהבלוק נסגר", nid)
+
+        tp.note(nid).get_by_role("button", name=listed["more"]).click()
+        opened = tp.wait_more_text(nid, 0, "הצגת פחות")["comments"][0]
+        assert not opened["clamped"] and opened["bodyHeight"] > 6 * opened["lineHeight"], opened
+        assert opened["more"] == "הצגת פחות"
+        _assert_clean(tp)
+
+
+def test_markdown_in_a_comment_is_readable_in_every_theme(wired_mongo, admin_live_server, chromium_executable):
+    """כל טקסט של התוכן עומד ב-4.5:1 מול הרקע שהוא יושב עליו, בכל ערכה — הרקע בדגימת פיקסל. **החלונית היא
+    "נייר" בכל ערכה חוץ מניגודיות גבוהה, שבה היא שחורה**, ולכן הגוף של התגובה מספק ערך לטוקני הדיו שהתוכן קורא
+    (``sticky-notes.css``). לפני התיקון, בניגודיות גבוהה: כותרת של בלוק מתקפל 2.02, ציטוט ותבליט 4.48, והקו
+    המפריד נבלע בשחור (1.2); בערכות האחרות ציטוט ותבליט 4.05 על כרטיס התגובה. הקו המפריד הוא קישוט ולא טקסט,
+    ולכן נדרש רק שייראה (1.5 ומעלה) — בערכות הבהירות הוא 1.7 על כרטיס התגובה, בגוון שהפתק נותן לו (נמדד כאן,
+    19.11.2026)."""
+    db = wired_mongo.get_db()
+    with threads_page(admin_live_server, chromium_executable, db) as tp:
+        board = _board(tp)
+        nid = _board_note(tp, board, x=60, y=300, w=420, h=260)
+        tid = _thread(db, nid, (CC, MD_COMMENT, 20))
+        tp.goto(f"/boards/{board}")
+        tp.wait_bubbles(nid, 1)
+        tp.bubble(nid, tid).click()
+        tp.wait_panel(nid, "open", 1)
+        tp.note(nid).locator(".sticky-thread-more-text").click()
+        tp.wait_panel(nid, "open", 1)
+        tp.note(nid).locator(".sticky-thread-comment-body summary").click()     # התוכן של הבלוק — גלוי
+        measured, links, rules = [], [], []
+        for theme, variables in MD_THEMES:
+            _set_theme(tp, theme, variables)
+            for sel in MD_TEXT_SELECTORS:
+                box = tp.page.evaluate(MD_ELEMENT_JS, [nid, sel])
+                assert box and box["hit"], (theme, sel, box)
+                bg = Counter(_shot(tp, box).getdata()).most_common(1)[0][0]
+                fg, alpha = _rgb_of(box["color"])
+                fg = [f * alpha + b * (1 - alpha) for f, b in zip(fg, bg)]
+                measured.append((theme, sel, round(_wcag(fg, bg), 2)))
+            link = tp.page.evaluate(MD_ELEMENT_JS, [nid, "a.sticky-md-link"])
+            links.append((theme, link["color"]))
+            # הקו המפריד: השורה שלו (עם הריפוד), והפיקסל הרחוק ביותר מהרקע שלה.
+            row = tp.page.evaluate(MD_ELEMENT_JS, [nid, ".sticky-md-hr"])
+            pixels = Counter(_shot(tp, row).getdata())
+            bg = pixels.most_common(1)[0][0]
+            line = max(pixels, key=lambda px: _wcag(px, bg))
+            rules.append((theme, round(_wcag(line, bg), 2)))
+        _assert_clean(tp)
+    low = [m for m in measured if m[2] < 4.5]
+    assert low == [], f"טקסט מתחת ל-4.5:1: {low}"
+    assert [t for t, _ in links] == [t for t, _ in MD_THEMES] and {c for _, c in links} == {NOTE_LINK}, links
+    assert all(r >= 1.5 for _, r in rules), rules
 
 
 # --- קדמת הערימה ----------------------------------------------------------------------
