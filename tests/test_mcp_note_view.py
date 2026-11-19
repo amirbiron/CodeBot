@@ -213,6 +213,119 @@ def test_layout_debug_enters_the_answer_only_as_true():
         assert shown.get("layout_debug") is expected, value
 
 
+# ===========================================================================
+# סימון קטע — ``section`` / ``query`` של ``codekeeper_show_note``
+# ===========================================================================
+
+#: פתק עם כותרות בשלוש רמות. השורות ממוספרות מ-1, כמו ``line_range`` של ``codekeeper_get_file``.
+_SECTIONED = "\n".join([
+    "# מדריך",        # 1
+    "פתיחה",          # 2
+    "## התקנה",       # 3
+    "שלב ראשון",      # 4
+    "### פרטים",      # 5
+    "פרט פנימי",      # 6
+    "## שימוש",       # 7
+    "הפעלה של Tool",  # 8
+])
+
+
+def _show(body, **params):
+    backend = _NoteBackend()
+    backend.answer = {**backend.answer, "note": {**backend.answer["note"], "content": body, "content_sha256": _sha(body)}}
+    return backend, handlers.show_note(backend, _USER, note_id=_NOTE_ID, is_admin=False, can_write=False, **params)
+
+
+def test_a_section_that_is_found_marks_it_down_to_the_next_heading_of_its_level():
+    """``section`` שנמצא: הקטע מהכותרת ועד לפני הכותרת הבאה מאותה רמה או גבוהה ממנה — כולל תת-הקטע
+    שבתוכו — ושם הכותרת. הפתק עצמו בתשובה כמו תמיד."""
+    _, shown = _show(_SECTIONED, section="התקנה")
+    assert shown["ok"] is True and shown["note"]["content"] == _SECTIONED, shown
+    assert shown["highlight"] == {"kind": "section", "title": "התקנה", "line_range": [3, 6]}, shown
+
+
+def test_a_section_answers_from_the_same_function_as_get_file():
+    """**אותה התאמה כמו ``codekeeper_get_file``** — ``docs_handlers.answer_section`` על אותו טקסט נותן
+    את אותו ``line_range``. ההשוואה היא מול הפונקציה עצמה, ולא מול מספרים שהבדיקה מחשבת."""
+    from mcp_server import docs_handlers
+    from services import md_parser
+
+    context = {"note_id": _NOTE_ID}
+    for heading in ("מדריך", "התקנה", "פרטים", "שימוש"):
+        direct = docs_handlers.answer_section(
+            docs_handlers.LoadedDocument(docs_handlers.parse_with_refusals(md_parser, _SECTIONED, context), context),
+            section=heading)
+        _, shown = _show(_SECTIONED, section=heading)
+        assert shown["highlight"]["line_range"] == direct["line_range"], (heading, shown, direct)
+
+
+def test_a_section_that_is_not_found_is_refused_with_suggestions_and_no_note():
+    """כותרת שלא נמצאה — ``section_not_found`` עם הצעות, כמו ב-``get_file``, **ובלי הפתק**: כרטיס בלי סימון
+    היה נראה לסוכן כמו סימון שעבד."""
+    _, shown = _show(_SECTIONED, section="התקנת")
+    assert shown["ok"] is False and shown["error"] == "section_not_found", shown
+    assert "התקנה" in json.dumps(shown, ensure_ascii=False), shown
+    assert "note" not in shown and "highlight" not in shown, shown
+
+
+def test_a_heading_that_appears_twice_is_ambiguous_with_candidates():
+    """כותרת שמופיעה פעמיים — ``ambiguous_section`` עם המועמדים, מאותה פונקציה."""
+    body = "## שלבים\nא\n## שלבים\nב"
+    _, shown = _show(body, section="שלבים")
+    assert shown["ok"] is False and shown["error"] == "ambiguous_section", shown
+    assert len(shown["candidates"]) == 2 and "note" not in shown, shown
+
+
+def test_a_query_marks_its_text_and_one_that_is_missing_is_no_match():
+    """``query`` שנמצא — ``highlight`` מסוג query (בלי רגישות לרישיות, כמו ``get_file``); ``query`` שלא
+    נמצא — ``no_match``, ולא תשובה ריקה כמו ב-``get_file``, ובלי הפתק."""
+    _, shown = _show(_SECTIONED, query="tool")
+    assert shown["ok"] is True and shown["highlight"] == {"kind": "query", "query": "tool"}, shown
+    _, missing = _show(_SECTIONED, query="לא קיים בפתק")
+    assert missing["ok"] is False and missing["error"] == "no_match" and "note" not in missing, missing
+
+
+def test_section_and_query_together_are_refused_before_the_note_is_read():
+    """שני הפרמטרים יחד — ``section_and_query``, כמו ב-``get_file``, **לפני** קריאת הפתק. וגם ערך ריק
+    נדחה באותן פונקציות של ``get_file`` (``file_section_error`` / ``file_query_error``)."""
+    backend, shown = _show(_SECTIONED, section="התקנה", query="שלב")
+    assert shown == handlers.file_read_refusal(handlers.SECTION_AND_QUERY) and backend.calls == [], (shown, backend.calls)
+    backend, empty_section = _show(_SECTIONED, section="  ")
+    assert empty_section == handlers.file_read_refusal(handlers.file_section_error("  ")) and backend.calls == [], empty_section
+    backend, multiline = _show(_SECTIONED, query="שלב\nראשון")
+    assert multiline == handlers.file_read_refusal(handlers.file_query_error("שלב\nראשון")) and backend.calls == [], multiline
+
+
+def test_a_note_without_headings_takes_query_and_refuses_section():
+    """פתק בלי כותרות: ``query`` עובד, ו-``section`` — ``section_not_found``."""
+    body = "רק טקסט\nבלי כותרות בכלל"
+    _, by_query = _show(body, query="כותרות")
+    assert by_query["ok"] is True and by_query["highlight"]["kind"] == "query", by_query
+    _, by_section = _show(body, section="טקסט")
+    assert by_section["ok"] is False and by_section["error"] == "section_not_found", by_section
+
+
+def test_an_archived_note_is_marked_like_any_other():
+    """פתק בארכיון עובר באותו שער (``get_note`` מחזיר אותו), והסימון עליו זהה."""
+    backend = _NoteBackend()
+    backend.answer = {"ok": True, "target": "archive", "note": {
+        **backend.answer["note"], "content": _SECTIONED, "content_sha256": _sha(_SECTIONED),
+        "archived_at": "2026-11-01T00:00:00+00:00"}}
+    shown = handlers.show_note(backend, _USER, note_id=_NOTE_ID, is_admin=False, can_write=False, section="שימוש")
+    assert shown["ok"] is True and shown["highlight"]["line_range"] == [7, 8], shown
+
+
+async def test_section_and_query_reach_the_tool_schema_with_when_to_use_descriptions(production_like_mcp):
+    """דרך הפרוטוקול: שני הפרמטרים אופציונליים (``null``), והתיאור של כל אחד נפתח ב"מתי להשתמש"."""
+    mcp, _, _ = production_like_mcp
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        tools = {t.name: t for t in (await session.list_tools()).tools}
+    props = tools["codekeeper_show_note"].inputSchema["properties"]
+    for name in ("section", "query"):
+        assert props[name].get("default") is None and props[name]["description"].startswith("When you are explaining"), props[name]
+        assert name not in tools["codekeeper_show_note"].inputSchema.get("required", []), name
+
+
 async def test_the_largest_possible_note_fits_the_declared_ceiling_whole(production_like_mcp):
     """הכלי מצהיר על תקרת התשובה (כמו ``codekeeper_get_note``), ועומד בה בלי חיתוך גם במקרה הגרוע.
 
@@ -542,6 +655,28 @@ def test_the_view_copies_the_ink_spacing_and_default_size_of_a_webapp_note():
     assert _css_value(paper, "--ck-title-weight") == _css_value(webapp_title, "font-weight")
     assert _css_value(view_title, "font-size") == "calc(var(--ck-title-font) / var(--ck-text-scale, 1))"
     assert _css_value(view_title, "font-weight") == "var(--ck-title-weight)"
+
+
+def _declarations(block: str) -> list[str]:
+    """ההצהרות של בלוק, אחת לשורה, בלי רווחים מסביב — כדי להשוות שני בלוקים בלי תלות בהזחה."""
+    return [d.strip() for d in block.split(";") if d.strip()]
+
+
+def test_the_view_copies_the_in_note_search_highlight_of_the_webapp():
+    """הסימון של ``query`` בתצוגה נראה כמו החיפוש בתוך פתק בוובאפ — אותה מחלקה, ואותם כללים.
+
+    ``note_view.js`` מדגיש עם ``NOTE_SEARCH_HIT_CLASS`` של ``sticky-notes.js``, והכללים שלה יושבים ב-
+    ``sticky-notes.css``, שהדף אינו כולל (הוא מביא איתו את השלד של הפתק בלוח). ולכן הם מועתקים ל-
+    ``note_view.css``, והטסט הזה משווה את שני הבלוקים — הרגיל והפעיל — הצהרה מול הצהרה.
+    """
+    webapp_js = (_REPO / "webapp" / "static" / "js" / "sticky-notes.js").read_text(encoding="utf-8")
+    view_js = (_REPO / "mcp_server" / "apps" / "note_view.js").read_text(encoding="utf-8")
+    webapp_class = re.search(r"const NOTE_SEARCH_HIT_CLASS = '([\w-]+)';", webapp_js).group(1)
+    assert re.search(r"var MARK_HIT_CLASS = '([\w-]+)';", view_js).group(1) == webapp_class
+    webapp_css = (_REPO / "webapp" / "static" / "css" / "sticky-notes.css").read_text(encoding="utf-8")
+    view_css = (_REPO / "mcp_server" / "apps" / "note_view.css").read_text(encoding="utf-8")
+    for selector in (f".{webapp_class}", f".{webapp_class}.is-active"):
+        assert _declarations(_css_block(view_css, selector)) == _declarations(_css_block(webapp_css, selector)), selector
 
 
 def _new_note_height() -> int:

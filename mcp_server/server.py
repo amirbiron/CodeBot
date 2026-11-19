@@ -336,6 +336,24 @@ _LAYOUT_DEBUG_PARAM_DOC = (
     "and safe areas the host reported, the editor box. Numbers only, never the note's text."
 )
 
+# תיאורי ``section`` ו-``query`` של ``codekeeper_show_note``. **נפתחים במתי להשתמש** — כמו
+# ``layout_debug`` — כי לקוח שמקצר תיאור רואה רק את ההתחלה. כללי ההתאמה הם של ``codekeeper_get_file``
+# (``handlers._note_highlight``), ולכן יש אליהם הפניה בשם הכלי ולא עותק שלהם.
+_SHOW_NOTE_SECTION_DOC = (
+    "When you are explaining one part of the note: the heading to open the view at. The view "
+    "scrolls to it and frames the whole section — the heading down to the next heading of the "
+    "same or a higher level. Heading matching is exactly codekeeper_get_file section=: a heading "
+    "that is not found answers section_not_found with suggestions, one that appears twice "
+    "answers ambiguous_section with candidates, and no view is shown then. Not together with query."
+)
+_SHOW_NOTE_QUERY_DOC = (
+    "When you are explaining a phrase in the note, or the note has no headings: text to mark. The "
+    "view marks every occurrence and scrolls to the first; with more than one it shows previous / "
+    "next. Matching is exactly codekeeper_get_file query= (plain case-insensitive substring, one "
+    "line), except that no occurrence answers no_match — not an empty result — and no view is "
+    "shown then. Not together with section."
+)
+
 # תיאור הפרמטר ``include_content``, משותף לשני כלי הרשימה שמקבלים אותו
 # (``codekeeper_list_notes`` ו-``codekeeper_list_board_notes``). קבוע אחד,
 # מאותו נימוק שמאחורי ``_RANGE_DOC``: שני נוסחים לאותה סמנטיקה נסחפים.
@@ -3926,8 +3944,10 @@ def build_mcp(
             "codekeeper_get_note: this tool returns the same note (content, title, color, where "
             "it sits) without threads or version, so a client that shows no view still gets the "
             "full text. A note you do not own answers not_found, and so does a note on a "
-            "mirrored repository unless you are the admin. layout_debug=true only when the user "
-            "asks to see layout measurements."
+            "mirrored repository unless you are the admin. When you explain a specific part of a "
+            "note, show it again with section= or query=: the earlier view has scrolled away, and "
+            "the new one opens at that part, marked. layout_debug=true only when the user asks to "
+            "see layout measurements."
         ),
         annotations=_READ_ONLY_TOOL,
         # שני ה-``meta`` יחד: הקישור לתצוגה, ותקרת התשובה — אותה הצהרה של ``codekeeper_get_note``,
@@ -3939,11 +3959,13 @@ def build_mcp(
         ctx: Context,
         note_id: str,
         layout_debug: Annotated[bool, Field(description=_LAYOUT_DEBUG_PARAM_DOC)] = False,
+        section: Annotated[str | None, Field(description=_SHOW_NOTE_SECTION_DOC)] = None,
+        query: Annotated[str | None, Field(description=_SHOW_NOTE_QUERY_DOC)] = None,
     ) -> dict:
         user_id = current_user_id(ctx)
         return handlers.show_note(
             backend, user_id, note_id=note_id, is_admin=is_admin_user(user_id),
-            can_write=has_write_scope(ctx), layout_debug=layout_debug,
+            can_write=has_write_scope(ctx), layout_debug=layout_debug, section=section, query=query,
         )
 
     # **העריכה מהתצוגה נשמרת דרך כלי שרק הדף מפעיל** (``_meta.ui.visibility: ["app"]``, ראו
