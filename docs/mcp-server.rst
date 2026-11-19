@@ -287,13 +287,14 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
        ראו :ref:`mcp-uploads`. ``description`` עד ``FILE_DESCRIPTION_MAX_CHARS``
        תווים; ארוך ממנה — הקובץ נשמר בלי התיאור, ו-``description_saved: false``
        עם ``max_chars`` ו-``actual_chars`` — ראו :ref:`mcp-description-saved`.
+       ``expected_unicode_escapes`` מסרב לכתוב כש-escape של יוניקוד שנועד להיות טקסט לא הגיע ב-``code`` כטקסט — ראו :ref:`mcp-expected-unicode-escapes`.
        דורש ``write``
    * - ``codekeeper_edit_file``
      - **כתיבה:** מצא-והחלף מדויק בקובץ קיים (``old_string`` → ``new_string``) — בלי לשלוח את כל הקובץ. ``old_string`` צריך להופיע פעם אחת בדיוק, אחרת ``ambiguous_match`` עם מספר המופעים; ``replace_all=true`` מחליף את כולם. נשמר כגרסה חדשה, ורק הטקסט שהוחלף משתנה: שאר הקובץ נשאר תו בתו. לכמה מקומות באותו קובץ — ``codekeeper_multi_edit_file``, בגרסה אחת. ``expected_content_sha256`` מסרב לכתוב אם הקובץ השתנה מאז שנקרא — ראו :ref:`mcp-expected-content-sha256`. ``expected_unicode_escapes`` מסרב לכתוב כש-escape של יוניקוד שנועד להיות טקסט לא הגיע לכלי כטקסט — ראו :ref:`mcp-expected-unicode-escapes`. דורש ``write``
    * - ``codekeeper_multi_edit_file``
      - **כתיבה:** כמה עריכות מדויקות בקובץ קיים, **בגרסה אחת**: רשימת זוגות ``edits``, וכל זוג הוא בדיוק הארגומנטים של ``codekeeper_edit_file`` בלי ``file_name``. הזוגות מוחלים לפי הסדר, כל זוג על התוצאה של הזוג שלפניו, והכל או כלום: זוג שנכשל מחזיר את ה-``index`` שלו, ושום דבר לא נכתב. עד ``MAX_EDIT_PAIRS`` זוגות בקריאה. ``expected_content_sha256`` כמו ב-``codekeeper_edit_file``, וזוג יכול לשאת ``expected_unicode_escapes`` משלו. ראו :ref:`mcp-multi-edit`. זוגות שיש במחרוזות שלהם לוכסן שנועד להיות טקסט יכולים להגיע כקובץ JSON שהועלה — ``edits_upload_id`` במקום ``edits`` — והשרת מפענח אותו פעם אחת בדיוק; ראו :ref:`mcp-edits-upload-id`. דורש ``write``
    * - ``codekeeper_append_file``
-     - **כתיבה:** הוספת טקסט לסוף קובץ קיים (גרסה חדשה). ``expected_content_sha256`` כמו ב-``codekeeper_edit_file``. טקסט שכבר קיים כקובץ בסביבת הסוכן — ``upload_id`` במקום ``content``, ראו :ref:`mcp-uploads`. דורש ``write``
+     - **כתיבה:** הוספת טקסט לסוף קובץ קיים (גרסה חדשה). ``expected_content_sha256`` כמו ב-``codekeeper_edit_file``. טקסט שכבר קיים כקובץ בסביבת הסוכן — ``upload_id`` במקום ``content``, ראו :ref:`mcp-uploads`. ``expected_unicode_escapes`` מסרב לכתוב כש-escape של יוניקוד שנועד להיות טקסט לא הגיע ב-``content`` כטקסט — ראו :ref:`mcp-expected-unicode-escapes`. דורש ``write``
    * - ``codekeeper_update_file_description``
      - **כתיבה:** החלפת ה-``description`` של קובץ קיים, בלי לשלוח את התוכן
        ובלי לגעת בו. **אינו יוצר גרסה** — ראו :ref:`mcp-update-description`.
@@ -325,15 +326,18 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
      - **כתיבה, מהתצוגה בלבד:** שמירה של הגוף כולו של פתק שנערך בתצוגה של ``codekeeper_show_note``. ``_meta.ui.visibility: ["app"]`` — המארח מסתיר אותו מהסוכן ומעביר אליו רק קריאות מהדף. ``expected_content_sha256`` חובה: hash שאינו של הגוף שבמסד הוא ``conflict``, ושום דבר לא נכתב. אותו מסלול כתיבה של ``codekeeper_note_str_replace``, עם גרסה בהיסטוריה. ראו :ref:`mcp-note-view-edit` ו-:ref:`mcp-note-history`. דורש ``write``
    * - ``codekeeper_create_note``
      - **כתיבה:** יצירת פתק דביק על קובץ קיים; ``line`` אופציונלי מעגן
-       לשורת מקור (בלעדיו הפתק צף). דורש ``write``
+       לשורת מקור (בלעדיו הפתק צף). ``expected_unicode_escapes`` מסרב לכתוב כש-escape של יוניקוד שנועד להיות טקסט לא הגיע ב-``content`` כטקסט — ראו :ref:`mcp-expected-unicode-escapes`.
+       דורש ``write``
    * - ``codekeeper_update_note``
      - **כתיבה:** עדכון חלקי של פתק לפי ``note_id`` (תוכן/שורה/צבע/מוזער)
-       — דורס במקום, אבל התוכן הקודם נשמר כגרסה. דורש ``write``
+       — דורס במקום, אבל התוכן הקודם נשמר כגרסה. ``expected_unicode_escapes`` מסרב לכתוב כש-escape של יוניקוד שנועד להיות טקסט לא הגיע ב-``content`` כטקסט — ראו :ref:`mcp-expected-unicode-escapes`.
+       בלי ``content`` ההצהרה נענית ``expected_unicode_escapes_without_content``. דורש ``write``
    * - ``codekeeper_note_str_replace``
      - **כתיבה:** מצא-והחלף מדויק **בתוך פתק** (``old_string`` →
        ``new_string``) — בלי לשלוח את כל גוף הפתק. אותה סמנטיקה ואותם נוסחי
        שגיאה כמו ``codekeeper_edit_file``, כולל סירוב על התאמה מרובה.
        וכמו שם, אורך התוצאה נבדק **לפני** שהיא נבנית: תוצאה ארוכה מ-``MAX_NOTE_CHARS`` נענית ``content_too_long`` עם ``max``, ושום דבר לא נכתב — ראו :ref:`mcp-multi-edit`, "גודל, לפני שהתוצאה נבנית".
+       וכמו שם, ``expected_unicode_escapes`` מסרב לכתוב כש-escape של יוניקוד שנועד להיות טקסט לא הגיע ב-``old_string`` או ב-``new_string`` כטקסט — ראו :ref:`mcp-expected-unicode-escapes`.
        דורש ``write``
    * - ``codekeeper_comment_note``
      - **כתיבה:** תגובה בשרשור שעל פתק — **בלי לגעת בפתק עצמו**. בלי ``thread_id``:
@@ -342,6 +346,8 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
        כמשפט סיכום. ``working_on`` חובה בכל קריאה לכלי, גם בסגירה בלי תגובה; שם הכותב
        מגיע מהחיבור ולא מפרמטר.
        אותה הרשאה בדיוק של ``codekeeper_get_note``, מאותו קוד. ראו :ref:`mcp-note-threads`.
+       ``expected_unicode_escapes`` מסרב לכתוב כש-escape של יוניקוד שנועד להיות טקסט לא הגיע ב-``body`` כטקסט — ראו :ref:`mcp-expected-unicode-escapes`. בסגירה בלי ``body`` ההצהרה נענית
+       ``expected_unicode_escapes_without_body``.
        דורש ``write``
    * - ``codekeeper_list_note_versions``
      - הגרסאות הקודמות של פתק (מטא-דאטה בלבד: מספר, זמן, ואורך **בתווים** —
@@ -362,7 +368,8 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
    * - ``codekeeper_create_board_note``
      - **כתיבה:** פתק חדש על לוח — בלי קובץ. ``mode`` הוא ``surface``
        (יושב על הלוח, ברירת מחדל) או ``screen`` (צף מול המסך). ``title``
-       אופציונלי, וייחודי בתוך הלוח. דורש ``write``
+       אופציונלי, וייחודי בתוך הלוח. ``expected_unicode_escapes`` מסרב לכתוב כש-escape של יוניקוד שנועד להיות טקסט לא הגיע ב-``content`` כטקסט — ראו :ref:`mcp-expected-unicode-escapes`.
+       דורש ``write``
    * - ``codekeeper_search_notes``
      - חיפוש פתק במקומות שפתק יכול לשבת בהם — קובץ, לוח, או קובץ בריפו משוקף. לפי שם כברירת מחדל; ``search_content=true`` מרחיב גם לגוף הפתק, ו-``include_archived=true`` מוסיף את פתקי הארכיון, שבלעדיו מוסתרים. התאמה על חלק מהמחרוזת, בלי תלות ברישיות. כל פגיעה אומרת איפה הפתק יושב, בדיוק בארגומנטים שכלי הרשימה המתאים דורש — **ולעולם אינה נושאת תוכן**; את הפתק קוראים ב-``codekeeper_get_note`` לפי המזהה שבפגיעה. לפגיעה מהארכיון אין כלי רשימה. ראו :ref:`mcp-search-matching`
    * - ``codekeeper_list_collections`` / ``codekeeper_get_collection`` / ``codekeeper_get_collection_items``
@@ -426,7 +433,8 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
        בלי המפה צריך כבר לדעת איפה הפתק כדי למצוא אותו
    * - ``codekeeper_create_repo_note``
      - **כתיבה:** פתק חדש על קובץ בריפו משוקף. ``mode`` כמו בלוח;
-       ``title`` אופציונלי, וייחודי על אותו קובץ. דורש ``write``
+       ``title`` אופציונלי, וייחודי על אותו קובץ. ``expected_unicode_escapes`` מסרב לכתוב כש-escape של יוניקוד שנועד להיות טקסט לא הגיע ב-``content`` כטקסט — ראו :ref:`mcp-expected-unicode-escapes`.
+       דורש ``write``
 
 .. note::
 
@@ -2071,10 +2079,12 @@ Claude Desktop
      - הטקסט נושא surrogate בודד — חצי של זוג, ש-UTF-8 אינו יכול לקודד והמסד אינו שומר. הוא נוצר מ-escape של JSON שהחצי השני שלו חסר. שום דבר לא נכתב, והעלאה שהייתה בקריאה נשארת. שלחו את התו עצמו, או את שני חצאי הזוג. ב-``codekeeper_multi_edit_file`` זוג כזה נענה ``invalid_edit``, עם ``index`` והשדה. ראו "טקסט ש-UTF-8 אינו יכול לקודד" ב-:ref:`mcp-content-sha256`
    * - ``invalid_expected_content_sha256``
      - הערך אינו hash: צריך 64 ספרות הקס, בדיוק ``file.content_sha256`` כפי שחזר מ-``codekeeper_get_file``. שום דבר לא נקרא ולא נכתב
-   * - ``unicode_escapes_mismatch`` בעריכת קובץ
-     - הצהרתם ב-``expected_unicode_escapes`` כמה escapes של יוניקוד יש ב-``old_string`` וב-``new_string`` יחד, והמחרוזות הגיעו לכלי עם סכום אחר: ``expected`` הוא מה שהוצהר, ``received`` הוא הסכום שנספר במה שהגיע, ``received_in_old_string`` ו-``received_in_new_string`` אומרים כמה הגיע בכל מחרוזת — כלומר איזו מהן הומרה — ובזוג של ``codekeeper_multi_edit_file`` יש גם ``index``. שום דבר לא נקרא ולא נכתב. השכיח: הלקוח הפך escape לתו לפני שהקריאה יצאה. ודאו שהמספר שהצהרתם נכון — כל escape שכתבתם בקריאה נספר, ומי שרוצה את התו עצמו שולח את התו — ושלחו את אותה קריאה פעם אחת נוספת — ההמרה משתנה מקריאה לקריאה. סורבה שוב: אמרו למשתמש שמהלקוח הזה אי אפשר לכתוב את הטקסט הזה. כשהזוגות באו מ-``edits_upload_id`` אין טעם לשלוח שוב את אותו מזהה: בקובץ, לוכסן שנועד להיות טקסט נכתב כשני לוכסנים — תקנו את הקובץ והעלו אותו שוב. ראו :ref:`mcp-expected-unicode-escapes`
+   * - ``unicode_escapes_mismatch`` בכלי כתיבה
+     - הצהרתם ב-``expected_unicode_escapes`` כמה escapes של יוניקוד יש במחרוזות שהכלי סופר — ``code``, ``content``, ``body``, או ``old_string`` ו-``new_string`` יחד — והן הגיעו לכלי עם מספר אחר: ``expected`` הוא מה שהוצהר, ``received`` הוא מה שנספר במה שהגיע, ובכלים עם שתי מחרוזות ``received_in_old_string`` ו-``received_in_new_string`` אומרים כמה הגיע בכל אחת — כלומר איזו מהן הומרה. בזוג של ``codekeeper_multi_edit_file`` יש גם ``index``. שום דבר לא נכתב. השכיח: הלקוח הפך escape לתו לפני שהקריאה יצאה. ודאו שהמספר שהצהרתם נכון — כל escape שכתבתם בקריאה נספר, ומי שרוצה את התו עצמו שולח את התו — ושלחו את אותה קריאה פעם אחת נוספת — ההמרה משתנה מקריאה לקריאה. סורבה שוב: אמרו למשתמש שמהלקוח הזה אי אפשר לכתוב את הטקסט הזה. **להכפיל את הלוכסן אינו פתרון:** שני לוכסנים ואחריהם ``u`` אינם escape ואינם נספרים, והם היו נשמרים כשניים. כשהטקסט בא מהעלאה אין טעם לשלוח שוב את אותו מזהה — ההעלאה נשארת, אבל תיספר תמיד אותו דבר: ב-``upload_id`` הקובץ עצמו מחזיק את התו (קובץ מקומי שנכתב בלקוח שממיר), וב-``edits_upload_id`` לוכסן שנועד להיות טקסט נכתב בקובץ ה-JSON כשני לוכסנים. תקנו את הקובץ והעלו אותו שוב. ראו :ref:`mcp-expected-unicode-escapes`
    * - ``invalid_expected_unicode_escapes``
      - הערך אינו מספר שלם, 0 ומעלה. שום דבר לא נקרא ולא נכתב. ראו :ref:`mcp-expected-unicode-escapes`
+   * - ``expected_unicode_escapes_without_content`` / ``expected_unicode_escapes_without_body``
+     - הצהרתם על מספר, והקריאה אינה נושאת את המחרוזת שהוא סופר: ``codekeeper_update_note`` בלי ``content``, או ``codekeeper_comment_note`` שסוגר שרשור בלי ``body``. אין מה לספור, ושום דבר לא נכתב — גם לא השדות האחרים שנשלחו באותה קריאה. שלחו אותה בלי ``expected_unicode_escapes``, או עם הגוף שההצהרה נועדה לו
    * - סירוב עם ``index`` ב-``codekeeper_multi_edit_file``
      - הזוג במקום הזה (מאפס) נכשל, בקוד של ``codekeeper_edit_file`` — או ``code_too_large`` עם ``max``, כשהתוצאה שלו הייתה חוצה את התקרה. שום דבר לא נכתב, גם לא הזוגות שלפניו. תקנו אותו ושלחו שוב את כל הבאץ' — וכשהזוגות באו מ-``edits_upload_id``, תקנו את הקובץ, העלו אותו שוב והעבירו את המזהה החדש. כש-``occurrences`` שונה מ-``occurrences_in_stored_version``, זוג קודם בבאץ' שינה את הטקסט שהזוג הזה מחפש — ראו :ref:`mcp-multi-edit`
    * - ``invalid_edits_upload`` ב-``codekeeper_multi_edit_file``

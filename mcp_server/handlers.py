@@ -862,6 +862,37 @@ _EDITS_UPLOAD = _UploadParam(
 )
 
 
+def _upload_again(param: _UploadParam) -> str:
+    """מה עושים עם העלאה שסורבה על **התוכן שלה**: אי אפשר לתקן העלאה, רק להעלות חדשה.
+
+    נוקב בשם הפרמטר של הכלי (:class:`_UploadParam`), מאותו נימוק שמעליה. בלי נקודה בסוף —
+    הקורא משרשר.
+    """
+    return (
+        "An upload cannot be changed: fix the file, upload it again and pass the new id in "
+        f"{param.name}"
+    )
+
+
+def _fix_the_uploaded_text(param: _UploadParam) -> str:
+    """ה-``after`` של סירוב השער של escape של יוניקוד על טקסט שבא מ-``upload_id`` (שמירה והוספה).
+
+    **לא "שלח שוב":** אותה העלאה נספרת תמיד אותו דבר — היא עלתה כבתים, ולא עברה בשום שכבה
+    שממירה. כלומר הקובץ עצמו אינו מחזיק את ה-escapes שהוצהרו, וזה המקרה שהשער הזה הוא
+    היחיד שרואה: קובץ מקומי שנכתב בלקוח שממיר כבר מחזיק את התו, והשוואת hash מולו אינה
+    רואה דבר, כי שני הצדדים עברו אותה המרה. **וההעלאה נשארת:** הספירה רצה אחרי
+    :func:`_load_upload` ולפני :func:`_consume_upload`. תנאי הזוגיות חל כמו שהוא — הקובץ
+    אינו מפוענח, ושני לוכסנים בו נשמרים כשניים.
+    """
+    return (
+        "The upload is still there, unused. It is counted as uploaded, byte for byte, so the file "
+        "itself does not hold the escapes declared: a file written through a client that turns "
+        f"escapes into characters holds the characters. {DOUBLED_BACKSLASH_IN_WORDS}. "
+        f"{_upload_again(param)}. If the file cannot be written with the escapes as text, tell "
+        "the user that this text cannot be written from this client"
+    )
+
+
 def _both_sent(param: _UploadParam) -> dict[str, Any]:
     return {
         "ok": False,
@@ -1105,6 +1136,7 @@ def save_file(
     language: str | None = None,
     description: str = "",
     upload_id: str | None = None,
+    expected_unicode_escapes: int | None = None,
 ) -> dict[str, Any]:
     """Validate + normalize a save request, then delegate to the backend.
 
@@ -1113,6 +1145,12 @@ def save_file(
 
     ``upload_id`` — התוכן מהעלאה במקום ``code``; הסדר והשער — בהערה שמעל
     :func:`_both_sent`. התוכן עובר את **אותו** מסלול בדיוק: שום מסלול מקביל.
+
+    ``expected_unicode_escapes`` — השער של escape של יוניקוד על ``code`` (ההערה מעל
+    ``UNICODE_ESCAPE_RE``), לפני בדיקת הקיום — הקריאה הראשונה מהמסד. עם ``upload_id``
+    הספירה היא על הטקסט שנשלף, אחרי :func:`_load_upload` ולפני :func:`_consume_upload`:
+    סירוב משאיר את ההעלאה חיה, וה-``hint`` אומר לתקן את הקובץ (:func:`_fix_the_uploaded_text`).
+    צורת הערך נבדקת עוד לפני שליפת ההעלאה.
 
     **תקרת התיאור (#3489).** תיאור ארוך מ-``FILE_DESCRIPTION_MAX_CHARS`` תווים אינו
     נשמר, והקובץ כן: התשובה נושאת ``description_saved: false`` עם ``max_chars``,
@@ -1126,6 +1164,11 @@ def save_file(
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
+    bad_count = _invalid_expected_unicode_escapes(
+        expected_unicode_escapes, UNICODE_ESCAPES_COUNTED["codekeeper_save_file"]
+    )
+    if bad_count is not None:
+        return bad_count
     upload: _PendingUpload | None = None
     if upload_id is not None:
         if isinstance(code, str) and code != "":
@@ -1153,6 +1196,15 @@ def save_file(
     not_text = _not_utf8_text(code)
     if not_text is not None:
         return not_text
+    # השער של escape של יוניקוד — לפני בדיקת הקיום, ולפני שער ההעלאה (ה-docstring).
+    refused = _unicode_escapes_refusal(
+        "codekeeper_save_file",
+        expected_unicode_escapes,
+        code,
+        after=_RESEND_THE_CALL if upload is None else _fix_the_uploaded_text(upload.param),
+    )
+    if refused is not None:
+        return refused
 
     # Auto-detect the language when the caller didn't specify one.
     lang = (language or "").strip()
@@ -1486,14 +1538,34 @@ def _changed_since_read(doc: dict[str, Any], expected: str | None) -> dict[str, 
 # המחרוזות שהוא התכוון לשלוח, השרת סופר את אותה תבנית במה שהגיע, ומספר אחר הוא סירוב —
 # בלי קריאה מהמסד ובלי כתיבה.
 #
-# **הצהרה אחת לשתי המחרוזות, ולא אחת לכל מחרוזת.** שער שאפשר להפעיל על מחרוזת אחת
-# ולשכוח את השנייה משאיר את החשיפה במקומה. ההצהרה מכסה כל מחרוזת שהקריאה מתאימה או
-# כותבת, והסירוב נושא גם כמה הגיע בכל אחת, כדי שהסוכן יידע איזו הומרה.
+# **הצהרה אחת לכל המחרוזות שהקריאה מתאימה או כותבת, ולא אחת לכל מחרוזת.** שער שאפשר
+# להפעיל על מחרוזת אחת ולשכוח את השנייה משאיר את החשיפה במקומה. בכלי עם שתי מחרוזות
+# (``old_string`` ו-``new_string``) הסירוב נושא גם כמה הגיע בכל אחת, כדי שהסוכן יידע איזו
+# הומרה.
+#
+# **בכל כלי כתיבה, והגוף בלבד** (#3692). מה כל כלי סופר — ``UNICODE_ESCAPES_COUNTED``
+# שמתחת, הבעלים היחיד: הגוף של כל handler סופר לפיו, ותיאורי הפרמטר ב-``mcp_server/server.py``
+# נבנים ממנו. **נספר מה שהקריאה כותבת לגוף או מתאימה מולו** — ``code``, ``content``,
+# ``body``, ו-``old_string`` עם ``new_string``. ``title``, ``description``, ``anchor_text``,
+# ``working_on`` ושמות אינם נספרים: escape כמעט אינו מופיע שם, וכל מחרוזת נוספת מאריכה
+# תיאור שכל סוכן קורא בכל סשן. המחיר ידוע: escape שהומר בכותרת או בתיאור נשמר בשקט.
+# בכלי הפתקים אין מסלול קובץ, ולכן שם השער הוא ההגנה היחידה — והמקרה שפתח את הנושא היה
+# פתק.
 #
 # **החוזה: escape שנכתב בקריאה נספר כטקסט.** מי שרוצה להתאים או לכתוב את התו עצמו שולח
 # את התו, לא את ה-escape שלו. הסיבה: סכום אינו רואה מחרוזת אחת שאיבדה escape ושנייה
 # ש"הרוויחה" אחד — וזה קורה רק כשכותבים escape כדי לקבל תו. אז ה-escape שלא הומר נשאר
-# בקריאה כטקסט שלא הוצהר, ומכסה על זה שהומר.
+# בקריאה כטקסט שלא הוצהר, ומכסה על זה שהומר. אותו דבר בתוך מחרוזת אחת עם שני escapes.
+#
+# **לוכסן כפול אינו escape, ואינו נספר** (#3692). נספר רק escape שמספר הלוכסנים שלפני
+# הלוכסן שלו זוגי — אפס בכלל זה — כמו ב-JSON, שבו שני לוכסנים הם לוכסן אחד כטקסט. עד
+# #3692 התבנית מצאה את הרצף שמתחיל בלוכסן השני: נמדד מהאפליקציה (19.11.2026), על שם קובץ
+# שאינו קיים, ש-``new_string`` עם שני לוכסנים, ``u`` וארבע ספרות, והצהרה על 1, עבר את השער
+# והגיע ל-``not_found`` — על קובץ קיים היו נשמרים שבעה תווים במקום שישה, עם
+# ``content_changed: false``. וזה העיקוף הטבעי של סוכן שסורב ("אכפיל את הלוכסן"), שתיאור
+# ``edits_upload_id`` אף מלמד שבקובץ כותבים שני לוכסנים. הזוגיות היא גם מה שבסכנת המרה:
+# צורה עם שני לוכסנים הגיעה כמו שהיא בכל המדידות; שלושה לוכסנים לא נמדדו, והזוגיות מכריעה
+# (לוכסן כטקסט ואחריו escape). השינוי רק מצמצם פרמטר שכבר פרוס: מה שעבר בטעות מסורב.
 #
 # **למה סירוב לפני הכתיבה ולא אימות אחריה.** אימות אחרי מגלה כשהתוכן השגוי כבר נשמר:
 # גרסה והתראה, ועוד גרסה והתראה לביטול — והביטול עצמו עובר באותו ערוץ שהמיר.
@@ -1501,15 +1573,25 @@ def _changed_since_read(doc: dict[str, Any], expected: str | None) -> dict[str, 
 # **מה הוא אינו סוגר, במפורש.** (א) קריאה שמפרה את החוזה שמעל. (ב) escape של הלוכסן
 # ההפוך עצמו (``u005C``) שאחריו ``u`` וארבע ספרות: כשהוא מומר נוצר במקומו רצף חדש,
 # והספירה נשארת כמו שהייתה. (ג) לוכסן שאינו escape של יוניקוד (לוכסן ואחריו ``n``) אינו
-# נספר כלל. (ד) בלי הפרמטר אין שום בדיקה. ``tests/test_mcp_multi_edit.py`` מקבע את (א)
-# ואת (ב), כדי שהם יישארו מגבלות ידועות ולא הפתעות.
+# נספר כלל. (ד) בלי הפרמטר אין שום בדיקה. (ה) מחרוזות שאינן הגוף — למעלה.
+# ``tests/test_mcp_multi_edit.py`` מקבע את (א) ואת (ב), כדי שהם יישארו מגבלות ידועות ולא
+# הפתעות.
 # ---------------------------------------------------------------------------
 
-#: מה נספר: לוכסן הפוך, ``u`` וארבע ספרות הקס — הצורה שפענוח של escape הופך לתו. טווחים
-#: מפורשים ולא ``\d``, מהנימוק שמעל ``_SHA256_HEX``. **הבעלים היחיד של התבנית** (R6
-#: ב-amir-bug-patterns): גם השומר על תיאורי הכלים ב-``tests/test_mcp_server_build.py``
-#: קורא אותה מכאן, ולא מחזיק עותק.
-UNICODE_ESCAPE_RE = re.compile(r"\\u[0-9a-fA-F]{4}")
+#: הצורה: לוכסן הפוך, ``u`` וארבע ספרות הקס — מה שפענוח של escape הופך לתו. טווחים
+#: מפורשים ולא ``\d``, מהנימוק שמעל ``_SHA256_HEX``.
+_UNICODE_ESCAPE_SHAPE = r"\\u[0-9a-fA-F]{4}"
+
+#: מה נספר: הצורה, כשלפני הלוכסן שלה מספר זוגי של לוכסנים — אפס בכלל זה (ההערה שמעל).
+#: ``(?<!\\)`` מעגן את ההתאמה לתחילת רצף הלוכסנים, ו-``(?:\\\\)*`` אוכל את הזוגות שבו.
+#: **בלי backtracking שגדל:** בכל מקום שאינו תחילת רצף ה-lookbehind נכשל מיד, ובתחילת רצף
+#: החזרה לאחור היא לכל היותר באורך הרצף — כלומר הסריקה לינארית באורך הטקסט.
+#: **הבעלים היחיד של שתי התבניות** (R6 ב-amir-bug-patterns).
+UNICODE_ESCAPE_RE = re.compile(r"(?<!\\)(?:\\\\)*" + _UNICODE_ESCAPE_SHAPE)
+
+#: הצורה לבדה, בלי תנאי הזוגיות — **לשומר על תיאורי הכלים** ב-``tests/test_mcp_server_build.py``,
+#: ולא לספירה. תיאור כותב escape במילים, ולכן אסורה בו כל צורה, גם כזו שאחרי לוכסן ואינה נספרת.
+UNICODE_ESCAPE_SHAPE_RE = re.compile(_UNICODE_ESCAPE_SHAPE)
 
 #: שני הקודים של השער. קבועים ולא מחרוזות בגוף, כי תיאורי הכלים ב-``mcp_server/server.py``
 #: נוקבים בהם, ונבנים מהם.
@@ -1520,27 +1602,121 @@ EXPECTED_UNICODE_ESCAPES_INVALID = "invalid_expected_unicode_escapes"
 #: שנושא escape עלול להגיע לסוכן כתו, בדיוק מהסיבה שהשער קיים.
 UNICODE_ESCAPE_IN_WORDS = "a backslash, u and four hex digits"
 
-#: המשפט הראשון של תיאור הפרמטר — הכלל כולו, כי לקוח שמקצר תיאור פרמטר רואה רק אותו.
-#: **נוסח אחד** לפרמטר של ``codekeeper_edit_file`` ולשדה של הזוג ב-``EditPair``.
-EXPECTED_UNICODE_ESCAPES_RULE = (
-    "How many Unicode escapes meant as text old_string and new_string hold together; with "
-    "another total, nothing is written"
+#: תנאי הזוגיות **במילים**, לסוכן — בתיאור הפרמטר של ``codekeeper_edit_file`` וב-``hint`` של
+#: כל סירוב שבו מה שנספר הוא מה שהגיע (ולא קובץ JSON שמפוענח, שבו לוכסן כטקסט נכתב כשניים).
+#: "שני לוכסנים" ולא הכלל המלא: זו הצורה שסוכן כותב כשהוא מנסה לעקוף סירוב, והכלל המלא
+#: (מספר זוגי של לוכסנים) כתוב בהערה שמעל ``UNICODE_ESCAPE_RE`` וב-``docs/mcp-server-state.rst``.
+DOUBLED_BACKSLASH_IN_WORDS = (
+    "Two backslashes and u are not an escape and are not counted; doubling the backslash is "
+    "no way through: it is saved doubled"
 )
 
-#: מה שכל ``hint`` של השער אומר על המספרים, ומה עושים אחרי הסירוב.
-_ESCAPES_COUNTED = (
-    "expected is the number declared, and received counts, in old_string and new_string as "
-    f"they reached the tool, every place that holds {UNICODE_ESCAPE_IN_WORDS}; "
-    "received_in_old_string and received_in_new_string say how many arrived in each"
-)
+#: מה כל כלי סופר — **הבעלים היחיד** (ההערה שמעל ``UNICODE_ESCAPE_RE``): הגוף של כל handler
+#: מעביר את המחרוזות לפי הסדר הזה (:func:`_unicode_escapes_refusal`), וכך הן נקראות בסירוב
+#: (``received_in_<שם>``), ב-``hint`` ובתיאור הפרמטר שנבנה מהן ב-``mcp_server/server.py``.
+#: ב-``codekeeper_multi_edit_file`` ההצהרה יושבת בכל זוג (``EditPair``), ונספרות שתי
+#: המחרוזות של הזוג. כלי כתיבה שאינו כאן רשום בחריגים, עם הסיבה, בשומר המבני
+#: ``test_every_write_tool_carries_the_escapes_gate_or_says_why_not`` ב-``tests/test_mcp_server_build.py``.
+UNICODE_ESCAPES_COUNTED: dict[str, tuple[str, ...]] = {
+    "codekeeper_edit_file": ("old_string", "new_string"),
+    "codekeeper_multi_edit_file": ("old_string", "new_string"),
+    "codekeeper_save_file": ("code",),
+    "codekeeper_append_file": ("content",),
+    "codekeeper_create_note": ("content",),
+    "codekeeper_create_board_note": ("content",),
+    "codekeeper_create_repo_note": ("content",),
+    "codekeeper_update_note": ("content",),
+    "codekeeper_note_str_replace": ("old_string", "new_string"),
+    "codekeeper_comment_note": ("body",),
+}
+
+
+def _counted_strings(names: tuple[str, ...]) -> tuple[str, bool]:
+    """שמות המחרוזות כפי שמשפט נוקב בהן, והאם הן רבות — ``("old_string and new_string", True)``."""
+    return " and ".join(names), len(names) > 1
+
+
+def expected_unicode_escapes_rule(names: tuple[str, ...]) -> str:
+    """המשפט הראשון של תיאור הפרמטר, **משמות המחרוזות שהכלי סופר** — הכלל כולו, כי לקוח
+    שמקצר תיאור פרמטר לכ-120 תווים רואה רק אותו.
+
+    במחרוזת אחת "number" ובשתיים "total": מה שמושווה בשתיים הוא סכום.
+    """
+    strings, many = _counted_strings(names)
+    if many:
+        return (
+            f"How many Unicode escapes meant as text {strings} hold together; with another "
+            "total, nothing is written"
+        )
+    return (
+        f"How many Unicode escapes meant as text {strings} holds; with another number, "
+        "nothing is written"
+    )
+
+
+#: המשפט של ``codekeeper_edit_file`` — **נוסח אחד** לפרמטר שלו ולשדה של הזוג ב-``EditPair``.
+EXPECTED_UNICODE_ESCAPES_RULE = expected_unicode_escapes_rule(UNICODE_ESCAPES_COUNTED["codekeeper_edit_file"])
+
+
+def unicode_escapes_mismatch_keys(names: tuple[str, ...]) -> tuple[str, ...]:
+    """השדות המספריים של ``unicode_escapes_mismatch``, לכלי שסופר את ``names`` — בסדר הזה.
+
+    **הבעלים של שמות השדות:** הסירוב נבנה מהם (:func:`_mismatched_unicode_escapes`), ה-``hint``
+    נוקב בהם, ותיאור הפרמטר ב-``mcp_server/server.py`` מונה אותם. ``received_in_<שם>`` רק
+    כשיש יותר ממחרוזת אחת; במחרוזת אחת ``received`` הוא כבר מה שהגיע בה.
+    """
+    if len(names) > 1:
+        return ("expected", "received", *(f"received_in_{name}" for name in names))
+    return ("expected", "received")
+
+
+def _escapes_counted(names: tuple[str, ...]) -> str:
+    """מה שכל ``hint`` של השער אומר על המספרים, בשמות המחרוזות שהכלי סופר."""
+    strings, many = _counted_strings(names)
+    counted = (
+        f"expected is the number declared, and received counts, in {strings} as "
+        f"{'they' if many else 'it'} reached the tool, every place that holds {UNICODE_ESCAPE_IN_WORDS}"
+    )
+    if not many:
+        return counted
+    each = " and ".join(unicode_escapes_mismatch_keys(names)[2:])
+    return f"{counted}; {each} say how many arrived in each"
+
+
 _ESCAPES_SEND_ONCE_MORE = (
     "A client can turn such an escape into its character before the tool sees it, and that "
     "can differ from call to call: if the number you declared is right, send {what} once "
     "more. Refused again: tell the user that this text cannot be written from this client"
 )
 
+#: מה עושים אחרי סירוב על מחרוזות שהגיעו בארגומנטים של הקריאה: תנאי הזוגיות, ושליחה אחת נוספת.
+_RESEND_THE_CALL = f"{DOUBLED_BACKSLASH_IN_WORDS}. " + _ESCAPES_SEND_ONCE_MORE.format(what="the same call")
 
-def _invalid_expected_unicode_escapes(expected: Any) -> dict[str, Any] | None:
+#: קוד הסירוב על הצהרה בלי המחרוזת שהיא סופרת — ``.format(<שם המחרוזת>)``. קוד משלו ולא
+#: ``unicode_escapes_mismatch``: ה-``hint`` של mismatch אומר לשלוח שוב, וכאן אין מה לשלוח.
+#: נקרא על שם הפרמטר החסר, כמו ``context_lines_without_query``.
+EXPECTED_UNICODE_ESCAPES_WITHOUT_TEXT = "expected_unicode_escapes_without_{}"
+
+
+def _declared_without_text(name: str) -> dict[str, Any]:
+    """``expected_unicode_escapes`` נשלח, והקריאה אינה נושאת את ``name`` שהוא סופר.
+
+    ב-``codekeeper_update_note`` בלי ``content``, וב-``codekeeper_comment_note`` שסוגר שרשור
+    בלי ``body``. נדחה לפני כל קריאה מהמסד, ושום דבר לא נכתב — גם לא השדות האחרים של
+    הקריאה, כמו צבע שנשלח איתו: הסוכן התכוון לגוף, והקריאה אינה מה שהתכוון אליו.
+    """
+    return {
+        "ok": False,
+        "error": EXPECTED_UNICODE_ESCAPES_WITHOUT_TEXT.format(name),
+        "hint": (
+            f"expected_unicode_escapes counts the Unicode escapes in {name}, and this call sends no "
+            f"{name}: there is nothing to count. Nothing was written. Send the call without "
+            f"expected_unicode_escapes, or with the {name} it was meant for"
+        ),
+    }
+
+
+def _invalid_expected_unicode_escapes(expected: Any, names: tuple[str, ...]) -> dict[str, Any] | None:
     """סירוב על ``expected_unicode_escapes`` שאינו מספר שלם, 0 ומעלה — או ``None``.
 
     **קוד משלו ולא ``unicode_escapes_mismatch``**, מאותו נימוק של
@@ -1554,17 +1730,19 @@ def _invalid_expected_unicode_escapes(expected: Any) -> dict[str, Any] | None:
     שלילי **כן** מגיע לכאן דרך MCP. בזוג של ``codekeeper_multi_edit_file`` אותו כלל
     יושב במודל (``EditPair``), ונענה ``invalid_edit``.
 
-    אין תקרה עליונה: מספר גדול ממה ששתי המחרוזות יכולות להכיל פשוט אינו תואם.
+    ``names`` — המחרוזות שהכלי סופר (``UNICODE_ESCAPES_COUNTED``), כדי שה-``hint`` ינקוב בהן.
+    אין תקרה עליונה: מספר גדול ממה שהמחרוזות יכולות להכיל פשוט אינו תואם.
     """
     if expected is None:
         return None
     if isinstance(expected, int) and not isinstance(expected, bool) and expected >= 0:
         return None
+    strings, many = _counted_strings(names)
     return {
         "ok": False,
         "error": EXPECTED_UNICODE_ESCAPES_INVALID,
-        "hint": "pass a whole number, 0 or more: how many times old_string and new_string "
-        f"together hold, as text, {UNICODE_ESCAPE_IN_WORDS}. Nothing was written",
+        "hint": f"pass a whole number, 0 or more: how many times {strings} "
+        f"{'together hold' if many else 'holds'}, as text, {UNICODE_ESCAPE_IN_WORDS}. Nothing was written",
     }
 
 
@@ -1573,33 +1751,62 @@ def _count_unicode_escapes(text: str) -> int:
     return sum(1 for _ in UNICODE_ESCAPE_RE.finditer(text))
 
 
-def _mismatched_unicode_escapes(
-    old_string: str, new_string: str, expected: int | None
-) -> dict[str, int] | None:
+def _mismatched_unicode_escapes(expected: int | None, strings: dict[str, str]) -> dict[str, int] | None:
     """המספרים של ``unicode_escapes_mismatch`` — או ``None`` כשאין מה לסרב עליו.
 
-    ``None`` כשאין הצהרה — אז אין בדיקה — או כשהסכום שהגיע הוא זה שהוצהר. **``0`` הוא
-    הצהרה, לא היעדר הצהרה:** "אין כאן אף escape" נבדק כמו כל מספר, ולכן ההשוואה היא
-    ל-``None`` ולא לערך שקרי.
+    ``strings`` — שם ← טקסט, לכל מחרוזת שהקריאה מתאימה או כותבת, בסדר של
+    ``UNICODE_ESCAPES_COUNTED``. ``None`` כשאין הצהרה — אז אין בדיקה — או כשהסכום שהגיע
+    הוא זה שהוצהר. **``0`` הוא הצהרה, לא היעדר הצהרה:** "אין כאן אף escape" נבדק כמו כל
+    מספר, ולכן ההשוואה היא ל-``None`` ולא לערך שקרי.
 
-    **נספרות שתי המחרוזות, והסכום הוא שמושווה** — ההערה שמעל ``UNICODE_ESCAPE_RE``. לצד
-    הסכום חוזר מה שהגיע בכל מחרוזת: בלי זה סירוב אומר שמשהו הומר, ולא איפה.
+    **כל המחרוזות נספרות, והסכום הוא שמושווה** — ההערה שמעל ``UNICODE_ESCAPE_RE``. כשיש
+    יותר ממחרוזת אחת, לצד הסכום חוזר מה שהגיע בכל אחת (``received_in_<שם>``): בלי זה סירוב
+    אומר שמשהו הומר, ולא איפה. במחרוזת אחת ``received`` הוא כבר זה.
 
     חוזרים מספרים בלבד, לעולם לא טקסט מהמחרוזות. **המפתחות חוזרים כמילון אחד, שהקורא
-    פורש לתוך הסירוב שלו:** שני הקוראים בונים סירוב בצורה אחרת (לזוג יש ``index``), ושדה
-    שיתווסף כאן מגיע לשניהם בלי שמישהו יזכור להוסיף אותו. ה-``hint`` נוסף אצל הקורא, כי
+    פורש לתוך הסירוב שלו:** הקוראים בונים סירוב בצורות שונות (לזוג יש ``index``), ושדה
+    שיתווסף כאן מגיע לכולם בלי שמישהו יזכור להוסיף אותו. ה-``hint`` נוסף אצל הקורא, כי
     מה שעושים אחרי הסירוב תלוי בדרך שבה המחרוזות הגיעו.
     """
     if expected is None:
         return None
-    in_old, in_new = _count_unicode_escapes(old_string), _count_unicode_escapes(new_string)
-    if in_old + in_new == expected:
+    counts = [_count_unicode_escapes(text) for text in strings.values()]
+    received = sum(counts)
+    if received == expected:
+        return None
+    values = (expected, received, *counts) if len(counts) > 1 else (expected, received)
+    return dict(zip(unicode_escapes_mismatch_keys(tuple(strings)), values, strict=True))
+
+
+def _unicode_escapes_refusal(tool: str, expected: Any, *texts: str, after: str) -> dict[str, Any] | None:
+    """השער של ``tool``: ``invalid_expected_unicode_escapes``, ``unicode_escapes_mismatch`` — או ``None``.
+
+    **הנקודה האחת שכל כלי עם מחרוזות ברמה העליונה עובר בה** — כלי הקבצים וכלי הפתקים.
+    ``texts`` הן המחרוזות שהקריאה מתאימה או כותבת, **בסדר של ``UNICODE_ESCAPES_COUNTED[tool]``**,
+    ומשם השמות שבסירוב וב-``hint``; מספר אחר של מחרוזות הוא קורא שהפר את החוזה, ונופל
+    בקול (``TypeError``) ולא נספר על שמות אחרים. ``codekeeper_multi_edit_file`` אינו עובר
+    כאן: ההצהרה שלו יושבת בכל זוג, והסירוב שלו נושא ``index``.
+
+    ``after`` — מה עושים אחרי הסירוב, לפי הדרך שבה הטקסט הגיע: ארגומנטים של הקריאה
+    (``_RESEND_THE_CALL``) או העלאה (:func:`_fix_the_uploaded_text`).
+
+    בודק גם את צורת הערך, כך שקורא ששכח לבדוק אותה מוקדם אינו עונה mismatch על ``-1``;
+    כלי שקורא מהמסד לפני הספירה — ההעלאה — בודק את הצורה גם לפני הקריאה.
+    """
+    names = UNICODE_ESCAPES_COUNTED[tool]
+    if len(texts) != len(names):
+        raise TypeError(f"{tool} counts {names}, and {len(texts)} strings were passed")
+    bad = _invalid_expected_unicode_escapes(expected, names)
+    if bad is not None:
+        return bad
+    counts = _mismatched_unicode_escapes(expected, dict(zip(names, texts)))
+    if counts is None:
         return None
     return {
-        "expected": expected,
-        "received": in_old + in_new,
-        "received_in_old_string": in_old,
-        "received_in_new_string": in_new,
+        "ok": False,
+        "error": UNICODE_ESCAPES_MISMATCH,
+        **counts,
+        "hint": f"nothing was written: {_escapes_counted(names)}. {after}",
     }
 
 
@@ -1635,18 +1842,11 @@ def edit_file(
     bad_expected = _invalid_expected_sha256(expected_content_sha256)
     if bad_expected is not None:
         return bad_expected
-    bad_count = _invalid_expected_unicode_escapes(expected_unicode_escapes)
-    if bad_count is not None:
-        return bad_count
-    counts = _mismatched_unicode_escapes(old_string, new_string, expected_unicode_escapes)
-    if counts is not None:
-        return {
-            "ok": False,
-            "error": UNICODE_ESCAPES_MISMATCH,
-            **counts,
-            "hint": f"nothing was written: {_ESCAPES_COUNTED}. "
-            + _ESCAPES_SEND_ONCE_MORE.format(what="the same call"),
-        }
+    refused = _unicode_escapes_refusal(
+        "codekeeper_edit_file", expected_unicode_escapes, old_string, new_string, after=_RESEND_THE_CALL
+    )
+    if refused is not None:
+        return refused
     doc, code = _load_editable(backend, user_id, name)
     if doc is None:
         return {"ok": False, "error": "not_found"}
@@ -1683,6 +1883,7 @@ def append_file(
     content: str = "",
     expected_content_sha256: str | None = None,
     upload_id: str | None = None,
+    expected_unicode_escapes: int | None = None,
 ) -> dict[str, Any]:
     """Append ``content`` to the end of an existing file (as a new version).
 
@@ -1695,10 +1896,18 @@ def append_file(
     :func:`save_file`; השער רץ בתוך :func:`_resave_edited`, אחרי בדיקת התקרה על
     הקובץ המלא. **כאן החד-פעמיות היא ההבטחה עצמה:** הוספה שנשלחה שוב כי התשובה
     אבדה בדרך נענית ``upload_not_found``, והקובץ מכיל את הטקסט פעם אחת.
+
+    ``expected_unicode_escapes`` — השער של escape של יוניקוד על ``content``, לפני שהקובץ
+    נקרא מהמסד; עם ``upload_id`` — על הטקסט שנשלף, באותו סדר של :func:`save_file`.
     """
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
+    bad_count = _invalid_expected_unicode_escapes(
+        expected_unicode_escapes, UNICODE_ESCAPES_COUNTED["codekeeper_append_file"]
+    )
+    if bad_count is not None:
+        return bad_count
     upload: _PendingUpload | None = None
     if upload_id is not None:
         if isinstance(content, str) and content != "":
@@ -1719,6 +1928,14 @@ def append_file(
     bad_expected = _invalid_expected_sha256(expected_content_sha256)
     if bad_expected is not None:
         return bad_expected
+    refused = _unicode_escapes_refusal(
+        "codekeeper_append_file",
+        expected_unicode_escapes,
+        content,
+        after=_RESEND_THE_CALL if upload is None else _fix_the_uploaded_text(upload.param),
+    )
+    if refused is not None:
+        return refused
     doc, code = _load_editable(backend, user_id, name)
     if doc is None:
         return {"ok": False, "error": "not_found"}
@@ -1860,10 +2077,7 @@ _MULTI_EDIT_TOOL = "codekeeper_multi_edit_file"
 #: הזוגות הגיעו: ב-``edits`` שולחים שוב את הבאץ'; העלאה אי אפשר לתקן, רק להעלות חדשה.
 _NOTHING_WRITTEN = "nothing was written: the batch is all or nothing. "
 _RESEND_THE_BATCH = "Fix this pair and send the whole batch again"
-_UPLOAD_THE_EDITS_AGAIN = (
-    "An upload cannot be changed: fix the file, upload it again and pass the new id in "
-    f"{_EDITS_UPLOAD.name}"
-)
+_UPLOAD_THE_EDITS_AGAIN = _upload_again(_EDITS_UPLOAD)
 
 # ---------------------------------------------------------------------------
 # ``edits_upload_id`` — רשימת הזוגות כקובץ JSON שעלה ב-``PUT /api/agent/upload``.
@@ -2104,17 +2318,22 @@ def multi_edit_file(
     # סירוב של זוג. מה שעושים אחריו תלוי בדרך שבה הזוגות הגיעו: רשימה שנשלחה ב-``edits``
     # עברה בלקוח, ושליחה נוספת יכולה להגיע אחרת; קובץ שהועלה מפוענח כאן פעם אחת, ולכן
     # אותו קובץ ייענה תמיד אותו דבר — מתקנים אותו ומעלים שוב.
+    pair_strings = UNICODE_ESCAPES_COUNTED[_MULTI_EDIT_TOOL]
     for index, pair in enumerate(pairs):
         counts = _mismatched_unicode_escapes(
-            pair.old_string, pair.new_string, pair.expected_unicode_escapes
+            pair.expected_unicode_escapes, dict(zip(pair_strings, (pair.old_string, pair.new_string)))
         )
         if counts is None:
             continue
         if upload is None:
             # "as a JSON array": רשימה שנשלחה כמחרוזת מפוענחת פעמיים, וזו סיבה שנייה —
             # עקבית, לא מקרית — לכך שה-escape הגיע כתו (ההערה מעל ``_edits_from_upload``).
-            after = _ESCAPES_SEND_ONCE_MORE.format(what="the whole batch, as a JSON array,")
+            after = f"{DOUBLED_BACKSLASH_IN_WORDS}. " + _ESCAPES_SEND_ONCE_MORE.format(
+                what="the whole batch, as a JSON array,"
+            )
         else:
+            # בלי ``DOUBLED_BACKSLASH_IN_WORDS``: בקובץ ה-JSON לוכסן כטקסט **נכתב** כשניים, ומה
+            # שנספר הוא המחרוזת אחרי הפענוח. "להכפיל את הלוכסן" הוא כאן הדרך הנכונה, לא עיקוף.
             after = (
                 "The uploaded file is decoded exactly once, so there a backslash meant as "
                 f"text is written as two backslashes. {_UPLOAD_THE_EDITS_AGAIN}"
@@ -2124,7 +2343,7 @@ def multi_edit_file(
             "error": UNICODE_ESCAPES_MISMATCH,
             "index": index,
             **counts,
-            "hint": f"{_NOTHING_WRITTEN}In this pair {_ESCAPES_COUNTED}. {after}",
+            "hint": f"{_NOTHING_WRITTEN}In this pair {_escapes_counted(pair_strings)}. {after}",
         }
     bad_expected = _invalid_expected_sha256(expected_content_sha256)
     if bad_expected is not None:
@@ -2403,12 +2622,16 @@ def create_note(
     line: int | None = None,
     color: str | None = None,
     anchor_text: str | None = None,
+    expected_unicode_escapes: int | None = None,
 ) -> dict[str, Any]:
     """Attach a sticky note to an existing file.
 
     With ``line`` the note anchors to that 1-indexed source line; without it the
     note is created floating (explicit sentinel — otherwise the web client
     auto-anchors it to the nearest line on first render).
+
+    ``expected_unicode_escapes`` — השער של escape של יוניקוד על ``content`` (ההערה מעל
+    ``UNICODE_ESCAPE_RE``), אחרי שאר הבדיקות ולפני היצירה; סירוב אינו יוצר פתק.
     """
     name = (file_name or "").strip()
     if not name:
@@ -2429,6 +2652,12 @@ def create_note(
     color_s = _note_color_or_error(color, default=DEFAULT_NOTE_COLOR)
     if isinstance(color_s, dict):
         return color_s
+
+    refused = _unicode_escapes_refusal(
+        "codekeeper_create_note", expected_unicode_escapes, content, after=_RESEND_THE_CALL
+    )
+    if refused is not None:
+        return refused
 
     return backend.create_note(
         user_id,
@@ -2474,8 +2703,13 @@ def create_board_note(
     color: str | None = None,
     mode: str | None = None,
     title: str | None = None,
+    expected_unicode_escapes: int | None = None,
 ) -> dict[str, Any]:
     """Attach a sticky note to a board (a surface that belongs to no file).
+
+    ``expected_unicode_escapes`` — השער של escape של יוניקוד על ``content``, כמו ב-
+    :func:`create_note`: אחרי שאר הבדיקות ולפני היצירה. ``title`` אינו נספר (ההערה מעל
+    ``UNICODE_ESCAPE_RE``).
 
     ``mode`` בוחר בין ``surface`` (יושב על הלוח, ברירת המחדל) לבין
     ``screen`` (צף מול המסך). ``anchored`` אינו חוקי כאן — הוא דורש שורות
@@ -2500,6 +2734,12 @@ def create_board_note(
     color_s = _note_color_or_error(color, default=DEFAULT_NOTE_COLOR)
     if isinstance(color_s, dict):
         return color_s
+
+    refused = _unicode_escapes_refusal(
+        "codekeeper_create_board_note", expected_unicode_escapes, content, after=_RESEND_THE_CALL
+    )
+    if refused is not None:
+        return refused
 
     return backend.create_board_note(
         user_id,
@@ -2566,8 +2806,12 @@ def create_repo_note(
     color: str | None = None,
     mode: str | None = None,
     title: str | None = None,
+    expected_unicode_escapes: int | None = None,
 ) -> dict[str, Any]:
     """Attach a sticky note to a file inside a mirrored repository.
+
+    ``expected_unicode_escapes`` — השער של escape של יוניקוד על ``content``, כמו ב-
+    :func:`create_note`.
 
     היעד הוא הזוג ``(repo_name, repo_path)`` **בלי ענף**: פתק שנרשם כשהיית
     על ``main`` מופיע גם כשאתה על ענף PR — זו אותה שורת קוד.
@@ -2600,6 +2844,12 @@ def create_repo_note(
     color_s = _note_color_or_error(color, default=DEFAULT_NOTE_COLOR)
     if isinstance(color_s, dict):
         return color_s
+
+    refused = _unicode_escapes_refusal(
+        "codekeeper_create_repo_note", expected_unicode_escapes, content, after=_RESEND_THE_CALL
+    )
+    if refused is not None:
+        return refused
 
     return backend.create_repo_note(
         user_id,
@@ -2695,6 +2945,7 @@ def note_str_replace(
     old_string: str,
     new_string: str,
     replace_all: bool = False,
+    expected_unicode_escapes: int | None = None,
 ) -> dict[str, Any]:
     """Exact find-and-replace inside one sticky note.
 
@@ -2723,12 +2974,22 @@ def note_str_replace(
     שתיהן מדווחות הצלחה, והאחרונה מוחקת את עריכת הראשונה — הצילום היה
     משמר את הגוף **הישן**, לא את העריכה שאבדה. המפסיד מקבל ``conflict``:
     קריאה חוזרת של הפתק וניסיון נוסף הם התשובה הנכונה, לא ניצחון שקרי.
+
+    ``expected_unicode_escapes`` — השער של escape של יוניקוד על ``old_string`` ועל
+    ``new_string`` יחד, כמו ב-:func:`edit_file` ובאותם שמות שדות בסירוב. על הארגומנטים
+    בלבד, ולכן לפני שהפתק נקרא: סירוב אינו עולה קריאה, ואינו כותב דבר.
     """
     nid = _clean_note_id(note_id)
     if nid is None:
         return {"ok": False, "error": "invalid_note_id"}
     if not isinstance(old_string, str) or not isinstance(new_string, str):
         return {"ok": False, "error": "invalid_arguments"}
+    refused = _unicode_escapes_refusal(
+        "codekeeper_note_str_replace", expected_unicode_escapes, old_string, new_string,
+        after=_RESEND_THE_CALL,
+    )
+    if refused is not None:
+        return refused
 
     current = backend.get_note(user_id, note_id=nid)
     if not isinstance(current, dict) or not current.get("ok"):
@@ -3301,6 +3562,7 @@ def comment_note(
     reopen: Any = True,
     client: Any,
     is_admin: bool,
+    expected_unicode_escapes: Any = None,
 ) -> dict[str, Any]:
     """תגובה על פתק: שרשור חדש, תשובה בשרשור, או סגירה — הכלי ``codekeeper_comment_note``.
 
@@ -3321,6 +3583,11 @@ def comment_note(
     לא פרמטר של הכלי; ``working_on`` הוא מה שהסוכן אומר על עצמו, ולכן הוא נבדק כאן.
     ``resolve`` נדלק רק ב-``True`` ממש, ו-``reopen`` נכבה רק ב-``False`` ממש — ערך שאינו
     בוליאני אינו משנה את ברירת המחדל.
+
+    ``expected_unicode_escapes`` — השער של escape של יוניקוד על ``body`` (ההערה מעל
+    ``UNICODE_ESCAPE_RE``), עם בדיקות הקלט ולפני השער של הפתק. **הצהרה בלי ``body``** — סגירה
+    בלי משפט סיכום — נענית בסירוב משלה (:func:`_declared_without_text`), ולא נסגר דבר.
+    ``working_on`` אינו נספר.
     """
     nid = _clean_note_id(note_id)
     if nid is None:
@@ -3343,6 +3610,19 @@ def comment_note(
         refused = comment_body_error(body)
         if refused:
             return refused
+    counted = UNICODE_ESCAPES_COUNTED["codekeeper_comment_note"]
+    bad_count = _invalid_expected_unicode_escapes(expected_unicode_escapes, counted)
+    if bad_count is not None:
+        return bad_count
+    if body is None:
+        if expected_unicode_escapes is not None:
+            return _declared_without_text(counted[0])
+    else:
+        escapes_refused = _unicode_escapes_refusal(
+            "codekeeper_comment_note", expected_unicode_escapes, body, after=_RESEND_THE_CALL
+        )
+        if escapes_refused is not None:
+            return escapes_refused
 
     current = _readable_note(backend, user_id, note_id=nid, is_admin=is_admin, with_version=False)
     if not current.get("ok"):
@@ -3478,12 +3758,24 @@ def update_note(
     color: str | None = None,
     anchor_text: str | None = None,
     is_minimized: bool | None = None,
+    expected_unicode_escapes: int | None = None,
 ) -> dict[str, Any]:
     """Partial update of a sticky note by its id (in place). When the content changes,
-    ``backend.update_note`` keeps the previous body as a version first."""
+    ``backend.update_note`` keeps the previous body as a version first.
+
+    ``expected_unicode_escapes`` — השער של escape של יוניקוד על ``content`` (ההערה מעל
+    ``UNICODE_ESCAPE_RE``), לפני הכתיבה — ``backend.update_note`` הוא גם הקריאה. **הצהרה בלי
+    ``content``** נענית בסירוב משלה (:func:`_declared_without_text`), ולא נכתב אף שדה אחר
+    שנשלח איתה."""
     nid = _clean_note_id(note_id)
     if nid is None:
         return {"ok": False, "error": "invalid_note_id"}
+    counted = UNICODE_ESCAPES_COUNTED["codekeeper_update_note"]
+    bad_count = _invalid_expected_unicode_escapes(expected_unicode_escapes, counted)
+    if bad_count is not None:
+        return bad_count
+    if expected_unicode_escapes is not None and content is None:
+        return _declared_without_text(counted[0])
 
     fields: dict[str, Any] = {}
     if content is not None:
@@ -3514,4 +3806,10 @@ def update_note(
 
     if not fields:
         return {"ok": False, "error": "no_fields_to_update"}
+    if content is not None:
+        refused = _unicode_escapes_refusal(
+            "codekeeper_update_note", expected_unicode_escapes, content, after=_RESEND_THE_CALL
+        )
+        if refused is not None:
+            return refused
     return backend.update_note(user_id, note_id=nid, fields=fields)

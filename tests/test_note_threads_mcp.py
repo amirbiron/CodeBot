@@ -214,6 +214,33 @@ async def test_a_comment_is_saved_as_sent_and_the_answer_is_read_back(server, db
     assert "comments" not in res["thread"] and "body_bytes" not in res["thread"]
 
 
+async def test_a_declared_count_guards_the_comment_body_and_lets_the_text_through(server, db):
+    """``expected_unicode_escapes`` על ``body`` (#3692): הגוף שהגיע עם התו נדחה ואינו נכתב, והטקסט נשמר.
+
+    כאן, מול מונגו אמיתי, כי הדמה המשותפת אינה מפרשת ``$push``: הקריאה שעוברת את השער נשמרת,
+    והגוף שבאוסף הוא ששת התווים של ה-escape ולא התו. הסירוב עצמו, ושום שרשור שלא נוצר, נבדקים
+    גם בלי מונגו ב-``tests/test_note_content_preserved_mcp.py``. הלוכסן נבנה ב-``chr``: escape
+    שנכתב בקובץ כ-escape עלול להישמר כתו (ההערה מעל ``_BS`` ב-``tests/test_mcp_multi_edit.py``).
+    """
+    note = _board_note(db)
+    as_text = "see " + chr(92) + "u200F"
+
+    refused = await server.call("codekeeper_comment_note", note_id=note, working_on="בדיקה",
+                                body="see " + chr(0x200F), expected_unicode_escapes=1)
+
+    assert (refused["ok"], refused["error"], refused["expected"], refused["received"]) == (
+        False, "unicode_escapes_mismatch", 1, 0), refused
+    assert server.threads() == []
+
+    passed = await server.call("codekeeper_comment_note", note_id=note, working_on="בדיקה",
+                               body=as_text, expected_unicode_escapes=1)
+
+    assert passed["ok"] is True, passed
+    (stored,) = server.threads()
+    assert stored["comments"][0]["body"] == as_text
+    assert passed["comment"]["body_sha256"] == _sha(as_text)
+
+
 async def test_the_author_is_the_connected_client_not_a_parameter(server, db):
     """שם הכותב מהחיבור. ארגומנט ``client`` שהסוכן "מוסיף" אינו משנה דבר — אין פרמטר כזה."""
     note = _board_note(db)

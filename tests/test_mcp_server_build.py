@@ -964,14 +964,16 @@ def test_no_tool_or_parameter_description_carries_a_unicode_escape_or_an_invisib
     והחצי השני: תו בלתי-נראה שכבר יושב בתיאור הוא מה שנשאר מ-escape שהומר כשהתיאור
     נכתב — כך זה נראה בקוד, ואין לו סימן אחר.
 
-    **התבנית היא ``UNICODE_ESCAPE_RE`` של ``mcp_server/handlers.py``**, אותה תבנית שהשער
-    ``expected_unicode_escapes`` סופר לפיה, ולא עותק שני כאן: מה שהשרת מחשיב escape של
-    יוניקוד הוא מה שאסור שיופיע בתיאור. שהתבנית עצמה תופסת את מה שהיא צריכה — נבדק ב-
+    **התבנית היא ``UNICODE_ESCAPE_SHAPE_RE`` של ``mcp_server/handlers.py``**, הצורה שממנה בנויה
+    גם התבנית שהשער ``expected_unicode_escapes`` סופר לפיה, ולא עותק שני כאן. **הצורה ולא
+    התבנית הסופרת:** מאז #3692 השער אינו סופר escape שלפניו לוכסן כפול (תנאי הזוגיות), אבל
+    בתיאור אסורה כל צורה של escape — תיאור כותב אותו במילים. תבנית סופרת הייתה מתירה בשקט
+    לוכסן כפול ואחריו ``u`` וספרות. שהתבנית עצמה תופסת את מה שהיא צריכה — נבדק ב-
     ``tests/test_mcp_multi_edit.py``, מול ספירות שנכתבו ביד.
 
     ``_tool_manager.list_tools()`` — כל הכלים, גם של אדמין, מאותה סיבה כמו בטסט שמעל.
     """
-    from mcp_server.handlers import UNICODE_ESCAPE_RE
+    from mcp_server.handlers import UNICODE_ESCAPE_SHAPE_RE
 
     mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
 
@@ -984,10 +986,62 @@ def test_no_tool_or_parameter_description_carries_a_unicode_escape_or_an_invisib
             for field, inner in ((spec.get("items") or {}).get("properties") or {}).items():
                 texts[f"{name}[].{field}"] = inner.get("description") or ""
         for where, text in texts.items():
-            if UNICODE_ESCAPE_RE.search(text) or any(ord(ch) in _INVISIBLE for ch in text):
+            if UNICODE_ESCAPE_SHAPE_RE.search(text) or any(ord(ch) in _INVISIBLE for ch in text):
                 found.append(f"{tool.name}.{where}")
 
     assert not found, f"escape של יוניקוד או תו בלתי-נראה בתיאור — כותבים אותו במילים: {found}"
+
+
+#: כלי כתיבה שאינם נושאים את ``expected_unicode_escapes`` — שם ← הסיבה. **מי שמוסיף כאן שם
+#: כותב לידו למה**; כלי כתיבה שאינו נושא את הפרמטר ואינו כאן מפיל את השומר שמתחת.
+_WITHOUT_THE_ESCAPES_GATE = {
+    "codekeeper_note_view_save": (
+        "הגוף מוקלד על ידי המשתמש בתצוגה של הפתק (MCP App), ולא נכתב על ידי מודל: אין שם סוכן "
+        "שיצהיר על מספר. הכלי מוסתר מהמודל (_meta.ui.visibility)."
+    ),
+    "codekeeper_update_file_description": "אין גוף: מחליף רק את תיאור הקובץ, ותיאור אינו נספר.",
+    "codekeeper_add_to_collection": "אין גוף: משייך קובץ קיים לאוסף.",
+}
+
+
+def test_every_write_tool_carries_the_escapes_gate_or_says_why_not():
+    """שומר מבני: כל כלי כתיבה נושא את ``expected_unicode_escapes``, או רשום בחריגים עם הסיבה (#3692).
+
+    **נגזר מהרישום, ולא מרשימה:** כלי כתיבה הוא כל כלי ש-``_declares_write`` מחזיר עליו
+    ``True`` — אותה הכרעה שמכניסה אותו לתור הכתיבה — ו"נושא" פירושו פרמטר ברמה העליונה, או
+    שדה בכל פריט של רשימה (``edits`` של ``codekeeper_multi_edit_file``). כך כלי הכתיבה הבא נכנס
+    לבדיקה בלי שמישהו יזכור להוסיף אותו, ונופל כאן עד שיקבל את השער או סיבה.
+
+    ומה שנושא את השער הוא **בדיוק** ``handlers.UNICODE_ESCAPES_COUNTED`` — המיפוי שהגוף סופר
+    לפיו והתיאור נבנה ממנו: כלי שנושא את הפרמטר בלי שורה שם, או שורה בלי פרמטר, הם שני
+    מקומות שנפרדו. ורשימת החריגים אינה מחזיקה כלי שכבר אינו כלי כתיבה, או שכבר נושא את השער.
+
+    ``_tool_manager.list_tools()`` — כל הכלים, גם של אדמין, מאותה סיבה כמו בטסטים שמעל.
+
+    **המוטציה שחייבת להפיל אותו — הסרת הפרמטר מכלי כתיבה אחד ברישום.**
+    """
+    from mcp_server import handlers
+    from mcp_server.server import _declares_write
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+
+    def carries(tool) -> bool:
+        properties = tool.parameters.get("properties") or {}
+        if "expected_unicode_escapes" in properties:
+            return True
+        return any("expected_unicode_escapes" in ((spec.get("items") or {}).get("properties") or {})
+                   for spec in properties.values())
+
+    writers = {tool.name: carries(tool) for tool in mcp._tool_manager.list_tools() if _declares_write(tool.annotations)}
+    assert writers, "אף כלי אינו כלי כתיבה — הרשימה נגזרת מהרישום, משהו השתנה שם"
+
+    forgotten = sorted(name for name, gated in writers.items() if not gated and name not in _WITHOUT_THE_ESCAPES_GATE)
+    assert not forgotten, (
+        f"כלי כתיבה בלי expected_unicode_escapes ובלי סיבה ב-_WITHOUT_THE_ESCAPES_GATE: {forgotten}"
+    )
+    assert {name for name, gated in writers.items() if gated} == set(handlers.UNICODE_ESCAPES_COUNTED)
+    stale = sorted(name for name in _WITHOUT_THE_ESCAPES_GATE if writers.get(name) is not False)
+    assert not stale, f"חריגים שאינם כלי כתיבה, או שכבר נושאים את השער: {stale}"
 
 
 #: שלושת המספרים שההנמקה מעל :data:`_TOOL_DESCRIPTION_MAX_CHARS` נוקבת

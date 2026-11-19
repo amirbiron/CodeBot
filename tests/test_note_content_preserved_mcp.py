@@ -123,10 +123,14 @@ def _board(mcp) -> str:
     return boards["boards"][0]["id"]
 
 
-def _stored(store, note_id: str) -> str:
+def _note_doc(store, note_id: str) -> dict:
     from bson import ObjectId
 
-    return store.raw["sticky_notes"].find_one({"_id": ObjectId(note_id)})["content"]
+    return store.raw["sticky_notes"].find_one({"_id": ObjectId(note_id)})
+
+
+def _stored(store, note_id: str) -> str:
+    return _note_doc(store, note_id)["content"]
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
@@ -317,3 +321,193 @@ def test_the_comment_tool_checks_its_body_in_comment_body_error(monkeypatch, adm
     assert checked == ["body"] * len(paths)
     assert store.raw["note_threads"].count_documents({}) == 0
     assert _stored(store, note_id) == "MARK"
+
+
+# ---------------------------------------------------------------------------
+# השער של escape של יוניקוד בכלי הפתקים — ``expected_unicode_escapes`` (#3692)
+#
+# לכלי הפתקים אין מסלול קובץ, ולכן השער הוא ההגנה היחידה שלהם — והמקרה שפתח את כל הנושא
+# היה פתק: ``codekeeper_note_str_replace`` שמר תו בלתי-נראה עם ``content_changed: false``.
+# כאן: מה שנשמר, דרך ``call_tool`` מעל ``ProductionBackend`` והדמה. מה שמשותף לשמונת כלי
+# הכתיבה (התיאור, סירוב שאינו נוגע ב-backend, ערך פגום) — ב-``tests/test_mcp_multi_edit.py``.
+# ---------------------------------------------------------------------------
+
+#: לוכסן אחד, נבנה ב-``chr``: escape שנכתב בקובץ כ-escape עלול להישמר כתו (ההערה מעל ``_BS``
+#: ב-``tests/test_mcp_multi_edit.py``). ``AS_TEXT`` הוא escape של יוניקוד כששה תווים, ו-``RLM``
+#: (למעלה) הוא התו שהוא נהיה כשלקוח ממיר אותו.
+_BS = chr(92)
+AS_TEXT = _BS + "u200F"
+
+
+class _RepoListing(_ObjectIdCollection):
+    """``distinct`` — מה ש-``mirrored_repo_names`` קורא, ושהדמה המשותפת אינה מממשת."""
+
+    def distinct(self, key):
+        return sorted({d.get(key) for d in self.docs if d.get(key)})
+
+
+def _note_writers(server, store) -> dict:
+    """לכל כלי פתק שכותב גוף ונושא את השער: ``(ארגומנטים לפי הטקסט, איפה הגוף נשמר)``.
+
+    "איפה" הוא פונקציה מתשובת ההצלחה למזהה הפתק: ביצירה — הפתק החדש; בעדכון — הפתק שנפתח
+    ב-``MARK``. ``codekeeper_note_str_replace`` מחליף את ``MARK`` כולו, ולכן בכל הכלים מה שנשמר
+    הוא הטקסט עצמו.
+    """
+    board = _board(server)
+    assert _call(server, "codekeeper_save_file", file_name="a.md", code="x").get("ok") is True
+    store.raw.c["repo_metadata"] = _RepoListing()
+    store.raw["repo_metadata"].insert_one({"repo_name": "repo"})
+    store.raw["repo_files"].insert_one({"repo_name": "repo", "path": "a.py"})
+    note_id = _call(server, "codekeeper_create_board_note", board_id=board, content="MARK")["note"]["id"]
+
+    def created(res):
+        return res["note"]["id"]
+
+    def the_note(_res):
+        return note_id
+
+    return {
+        "codekeeper_create_note": (lambda text: {"file_name": "a.md", "content": text}, created),
+        "codekeeper_create_board_note": (lambda text: {"board_id": board, "content": text}, created),
+        "codekeeper_create_repo_note": (
+            lambda text: {"repo_name": "repo", "repo_path": "a.py", "content": text}, created),
+        "codekeeper_update_note": (lambda text: {"note_id": note_id, "content": text}, the_note),
+        "codekeeper_note_str_replace": (
+            lambda text: {"note_id": note_id, "old_string": "MARK", "new_string": text}, the_note),
+    }
+
+
+#: הכלים שכותבים גוף של פתק ונושאים את השער — המפתחות של :func:`_note_writers`.
+_NOTE_WRITERS = ("codekeeper_create_note", "codekeeper_create_board_note", "codekeeper_create_repo_note",
+                 "codekeeper_update_note", "codekeeper_note_str_replace")
+
+
+def _notes_state(store) -> tuple:
+    """מה שחייב להישאר זהה כש"שום דבר לא נכתב": כל הגופים, כמה פתקים, וכמה גרסאות בהיסטוריה."""
+    notes = store.raw["sticky_notes"].docs
+    return (sorted((str(d["_id"]), d.get("content")) for d in notes), len(notes),
+            len(store.raw["sticky_note_versions"].docs))
+
+
+@pytest.mark.parametrize("tool", _NOTE_WRITERS)
+def test_a_note_write_whose_escape_arrived_as_its_character_is_refused_and_writes_nothing(admin_mcp, store, tool):
+    """escape אחד הוצהר, והכלי קיבל את התו: ``unicode_escapes_mismatch``, ושום דבר לא נכתב.
+
+    ביצירה — לא נוצר פתק; בעדכון — הגוף לא השתנה, ואין גרסה בהיסטוריה. בלי השער אותה קריאה
+    נשמרת עם ``content_changed: false`` — הכלי שמר בדיוק מה שהגיע (המקרה שפתח את הנושא).
+
+    **המוטציות שחייבות להפיל אותו — ביטול הספירה בכלי אחד, והבדיקה אחרי הכתיבה:** בשתיהן
+    הפתק נכתב.
+    """
+    arguments, _ = _note_writers(admin_mcp, store)[tool]
+    before = _notes_state(store)
+
+    res = _call(admin_mcp, tool, **arguments("x " + RLM), expected_unicode_escapes=1)
+
+    assert (res["ok"], res["error"], res["expected"], res["received"]) == (
+        False, "unicode_escapes_mismatch", 1, 0), res
+    assert _notes_state(store) == before
+
+
+@pytest.mark.parametrize("tool", _NOTE_WRITERS)
+def test_a_note_write_whose_escapes_arrived_as_text_passes_and_saves_the_text(admin_mcp, store, tool):
+    """שני escapes הוצהרו, ושניהם הגיעו כששה תווים: הכתיבה עוברת, והטקסט הוא שנשמר."""
+    arguments, stored_in = _note_writers(admin_mcp, store)[tool]
+    text = f"x {AS_TEXT} y {AS_TEXT}"
+
+    res = _call(admin_mcp, tool, **arguments(text), expected_unicode_escapes=2)
+
+    assert res.get("ok") is True and res["content_changed"] is False, res
+    assert _stored(store, stored_in(res)) == text
+    assert res["note"]["content_sha256"] == _sha(text)
+
+
+@pytest.mark.parametrize("sent", [AS_TEXT, RLM], ids=["as_text", "as_character"])
+@pytest.mark.parametrize("tool", _NOTE_WRITERS)
+def test_without_the_declaration_a_note_write_is_what_it_was(admin_mcp, store, tool, sent):
+    """בלי הפרמטר — אפס דיף: אין בדיקה, והגוף נשמר כמו שהגיע, בשתי הצורות."""
+    arguments, stored_in = _note_writers(admin_mcp, store)[tool]
+
+    res = _call(admin_mcp, tool, **arguments("x " + sent))
+
+    assert res.get("ok") is True, res
+    assert _stored(store, stored_in(res)) == "x " + sent
+
+
+def test_a_note_replace_counts_old_string_too_and_says_which_string_changed(admin_mcp, store):
+    """``codekeeper_note_str_replace`` סופר את ``old_string`` ואת ``new_string`` יחד, כמו ``codekeeper_edit_file``.
+
+    הפתק מחזיק את ה-escape כטקסט, וגם את התו עצמו במקום אחר. ``old_string`` שה-escape שלו
+    הומר מחפש את התו — וכשהוא קיים, ההחלפה נעשית במקום הלא נכון, ומצליחה. עם ההצהרה: סירוב,
+    ``received_in_old_string: 0``, והגוף לא השתנה. ו-``old_string`` שהגיע כטקסט עובר, ומחליף
+    את הטקסט ולא את התו.
+
+    **המוטציה שחייבת להפיל אותו — ספירה של ``new_string`` בלבד:** אז הקריאה השנייה נענית
+    בסירוב, כי ב-``new_string`` אין escape וההצהרה היא 1.
+    """
+    body = f"the char {RLM} and the text {AS_TEXT}"
+    note_id = _call(admin_mcp, "codekeeper_create_board_note", board_id=_board(admin_mcp), content=body)["note"]["id"]
+    versions = len(store.raw["sticky_note_versions"].docs)
+
+    refused = _call(admin_mcp, "codekeeper_note_str_replace", note_id=note_id, old_string=RLM,
+                    new_string="X", expected_unicode_escapes=1)
+
+    assert (refused["ok"], refused["error"]) == (False, "unicode_escapes_mismatch"), refused
+    assert (refused["expected"], refused["received"]) == (1, 0)
+    assert (refused["received_in_old_string"], refused["received_in_new_string"]) == (0, 0)
+    assert _stored(store, note_id) == body
+    assert len(store.raw["sticky_note_versions"].docs) == versions
+
+    passed = _call(admin_mcp, "codekeeper_note_str_replace", note_id=note_id, old_string=AS_TEXT,
+                   new_string="X", expected_unicode_escapes=1)
+
+    assert passed.get("ok") is True, passed
+    assert _stored(store, note_id) == f"the char {RLM} and the text X"
+
+
+def test_a_declaration_without_content_in_update_note_is_its_own_refusal(admin_mcp, store):
+    """``codekeeper_update_note`` עם ``expected_unicode_escapes`` ובלי ``content``: קוד משלו, ושום שדה לא נכתב.
+
+    לא ``unicode_escapes_mismatch``: ה-``hint`` שלו אומר לשלוח שוב, וכאן אין מה לשלוח. והצבע
+    שנשלח באותה קריאה אינו מוחל — הסוכן התכוון לגוף, והקריאה אינה מה שהתכוון אליו.
+    """
+    note_id = _call(admin_mcp, "codekeeper_create_board_note", board_id=_board(admin_mcp), content="MARK")["note"]["id"]
+    before = _note_doc(store, note_id)["color"]
+
+    res = _call(admin_mcp, "codekeeper_update_note", note_id=note_id, color="green", expected_unicode_escapes=0)
+
+    assert (res["ok"], res["error"]) == (False, "expected_unicode_escapes_without_content"), res
+    assert "Nothing was written" in res["hint"] and "without expected_unicode_escapes" in res["hint"]
+    after = _note_doc(store, note_id)
+    assert after["color"] == before and after["content"] == "MARK"
+
+
+def test_a_comment_whose_escape_arrived_as_its_character_is_refused_and_writes_nothing(admin_mcp, store):
+    """``codekeeper_comment_note``: escape הוצהר, והתו הגיע — סירוב, ואין שרשור באוסף.
+
+    התגובה שעוברת את השער ונשמרת נבדקת מול מונגו אמיתי ב-``tests/test_note_threads_mcp.py``:
+    הדמה אינה מפרשת ``find_one_and_update`` עם ``$push``.
+    """
+    note_id = _call(admin_mcp, "codekeeper_create_board_note", board_id=_board(admin_mcp), content="MARK")["note"]["id"]
+
+    res = _call(admin_mcp, "codekeeper_comment_note", note_id=note_id, working_on="task",
+                body="x " + RLM, expected_unicode_escapes=1)
+
+    assert (res["ok"], res["error"], res["expected"], res["received"]) == (
+        False, "unicode_escapes_mismatch", 1, 0), res
+    assert store.raw["note_threads"].count_documents({}) == 0
+
+
+def test_a_declaration_on_a_close_without_body_is_its_own_refusal(admin_mcp, store):
+    """סגירת שרשור בלי ``body``, עם ``expected_unicode_escapes``: ``expected_unicode_escapes_without_body``.
+
+    לפני השער של הפתק ולפני המסד — ``thread_id`` כאן אינו קיים, והסירוב הוא של ההצהרה ולא
+    ``thread_not_found``.
+    """
+    note_id = _call(admin_mcp, "codekeeper_create_board_note", board_id=_board(admin_mcp), content="MARK")["note"]["id"]
+
+    res = _call(admin_mcp, "codekeeper_comment_note", note_id=note_id, working_on="task", thread_id="a" * 24,
+                resolve=True, expected_unicode_escapes=0)
+
+    assert (res["ok"], res["error"]) == (False, "expected_unicode_escapes_without_body"), res
+    assert store.raw["note_threads"].count_documents({}) == 0
