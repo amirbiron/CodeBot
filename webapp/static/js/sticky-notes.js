@@ -135,7 +135,7 @@
   const {
     createEl, fillInlineCode, inlineCodeSegments, GENERATED_TEXT_CLASS,
     TASK_LINE_RE, MD_HR_RE, MD_FENCE_RE, MD_CONTAINER_OPEN_RE, MD_CONTAINER_CLOSE_RE, MD_DETAILS_TYPE,
-    isViewControl, sourceOffsetAt, buildStrokeIcon,
+    isViewControl, sourceOffsetAt, openDetailsAround, buildStrokeIcon,
   } = StickyMdRender;
 
 
@@ -4541,22 +4541,19 @@
        * הפתיחה.** לכן הסידור שלו נרשם ב-``openedDetails`` ולא
        * ב-``entry.detailsOpen``, והבלוק נסגר חזרה כשהחיפוש נסגר. בלוק
        * שההתאמה נמצאת ב-``summary`` שלו אינו נפתח — ה-``summary`` גלוי גם
-       * כשהבלוק סגור.
+       * כשהבלוק סגור. ההכרעה מה לפתוח היא של המנוע (``openDetailsAround``), המשותפת לתצוגה בתוך
+       * Claude; כאן רק נרשם מה נפתח.
        */
       _revealSearchHit(el, view, hit){
         const entry = this._getEntry(el);
         const s = entry && entry.search;
-        let boxes = null;
-        for (let node = hit.parentElement; node && node !== view; node = node.parentElement) {
-          if (!node.matches('details.sticky-md-details') || node.open) continue;
-          const summary = node.querySelector(':scope > summary');
-          if (summary && summary.contains(hit)) continue;
-          node.open = true;
-          if (s) {
-            if (!boxes) boxes = view.querySelectorAll('details.sticky-md-details');
+        const opened = openDetailsAround(hit, view);
+        if (s && opened.length) {
+          const boxes = view.querySelectorAll('details.sticky-md-details');
+          opened.forEach((node) => {
             const i = Array.prototype.indexOf.call(boxes, node);
             if (i >= 0) s.openedDetails.add(i);
-          }
+          });
         }
         // גלילה בתוך הפתק בלבד, ולא של המסמך שמתחתיו — ראו ``scrollIntoViewWithin``
         // ב-``utils/text-highlight.js``. ההתאמה היא עטיפה שהמודול יצר, ולכן הוא טעון.

@@ -625,7 +625,7 @@ class DocsTarget(NamedTuple):
 class LoadedDocument(NamedTuple):
     """מסמך שנקרא ופורסר, וההקשר שכל תשובה עליו נושאת.
 
-    ``context`` נכנס לכל תשובה על המסמך, גם לסירוב, **כמו שהוא** — ויש לו שתי
+    ``context`` נכנס לכל תשובה על המסמך, גם לסירוב, **כמו שהוא** — ויש לו שלוש
     צורות, לפי מי שקרא את המסמך:
 
     * **מראה** (``codekeeper_docs_get_section``, ``codekeeper_read_batch``):
@@ -633,6 +633,8 @@ class LoadedDocument(NamedTuple):
     * **קובץ שמור** (``codekeeper_get_file`` עם ``toc`` או ``section``): ``{"file":
       <המטא-דאטה של הקובץ בלי התוכן>}`` — ``_apply_sections_to_file`` ב-
       ``mcp_server/backend.py``. **אין בה ``repo`` ולא ``path``.**
+    * **פתק** (``codekeeper_show_note`` עם ``section``): ``{"note_id": <המזהה>}``
+      — ``_note_highlight`` ב-``mcp_server/handlers.py``.
 
     ולכן קוד שעובד על ``LoadedDocument`` אינו מניח אחת מהן: הוא מעביר את ``context``
     הלאה כמו שהוא (``**context``), כמו :func:`_answer_from_document`.

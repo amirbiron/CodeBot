@@ -1451,6 +1451,29 @@
   }
 
   /**
+   * **פותח כל בלוק מתקפל סגור שמסתיר את ``node``** — מההורה שלו ועד ``root``, בלי ``root`` עצמו — ומחזיר את
+   * הבלוקים שנפתחו, מהפנימי לחיצוני. בלוק ש-``node`` יושב ב-``summary`` שלו אינו נפתח: הכותרת גלויה גם כשהבלוק
+   * סגור. ``node`` שאינו בתוך ``root`` אינו פותח דבר.
+   *
+   * **תשובה אחת לכל מי שמביא סימון אל העין** — החיפוש בתוך פתק בוובאפ (``_revealSearchHit`` ב-
+   * ``sticky-notes.js``, שזוכר מה נפתח כדי לסגור אותו כשהחיפוש נסגר) והסימון בתצוגה בתוך Claude
+   * (``mcp_server/apps/note_view.js``). הבלוק נבנה כאן (``_openContainer``), ולכן כאן גם הידיעה איך הוא מסתיר
+   * את התוכן שלו: עותק של הלולאה אצל כל צרכן היה נסחף מהמנוע בבלוק המתקפל הבא שישתנה.
+   */
+  function openDetailsAround(node, root){
+    const opened = [];
+    if (!node || !root || node === root || !root.contains(node)) return opened;
+    for (let el = node.parentElement; el && el !== root; el = el.parentElement){
+      if (!el.matches('details.sticky-md-details') || el.open) continue;
+      const summary = el.querySelector(':scope > summary');
+      if (summary && summary.contains(node)) continue;
+      el.open = true;
+      opened.push(el);
+    }
+    return opened;
+  }
+
+  /**
    * מצמיד את מתודות המנוע ל-``proto`` (``StickyNotesManager.prototype``).
    *
    * **מסרב לדרוס.** שם שכבר קיים על ``proto`` הוא ``Error`` מיד בטעינה: מתודה של המנהל שמתנגשת
@@ -1504,6 +1527,8 @@
     // מה לחיצה בתצוגה פוגעת בו: פקד של המנוע, או שורה עם ההיסט שלה במקור.
     isViewControl,
     sourceOffsetAt,
+    // פתיחת בלוק מתקפל סגור סביב סימון — החיפוש בפתק והסימון בתצוגה בתוך Claude.
+    openDetailsAround,
     // אייקון מקווקו מצורות — לפתק ולתצוגה בתוך Claude.
     buildStrokeIcon,
   });

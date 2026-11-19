@@ -81,7 +81,8 @@ _SHELL_FILE = "note_view.html"
 #: **אותם קבצים שהוובאפ טוען לפתק, ובסדר שבו הם מגיעים בלוח הפתקים**, כי זה מה שהופך את הפתק
 #: כאן לאותו פתק: העיצוב של המנוע (``sticky-md-render.css``), הבסיס של האלרט והבלוק המתקפל
 #: (``markdown-enhanced.css``), ואחריהם התצוגה, שמוסיפה רק את מה ששייך לה. בסקריפט — שמות הקבצים,
-#: המפה של האלרטים וזיהוי העברית שהמנוע קורא מ-``window``, המנוע, ואז התצוגה. עותק של הכללים או
+#: המפה של האלרטים וזיהוי העברית שהמנוע קורא מ-``window``, מודול ההדגשה של החיפוש בתוך פתק
+#: (``text-highlight.js``, לסימון ``query``), המנוע, ואז התצוגה. עותק של הכללים או
 #: של הפרסר כאן היה ניב שלישי של "איך פתק נראה" (העמוד של המנוע, ``sticky-notes-md-engine-module``).
 #:
 #: **הסדר של הלוח, כי בוובאפ אין סדר אחד.** ``base.html`` טוען את ``markdown-enhanced.css`` אחרי
@@ -99,6 +100,7 @@ SCRIPT_PARTS: tuple[tuple[str, str], ...] = (
     ("webapp", "js/utils/file-name.js"),
     ("webapp", "js/admonition-icons.js"),
     ("webapp", "js/utils/rtl-code.js"),
+    ("webapp", "js/utils/text-highlight.js"),
     ("webapp", "js/sticky-md-render.js"),
     ("apps", "note_view.js"),
 )
