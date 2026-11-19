@@ -45,6 +45,8 @@ async def test_cache_warming_job_is_scheduled(monkeypatch):
             return self
         def post_init(self, *a, **k):
             return self
+        def get_updates_request(self, *a, **k):
+            return self
         def build(self):
             return _MiniApp()
 

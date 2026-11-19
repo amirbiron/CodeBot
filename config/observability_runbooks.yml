@@ -409,6 +409,21 @@ runbooks:
       - id: wait_for_recovery
         title: "חכה להתראת החזרה"
         description: "כשהקריאה מצליחה שוב מגיעה webapp_metrics_recovered, עם משך ההשבתה. עד אז לא תגיע התראה נוספת על אותה השבתה."
+  # ההתראה ש-services/telegram_polling_health.py שולח כשאף getUpdates לא הצליח לאורך TELEGRAM_POLLING_STALL_ALERT_SECS
+  # (ALERT_STALLED שם). כשל רשת בודד של getUpdates נרשם בלוג ברמת warning בלבד.
+  telegram_polling_stalled:
+    title: "הבוט לא מקבל עדכונים מטלגרם"
+    description: "אף getUpdates לא הצליח לאורך הסף, ובזמן הזה הבוט לא עונה למשתמשים. תקלת רשת קצרה, שנגמרת בתוך שניות, לא אמורה להגיע לסף."
+    steps:
+      - id: check_last_error
+        title: "בדוק את last_error בהתראה"
+        description: "NetworkError עם Bad Gateway או 5xx אחר: טלגרם עצמו לא עונה — בדוק את status.telegram.org, ואין מה לתקן אצלנו. httpx.ConnectError או RemoteProtocolError: הרשת בין Render ל-api.telegram.org — בדוק את הסטטוס של Render. Conflict: מופע אחר מריץ polling עם אותו טוקן, או ש-webhook פעיל — הריצו /status ובדקו את הנעילה. last_error ריק: הבקשות נגמרות ב-timeout, ו-python-telegram-bot מנסה שוב בלי לדווח עליהן."
+      - id: check_bot_logs
+        title: "חפש בלוג של הבוט"
+        description: "השורות telegram polling: transient getUpdates failure הן הכשלים הבודדים, בזמן ההשבתה. שגיאה ברמת error באותו זמן, למשל telegram polling heartbeat: recording a successful getUpdates failed, היא באג אצלנו ולא תקלה בטלגרם."
+      - id: wait_for_recovery
+        title: "חכה להתראת החזרה"
+        description: "כש-getUpdates מצליח שוב מגיעה telegram_polling_recovered, עם משך ההשבתה. עד אז לא תגיע התראה נוספת על אותה השבתה."
   generic_incident_flow:
     title: "פלייבוק כללי להתראות"
     description: "Fallback בסיסי המתאים לכל alert_type ללא Runbook ייעודי."

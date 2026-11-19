@@ -17,8 +17,6 @@ for writes": ב-pymongo 4.15.3 שניהם ``ServerSelectionTimeoutError`` מאו
 from __future__ import annotations
 
 import json
-import os
-import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -36,44 +34,8 @@ PROBE = REPO_ROOT / "tests" / "helpers" / "main_startup_probe.py"
 PROBE_TIMEOUT_SECONDS = 100
 
 
-def _port_nobody_listens_on() -> int:
-    """פורט ב-127.0.0.1 שאיש אינו מאזין בו: נפתח כדי לקבל מספר, ונסגר מיד."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def _probe_env(tmp_path: Path) -> dict[str, str]:
-    """הסביבה של תת-התהליך — מפורשת, ולא עותק של ``os.environ``.
-
-    עותק היה מעביר לבוט כל מפתח שנמצא בסביבה של מי שמריץ (ב-CI, למשל, ``GITHUB_TOKEN``), והבוט פונה
-    איתם בעלייה לשירותים אמיתיים. מאותה סיבה ``cwd`` של תת-התהליך הוא ``tmp_path``: ``config`` קורא
-    את ``.env`` מהתיקייה הנוכחית.
-    """
-    home = tmp_path / "home"
-    home.mkdir()
-    return {
-        "PATH": os.environ.get("PATH", ""),
-        "HOME": str(home),
-        "TMPDIR": str(tmp_path),
-        "PYTHONIOENCODING": "utf-8",
-        "BOT_TOKEN": "0:probe",
-        # ``DISABLE_DB`` אינו מוגדר, כמו בפרודקשן. ``tests/conftest.py`` מגדיר אותו לסוויטה, ותת-התהליך
-        # אינו יורש ממנה.
-        "MONGODB_URL": f"mongodb://127.0.0.1:{_port_nobody_listens_on()}/?tls=true",
-        # המתנות קצרות לרכיבים שנוגעים במסד בעלייה ואינם הנושא כאן: מנהל המסד הגלובלי
-        # (``database/manager.py``) ו-``services/db_provider.py``.
-        "MONGODB_SERVER_SELECTION_TIMEOUT_MS": "300",
-        "MONGODB_CONNECT_MAX_RETRIES": "1",
-        # ``setup_bot_data`` בודק בעלייה את מודל ה-embedding (``maybe_upgrade_embedding_model_on_startup``),
-        # וזה פונה למסד ול-Gemini — שוב לא הנושא כאן, ומאריך את העלייה.
-        "SEMANTIC_SEARCH_ENABLED": "false",
-        "DISABLE_ACTIVITY_REPORTER": "1",
-        "CODEBOT_DISABLE_GEVENT_PATCH": "1",
-    }
-
-
-def _run_probe(tmp_path: Path, failing_bot_api_method: str | None = None) -> dict:
+def _run_probe(tmp_path: Path, env: dict[str, str], failing_bot_api_method: str | None = None) -> dict:
+    """``env`` — ה-fixture ``real_ptb_probe_env`` מ-``tests/conftest.py``: סביבה מפורשת, ומסד שלא עונה."""
     result_path = tmp_path / "startup_report.json"
     command = [sys.executable, "-B", str(PROBE), str(result_path)]
     if failing_bot_api_method:
@@ -81,7 +43,7 @@ def _run_probe(tmp_path: Path, failing_bot_api_method: str | None = None) -> dic
     completed = subprocess.run(
         command,
         cwd=tmp_path,
-        env=_probe_env(tmp_path),
+        env=env,
         capture_output=True,
         text=True,
         timeout=PROBE_TIMEOUT_SECONDS,
@@ -115,19 +77,19 @@ def _describe(report: dict) -> str:
     return "\n".join(lines)
 
 
-def test_startup_with_db_without_primary_reaches_a_running_job_queue(tmp_path):
+def test_startup_with_db_without_primary_reaches_a_running_job_queue(tmp_path, real_ptb_probe_env):
     """עלייה מול מסד בלי primary מגיעה עד job queue שמריץ ג'ובים, ולא נופלת ב-``JobQueue.start``.
 
     על הקוד שלפני התיקון ``JobQueue.start`` הפעיל את ה-jobstore ``persistent``, ה-``create_index`` שלו נכשל
     ב-``ServerSelectionTimeoutError``, ו-``run_polling`` זרק — את ה-TypeError של ה-deepcopy, שהסתיר אותו.
     """
-    report = _run_probe(tmp_path)
+    report = _run_probe(tmp_path, real_ptb_probe_env)
 
     assert report["outcome"] == "stopped", _describe(report)
     assert report["job_queue_ran_a_job"] is True, _describe(report)
 
 
-def test_failed_startup_raises_the_original_error_not_cannot_pickle(tmp_path):
+def test_failed_startup_raises_the_original_error_not_cannot_pickle(tmp_path, real_ptb_probe_env):
     """כשהעלייה נכשלת אחרי ה-post_init, השגיאה שעולה מ-``run_polling`` היא השגיאה האמיתית.
 
     הכשל המוזרק: ``deleteWebhook`` מחזיר 502. זו הקריאה הראשונה ל-Bot API אחרי ה-post_init (ב-PTB 22.5,
@@ -135,7 +97,7 @@ def test_failed_startup_raises_the_original_error_not_cannot_pickle(tmp_path):
     ``CodeKeeperBot`` ו-``setup_bot_data`` שמו בו. על הקוד שלפני התיקון ``shutdown`` העתיק אותו בשביל
     ``PicklePersistence``, נפל על ``cannot pickle 'SSLContext' object``, וה-``NetworkError`` נבלע.
     """
-    report = _run_probe(tmp_path, failing_bot_api_method="deleteWebhook")
+    report = _run_probe(tmp_path, real_ptb_probe_env, failing_bot_api_method="deleteWebhook")
 
     assert report["post_init_completed"] is True, _describe(report)
     assert report["outcome"] == "raised", _describe(report)

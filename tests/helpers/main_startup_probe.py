@@ -31,9 +31,10 @@ import json
 import os
 import sys
 import threading
-import time
 import traceback
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# הפרוב רץ כסקריפט מתוך ``tests/helpers``, ולכן ה-Bot API המדומה המשותף מיובא בשמו.
+from fake_bot_api import BAD_GATEWAY_PAYLOAD, FakeBotApi, Reply, point_application_builder_at
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -43,76 +44,6 @@ DEADLINE_SECONDS = 60.0
 
 #: כמה זמן אחרי סוף ה-post_init רץ הג'וב שעוצר את הבוט.
 STOP_JOB_DELAY_SECONDS = 0.5
-
-_BOT_USER = {
-    "id": 1,
-    "is_bot": True,
-    "first_name": "Probe",
-    "username": "probe_bot",
-    "can_join_groups": True,
-    "can_read_all_group_messages": False,
-    "supports_inline_queries": False,
-}
-
-#: שגיאות של השרת המדומה עצמו. ריקה בריצה תקינה, והטסט בודק את זה: תקלה בתשתית הבדיקה הייתה
-#: מגיעה לבוט כשגיאת רשת, ונראית כמו בדיוק מה שהטסט מחפש.
-_FAKE_SERVER_ERRORS: list[str] = []
-
-
-class _FakeBotApi(BaseHTTPRequestHandler):
-    """Bot API מקומי: ``ok`` לכל מתודה, ו-502 למתודה שהטסט ביקש להכשיל."""
-
-    failing_method: str | None = None
-    calls: list[str] = []
-
-    def log_message(self, format, *args) -> None:  # noqa: A002 - החתימה של BaseHTTPRequestHandler
-        # בלי שורה ב-stderr לכל בקשה. הקריאות נרשמות ב-``calls`` ומגיעות לדוח.
-        return
-
-    def do_POST(self) -> None:  # noqa: N802 - השם ש-BaseHTTPRequestHandler מחפש
-        length = int(self.headers.get("Content-Length") or 0)
-        if length:
-            self.rfile.read(length)
-        method = self.path.rsplit("/", 1)[-1]
-        type(self).calls.append(method)
-        status = 200
-        payload: dict[str, object] = {"ok": True, "result": True}
-        if method == type(self).failing_method:
-            # תקלה חולפת בצד של טלגרם. PTB 22.5 ממפה 502 ל-``NetworkError`` עם ה-description
-            # (``telegram/request/_baserequest.py``).
-            status = 502
-            payload = {"ok": False, "error_code": 502, "description": "Bad Gateway"}
-        elif method == "getMe":
-            payload["result"] = _BOT_USER
-        elif method == "getUpdates":
-            # long-poll קצר, כדי שלולאת ה-polling לא תסתובב על ריק.
-            time.sleep(0.2)
-            payload["result"] = []
-        body = json.dumps(payload).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-
-class _FakeBotApiServer(ThreadingHTTPServer):
-    daemon_threads = True
-
-    def handle_error(self, request, client_address) -> None:
-        error = sys.exc_info()[1]
-        if isinstance(error, (BrokenPipeError, ConnectionResetError)):
-            # PTB סוגר את חיבור ה-long-poll הפתוח כשהבוט נעצר, והתשובה שהשרת המדומה עוד כתב נופלת על
-            # צינור סגור. זה חלק רגיל מהסגירה, ולא תקלה בשרת.
-            return
-        _FAKE_SERVER_ERRORS.append(repr(error))
-
-
-def _start_fake_bot_api() -> str:
-    server = _FakeBotApiServer(("127.0.0.1", 0), _FakeBotApi)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    return f"http://127.0.0.1:{server.server_address[1]}/bot"
-
 
 def _exception_chain(error: BaseException | None) -> list[dict]:
     """החריגה ומה שהיא הסתירה, באותו סדר שפייתון מדפיס: ``__cause__``, ובלעדיו ``__context__``."""
@@ -147,12 +78,18 @@ def _qualified_name(obj) -> str | None:
 
 def main() -> int:
     result_path = sys.argv[1]
-    _FakeBotApi.failing_method = sys.argv[2] if len(sys.argv) > 2 else None
+    api = FakeBotApi()
+    failing_method = sys.argv[2] if len(sys.argv) > 2 else None
+    if failing_method:
+        # תקלה חולפת בצד של טלגרם, בכל קריאה למתודה הזו.
+        api.always[failing_method] = Reply(status=502, payload=BAD_GATEWAY_PAYLOAD)
     report: dict = {"post_init_completed": False, "job_queue_ran_a_job": False}
 
     def write_report() -> None:
-        report["bot_api_calls"] = list(_FakeBotApi.calls)
-        report["fake_server_errors"] = list(_FAKE_SERVER_ERRORS)
+        report["bot_api_calls"] = list(api.calls)
+        # שגיאות של השרת המדומה עצמו. ריקה בריצה תקינה, והטסט בודק את זה: תקלה בתשתית הבדיקה הייתה מגיעה לבוט כשגיאת
+        # רשת, ונראית כמו בדיוק מה שהטסט מחפש.
+        report["fake_server_errors"] = list(api.server_errors)
         with open(result_path, "w", encoding="utf-8") as fh:
             json.dump(report, fh, ensure_ascii=False)
 
@@ -166,20 +103,10 @@ def main() -> int:
     watchdog.daemon = True
     watchdog.start()
 
-    base_url = _start_fake_bot_api()
+    base_url = api.start()
 
     sys.path.insert(0, REPO_ROOT)
-    from telegram.ext import ApplicationBuilder
-
-    build = ApplicationBuilder.build
-
-    def build_against_fake_bot_api(self):
-        # ``CodeKeeperBot`` בונה את האפליקציה בעצמו ואין לו פרמטר לכתובת ה-API, ולכן הכתובת נכנסת כאן,
-        # רגע לפני הבנייה. כל שאר התצורה — token, ‏defaults, ‏persistence, ‏post_init — היא של main.py.
-        self.base_url(base_url)
-        return build(self)
-
-    setattr(ApplicationBuilder, "build", build_against_fake_bot_api)
+    point_application_builder_at(base_url)
 
     import main as bot_main
 

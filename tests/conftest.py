@@ -457,6 +457,50 @@ _PROFILER_STUB_RESPONSES = {
 }
 
 
+def _port_nobody_listens_on() -> int:
+    """פורט ב-127.0.0.1 שאיש אינו מאזין בו: נפתח כדי לקבל מספר, ונסגר מיד."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture
+def real_ptb_probe_env(tmp_path) -> "dict[str, str]":
+    """הסביבה של פרוב שמריץ את ``main.py`` מול python-telegram-bot האמיתי בתת-תהליך — מפורשת, ולא עותק של ``os.environ``.
+
+    משותפת ל-``tests/test_main_startup_with_real_ptb.py`` ול-``tests/test_telegram_polling_health_e2e.py``; טסט שצריך
+    משהו נוסף מוסיף אותו לעותק משלו. עותק של ``os.environ`` היה מעביר לבוט כל מפתח שנמצא בסביבה של מי שמריץ (ב-CI,
+    למשל, ``GITHUB_TOKEN``), והבוט פונה איתם בעלייה לשירותים אמיתיים. מאותה סיבה ``cwd`` של תת-התהליך צריך להיות
+    ``tmp_path``: ``config`` קורא את ``.env`` מהתיקייה הנוכחית.
+
+    **המסד.** ``MONGODB_URL`` מצביע על פורט שאיש אינו מאזין בו. לכתיבה זה אותו כשל כמו "No primary available for
+    writes" (ההסבר המלא ב-docstring של ``tests/test_main_startup_with_real_ptb.py``).
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    return {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": str(home),
+        "TMPDIR": str(tmp_path),
+        "PYTHONIOENCODING": "utf-8",
+        "BOT_TOKEN": "0:probe",
+        # ``DISABLE_DB`` אינו מוגדר, כמו בפרודקשן. ``tests/conftest.py`` מגדיר אותו לסוויטה, ותת-התהליך
+        # אינו יורש ממנה.
+        "MONGODB_URL": f"mongodb://127.0.0.1:{_port_nobody_listens_on()}/?tls=true",
+        # המתנות קצרות לרכיבים שנוגעים במסד בעלייה ואינם הנושא כאן: מנהל המסד הגלובלי
+        # (``database/manager.py``) ו-``services/db_provider.py``.
+        "MONGODB_SERVER_SELECTION_TIMEOUT_MS": "300",
+        "MONGODB_CONNECT_MAX_RETRIES": "1",
+        # ``setup_bot_data`` בודק בעלייה את מודל ה-embedding (``maybe_upgrade_embedding_model_on_startup``),
+        # וזה פונה למסד ול-Gemini — שוב לא הנושא כאן, ומאריך את העלייה.
+        "SEMANTIC_SEARCH_ENABLED": "false",
+        "DISABLE_ACTIVITY_REPORTER": "1",
+        "CODEBOT_DISABLE_GEVENT_PATCH": "1",
+    }
+
+
 @pytest.fixture
 def stub_profiler_api():
     """מחזיר פונקציה שמתקינה יירוט **כללי** לכל ``/api/profiler/`` על עמוד.

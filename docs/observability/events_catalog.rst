@@ -158,6 +158,24 @@ Jobs
 
 השדות של שתיהן: ``alert_type`` (אותו שם), ‏``consecutive_failures``, ‏``outage_seconds`` — מההרצה הכושלת הראשונה, ולכן חסם תחתון, ‏``last_reason`` — ``HTTP <קוד>``, ``circuit_open``, או שם המחלקה של חריגת התחבורה — ו-``threshold_seconds``. מה נספר ככישלון: תשובה שאינה ``200``, או חריגה ש-``http_async.is_transport_error`` מזהה. חריגה אחרת היא באג: ההרצה של הסמפולר נכשלת, והמונה לא זז. ל-``webapp_metrics_unreachable`` יש runbook באותו שם ב-``config/observability_runbooks.yml``.
 
+.. _events-telegram-polling-health:
+
+ה-polling של הבוט מול טלגרם
+---------------------------
+
+הבוט מקבל עדכונים ב-long polling: ``run_polling`` של python-telegram-bot קורא ל-``getUpdates`` שוב ושוב, ועל תקלת רשת מנסה שוב בעצמו. ההחלטה מה מדווח ואיך — ב-``services/telegram_polling_health.py``, ובקוד שמחובר אליו ב-``main.py``:
+
+- **כשל בודד** של ``getUpdates`` שהוא תקלת רשת (``is_transient_polling_error``) נרשם ב-``error_handler`` ברמת ``warning``, בשורה אחת שמתחילה ב-``telegram polling: transient getUpdates failure`` ובלי traceback. לכן הוא לא נפתח כ-issue ב-Sentry (``LoggingIntegration`` פותח issue מ-``error`` ומעלה). תקלת רשת: ``NetworkError`` שהסיבה שלו היא ניתוק או כשל חיבור, או תשובת סטטוס מטלגרם שאין לה מחלקה משלה — בפועל 5xx, כמו ``502 Bad Gateway``. כש-5xx מגיע עם גוף HTML (מ-proxy או CDN לפני טלגרם), ``PollingHeartbeatRequest`` מפענח אותו בלי השורה ש-python-telegram-bot כותב ברמת ``ERROR`` על גוף שאינו JSON — אחרת השורה הזו הייתה נפתחת כ-issue לפני הסיווג. הגוף נשאר בהודעה של ה-``warning``. על כל תשובה אחרת שאינה JSON, השורה של PTB נשארת.
+- **מה נשאר** ``error``: כל שגיאה שלא הגיעה מה-polling — מטיפול בעדכון, מג'וב, או ממשימה של ``application.create_task`` — גם כשהיא ``NetworkError``. ומה-polling עצמו: ``BadRequest`` (תשובת 400 — אנחנו שלחנו פרמטר שגוי), ``Conflict``, ``Forbidden``, ו-``NetworkError`` שעוטף באג בשכבת ה-HTTP (``Unknown error in HTTP implementation``). הפירוט, והתנאים בדיוק, ב-docstring של ``is_transient_polling_error``.
+- **השבתה** — אף ``getUpdates`` לא הצליח לאורך ``TELEGRAM_POLLING_STALL_ALERT_SECS``. בקשת ה-HTTP של ``getUpdates`` (``PollingHeartbeatRequest``) רושמת כל תשובה תקינה של Bot API — ``ok`` אמת ו-``result`` שהוא רשימה (``is_successful_get_updates_payload``). סטטוס 2xx לבדו אינו הצלחה: proxy שמחזיר 200 עם דף HTML לא מוסר עדכונים לבוט, ואילו היה נספר, ההתראה לא הייתה יוצאת לעולם. הג'וב ``telegram_polling_watchdog`` (``WATCHDOG_JOB_NAME``) בודק את הזמן מאז ההצלחה האחרונה. המדידה היא מההצלחה ולא מספירת שגיאות, כי ב-python-telegram-bot 22.5 timeouts לא מגיעים ל-``error_handler`` בכלל, ואין לספרייה שום אות על הצלחה. ``tests/test_telegram_polling_ptb_contract.py`` מקבע את שתי העובדות האלה מול הספרייה המותקנת. המדידה מתחילה כשהג'וב נרשם ב-``setup_bot_data``, רגע לפני שה-polling מתחיל, ולא כשהבוט נבנה.
+
+ההתראות נשלחות דרך ``emit_internal_alert``, ולא דרך Sentry:
+
+- ``telegram_polling_stalled`` (``ALERT_STALLED``), ברמת ``error`` — הבדיקה הראשונה של הג'וב שבה עבר הסף. נשלחת פעם אחת לכל השבתה. בזמן השבתה של טלגרם השליחה לטלגרם עצמה כנראה תיכשל, וההתראה נשמרת במסד ומופיעה במסך ה-Observability.
+- ``telegram_polling_recovered`` (``ALERT_RECOVERED``), ברמת ``info`` — ``getUpdates`` הצליח שוב אחרי ``telegram_polling_stalled``. אחריה השבתה הבאה מתריעה שוב.
+
+השדות של שתיהן: ``alert_type`` (אותו שם), ‏``stalled_seconds`` — מההצלחה האחרונה, בהשבתה עד הבדיקה ובחזרה עד ההצלחה הראשונה, ‏``last_error`` — השגיאה האחרונה שה-polling דיווח עליה באותה השבתה, מנוקה מסודות (``redact_bot_token``), או ריק כשלא דווחה אף שגיאה — בדרך כלל השבתה של timeouts בלבד — ו-``threshold_seconds``. ל-``telegram_polling_stalled`` יש runbook באותו שם ב-``config/observability_runbooks.yml``.
+
 .. _drive-events:
 
 Google Drive

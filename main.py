@@ -79,6 +79,16 @@ from telegram.ext import (Application, CommandHandler, ContextTypes,
                           InlineQueryHandler, ApplicationHandlerStop, TypeHandler)
 
 from config import config
+from services.telegram_polling_health import (
+    WATCHDOG_JOB_NAME as POLLING_WATCHDOG_JOB_NAME,
+    PollingHealthMonitor,
+    PollingHeartbeatRequest,
+    is_polling_origin,
+    is_transient_polling_error,
+    read_stall_alert_secs,
+    report_polling_event,
+    watchdog_interval_secs,
+)
 try:
     import observability as _observability
 except Exception:
@@ -2889,12 +2899,21 @@ class CodeKeeperBot:
         #
         # במצב בדיקות/CI, חלק מתלויות הטלגרם (Updater פנימי) עלולות להיכשל.
         # נשתמש בבנאי הרגיל, ואם נכשל – נבנה Application מינימלי עם טוקן דמה.
+        #
+        # בריאות ה-polling (``services/telegram_polling_health.py``): בקשת ה-HTTP של ``getUpdates`` מדווחת למוניטור על כל
+        # תשובה מוצלחת, ``error_handler`` מוסר לו את שגיאות ה-polling, והג'וב שב-``setup_bot_data`` מתריע כשאין הצלחות
+        # לאורך הסף. ``connection_pool_size=1`` וכל השאר בברירות המחדל — מה ש-``ApplicationBuilder`` של PTB 22.5 בונה
+        # לבקשה הזו כשלא מעבירים לו אחת (``_build_request(get_updates=True)``); ``tests/helpers/ptb_polling_contract_probe.py``
+        # משווה בין השתיים.
+        self.polling_health = PollingHealthMonitor(threshold_secs=read_stall_alert_secs())
+        polling_heartbeat_request = PollingHeartbeatRequest(self.polling_health.record_success, connection_pool_size=1)
         try:
             _builder = (
                 Application.builder()
                 .token(config.BOT_TOKEN)
                 .defaults(Defaults(parse_mode=ParseMode.HTML))
                 .post_init(setup_bot_data)
+                .get_updates_request(polling_heartbeat_request)
             )
             _builder = _apply_ptb_timeouts(_builder)
             self.application = _builder.build()
@@ -2906,6 +2925,7 @@ class CodeKeeperBot:
                     Application.builder()
                     .token(dummy_token)
                     .defaults(Defaults(parse_mode=ParseMode.HTML))
+                    .get_updates_request(polling_heartbeat_request)
                 )
                 _builder = _apply_ptb_timeouts(_builder)
                 self.application = _builder.build()
@@ -4314,7 +4334,9 @@ class CodeKeeperBot:
 
         # --- שלב 5: טיפול בשגיאות ---
         self.application.add_error_handler(self.error_handler)
-    
+        # אותו מוניטור שה-error_handler מוסר לו את שגיאות ה-polling — גם לג'וב שבודק אותו ב-``setup_bot_data``.
+        self.application.bot_data["polling_health"] = self.polling_health
+
     # start_command הוסר - ConversationHandler מטפל בפקודת /start
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5062,8 +5084,23 @@ class CodeKeeperBot:
         return 'text'  # ברירת מחדל
     
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
-        """טיפול בשגיאות"""
-        logger.error(f"שגיאה: {context.error}", exc_info=context.error)
+        """טיפול בשגיאות.
+
+        שגיאת רשת חולפת של ה-polling (``getUpdates``) נרשמת ב-warning: python-telegram-bot מנסה שוב בעצמו, ולכן לא נפתח
+        עליה issue ב-Sentry. השבתה ממושכת מתגלה בג'וב של ``services/telegram_polling_health.py``, שמקבל מכאן את השגיאה
+        האחרונה של ה-polling. כל שגיאה אחרת נרשמת ב-error, עם traceback.
+        """
+        if is_polling_origin(update, context):
+            self.polling_health.note_polling_error(context.error)
+        if is_transient_polling_error(update, context):
+            # בלי traceback: כל הפריימים הם של python-telegram-bot, וסוג החריגה וההודעה שלה הם כל המידע.
+            logger.warning(
+                "telegram polling: transient getUpdates failure, python-telegram-bot retries on its own: %s: %s",
+                type(context.error).__name__,
+                context.error,
+            )
+        else:
+            logger.error(f"שגיאה: {context.error}", exc_info=context.error)
 
         # זיהוי חריגת זיכרון (גלובלי)
         try:
@@ -6818,6 +6855,36 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     except Exception:
         # Fail-open: אל תכשיל את עליית הבוט
         pass
+
+    # Telegram polling watchdog: התראה פעם אחת כשאף getUpdates לא הצליח לאורך הסף, והתראת חזרה כשהוא מצליח שוב
+    # (``services/telegram_polling_health.py``). לא דרך ``job_tracker``: הוא כותב למונגו בכל הרצה, והג'וב רץ כל כמה שניות.
+    # כל הבלוק בתוך ה-``try``, כמו שאר הבלוקים כאן: חריגה בו לא עוצרת את רישום הג'ובים שאחריו.
+    try:
+        _polling_health = application.bot_data.get("polling_health")
+        if _polling_health is None:
+            logger.warning("telegram polling watchdog not scheduled: no polling health monitor in bot_data")
+        elif application.job_queue is None:
+            logger.warning("telegram polling watchdog not scheduled: the application has no job queue")
+        else:
+
+            async def _telegram_polling_watchdog_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
+                # ההחלטה (והנעילה של "כבר התרענו") סינכרונית, לפני ה-await; רק השליחה, שעושה HTTP וכותבת למונגו, יוצאת לחוט.
+                event = _polling_health.check()
+                if event is not None:
+                    await asyncio.to_thread(report_polling_event, event)
+
+            _watchdog_interval = watchdog_interval_secs(_polling_health.threshold_secs)
+            # נקודת ההתחלה של המדידה: עכשיו, רגע לפני שה-polling מתחיל — ולא כשהבוט נבנה (``PollingHealthMonitor``).
+            _polling_health.start_watch()
+            application.job_queue.run_repeating(
+                _telegram_polling_watchdog_job,
+                interval=_watchdog_interval,
+                first=_watchdog_interval,
+                name=POLLING_WATCHDOG_JOB_NAME,
+            )
+    except Exception:
+        # עלייה לא נכשלת בגלל הג'וב הזה, אבל בלעדיו השבתה ממושכת של ה-polling לא תתריע — ולכן לוג עם traceback.
+        logger.exception("telegram polling watchdog could not be scheduled; a prolonged polling outage will not alert")
 
     # Predictive Health sampler: scrape webapp /metrics and feed predictive engine
     try:
