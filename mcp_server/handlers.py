@@ -18,7 +18,7 @@ from typing import Annotated, Any, Callable, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
-from .answer_size import BYTE_BUDGET_REASON, list_item_cost
+from .answer_size import BYTE_BUDGET_REASON, OUTPUT_BYTE_BUDGET, list_item_cost
 
 # תקרת התוכן מיובאת ולא מוקלדת. עד היום MCP והוובאפ החזיקו כל אחד את המספר
 # שלו, כך ששינוי באחד היה משאיר את השני אוכף ערך אחר — ואז אותו פתק נדחה
@@ -2905,7 +2905,15 @@ def _note_with_target(backend: Any, current: dict[str, Any]) -> dict[str, Any]:
 
 
 def show_note(
-    backend: Any, user_id: int, *, note_id: str, is_admin: bool, can_write: bool, layout_debug: bool = False
+    backend: Any,
+    user_id: int,
+    *,
+    note_id: str,
+    is_admin: bool,
+    can_write: bool,
+    layout_debug: bool = False,
+    section: Any = None,
+    query: Any = None,
 ) -> dict[str, Any]:
     """פתק **אחד** להצגה בתוך Claude — הגוף של ``codekeeper_show_note`` (MCP App).
 
@@ -2923,7 +2931,19 @@ def show_note(
     **``layout_debug``** — מצב מדידה: התצוגה מציגה מספרים חיים על הפריסה, לבדיקה במכשיר שאין בו כלי
     פיתוח (``updateDebug`` ב-``mcp_server/apps/note_view.js``). השדה נכנס לתשובה רק כשהתבקש, ורק
     כ-``True`` — תשובה רגילה לא משתנה.
+
+    **``section`` / ``query`` — הכרטיס נפתח בקטע הנכון, עם סימון** (:func:`_note_highlight`). צורת
+    הבקשה נבדקת **לפני** קריאת הפתק, באותן פונקציות של ``codekeeper_get_file``: שני הפרמטרים יחד הם
+    ``section_and_query``, ו-:func:`file_section_error` / :func:`file_query_error` דוחות ערך ריק,
+    ``query`` רב-שורתי וכן הלאה. סימון שלא נמצא הוא **סירוב, ולא כרטיס בלי סימון** — אחרת הסוכן היה
+    חושב שהסימון עבד.
     """
+    if section is not None and query is not None:
+        return file_read_refusal(SECTION_AND_QUERY)
+    shape = file_query_error(query) if query is not None else (
+        file_section_error(section) if section is not None else None)
+    if shape:
+        return file_read_refusal(shape)
     nid = _clean_note_id(note_id)
     if nid is None:
         return {"ok": False, "error": "invalid_note_id"}
@@ -2931,10 +2951,64 @@ def show_note(
     if not current.get("ok"):
         return current
     out = _note_with_target(backend, current)
+    if section is not None or query is not None:
+        found = _note_highlight(out.get("note"), nid, section=section, query=query)
+        if found.get("ok") is False:
+            return found
+        out["highlight"] = found["highlight"]
     out["editable"] = can_write is True
     if layout_debug is True:
         out["layout_debug"] = True
     return out
+
+
+#: הקוד כש-``query`` של ``codekeeper_show_note`` לא נמצא בפתק — אותו שם, באותה משמעות, כמו
+#: ``old_string`` שלא נמצא ב-``codekeeper_note_str_replace``: הטקסט אינו בפתק.
+SHOW_NOTE_NO_MATCH = "no_match"
+
+
+def _note_highlight(note: Any, note_id: str, *, section: Any, query: Any) -> dict[str, Any]:
+    """מה הכרטיס של ``codekeeper_show_note`` מסמן — ``{"ok": True, "highlight": {...}}`` — או הסירוב.
+
+    **``section``: אותה פונקציה של** ``codekeeper_get_file``. הגוף מפורסר ב-
+    ``docs_handlers.parse_with_refusals`` ונענה ב-``docs_handlers.answer_section``, כמו קובץ
+    Markdown שמור (``_apply_sections_to_file`` ב-``mcp_server/backend.py``) — ולכן התאמת הכותרת,
+    כותרת שמופיעה פעמיים (``ambiguous_section`` עם מועמדים) וכותרת שלא נמצאה (``section_not_found``
+    עם הצעות ומפת כותרות) הן אותן תשובות בשני הכלים. מה שנלקח מהתשובה הוא ``line_range`` — הקטע
+    כולו, מהכותרת ועד הכותרת הבאה מאותה רמה או גבוהה ממנה, בלי קשר לעימוד של הטקסט — ושם הכותרת.
+    השורות ממוספרות מ-1, ב-``split("\\n")`` — הפיצול של ``md_parser`` ושל ``lines=``.
+
+    **``query``: אותה סריקה של** ``codekeeper_get_file`` (:func:`scan_file_query`) — מחרוזת מילולית,
+    בלי רגישות לרישיות, שורה אחר שורה. ההבדל המכוון: שם אפס מופעים הוא הצלחה עם רשימה ריקה, וכאן
+    הוא :data:`SHOW_NOTE_NO_MATCH`, כי כרטיס בלי סימון היה נראה לסוכן כמו סימון שעבד. מה הכרטיס מסמן
+    בפועל — ``TextHighlight`` על הטקסט המוצג; ראו ``applyHighlight`` ב-``note_view.js``.
+
+    ``docs_handlers`` מיובא **בתוך הפונקציה**: הוא מייבא מהמודול הזה, וייבוא ברמת המודול היה מעגלי
+    — אותו נימוק כמו ב-:func:`file_section_error`.
+    """
+    content = note.get("content") if isinstance(note, dict) else None
+    text = content if isinstance(content, str) else ""
+    if query is not None:
+        found = scan_file_query(text, query, max_results=1, context_lines=0, byte_budget=OUTPUT_BYTE_BUDGET)
+        if not found["total"]:
+            return {
+                "ok": False, "error": SHOW_NOTE_NO_MATCH, "note_id": note_id,
+                "hint": "query does not appear in this note — check the text, or show the note without query.",
+            }
+        return {"ok": True, "highlight": {"kind": "query", "query": query}}
+    from . import docs_handlers
+    from services import md_parser
+
+    context = {"note_id": note_id}
+    parsed = docs_handlers.parse_with_refusals(md_parser, text, context)
+    if isinstance(parsed, dict):
+        return parsed
+    answer = docs_handlers.answer_section(docs_handlers.LoadedDocument(parsed, context), section=section)
+    if answer.get("ok") is False:
+        return answer
+    return {"ok": True, "highlight": {
+        "kind": "section", "title": answer["section"], "line_range": list(answer["line_range"]),
+    }}
 
 
 def save_note_from_view(
