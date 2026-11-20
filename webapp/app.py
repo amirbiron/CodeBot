@@ -17778,7 +17778,8 @@ def raw_html(file_id):
     reporter_nonce = html_preview_frame.new_reporter_nonce() if (report_scroll and not scripts_enabled) else None
     csp = html_preview_frame.raw_html_csp(scripts_enabled=scripts_enabled, reporter_nonce=reporter_nonce)
     if report_scroll:
-        code = html_preview_frame.with_scroll_reporter(str(code), nonce=reporter_nonce)
+        code = html_preview_frame.with_scroll_reporter(str(code), nonce=reporter_nonce,
+                                                       file_scripts_enabled=scripts_enabled)
 
     resp = Response(code, mimetype='text/html; charset=utf-8')
     resp.headers['Content-Security-Policy'] = csp

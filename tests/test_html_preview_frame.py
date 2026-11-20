@@ -101,6 +101,16 @@ def test_with_scripts_the_reporter_runs_without_a_nonce_that_would_block_them(mo
     assert "nonce=" not in body
 
 
+def test_noscript_content_is_restored_only_while_the_files_scripts_are_off(monkeypatch):
+    """בלי "אפשר JS" המדווח מציג את ``<noscript>`` (``_NOSCRIPT_JS``); עם — לא, כמו בדפדפן כשסקריפטים מותרים. מה
+    הדפדפן מציג בפועל — ``test_noscript_content_shows_while_the_files_scripts_are_off`` בבדיקות הדפדפן."""
+    client = _client(monkeypatch)
+    _, default_body = _raw(client, f"?{html_preview_frame.REPORT_SCROLL_PARAM}=1")
+    _, scripts_body = _raw(client, f"?allow=scripts&{html_preview_frame.REPORT_SCROLL_PARAM}=1")
+    assert html_preview_frame._NOSCRIPT_JS in default_body[len(USER_HTML):]
+    assert html_preview_frame._NOSCRIPT_JS not in scripts_body
+
+
 def test_any_other_value_of_the_parameter_does_not_add_the_reporter(monkeypatch):
     csp, body = _raw(_client(monkeypatch), f"?{html_preview_frame.REPORT_SCROLL_PARAM}=yes")
     assert csp == CSP_BEFORE_THE_REPORTER

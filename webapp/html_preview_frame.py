@@ -25,7 +25,20 @@
 **למה בסוף ה-HTML ולא בתחילתו.** סקריפט לפני ``<!doctype html>`` היה מבטל אותו, והדף היה מוצג במצב quirks.
 אחרי ``</html>`` הדפדפן מכניס את התגית לתוך ה-body, ולכן צירוף לסוף אינו צריך לפרסר את ה-HTML של המשתמש.
 המחיר: קובץ שנגמר בתוך ``<script>``, ``<textarea>`` או הערה שלא נסגרו בולע את התגית כטקסט, והמדווח לא רץ — הפתקים
-פשוט לא עוקבים אחרי הגלילה, ושום דבר לא נשבר.
+פשוט לא עוקבים אחרי הגלילה, ושום דבר לא נשבר. וכך גם קובץ שמגדיר בעצמו CSP שאוסר סקריפטים (``<meta
+http-equiv="Content-Security-Policy">``): מדיניות כזו נאכפת בנוסף לזו של התשובה, וה-``nonce`` אינו מתיר את המדווח מולה.
+
+**שני דברים שנגררים מכך שהמסגרת מתירה סקריפטים, גם כשהסקריפטים של הקובץ חסומים** — שניהם נמדדו בכרומיום
+(נובמבר 2026) מול הקוד שלפני המדווח:
+
+* **``<noscript>``.** הדפדפן מחליט אם להציג אותו לפי ה-``sandbox`` ולא לפי ה-CSP, ולכן עם ``allow-scripts`` התוכן
+  שלו מוסתר — גם כשאף סקריפט של הקובץ לא ירוץ. בלי "אפשר JS" המדווח מציג אותו בעצמו (:data:`_NOSCRIPT_JS`), כמו
+  שהוצג לפני שהיה מדווח. במצב JS הוא נשאר מוסתר, כמו תמיד.
+* **מסמך שהמסגרת עוברת אליו** — קישור בקובץ, או ``<meta http-equiv="refresh">`` (שבלי ``allow-scripts`` לא עבד
+  בכלל) — מקבל את ``allow-scripts`` של המסגרת בלי ה-CSP שלנו, ולכן הסקריפטים שלו רצים, בתוך אותו מקור אטום. נעילה
+  של ה-``sandbox`` אחרי שהמסמך שלנו נטען חסמה את הקישור ולא את ה-``refresh``, שמתחיל לפני שהנעילה מגיעה. לכן
+  ההגנה היא בצד של הדף: אף מאזין ``message`` בתצוגה אינו מבצע פעולה בשם המשתמש על סמך הודעה מהמסגרת. מאזין כזה
+  היה — סימנייה על עוגן (``html-anchor-click``) — והוסר; המאזין של הפתקים רק מזיז פתקים, ובודק כל שדה.
 """
 
 from __future__ import annotations
@@ -130,7 +143,26 @@ def raw_html_csp(*, scripts_enabled: bool, reporter_nonce: Optional[str]) -> str
     return "sandbox; " + _CSP_COMMON + "script-src 'none'"
 
 
-def with_scroll_reporter(html: str, *, nonce: Optional[str]) -> str:
-    """ה-HTML של המשתמש, ובסופו המדווח — עם ``nonce`` כשנמסר, ובלעדיו במצב JS."""
+#: **התוכן של ``<noscript>``, כמו בקובץ בלי סקריפטים** — רק כשהסקריפטים של הקובץ חסומים. כשהמסמך מתיר סקריפטים,
+#: הדפדפן קורא את התוכן של ``<noscript>`` כטקסט ולא כאלמנטים, ומסתיר אותו. כאן הטקסט נקרא מחדש כ-HTML, ב-``template``,
+#: והאלמנטים נכנסים במקום ה-``<noscript>`` עצמו — כי ``noscript`` מוסתר ב-``!important`` בגיליון של הדפדפן כשסקריפטים
+#: מותרים. מה שנבנה כך לא מריץ דבר: ``<script>`` שנכנס דרך ``innerHTML`` אינו רץ, ו-``onerror`` ודומיו נחסמים ב-CSP.
+#: ההבדל היחיד שנשאר: סלקטור ``noscript p`` בעיצוב של הקובץ לא יתפוס, כי ה-``noscript`` כבר אינו שם. רץ לפני הדיווח
+#: הראשון, כדי שרוחב התוכן שנשלח יכלול את מה שנחשף.
+_NOSCRIPT_JS = (
+    "document.querySelectorAll('noscript').forEach(function(n){"
+    "var t=document.createElement('template');"
+    "t.innerHTML=n.textContent;"
+    "n.replaceWith(t.content);"
+    "});"
+)
+
+
+def with_scroll_reporter(html: str, *, nonce: Optional[str], file_scripts_enabled: bool) -> str:
+    """ה-HTML של המשתמש, ובסופו המדווח — עם ``nonce`` כשנמסר, ובלעדיו במצב JS.
+
+    ``file_scripts_enabled`` — "אפשר JS". בלעדיו המדווח גם מציג את התוכן של ``<noscript>`` (:data:`_NOSCRIPT_JS`).
+    """
     nonce_attr = f' nonce="{nonce}"' if nonce else ""
-    return f"{html}\n<script{nonce_attr}>{_REPORTER_JS}</script>\n"
+    noscript = "" if file_scripts_enabled else _NOSCRIPT_JS
+    return f"{html}\n<script{nonce_attr}>{noscript}{_REPORTER_JS}</script>\n"

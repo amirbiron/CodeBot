@@ -49,6 +49,13 @@ USER_SCRIPT = (
     "</script>"
 )
 HTML = f'<!doctype html><html dir="rtl"><body style="margin:0">{ROWS}{USER_SCRIPT}</body></html>'
+#: דף זר שהמסגרת עוברת אליו. הוא מוגש בלי ה-CSP שלנו, ולכן במסגרת עם ``allow-scripts`` הסקריפט שלו רץ: הוא מודיע
+#: שרץ, ושולח את ההודעה שהמאזין של הסימניות קיבל עד נובמבר 2026 בלי לבדוק מי שלח.
+FOREIGN_PATH = "/__foreign-page"
+FOREIGN_PAGE = (
+    "<!doctype html><body>דף זר<script>parent.postMessage({type:'foreign-script-ran'},'*');"
+    "parent.postMessage({type:'html-anchor-click',anchorId:'x',anchorText:'x'},'*');</script></body>"
+)
 
 _ADDRESSES = itertools.count(1)
 _OIDS = (ObjectId(f"0123456789abcdef01{n:06x}") for n in itertools.count(0x7100))
@@ -85,11 +92,11 @@ def site(chromium_executable):
                 b.close()
 
 
-def _file(db, *, note=None) -> ObjectId:
+def _file(db, *, note=None, code=HTML) -> ObjectId:
     """קובץ HTML חדש למשתמש, ועליו — כשנמסר ``note`` — פתק עם השדות האלה."""
     oid = next(_OIDS)
     db["code_snippets"].insert_one({
-        "_id": oid, "user_id": OWNER_ID, "file_name": f"page-{oid}.html", "code": HTML,
+        "_id": oid, "user_id": OWNER_ID, "file_name": f"page-{oid}.html", "code": code,
         "programming_language": "html", "version": 1, "is_active": True,
     })
     if note is not None:
@@ -100,8 +107,13 @@ def _file(db, *, note=None) -> ObjectId:
     return oid
 
 
-def _open(site, oid, *, viewport=None, touch=False, query=""):
-    """העמוד, אחרי שהמנהל עלה והמסגרת דיווחה פעם ראשונה. מחזיר גם את ההודעות שהדף קיבל."""
+def _open(site, oid, *, viewport=None, touch=False, query="", bookmark_requests=None, wait_for_report=True):
+    """העמוד, אחרי שהמנהל עלה והמסגרת דיווחה פעם ראשונה. מחזיר גם את ההודעות שהדף קיבל.
+
+    ``bookmark_requests`` — רשימה שאליה נרשמת כל בקשת כתיבה של סימנייה (``/api/bookmarks/...``), שנענית כאן ולא מגיעה
+    לשרת. ``FOREIGN_PATH`` מוגש תמיד כדף זר — בלי ה-CSP שלנו — שהקובץ יכול להוביל אליו את המסגרת.
+    ``wait_for_report=False`` — רק שהמנהל עלה: מסגרת שעוברת מיד לדף זר (``meta refresh``) לא תשאיר דיווח.
+    """
     b, wa, _db = site
     client = wa.app.test_client()
     client.environ_base["HTTP_X_FORWARDED_FOR"] = f"192.0.2.{next(_ADDRESSES) % 250 + 1}"
@@ -114,6 +126,12 @@ def _open(site, oid, *, viewport=None, touch=False, query=""):
         u = urlsplit(request.url)
         if u.hostname != HOST:
             return route.abort()
+        if u.path == FOREIGN_PATH:
+            return route.fulfill(status=200, content_type="text/html; charset=utf-8", body=FOREIGN_PAGE)
+        if bookmark_requests is not None and request.method != "GET" and u.path.startswith("/api/bookmarks/"):
+            bookmark_requests.append(u.path)
+            return route.fulfill(status=200, content_type="application/json",
+                                 body='{"ok": true, "action": "added", "bookmark": {}}')
         target = u.path + (f"?{u.query}" if u.query else "")
         r = client.open(target, method=request.method, data=request.post_data_buffer,
                         headers={"Content-Type": request.headers.get("content-type", "")})
@@ -130,7 +148,10 @@ def _open(site, oid, *, viewport=None, touch=False, query=""):
     page = ctx.new_page()
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(f"http://{HOST}/html/{oid}{query}")
-    poll(page, "() => !!(window.htmlPreviewNotes && window.htmlPreviewNotes.report())", "המסגרת דיווחה")
+    if wait_for_report:
+        poll(page, "() => !!(window.htmlPreviewNotes && window.htmlPreviewNotes.report())", "המסגרת דיווחה")
+    else:
+        poll(page, "() => !!(window.htmlPreviewNotes && window.htmlPreviewNotes.hasManager())", "המנהל עלה")
     return ctx, page, errors
 
 
@@ -323,6 +344,54 @@ def test_the_bottom_of_the_frame_is_not_cut_off(site, width, height):
                                "return Math.round(f.getBoundingClientRect().bottom - (cr.bottom - "
                                "parseFloat(getComputedStyle(c).borderBottomWidth))); }")
         assert hidden <= 0, hidden
+        assert errors == []
+    finally:
+        ctx.close()
+
+
+@pytest.mark.parametrize("how", ["link", "refresh"])
+def test_a_foreign_page_the_frame_navigates_to_cannot_act_for_the_user(site, how):
+    """המסגרת מתירה סקריפטים בשביל המדווח, ולכן מסמך שהיא עוברת אליו — בקישור שבקובץ, או ב-``meta refresh`` — מריץ
+    את הסקריפטים שלו (נעילה של ה-``sandbox`` אחרי הטעינה לא עוצרת את ה-``refresh``; ``webapp/html_preview_frame.py``).
+    לכן אף מאזין בעמוד אינו מבצע פעולה בשם המשתמש על סמך הודעה מהמסגרת. עד נובמבר 2026 המאזין של הסימניות עשה את זה:
+    בריצת בקרה על הקוד הקודם, ההודעה של הדף הזר שלחה בקשה ליצירת סימנייה."""
+    _b, _wa, db = site
+    if how == "link":
+        code = f'<!doctype html><body><a id="go" href="{FOREIGN_PATH}" style="font-size:40px">קישור</a></body>'
+    else:
+        code = f'<!doctype html><head><meta http-equiv="refresh" content="0;url={FOREIGN_PATH}"></head><body>x</body>'
+    requests: list[str] = []
+    ctx, page, errors = _open(site, _file(db, code=code), bookmark_requests=requests, wait_for_report=False)
+    try:
+        if how == "link":
+            page.frame_locator("#previewFrame").locator("#go").click()
+        poll(page, "() => window.__messages.includes('foreign-script-ran')", "הדף הזר נטען במסגרת והסקריפט שלו רץ")
+        assert _frame(page).url.endswith(FOREIGN_PATH)
+        page.wait_for_timeout(300)
+        assert requests == [], requests
+        assert errors == []
+    finally:
+        ctx.close()
+
+
+NOSCRIPT_HTML = '<!doctype html><body><p>רגיל</p><noscript><p id="fallback">הגרסה בלי JS</p></noscript></body>'
+
+
+def test_noscript_content_shows_while_the_files_scripts_are_off(site):
+    """הדפדפן מסתיר ``<noscript>`` לפי ה-``sandbox``, ולא לפי ה-CSP — ולכן עם ``allow-scripts`` הוא הוסתר גם כשאף
+    סקריפט של הקובץ לא רץ. המדווח מציג אותו בעצמו כש"אפשר JS" כבוי (``_NOSCRIPT_JS``), כמו לפני שהיה מדווח; עם "אפשר
+    JS" הוא מוסתר, כמו תמיד. בריצת בקרה בלי ``_NOSCRIPT_JS`` התוכן לא הוצג."""
+    _b, _wa, db = site
+    ctx, page, errors = _open(site, _file(db, code=NOSCRIPT_HTML))
+    try:
+        shown = _frame(page).evaluate("(() => { const el = document.getElementById('fallback'); "
+                                      "return !!el && el.getBoundingClientRect().height > 0; })()")
+        assert shown is True
+        page.check("#toggleJs")
+        poll(page, "() => document.getElementById('previewFrame').src.includes('allow=scripts')", "המסגרת במצב JS")
+        poll(page, "() => !!(window.htmlPreviewNotes && window.htmlPreviewNotes.report())", "המסגרת דיווחה")
+        page.wait_for_timeout(300)
+        assert _frame(page).evaluate("!document.getElementById('fallback')") is True
         assert errors == []
     finally:
         ctx.close()

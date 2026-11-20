@@ -193,20 +193,21 @@ def test_a_search_and_a_view_switch_keep_the_bookmark_marks(site):
 
 
 
-@pytest.mark.parametrize("visible, expect_toggle", [("0", False), ("1", True)], ids=["hidden", "shown"])
-def test_an_anchor_message_from_the_html_view(site, visible, expect_toggle):
-    """הדרך החמישית: הודעת ``html-anchor-click`` בתצוגת HTML (``html_preview.html``).
+@pytest.mark.parametrize("visible", ["0", "1"], ids=["hidden", "shown"])
+def test_an_anchor_message_from_the_html_view(site, visible):
+    """הודעת ``html-anchor-click`` בתצוגת HTML לא יוצרת סימנייה — גם כשהסימניות מוצגות.
 
-    ההודעה נשלחת מהעמוד עצמו — המאזין לא בודק מי השולח, ולכן זה אותו מסלול בדיוק.
+    עד נובמבר 2026 זו הייתה הדרך החמישית ליצור סימנייה: ``html_preview.html`` הזריק לתוך המסגרת סקריפט ששולח את
+    ההודעה, ומאזין בעמוד יצר סימנייה בלי לבדוק מי שלח. ההזרקה לא רצה מעולם (המסגרת במקור אחר), ולכן ההודעה הגיעה רק
+    מזיוף — גם ממסמך זר שהמסגרת עוברת אליו (``test_a_foreign_page_the_frame_navigates_to_cannot_act_for_the_user``
+    ב-``tests/test_html_preview_notes_browser.py``). המאזין הוסר. ההודעה נשלחת כאן מהעמוד עצמו, כמו קודם, כך שבריצת
+    בקרה על הקוד הקודם "מוצג" יוצר סימנייה.
     """
     ctx, page, toggles, errors = _open(site, f"/html/{HTML_OID}", visible=visible)
     try:
         page.evaluate("window.postMessage({type: 'html-anchor-click', anchorId: 'intro', anchorText: 'מבוא'}, '*')")
         page.wait_for_timeout(300)
-        if expect_toggle:
-            assert len(toggles) == 1 and toggles[0].get("anchor_id") == "intro", toggles
-        else:
-            assert toggles == []
+        assert toggles == []
         assert errors == []
     finally:
         ctx.close()
