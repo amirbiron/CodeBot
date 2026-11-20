@@ -4,13 +4,95 @@
 
 {% block extra_css %}
 <style>
-.preview-container {
-    width: 100%;
-    /* במובייל 100vh + כותרות/כרום גורם לפעמים למסגרת "פצפונת" */
-    height: clamp(360px, 70vh, calc(100vh - 180px));
-    background: rgba(255,255,255,0.05);
+/* תצוגת הדפדפן ממלאת את המסך: כשגוללים אליה עד הסוף, בראש המסך נשארת רק שורת הכלים (JS, מסך מלא, חלון חדש),
+   ומסביב — שוליים דקים. הכותרת ושורת קוד/הורד/חזור נשארות מעליה, וגלילה למעלה מחזירה אותן.
+
+   **שוליים ממקור אחד.** ``--html-preview-gutter`` קובע את כל הרווחים סביב התצוגה — בצדדים, מעל הכרטיס, מתחתיו —
+   וגם את חישוב הגובה של הכרטיס. החישוב מניח שמתחת לכרטיס יש בדיוק רווח אחד כזה, ומעליו לפחות אחד, ולכן גם הם
+   נקבעים ממנו: ערך שונה באחד המקומות היה משאיר פס מהשורה שמעל, או גלילה מיותרת. הכללים האלה הם בבלוק
+   ``extra_css`` של העמוד הזה בלבד, כך שהם לא נוגעים בעמודים אחרים — כמו בגלריה (``gallery.html``). */
+.main-content {
+    --html-preview-gutter: 0.5rem;
+    padding-bottom: var(--html-preview-gutter);
+}
+
+/* ``.container`` ב-base.html מגביל את הרוחב ומוסיף ריפוד צד לעמודים רגילים; כאן התצוגה מגיעה כמעט לקצה */
+.main-content > .container {
+    max-width: none;
+    padding-inline: var(--html-preview-gutter);
+}
+
+/* **עמודה, והמסגרת מקבלת את כל מה שנשאר אחרי שורת הכלים.** עד היום ה-iframe קיבל 100% מגובה הכרטיס, ושורת הכלים
+   ישבה מעליו באותו כרטיס, כך שהוא גלש מלמטה ב-``overflow: hidden`` — ותחתית הדף המוצג נחתכה בלי שום דרך לגלול
+   אליה (בטלפון, כששורת הכלים נשברת לכמה שורות, יותר מזה). כאן אין חישוב של גובה השורה ואין ``overflow: hidden``.
+
+   הבורר כולל את ``.main-content`` ואת ``.glass-card`` כדי לגבור על כללי הכרטיס הכלליים: ``.main-content .glass-card``
+   ב-base.html (שוליים, רוחב, ריפוד צד במסך צר) ו-``[data-theme="dark"] .glass-card`` ב-``dark-mode.css``, שנטען אחרי
+   הבלוק הזה (ריפוד במסך צר). הריפוד שלהם נועד לכרטיסי טקסט, לא למסגרת תצוגה.
+
+   הגובה: ``vh`` קודם כנפילה לדפדפן שאינו מכיר ``dvh``, שמתעלם מההצהרה השנייה. ``vh`` מחושב לפי המסך כשסרגל הדפדפן
+   מקופל, ו-``dvh`` לפי מה שגלוי בפועל (CSS Values 4, 6.1.2.1) — כמו ``.add-to-collection-dialog`` ב-base.html.
+   ``min-height`` שומר על מסגרת שמישה במסך נמוך מאוד (טלפון לרוחב); שם הכרטיס גבוה מהמסך, והעמוד נגלל.
+
+   **פיקסל אחד יותר מעל הכרטיס.** גלילה עד הסוף נעצרת על מספר שלם של פיקסלים, אבל גובה הכותרת שמעל אינו שלם,
+   ולכן הכרטיס נעצר עד פיקסל אחד מעל או מתחת למקום המחושב, ובלי הפיקסל הזה שורת קוד/הורד/חזור הציצה לראש המסך
+   בשבר של פיקסל (נמדד בכרומיום 153, 20.11.2026: ``test_scrolled_to_the_end_the_preview_fills_the_screen`` ב-
+   ``tests/test_html_preview_layout_browser.py`` נכשל בלעדיו בטלפון). כשגוללים עד הסוף הפיקסל הנוסף נמצא מחוץ
+   למסך, והרווח שנראה מעל הכרטיס נשאר רווח אחד. */
+.main-content .preview-container.glass-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--html-preview-gutter);
+    box-sizing: border-box;
+    width: auto;
+    height: calc(100vh - 2 * var(--html-preview-gutter));
+    height: calc(100dvh - 2 * var(--html-preview-gutter));
+    min-height: 360px;
+    margin-block: calc(var(--html-preview-gutter) + 1px) 0;
+    margin-inline: 0;
+    padding: var(--html-preview-gutter);
     border-radius: 12px;
-    overflow: hidden;
+}
+/* הרקע — כמו קודם, ובכוונה בבורר של מחלקה אחת ולא בכלל שלמעלה: כך כללי הערכה על ``.glass-card`` ב-``dark-mode.css``
+   ממשיכים לגבור עליו, כמו עד היום. */
+.preview-container {
+    background: rgba(255,255,255,0.05);
+}
+.preview-toolbar {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+.preview-js-toggle {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+.preview-js-note {
+    opacity: 0.8;
+}
+/* שני הכפתורים יחד, בקצה השורה — גם כשהשורה נשברת בטלפון הם לא נפרדים */
+.preview-toolbar-buttons {
+    display: flex;
+    gap: 0.5rem;
+    margin-inline-start: auto;
+}
+/* קטנים מ-``.btn`` הרגיל של base.html: כאן הם כלים בשורה צפופה, לא כפתורי פעולה */
+.preview-toolbar .btn {
+    padding: 0.4rem 0.75rem;
+}
+/* ``min-height: 0`` — בלעדיו ה-min-height של פריט flex הוא ``auto``, כלומר גודל מינימלי שנגזר מהתוכן
+   (CSS Flexbox 1, 4.5). כשנשאר למסגרת פחות מזה — שורת כלים גבוהה מאוד בכרטיס נמוך — היא לא מתכווצת אלא גולשת
+   מתחת לכרטיס. נמדד בכרומיום 153, 20.11.2026, עם שורת כלים שנופחה לגובה 560 פיקסלים במסך 1333×680: בלי השורה
+   הזו המסגרת נשארה בגובה 150 וגלשה 63 פיקסלים מתחת לכרטיס, ואיתה התכווצה ל-78 ונשארה בתוכו. */
+.preview-iframe {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    border: 0;
+    background: white;
 }
 .preview-actions {
     display: flex;
@@ -18,18 +100,9 @@
     flex-wrap: wrap;
     row-gap: 0.5rem;
 }
-.preview-iframe {
-    width: 100%;
-    height: 100%;
-    border: 0;
-    background: white;
-}
 .bookmarks-toggle-btn,
 .bookmarks-panel {
     display: none !important;
-}
-@media (max-width: 768px) {
-    .preview-container { height: clamp(360px, 70vh, calc(100vh - 220px)); }
 }
 
 @media (max-width: 480px) {
@@ -72,19 +145,21 @@
 </div>
 
 <div class="glass-card preview-container">
-    <div style="display: flex; gap: .5rem; padding: .5rem; align-items: center; flex-wrap: wrap;">
-        <label style="display:flex; gap:.5rem; align-items:center;">
+    <div class="preview-toolbar">
+        <label class="preview-js-toggle">
             <input id="toggleJs" type="checkbox"> אפשר JS (מוגבל)
         </label>
-        <small style="opacity:.8;">JS ללא <code>connect</code>/<code>form</code>, sandbox פעיל</small>
-        <button id="btnFullscreen" class="btn btn-secondary btn-icon" style="margin-inline-start:auto;">
-            <i class="fas fa-expand" aria-hidden="true"></i>
-            <span class="btn-text">מסך מלא</span>
-        </button>
-        <a id="btnNewWindow" href="/raw_html/{{ file.id }}" target="_blank" rel="noopener" class="btn btn-secondary btn-icon">
-            <i class="fas fa-external-link-alt" aria-hidden="true"></i>
-            <span class="btn-text">חלון חדש</span>
-        </a>
+        <small class="preview-js-note">JS ללא <code>connect</code>/<code>form</code>, sandbox פעיל</small>
+        <div class="preview-toolbar-buttons">
+            <button id="btnFullscreen" class="btn btn-secondary btn-icon">
+                <i class="fas fa-expand" aria-hidden="true"></i>
+                <span class="btn-text">מסך מלא</span>
+            </button>
+            <a id="btnNewWindow" href="/raw_html/{{ file.id }}" target="_blank" rel="noopener" class="btn btn-secondary btn-icon">
+                <i class="fas fa-external-link-alt" aria-hidden="true"></i>
+                <span class="btn-text">חלון חדש</span>
+            </a>
+        </div>
     </div>
     <iframe
         id="previewFrame"
