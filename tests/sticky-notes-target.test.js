@@ -6647,6 +6647,167 @@ check('תגובה בשרשור: בלי היסטים, צ\'קבוקס קבוע, ב
   eq(body.textContent.includes('[רע](javascript:alert(1))'), true, 'javascript: אינו קישור, ומוצג כמו שהוקלד');
 });
 
+// -- תצוגת ה-HTML: פתק על קובץ, שהמשטח שלו הוא התוכן של מסגרת --
+//
+// בשרת זה פתק על קובץ לכל דבר (``/api/sticky-notes/<file_id>``); בדפדפן המשטח הוא התוכן של המסגרת, כמו
+// בדפדפן הריפו. הגולל הוא אובייקט שהעמוד בונה מהדיווחים של המסגרת (``html-preview-notes.js``) — לא אלמנט —
+// ולכן הכיוון מגיע ממנו. מה שנמדד בדפדפן אמיתי: ``tests/test_html_preview_notes_browser.py``.
+
+/** הגולל של המסגרת כמו ש-``html-preview-notes.js`` בונה אותו: לא אלמנט, ומצהיר על הכיוון ב-``direction``. */
+function makeFrameContainer({ scrollTop = 0, scrollLeft = 0, scrollWidth = 900, direction = 'ltr' } = {}) {
+  const container = makeRepoContainer(scrollTop);
+  container.__scroller = {
+    scrollTop, scrollLeft, scrollWidth, clientWidth: 900, clientLeft: 0, clientTop: 0, direction,
+    getBoundingClientRect: () => ({ left: 0, top: 40, width: 900, height: 600, bottom: 640, right: 900 }),
+  };
+  return container;
+}
+
+/** ``classList`` שזוכר מה הוסף — במקום הדמה של ``makeRepoContainer``, שאינה זוכרת כלום. */
+function trackingClassList() {
+  const set = new Set();
+  return { add: (c) => set.add(c), remove: (c) => set.delete(c), contains: (c) => set.has(c), _set: set };
+}
+
+function frameNoteEl(id, rect) {
+  return { style: {}, dataset: { noteId: id }, classList: { add() {}, remove() {}, contains: () => false },
+           querySelector: () => null, querySelectorAll: () => [],
+           getBoundingClientRect: () => rect };
+}
+
+check('מסגרת: בלי file — נדחה, ולא מנהל שעובד על משהו אחר', () => {
+  let threw = false;
+  try { new StickyNotesManager({ frame: true, board: 'b1' }); } catch (_) { threw = true; }
+  eq(threw, true, 'frame עם לוח נדחה');
+});
+
+check('מסגרת: היעד בשרת הוא הקובץ, והמשטח בדפדפן — עם גולל פנימי ובלי שורות מקור', () => {
+  const sb = makeSandbox();
+  const container = makeFrameContainer();
+  const m = new sb.window.StickyNotesManager({ file: 'f1', frame: true, container, scroller: () => container.__scroller });
+  eq(m._scopeUrl, '/api/sticky-notes/f1', 'אותה כתובת כמו פתק על קובץ ב-Markdown');
+  eq(m._cacheKey, 'sticky-notes:f1', 'אותו קאש כמו פתק על קובץ');
+  eq([m._surfaceTarget, m._innerScrollSurface, m._modeInField].join(','), 'true,true,false', 'משטח, גולל, סנטינלים');
+  // ``getElementById`` של הסנדבוקס מחזיר ``#md-content`` — ובמסגרת אין שורות מקור, גם אם יש אלמנט כזה.
+  eq(m._anchorHost, null, 'אין מקור לעיגון לשורה');
+});
+
+check('מסגרת: פתק נעוץ מרונדר לפי הגלילה במסגרת', () => {
+  // נופל בלי ``frameTarget`` ב-``_innerScrollSurface``: פתק על קובץ בלי הדגל מרונדר ב-500 בכל גלילה.
+  const sb = makeSandbox();
+  const container = makeFrameContainer({ scrollTop: 300 });
+  const m = new sb.window.StickyNotesManager({ file: 'f1', frame: true, container, scroller: () => container.__scroller });
+  const el = frameNoteEl('n1', { left: 0, top: 0, width: 260, height: 200, bottom: 200 });
+  m._applyPositionMode(el, { anchor_id: '__pinned__', position: { x: 10, y: 500 }, size: { width: 260, height: 200 } });
+  // המסגרת מתחילה 40 מתחת לעוטף, ונגללה 300 ⇒ ההיסט 40-300 = -260.
+  eq(el.style.top, '240px', 'התוכן בגובה 500 מרונדר ב-240');
+});
+
+check('מסגרת: שורת מקור אינה מעגנת — הפתק צמוד למסך; הסנטינלים קובעים כרגיל', () => {
+  const sb = makeSandbox();
+  const container = makeFrameContainer();
+  const m = new sb.window.StickyNotesManager({ file: 'f1', frame: true, container, scroller: () => container.__scroller });
+  eq(m._resolveMode({ line_start: 5 }), 'screen', 'line_start שסוכן כתב אינו מעביר ל-anchored');
+  eq(m._resolveMode({ anchor_id: 'intro' }), 'screen', 'וגם לא עוגן כותרת');
+  eq(m._resolveMode({ anchor_id: '__pinned__' }), 'surface', 'נעוץ — על תצוגת הקובץ');
+  eq(m._resolveMode({ anchor_id: '__floating__' }), 'screen', 'צף — צמוד למסך');
+});
+
+check('מסגרת: 📌 נועץ בסנטינל ולא ב-mode, ומודד במרחב התוכן', () => {
+  // שני דברים נופלים כאן בלי התיקון. (1) ``_toggleAnchor`` שאל את ``_surfaceTarget`` ושלח ``mode`` — והשרת
+  // דוחה ``mode`` בפתק קובץ (``mode_not_supported``). (2) ``_pinNote`` מדד את המיקום במרחב של המצב הקודם —
+  // צף, כלומר המסמך — ושמר אותו כמיקום בתוכן: הפתק היה קופץ ב-260 (המרחק של המסגרת ועוד הגלילה).
+  const sb = makeSandbox();
+  const container = makeFrameContainer({ scrollTop: 300 });
+  const m = new sb.window.StickyNotesManager({ file: 'f1', frame: true, container, scroller: () => container.__scroller });
+  const el = frameNoteEl('n1', { left: 50, top: 100, width: 260, height: 200, bottom: 300 });
+  m.notes.set('n1', { el, data: { id: 'n1', anchor_id: '__floating__', position: { x: 50, y: 100 },
+                                   size: { width: 260, height: 200 } } });
+  const saved = [];
+  m._queueSave = (_el, fragment) => saved.push(fragment);
+  m._flushFor = () => {};
+  m._applyPositionMode = () => {};
+
+  m._toggleAnchor(el);
+  eq(saved.length, 1, 'נשמר פעם אחת');
+  eq(saved[0].anchor_id, '__pinned__', 'הסנטינל של "נעוץ"');
+  eq('mode' in saved[0], false, 'בלי mode — השרת היה דוחה');
+  // מלבן הפתק ב-100, והראשית של מרחב התוכן ב-(0 + 40 - 300) ⇒ 100 + 260 = 360.
+  eq(saved[0].position.y, 360, 'המיקום במרחב התוכן');
+
+  m._toggleAnchor(el);
+  eq(saved[1].anchor_id, '__floating__', 'ושוב — צף');
+  eq(saved[1].position.y, 100, 'ובמרחב המסמך');
+});
+
+check('מסגרת: פתק חדש נשלח נעוץ, בסנטינל, בתוך מה שהמסגרת מראה', async () => {
+  const sb = makeSandbox();
+  const container = makeFrameContainer({ scrollTop: 5000 });
+  const m = new sb.window.StickyNotesManager({ file: 'f1', frame: true, container, scroller: () => container.__scroller });
+  m._renderNote = () => {};
+  let sent = null;
+  sb.fetch = async (_url, opts) => {
+    sent = JSON.parse(opts.body);
+    return { json: async () => ({ ok: true, id: 'n1' }) };
+  };
+  await m.createNote();
+  eq(sent && sent.anchor_id, '__pinned__', 'נעוץ לתצוגת הקובץ, כמו פתק חדש בדפדפן הריפו');
+  eq(sent && 'mode' in sent, false, 'בלי mode');
+  eq(sent && sent.position.y, 5000 + 120, 'בתוך מה שנגלל — לא בראש הקובץ');
+});
+
+check('מסגרת: הכיוון של הגולל מגיע ממנו, כי הוא אינו אלמנט', () => {
+  // נופל כש-``_surfaceReach`` קורא ``getComputedStyle`` על הגולל: לאובייקט של המסגרת אין CSS, והתשובה
+  // היא תמיד ltr — כלומר מסמך RTL שנגלל לרוחב היה מקבל טווח בצד הלא נכון.
+  const reach = (direction) => {
+    const sb = makeSandbox();
+    const container = makeFrameContainer({ scrollWidth: 3000, direction });
+    const m = new sb.window.StickyNotesManager({ file: 'f1', frame: true, container, scroller: () => container.__scroller });
+    return m._surfaceReach();
+  };
+  eq(reach('ltr').right, 3000, 'ltr: העודף מימין');
+  eq(reach('rtl').right, 900, 'rtl: העודף במיקומים שליליים, שהשרת מצמיד ל-0 — הטווח אינו מתרחב');
+});
+
+check('מחווה: סימן על הקונטיינר מהלחיצה ועד השחרור, ונמחק בפירוק', async () => {
+  const sb = makeSandbox();
+  const container = makeFrameContainer();
+  container.classList = trackingClassList();
+  const m = new sb.window.StickyNotesManager({ file: 'f1', frame: true, container, scroller: () => container.__scroller });
+  const handleListeners = {};
+  const handle = { style: {}, addEventListener: (type, fn) => { handleListeners[type] = fn; } };
+  const el = frameNoteEl('n1', { left: 0, top: 0, width: 260, height: 200, bottom: 200 });
+  m._enableDrag(el, handle);
+  const target = { closest: () => null };
+  handleListeners.mousedown({ target, clientX: 10, clientY: 10, preventDefault() {} });
+  eq(container.classList.contains('sticky-note-gesture'), true, 'בזמן הגרירה');
+  const onUp = m._boundHandlers.filter((h) => h.type === 'mouseup').pop();
+  onUp.fn();
+  eq(container.classList.contains('sticky-note-gesture'), false, 'אחרי השחרור');
+
+  m._setGestureActive(true);
+  await m.destroy();
+  eq(container.classList.contains('sticky-note-gesture'), false, 'פירוק באמצע מחווה אינו משאיר את המסגרת מנוטרלת');
+});
+
+check('Markdown: נעיצה ושחרור מודדים באותו מקום כמו קודם', () => {
+  // ההוספה של מרחב היעד ל-``_pinNote``/``_unpinNote`` אינה משנה דבר כשהקונטיינר הוא ה-body — שם כל
+  // המצבים נמדדים מראשית המסמך.
+  const sb = makeSandbox();
+  const m = new sb.window.StickyNotesManager('f1');
+  const el = frameNoteEl('n1', { left: 50, top: 100, width: 260, height: 200, bottom: 300 });
+  m.notes.set('n1', { el, data: { id: 'n1', anchor_id: '__floating__', position: { x: 50, y: 100 },
+                                   size: { width: 260, height: 200 } } });
+  const saved = [];
+  m._queueSave = (_el, fragment) => saved.push(fragment);
+  m._flushFor = () => {};
+  m._applyPositionMode = () => {};
+  m._toggleAnchor(el);
+  m._toggleAnchor(el);
+  eq([saved[0].anchor_id, saved[0].position.x, saved[0].position.y].join(','), '__pinned__,50,100', 'נעוץ');
+  eq([saved[1].anchor_id, saved[1].position.x, saved[1].position.y].join(','), '__floating__,50,100', 'צף');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log(`\n${passed} עברו, ${failed} נכשלו`);

@@ -159,9 +159,12 @@ def _render_fragment(fragment: str, *, filters: dict | None = None, **context) -
     from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
     from webapp.file_name_display import TEMPLATE_FILTERS
+    from webapp.html_preview_frame import TEMPLATE_GLOBALS
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True, undefined=StrictUndefined)
     env.globals["url_for"] = _served_url_for
+    # הפונקציות שהאפליקציה נותנת לתבניות (``is_html_file``), מאותו מקום שהיא רושמת אותן.
+    env.globals.update(TEMPLATE_GLOBALS)
     # הפילטרים של האפליקציה שהתבניות משתמשות בהם (``file_name``), מאותו מקום שהאפליקציה רושמת אותם.
     env.filters.update(TEMPLATE_FILTERS if filters is None else filters)
     return env.from_string(fragment).render(static_version="test", **context)

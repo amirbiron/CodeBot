@@ -2,8 +2,17 @@
 
 {% block title %}תצוגת דפדפן - {{ file.file_name }}{% endblock %}
 
+{% block extra_head %}
+{# גופן הפתקים. פתק על קובץ HTML הוא פתק על קובץ, ולכן ההגדרה שלו היא של המשטח ``md`` — "בקבצים" בעמוד ההגדרות. #}
+{% set note_font_surface = 'md' %}
+{% include "_note_fonts_head.html" with context %}
+{% endblock %}
+
 {% block extra_css %}
 <style>
+/* **עמודה: שורת הכלים בגובה הטבעי שלה, והמסגרת בכל מה שנשאר.** עד נובמבר 2026 המסגרת קיבלה ``height: 100%``
+   של המכל, מתחת לשורת הכלים — כלומר גבוהה מהמקום שנשאר לה בגובה השורה, וה-``overflow: hidden`` של המכל חתך את
+   התחתית שלה: סוף הקובץ לא נראה בשום גלילה. ``min-height: 0`` נותן לפריט ה-flex להתכווץ מתחת לגובה התוכן. */
 .preview-container {
     width: 100%;
     /* במובייל 100vh + כותרות/כרום גורם לפעמים למסגרת "פצפונת" */
@@ -11,6 +20,38 @@
     background: rgba(255,255,255,0.05);
     border-radius: 12px;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+/* **בלי ``backdrop-filter`` על הכרטיס שמחזיק את משטח הפתקים.** ``backdrop-filter`` שאינו ``none`` הופך את האלמנט
+   למכל של צאצאים ``position: fixed``, ולכן פתק "צמוד למסך" נמדד מראש הכרטיס ולא מראש המסך: נמדד בכרומיום
+   (נובמבר 2026) — פתק ששוחרר מהמסגרת ב-440 קפץ ל-668, בדיוק במרחק של הכרטיס מראש העמוד. הטשטוש של
+   ``.glass-card`` (ב-``base.html``) נראה כאן רק בפס של שורת הכלים, כי המסגרת הלבנה מכסה את שאר הכרטיס. */
+.preview-container.glass-card {
+    backdrop-filter: none;
+}
+.preview-toolbar {
+    display: flex;
+    gap: .5rem;
+    padding: .5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    flex: 0 0 auto;
+}
+/* **המשטח של הפתקים: המסגרת והפתקים שמעליה** (``html-preview-notes.js``). ``position: relative`` — פתק
+   ``absolute`` נמדד ממנו. ``overflow: hidden`` — פתק שנגלל עם התוכן אל מעבר לקצה נחתך בקצה המסגרת, כמו התוכן
+   עצמו. */
+.html-preview-surface {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+/* **בזמן גרירה או שינוי גודל של פתק, המסגרת אינה מקבלת אירועי מצביע** (``_setGestureActive`` ב-``sticky-notes.js``,
+   שם גם המדידה). בלי זה, עכבר שמקדים את הפתק ונוחת מעל המסגרת מוסר את התנועות ואת השחרור למסמך שבתוכה, והגרירה
+   נעצרת באמצע. */
+.html-preview-surface.sticky-note-gesture .preview-iframe {
+    pointer-events: none;
 }
 .preview-actions {
     display: flex;
@@ -19,6 +60,7 @@
     row-gap: 0.5rem;
 }
 .preview-iframe {
+    display: block;
     width: 100%;
     height: 100%;
     border: 0;
@@ -72,7 +114,7 @@
 </div>
 
 <div class="glass-card preview-container">
-    <div style="display: flex; gap: .5rem; padding: .5rem; align-items: center; flex-wrap: wrap;">
+    <div class="preview-toolbar">
         <label style="display:flex; gap:.5rem; align-items:center;">
             <input id="toggleJs" type="checkbox"> אפשר JS (מוגבל)
         </label>
@@ -81,40 +123,47 @@
             <i class="fas fa-expand" aria-hidden="true"></i>
             <span class="btn-text">מסך מלא</span>
         </button>
-        <a id="btnNewWindow" href="/raw_html/{{ file.id }}" target="_blank" rel="noopener" class="btn btn-secondary btn-icon">
+        {# "חלון חדש" — הקובץ כמו שהוא, בלי מדווח הגלילה ובלי סקריפטים (``webapp/html_preview_frame.py``). #}
+        <a id="btnNewWindow" href="{{ frame.new_window_src }}" target="_blank" rel="noopener" class="btn btn-secondary btn-icon">
             <i class="fas fa-external-link-alt" aria-hidden="true"></i>
             <span class="btn-text">חלון חדש</span>
         </a>
     </div>
-    <iframe
-        id="previewFrame"
-        class="preview-iframe"
-        src="/raw_html/{{ file.id }}"
-        sandbox="allow-modals"
-        referrerpolicy="no-referrer"
-        loading="eager"
-        title="HTML Preview"
-    ></iframe>
+    {# המשטח של הפתקים — ``html-preview-notes.js``. ה-``type`` של הודעות המדווח מגיע מהשרת. #}
+    <div id="htmlPreviewSurface"
+         class="html-preview-surface"
+         data-file-id="{{ file.id }}"
+         data-scroll-message="{{ frame.scroll_message_type }}"
+         data-scroll-request="{{ frame.scroll_request_type }}">
+        {# ``allow-scripts`` בשני המצבים: בלעדיו גם המדווח לא רץ. בלי "אפשר JS" ה-CSP של התשובה מתיר רק אותו, לפי
+           ``nonce``, והסקריפטים של הקובץ נחסמים. #}
+        <iframe
+            id="previewFrame"
+            class="preview-iframe"
+            src="{{ frame.src }}"
+            sandbox="allow-scripts allow-modals"
+            referrerpolicy="no-referrer"
+            loading="eager"
+            title="HTML Preview"
+        ></iframe>
+    </div>
 
 </div>
 <script>
 (function(){
   const cb = document.getElementById('toggleJs');
   const frame = document.getElementById('previewFrame');
+  const surface = document.getElementById('htmlPreviewSurface');
   const btnFs = document.getElementById('btnFullscreen');
-  const btnNew = document.getElementById('btnNewWindow');
   if (!cb || !frame) return;
+  // "אפשר JS" משנה רק את ``allow`` בכתובת של המסגרת; מדווח הגלילה נשאר בשני המצבים. "חלון חדש" אינו נגזר
+  // מהכתובת הזו, ולכן אינו משודרג למצב סקריפטים — הוא נשאר מסונדבק גם בטופ-לבל.
   function update(){
     const url = new URL(frame.src, window.location.origin);
     if (cb.checked) {
       url.searchParams.set('allow', 'scripts');
-      frame.setAttribute('sandbox', 'allow-scripts allow-modals');
-      // אל תשדרג את קישור החלון החדש למצב scripts – נשאירו ללא סקריפטים כדי להישאר מסונדבק גם בטופ-לבל
-      if (btnNew) btnNew.href = (new URL(frame.src, window.location.origin)).toString().replace(/([?&])allow=[^&]*(&|$)/, '$1').replace(/[?&]$/, '');
     } else {
       url.searchParams.delete('allow');
-      frame.setAttribute('sandbox', 'allow-modals');
-      if (btnNew) btnNew.href = url.toString();
     }
     if (frame.src !== url.toString()) {
       frame.src = url.toString();
@@ -123,13 +172,15 @@
     }
   }
   cb.addEventListener('change', update);
+  // **מסך מלא — המשטח, ולא המסגרת לבדה**: כך הפתקים שמעל המסגרת נשארים גלויים גם במסך מלא.
+  const fullscreenTarget = surface || frame;
   if (btnFs) {
     btnFs.addEventListener('click', async function(){
       try {
-        if (document.fullscreenElement === frame) {
+        if (document.fullscreenElement === fullscreenTarget) {
           await document.exitFullscreen();
         } else {
-          await frame.requestFullscreen();
+          await fullscreenTarget.requestFullscreen();
         }
       } catch(e) { console.error(e); }
     });
@@ -208,6 +259,24 @@ function goBack(ev){
   return false;
 }
 </script>
+{# ---- פתקים על תצוגת ה-HTML ----
+   אותן תלויות ובאותו סדר כמו ב-``md_preview.html``, שהבדיקות ב-``tests/sticky-notes-target.test.js`` אוכפות בכל
+   תבנית שטוענת את ``sticky-notes.js``: מפת האלרטים, זיהוי העברית ומנוע התצוגה לפני המודול ובלי ``defer``, ותקרות
+   האורך מהשרת. ``text-highlight.js`` — החיפוש בתוך פתק; בלעדיו הכפתור מושבת. ``file-name.js``, ``visible-poll.js``
+   ו-``animations.js`` נטענים ב-``base.html``. #}
+<script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
+{# עיצוב ה-Markdown של הפתק — הזוג של ``sticky-md-render.js``. לפני ``sticky-notes.css``: קודם התוכן, ואחריו הפתק שמארח אותו. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-md-render.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
+<!-- הטוסט המשותף — ההודעה אחרי העברת פתק לארכיון (``_notify`` ב-sticky-notes.js). -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
+<script>window.STICKY_NOTE_MAX_CHARS = {{ max_note_chars | tojson }}; window.NOTE_THREAD_MAX_CHARS = {{ max_thread_comment_chars | tojson }};</script>
+<script src="{{ url_for('static', filename='js/sticky-md-render.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/html-preview-notes.js') }}?v={{ static_version }}"></script>
 {% include 'bookmarks_snippet.html' %}
 {% endblock %}
 

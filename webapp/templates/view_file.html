@@ -912,7 +912,8 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             </a>
             {% endif %}
             {% else %}
-            {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
+            {# הכלל "יש לקובץ תצוגת דפדפן" — ``is_html_file`` ב-``webapp/html_preview_frame.py``, האחד לראוט, לכפתור ולקישור הקבוע של פתק. #}
+            {% if is_html_file(file.language, file.file_name) %}
             <a href="/html/{{ file.id }}" class="btn btn-secondary btn-icon"
                data-overflow-id="html"
                data-overflow-priority="5"
