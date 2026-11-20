@@ -40,9 +40,13 @@ def measure(data: bytes) -> dict:
     def longest(values) -> int:
         return max((len(value.encode("utf-8")) for value in values), default=0)
 
-    # השדות של גרסה 2 של המבנה: בקובץ מגרסה 1 הם לא קיימים, והמדידה שלהם 0. מגרסה 2 הם נקראים בלי
-    # ברירת מחדל, כך שקובץ שחסר בו שדה נופל ב-``KeyError`` ולא מראה מדידה קטנה מהאמת.
+    # השדות של גרסה 2 ושל גרסה 3 של המבנה: בקובץ מגרסה קודמת הם לא קיימים, והמדידה שלהם 0. מהגרסה שלהם הם
+    # נקראים בלי ברירת מחדל, כך שקובץ שחסר בו שדה נופל ב-``KeyError`` ולא מראה מדידה קטנה מהאמת.
     v2 = document["schema_version"] >= 2
+    v3 = document["schema_version"] >= 3
+    # ``null`` בשדה של גרסה 3 אומר שאין בסעיף ניווט; הסעיפים שיש בהם — אלה שהשדה שלהם טקסט.
+    without_nav = [section["markdown_without_nav"] for section in sections] if v3 else []
+    with_nav = [value for value in without_nav if value is not None]
     return {
         "source_commit": document.get("source_commit"),
         "bytes": len(data),
@@ -59,6 +63,8 @@ def measure(data: bytes) -> dict:
         "breadcrumb": longest(BREADCRUMB_SEPARATOR.join(section["breadcrumb"]) for section in sections),
         "markdown": longest(section["markdown"] for section in sections),
         "empty_markdown": sum(1 for section in sections if not section["markdown"].strip()),
+        "sections_with_nav": len(with_nav),
+        "markdown_without_nav": longest(with_nav),
     }
 
 

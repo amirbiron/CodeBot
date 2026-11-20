@@ -62,11 +62,18 @@ def test_the_measuring_script_joins_the_breadcrumb_like_the_webapp():
     assert measure.BREADCRUMB_SEPARATOR == client.BREADCRUMB_SEPARATOR
 
 
-def _measured_file(schema_version: int, *, title_markdown: bool = True, dependencies: bool = True) -> bytes:
+def _measured_file(
+    schema_version: int, *, title_markdown: bool = True, dependencies: bool = True, markdown_without_nav: bool = True
+) -> bytes:
     section = {"anchor": "a", "title": "כותרת", "breadcrumb": ["כותרת"], "level": 1, "markdown": "x"}
     if title_markdown:
         section["title_markdown"] = "`כותרת`"
-    page = {"path": "a.html", "source_path": "docs/a.rst", "title": "כותרת", "sections": [section]}
+    # סעיף שני, שיש בו ניווט: הראשון בלעדיו (``null``), כמו רוב הסעיפים באתר.
+    with_nav = {**section, "anchor": "b", "markdown": "פתיחה\n\n-   [קישור](https://x)\n"}
+    if markdown_without_nav:
+        section["markdown_without_nav"] = None
+        with_nav["markdown_without_nav"] = "פתיחה\n"
+    page = {"path": "a.html", "source_path": "docs/a.rst", "title": "כותרת", "sections": [section, with_nav]}
     if dependencies:
         page["dependencies"] = ["handlers/save_flow.py", "main.py"]
     return json.dumps({"schema_version": schema_version, "pages": [page]}, ensure_ascii=False).encode("utf-8")
@@ -87,8 +94,25 @@ def test_a_second_schema_file_without_its_fields_fails_the_measuring(missing):
 
 
 def test_a_first_schema_file_measures_the_new_fields_as_zero():
-    measured = measure.measure(_measured_file(1, title_markdown=False, dependencies=False))
+    measured = measure.measure(_measured_file(1, title_markdown=False, dependencies=False, markdown_without_nav=False))
     assert (measured["section_title_markdown"], measured["dependency_path"], measured["page_dependencies"]) == (0, 0, 0)
+    assert (measured["sections_with_nav"], measured["markdown_without_nav"]) == (0, 0)
+
+
+def test_the_measuring_script_measures_the_field_of_the_third_schema():
+    """רק הסעיף שיש בו ניווט נספר: ``null`` אומר שאין בו."""
+    measured = measure.measure(_measured_file(3))
+    assert (measured["sections_with_nav"], measured["markdown_without_nav"]) == (1, len("פתיחה\n".encode("utf-8")))
+
+
+def test_a_third_schema_file_without_its_field_fails_the_measuring():
+    with pytest.raises(KeyError):
+        measure.measure(_measured_file(3, markdown_without_nav=False))
+
+
+def test_a_second_schema_file_measures_the_third_schema_field_as_zero():
+    measured = measure.measure(_measured_file(2, markdown_without_nav=False))
+    assert (measured["sections_with_nav"], measured["markdown_without_nav"]) == (0, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +120,9 @@ def test_a_first_schema_file_measures_the_new_fields_as_zero():
 # ---------------------------------------------------------------------------
 
 
-def _producer_section(anchor: str, breadcrumb: list[str], markdown: str = "תוכן") -> dict:
+def _producer_section(
+    anchor: str, breadcrumb: list[str], markdown: str = "תוכן", markdown_without_nav: str | None = None
+) -> dict:
     return {
         "anchor": anchor,
         "title": breadcrumb[-1],
@@ -104,12 +130,13 @@ def _producer_section(anchor: str, breadcrumb: list[str], markdown: str = "תו�
         "breadcrumb": breadcrumb,
         "level": len(breadcrumb),
         "markdown": markdown,
+        "markdown_without_nav": markdown_without_nav,
     }
 
 
 def test_a_document_built_by_the_export_reads_back_in_the_webapp(tmp_path):
     raw_sections = [
-        _producer_section("guide", ["מדריך"], ""),
+        _producer_section("guide", ["מדריך"], "פתיחה\n\n-   [עמוד](https://x/a.html)\n", "פתיחה\n"),
         _producer_section("id1", ["מדריך", "סעיף ראשון"], "::: warning\nזהירות\n:::"),
         _producer_section("deep", ["מדריך", "סעיף ראשון", "עמוק"]),
     ]
@@ -155,6 +182,10 @@ def test_a_document_built_by_the_export_reads_back_in_the_webapp(tmp_path):
     deep = parsed.pages[0].sections[2]
     assert (deep.anchor, deep.level, deep.breadcrumb) == ("deep", 3, ("מדריך", "סעיף ראשון", "עמוק"))
     assert deep.title_markdown == "`עמוק`"
+    # סעיף עם ניווט עובר עם שני הגופים, וסעיף בלעדיו — עם ``None``, שהחיפוש קורא כגוף עצמו.
+    guide = parsed.pages[0].sections[0]
+    assert (guide.markdown, guide.searchable_markdown) == ("פתיחה\n\n-   [עמוד](https://x/a.html)\n", "פתיחה\n")
+    assert (deep.markdown_without_nav, deep.searchable_markdown) == (None, "תוכן")
     assert parsed.pages[0].dependencies == ("docs/_static/x.svg", "handlers/save_flow.py")
     assert parsed.pages[1].dependencies == ()
 

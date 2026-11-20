@@ -153,6 +153,83 @@ def test_an_empty_or_links_only_section_is_not_indexed(markdown):
     assert len(chunks) == 1
 
 
+#: תוכן עניינים של ``toctree`` כמו שהייצוא כותב אותו בעמוד הראשי: כיתוב, ואחריו כותרות של עמודים וסעיפים אחרים.
+_TOCTREE = (
+    "למפתחים ולסוכני AI:\n\n"
+    "-   [משתני סביבה](https://amirbiron.github.io/CodeBot/environment-variables.html)\n"
+    "    -   [טבלה מרכזית](https://amirbiron.github.io/CodeBot/environment-variables.html#id1)\n"
+    "-   [Rate Limiting](https://amirbiron.github.io/CodeBot/rate-limiting.html)\n"
+)
+
+
+def _main_page():
+    """עמוד ראשי: פתיחה, ``toctree`` והערה באותו סעיף. ``markdown`` כמו באתר, ו-``markdown_without_nav`` בלי הניווט."""
+    intro = "אתר זה מספק ממשק לניהול קבצי קוד.\n\n"
+    note = "::: note\nחלק מהפיצ'רים זמינים ב-WebApp בלבד.\n:::\n"
+    return page(
+        "index.html", "docs/index.rst",
+        section("codekeeper-api", "CodeKeeper - תיעוד API", markdown=intro + _TOCTREE + "\n" + note,
+                markdown_without_nav=intro + note),
+    )
+
+
+def test_the_navigation_in_a_section_is_not_searched_and_stays_on_its_page():
+    """הניווט הוא כותרות של עמודים אחרים: בחיפוש הוא משך את העמוד הראשי לכל נושא. בעמוד המורכב הוא נשאר, כמו באתר."""
+    sections, chunks = _records([_main_page()])
+
+    [record] = sections
+    assert record.markdown == "אתר זה מספק ממשק לניהול קבצי קוד.\n\n::: note\nחלק מהפיצ'רים זמינים ב-WebApp בלבד.\n:::\n"
+    [chunk] = chunks
+    assert chunk.text == f"CodeKeeper - תיעוד API\n\n{record.markdown.strip()}"
+    assert "Rate Limiting" not in chunk.text and "משתני סביבה" not in chunk.text
+
+    [whole] = _pages_of([_main_page()])
+    assert _TOCTREE in whole.markdown
+
+
+def test_a_section_that_is_only_navigation_is_not_indexed():
+    """``.. contents::`` עם כותרת ("תוכן עניינים") אינו "קישורים בלבד" לפי :func:`is_links_only`, כי הכותרת היא שורה
+    של טקסט. בלי הניווט לא נשאר בו כלום, ולכן הוא לא נכנס; בעמוד המורכב הוא נשאר."""
+    contents = (
+        "תוכן עניינים\n\n"
+        "-   [Overview](https://amirbiron.github.io/CodeBot/x.html#overview)\n"
+        "-   [ממשק משתמש](https://amirbiron.github.io/CodeBot/x.html#webapp)\n"
+    )
+    assert svc.is_links_only(contents) is False
+    pages = [
+        page("x.html", "docs/x.rst", section("x", "Profiler", markdown=contents, markdown_without_nav=""),
+             section("overview", "Profiler", "Overview", markdown="מה הכלי עושה.")),
+    ]
+
+    sections, chunks = _records(pages)
+
+    assert [s.title for s in sections] == ["Overview"]
+    assert len(chunks) == 1
+    [whole] = _pages_of(pages)
+    assert contents.strip() in whole.markdown
+
+
+def test_navigation_in_an_update_log_day_is_not_an_update_and_still_counts_as_page_text():
+    """ביומן עדכונים הניווט היה נכנס לרשומות: הכותרת של ``.. contents::`` ("תוכן עניינים") היא טקסט מחוץ לרשימה, ולכן
+    רשומה בשם של היום. בלי הניווט היא לא נכנסת. אבל הדפדפן מחפש את הפתיח בעמוד כמו שהוא מוצג, ניווט כולל: פתיח
+    שמופיע גם בניווט אינו ייחודי, והעדכון שלו הולך תחת היום."""
+    update = "-   **fix: א.** טקסט העדכון."
+    navigation = "תוכן עניינים\n\n-   [fix: א.](https://amirbiron.github.io/CodeBot/whats-new.html#id1)"
+    pages = [
+        page(
+            "whats-new.html", WHATS_NEW,
+            section("what-s-new", TOP, markdown=""),
+            section("id1", TOP, "2026-11-20", markdown=f"{navigation}\n\n{update}", markdown_without_nav=update),
+        )
+    ]
+
+    sections, _chunks = _records(pages)
+
+    assert [(s.title, s.breadcrumb, s.markdown, s.link_text) for s in sections] == [
+        ("2026-11-20", (TOP, "2026-11-20"), "**fix: א.** טקסט העדכון.", "")
+    ]
+
+
 def test_a_repeated_breadcrumb_gets_its_own_key():
     sections, chunks = _records(
         [

@@ -15,6 +15,12 @@
 ``title_markdown`` היא אותה כותרת בהמרה של הכפתור, ולכן קוד או הדגשה בתוכה נשארים; ממנה
 העמוד המורכב מציג את הכותרת.
 
+**הגוף פעמיים, כשיש בו ניווט.** ``markdown`` הוא הסעיף כמו שהאתר מציג אותו, וממנו העמוד המורכב.
+``markdown_without_nav`` הוא אותו סעיף בלי בלוקי הניווט (:data:`NAVIGATION_SELECTOR`): תוכן העניינים
+של ``toctree`` ושל ``.. contents::`` הוא רשימת כותרות של סעיפים ועמודים אחרים, ולא תוכן של הסעיף.
+ממנו נבנה החיפוש בתיעוד. בסעיף שאין בו ניווט הערך הוא ``null`` ולא עותק של ``markdown``, כדי שהקובץ
+לא יוכפל; טקסט ריק אומר שהסעיף כולו ניווט.
+
 **הקבצים שעמוד נבנה מהם** (``dependencies``). עמוד יכול להציג תוכן מקבצים אחרים בריפו: קוד
 ש-``literalinclude`` מציג, קובץ ש-``include`` משלב, תמונה, ומודול ש-autodoc מתעד. Sphinx רושם
 אותם בעצמו, לכל מסמך, כדי לדעת איזה עמוד לבנות מחדש (``env.dependencies``; ``note_dependency``
@@ -88,8 +94,17 @@ from typing import Any
 from urllib.parse import urlsplit
 
 #: גרסת המבנה של הקובץ. עולה בכל שינוי במבנה, כדי שקורא שלא מכיר את הגרסה יוכל לסרב לה.
-#: 2 — ``title_markdown`` לכל סעיף, ו-``dependencies`` לכל עמוד.
-SCHEMA_VERSION = 2
+#: 2 — ``title_markdown`` לכל סעיף, ו-``dependencies`` לכל עמוד. 3 — ``markdown_without_nav`` לכל סעיף.
+SCHEMA_VERSION = 3
+
+#: בלוקי הניווט בתוך סעיף, שיוצאים מ-``markdown_without_nav``. ``div.toctree-wrapper`` הוא העוטף ש-Sphinx שם סביב
+#: כל ``toctree`` (``nodes.compound(classes=['toctree-wrapper', ...])`` ב-``TocTree.run``,
+#: ``sphinx/directives/other.py``, Sphinx 8.2.3), ו-``nav.contents`` הוא ``.. contents::`` בכותב ה-HTML5 של
+#: docutils (``visit_topic`` ב-``docutils/writers/html5_polyglot/__init__.py``, docutils 0.21.2). ``.. topic::``
+#: רגיל יוצא שם ``aside.topic`` ונשאר: הוא תוכן. למה זה חשוב, כפי שנמדד ב-20.11.2026 על הייצוא של הקומיט ``4ee93e2``
+#: (``build_records`` ב-``services/docs_index_service.py``): בעמוד הראשי, ה-``toctree`` הפכו את הסעיף הראשון ל-138KB
+#: של קישורים ול-82 נתחים באינדקס — יותר מכל סעיף אחר — והעמוד הראשי עלה בחיפוש על נושאים שאין לו בהם תוכן.
+NAVIGATION_SELECTOR = "div.toctree-wrapper, nav.contents"
 
 #: מיקום הקובץ, יחסית לתיקיית האתר שנבנתה.
 EXPORT_PATH = PurePosixPath("_export/sections.json")
@@ -131,11 +146,11 @@ def export_path_for_commit(source_commit: str) -> PurePosixPath:
     return EXPORT_PATH.with_name(f"{EXPORT_PATH.stem}-{source_commit}{EXPORT_PATH.suffix}")
 
 
-#: מה שרץ בתוך כל עמוד. מקבל את הכתובת של העמוד באתר, ומחזיר את הסעיפים שלו.
+#: מה שרץ בתוך כל עמוד. מקבל את הכתובת של העמוד באתר ואת :data:`NAVIGATION_SELECTOR`, ומחזיר את הסעיפים שלו.
 #: הבחירה של אלמנט המאמר וההמרה עצמה באות מ-``window.DocCopyPage``, ולא מוגדרות כאן
 #: פעם שנייה.
 _EXTRACT_SECTIONS_JS = r"""
-({ pageUrl }) => {
+({ pageUrl, navigationSelector }) => {
   const api = window.DocCopyPage;
   if (!api || typeof api.toMarkdown !== 'function' || typeof api.articleSelector !== 'string') {
     throw new Error('window.DocCopyPage is missing: copy-page.js did not load');
@@ -198,13 +213,24 @@ _EXTRACT_SECTIONS_JS = r"""
     const titleMarkdown = api.toMarkdown(heading).trim();
     heading.remove();
 
+    // ``toMarkdown`` ממיר עותק משלו (``elementToMarkdown`` ב-``copy-page.js``), ולכן ``clone`` עדיין שלם כשהניווט
+    // יוצא ממנו בשביל ההמרה השנייה. ניווט של תת-סעיף כבר יצא עם תת-הסעיף.
+    const markdown = api.toMarkdown(clone);
+    const navigation = clone.querySelectorAll(navigationSelector);
+    let markdownWithoutNav = null;
+    if (navigation.length) {
+      navigation.forEach((el) => el.remove());
+      markdownWithoutNav = api.toMarkdown(clone);
+    }
+
     sections.push({
       anchor: section.id,
       title: breadcrumb[breadcrumb.length - 1],
       title_markdown: titleMarkdown,
       breadcrumb,
       level: breadcrumb.length,
-      markdown: api.toMarkdown(clone),
+      markdown,
+      markdown_without_nav: markdownWithoutNav,
     });
   });
   return { sections };
@@ -372,6 +398,12 @@ def _validated_sections(raw: Any, page: str) -> list[dict[str, Any]]:
             raise ExportError(f"{where} (#{anchor}): level does not match the breadcrumb")
         if not isinstance(markdown, str):
             raise ExportError(f"{where} (#{anchor}): markdown is not text")
+        # המפתח חייב להיות שם גם כשאין ניווט: ``null`` הוא "זהה ל-``markdown``", ומפתח חסר היה נקרא כך בטעות.
+        if "markdown_without_nav" not in item:
+            raise ExportError(f"{where} (#{anchor}): missing markdown_without_nav")
+        markdown_without_nav = item["markdown_without_nav"]
+        if markdown_without_nav is not None and not isinstance(markdown_without_nav, str):
+            raise ExportError(f"{where} (#{anchor}): markdown_without_nav is neither text nor null")
         validated.append(
             {
                 "anchor": anchor,
@@ -380,6 +412,7 @@ def _validated_sections(raw: Any, page: str) -> list[dict[str, Any]]:
                 "breadcrumb": breadcrumb,
                 "level": level,
                 "markdown": markdown,
+                "markdown_without_nav": markdown_without_nav,
             }
         )
     return validated
@@ -437,7 +470,10 @@ def export_sections(
                     if response is None or not response.ok:
                         status = None if response is None else response.status
                         raise ExportError(f"{page}: the page did not load (status {status})")
-                    raw = tab.evaluate(_EXTRACT_SECTIONS_JS, {"pageUrl": site_url + page})
+                    raw = tab.evaluate(
+                        _EXTRACT_SECTIONS_JS,
+                        {"pageUrl": site_url + page, "navigationSelector": NAVIGATION_SELECTOR},
+                    )
                 except PlaywrightError as error:
                     detail = f" (page errors: {page_errors})" if page_errors else ""
                     raise ExportError(f"{page}: {error}{detail}") from error

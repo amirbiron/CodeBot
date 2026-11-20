@@ -115,6 +115,7 @@ def _section(**overrides):
         "breadcrumb": ["עמוד", "סעיף"],
         "level": 2,
         "markdown": "תוכן\n",
+        "markdown_without_nav": None,
     }
     section.update(overrides)
     return section
@@ -149,6 +150,9 @@ def test_valid_sections_pass_through_unchanged():
         {"sections": [_section(level=True, breadcrumb=["סעיף"])]},
         {"sections": [_section(level="2")]},
         {"sections": [_section(markdown=None)]},
+        {"sections": [{k: v for k, v in _section().items() if k != "markdown_without_nav"}]},
+        {"sections": [_section(markdown_without_nav=["רשימה"])]},
+        {"sections": [_section(markdown_without_nav=0)]},
     ],
     ids=[
         "not-an-object",
@@ -170,6 +174,10 @@ def test_valid_sections_pass_through_unchanged():
         "level-is-a-bool",
         "level-is-text",
         "markdown-is-not-text",
+        # בלי המפתח, ``None`` ו"חסר" היו נראים אותו דבר, והניווט היה חוזר לחיפוש בשקט.
+        "markdown-without-nav-missing",
+        "markdown-without-nav-is-a-list",
+        "markdown-without-nav-is-a-number",
     ],
 )
 def test_a_malformed_page_answer_fails_the_page(raw):

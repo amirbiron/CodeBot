@@ -11,7 +11,8 @@
   מעבר לתקרת הטוקנים).
 * **עמוד** (:data:`~services.docs_search_contract.PAGES_COLLECTION`) — עמוד rst שלם, מורכב מכל
   הסעיפים שלו לפי הסדר בקובץ (:func:`page_markdown`), למסך התצוגה המרונדרת בדפדפן הריפו. לא מסעיפי
-  החיפוש: אלה מדלגים על סעיף בלי טקסט או של קישורים בלבד, וביומן עדכונים הם עדכונים ולא סעיפים.
+  החיפוש: אלה נבנים בלי בלוקי הניווט שבסעיף (``searchable_markdown``), מדלגים על סעיף בלי טקסט או של
+  קישורים בלבד, וביומן עדכונים הם עדכונים ולא סעיפים.
   עמוד לא מוטמע, ולכן הוא אינו עולה דבר ואינו משפיע על האישור. עם העמוד נשמרים הקבצים האחרים שהוא
   נבנה מהם (``dependencies`` בקובץ הייצוא), כדי שדפדפן הריפו יידע מתי העמוד ישן מהם.
 
@@ -118,8 +119,9 @@ UPDATE_LOG_SOURCES = frozenset({"docs/whats-new.rst"})
 #: לתת רשומות או נתחים אחרים. היא נשמרת במסמך המצב כשמעבר מסתיים (``indexed_records_version``), ו-
 #: :func:`is_index_complete` דורש אותה — ולכן אחרי פריסה של כללים חדשים מעבר אוטומטי אינו נעצר על
 #: "הקובץ לא השתנה" (304), אלא בונה את התוכנית מחדש. 2 — רשומה לכל עדכון ביומן עדכונים. 3 — עמודים
-#: מורכבים (:data:`~services.docs_search_contract.PAGES_COLLECTION`).
-RECORDS_VERSION = 3
+#: מורכבים (:data:`~services.docs_search_contract.PAGES_COLLECTION`). 4 — סעיפים ונתחים בלי בלוקי הניווט
+#: (``searchable_markdown``).
+RECORDS_VERSION = 4
 
 #: הרמה העמוקה ביותר שיש לה כותרת במארקדאון, ושיש לה תגית ב-HTML. סעיף עמוק יותר מקבל באתר ``h6``
 #: (``section_title_tags`` ב-``docutils/writers/_html_base.py``, docutils 0.21.2), ולכן גם בעמוד המורכב.
@@ -350,6 +352,10 @@ def _stable_id(*parts: Any) -> str:
 def build_records(document: ExportDocument) -> Tuple[List[SectionRecord], List[ChunkRecord]]:
     """הסעיפים והנתחים הרצויים, לפי סדר הקובץ. סעיף ריק או של קישורים בלבד מדולג.
 
+    הגוף של רשומה הוא ``searchable_markdown`` של הסעיף — בלי בלוקי הניווט (``toctree``, ``.. contents::``), שהם
+    רשימת כותרות של סעיפים ועמודים אחרים ולא תוכן של הסעיף. ממנו גם הנתחים וגם המארקדאון שהכרטיס מציג. סעיף
+    שכולו ניווט מדולג כמו סעיף ריק.
+
     בעמוד של :data:`UPDATE_LOG_SOURCES` הרשומות הן העדכונים ולא הסעיפים (:func:`_update_log_units`).
 
     זורק ``ValueError`` כשתקציב הנתח קטן מהשביל (``CHUNK_MAX_BYTES`` שהוגדר נמוך מדי), או
@@ -363,7 +369,7 @@ def build_records(document: ExportDocument) -> Tuple[List[SectionRecord], List[C
             _update_log_units(page)
             if page.source_path in UPDATE_LOG_SOURCES
             else (
-                _RecordUnit(section, section.breadcrumb, section.title, section.markdown)
+                _RecordUnit(section, section.breadcrumb, section.title, section.searchable_markdown)
                 for section in page.sections
             )
         )
@@ -407,7 +413,8 @@ def page_markdown(page: DocPage) -> str:
     """העמוד כולו כמארקדאון: כל סעיף לפי הסדר בקובץ, הכותרת שלו ברמה שלו, ואחריה הגוף שלו.
 
     כל הסעיפים נכנסים — גם כותרת שאין תחתיה טקסט משלה אלא רק תתי-סעיפים, וגם "ראו גם", ששניהם לא
-    נכנסים לחיפוש. הסדר הוא הסדר בקובץ, שהוא הסדר בעמוד (``querySelectorAll`` בסקריפט הייצוא). הגוף
+    נכנסים לחיפוש — והגוף של כל סעיף הוא ``markdown``, כולל בלוקי הניווט שהחיפוש מוציא, כמו באתר. הסדר
+    הוא הסדר בקובץ, שהוא הסדר בעמוד (``querySelectorAll`` בסקריפט הייצוא). הגוף
     של סעיף אינו כולל את תתי-הסעיפים שלו, וב-docutils הגוף של סעיף בא תמיד לפני תתי-הסעיפים שלו (מודל
     התוכן של ``section``), ולכן הצירוף נותן את העמוד כמו שהוא. הכותרת היא ``title_markdown``, כך שקוד
     והדגשה בתוכה נשארים. רמה עמוקה מ-
@@ -463,13 +470,20 @@ def _update_log_units(page: DocPage) -> Iterator[_RecordUnit]:
       המקרה הזה נרשם בלוג, והפתיח לא נחתך.
     * **מה שמחוץ לרשימות** (פסקה אחרי הבולטים) — רשומה אחת בשם של היום.
     """
-    split = [(section, *_split_updates(section.markdown)) for section in page.sections]
+    # שני פיצולים, כי לשתי שאלות שונות: הרשומות נבנות מהגוף שנכנס לחיפוש (``searchable_markdown``, בלי בלוקי
+    # הניווט), והייחודיות של פתיח נבדקת מול מה שהדפדפן מחפש בו כשהוא קופץ — העמוד כמו שהוא מוצג, ניווט כולל.
+    shown = [_split_updates(section.markdown) for section in page.sections]
+    split = [
+        (section, *(pieces if section.searchable_markdown == section.markdown
+                    else _split_updates(section.searchable_markdown)))
+        for section, pieces in zip(page.sections, shown)
+    ]
     # הטקסט שהעמוד מציג, בהשוואה של הדפדפן — פעם אחת לעמוד, ולא לכל עדכון: ``_match_key`` עובר על כל תו
     # בפייתון, וכשהוא רץ על העמוד כולו בכל בדיקה, ``build_records`` על הייצוא של 11.10.2026 לקח 7.1 שניות.
     shown_key = _match_key(
         "\n".join(
             _shown_text(block)
-            for _section, updates, outside in split
+            for updates, outside in shown
             for text in (*updates, outside)
             for block in _BLANK_LINE_RE.split(text)
             if block.strip()

@@ -45,6 +45,7 @@ def _document(**overrides) -> dict:
                         "breadcrumb": ["חיפוש גלובלי"],
                         "level": 1,
                         "markdown": "",
+                        "markdown_without_nav": None,
                     },
                     {
                         "anchor": "global-search-types",
@@ -53,6 +54,7 @@ def _document(**overrides) -> dict:
                         "breadcrumb": ["חיפוש גלובלי", "סוגי החיפוש"],
                         "level": 2,
                         "markdown": "| תווית | ערך |\n| --- | --- |",
+                        "markdown_without_nav": None,
                     },
                 ],
             }
@@ -88,6 +90,26 @@ def test_a_valid_file_becomes_a_document():
     assert page.sections[1].title_markdown == "סוגי `החיפוש`"
     assert page.sections[0].markdown == ""
     assert page.dependencies == ("handlers/save_flow.py", "GUIDES/Debugging Guide.md")
+
+
+@pytest.mark.parametrize(
+    "without_nav,searchable",
+    [
+        # אין ניווט בסעיף: החיפוש קורא את הסעיף עצמו.
+        (None, "| תווית | ערך |\n| --- | --- |"),
+        # יש ניווט: החיפוש קורא את הסעיף בלעדיו, והעמוד המורכב ממשיך לקרוא את ``markdown``.
+        ("טקסט בלי ניווט", "טקסט בלי ניווט"),
+        # הסעיף כולו ניווט: אין לחיפוש מה לקרוא, וזה לא חוזר ל-``markdown``.
+        ("", ""),
+    ],
+    ids=["no navigation", "with navigation", "only navigation"],
+)
+def test_the_searchable_body_leaves_the_navigation_out(without_nav, searchable):
+    parsed = client.parse_export(_bytes(_broken(lambda d: _section(d).update(markdown_without_nav=without_nav))))
+    section = parsed.pages[0].sections[1]
+    assert section.markdown_without_nav == without_nav
+    assert section.searchable_markdown == searchable
+    assert section.markdown == "| תווית | ערך |\n| --- | --- |"
 
 
 def test_a_page_built_from_its_source_alone_has_no_dependencies():
@@ -169,6 +191,10 @@ BROKEN = {
             breadcrumb=["א" * (client.MAX_TITLE_BYTES // 2)] * 6 + ["סוגי החיפוש"], level=7
         )
     ),
+    # ``null`` הוא "אין ניווט בסעיף"; מפתח חסר אינו עוד דרך לומר את זה, אחרת הניווט היה חוזר לחיפוש בשקט.
+    "markdown_without_nav is missing": _broken(lambda d: _section(d).pop("markdown_without_nav")),
+    "markdown_without_nav is a list": _broken(lambda d: _section(d).update(markdown_without_nav=["רשימה"])),
+    "markdown_without_nav is a bool": _broken(lambda d: _section(d).update(markdown_without_nav=False)),
     "level is a bool": _broken(lambda d: _section(d, 0).update(level=True)),
     "level does not match": _broken(lambda d: _section(d).update(level=3)),
     "markdown is missing": _broken(lambda d: _section(d).pop("markdown")),
@@ -208,8 +234,9 @@ def test_a_malformed_file_is_refused_with_a_reason(name):
         lambda d: _section(d).update(title="\ud800", breadcrumb=["חיפוש גלובלי", "\ud800"]),
         lambda d: d["pages"][0].update(title="\udfff"),
         lambda d: _dependencies(d).append("\udfff.py"),
+        lambda d: _section(d).update(markdown_without_nav="תוכן \ud800 נוסף"),
     ],
-    ids=["markdown", "section title", "page title", "dependency"],
+    ids=["markdown", "section title", "page title", "dependency", "markdown without nav"],
 )
 def test_a_lone_surrogate_is_an_invalid_file_and_not_a_crash(mutate):
     """``\\ud800`` ב-JSON הוא UTF-8 תקין ומפוענח ל-surrogate בודד, ו-``encode`` עליו זורק
