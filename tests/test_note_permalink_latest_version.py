@@ -2,7 +2,7 @@
 
 ``file_id`` שבפתק הוא הגרסה שעליה הפתק נוצר, וכל שמירה של קובץ יוצרת מסמך חדש עם מזהה חדש.
 עד נובמבר 2026 הקישור הפנה ל-``/md/<file_id>`` השמור, כלומר לחיצה על התראה או על הפעמון
-הובילה לגרסה ישנה. עכשיו ``_note_file_target_id`` מוצא את הגרסה הפעילה האחרונה בזמן
+הובילה לגרסה ישנה. עכשיו ``_note_file_target`` מוצא את הגרסה הפעילה האחרונה בזמן
 הקריאה — לפי השם שבפתק, או לפי השם של המסמך השמור כשלפתק ישן אין שם.
 
 הדמה של ``code_snippets`` מסננת כמו מונגו (שוויון, ``is_active``, ``user_id``) וממיינת לפי
@@ -59,6 +59,29 @@ SNIPPETS = [
      "updated_at": T0 + timedelta(minutes=1)},
 ]
 
+#: קבצי HTML — הפתקים שלהם יושבים על ``/html/<id>`` (``_file_view_endpoint``).
+#: ``page.html`` בשתי גרסאות; ``landing`` הוא HTML לפי השפה בלבד, בלי סיומת; ``both.md`` עונה על שני הכללים.
+H1, H2 = _oid(0x1A1), _oid(0x1A2)
+LANDING1, LANDING2 = _oid(0x1B1), _oid(0x1B2)
+BOTH = _oid(0x1C1)
+HTML_TRASH = _oid(0x1D1)
+LARGE_HTML = _oid(0x1E1)
+
+SNIPPETS += [
+    {"_id": H1, "user_id": USER, "file_name": "page.html", "version": 1, "is_active": True, "updated_at": T0,
+     "programming_language": "html"},
+    {"_id": H2, "user_id": USER, "file_name": "page.html", "version": 2, "is_active": True,
+     "updated_at": T0 + timedelta(hours=1), "programming_language": "html"},
+    {"_id": LANDING1, "user_id": USER, "file_name": "landing", "version": 1, "is_active": True, "updated_at": T0,
+     "programming_language": "html"},
+    {"_id": LANDING2, "user_id": USER, "file_name": "landing", "version": 2, "is_active": True,
+     "updated_at": T0 + timedelta(hours=1), "programming_language": "html"},
+    {"_id": BOTH, "user_id": USER, "file_name": "both.md", "version": 1, "is_active": True, "updated_at": T0,
+     "programming_language": "html"},
+    {"_id": HTML_TRASH, "user_id": USER, "file_name": "old.html", "version": 1, "is_active": False,
+     "updated_at": T0, "programming_language": "html"},
+]
+
 NOTE_ON_OLD_VERSION = _oid(0x101)
 NOTE_ON_RENAMED_FILE = _oid(0x102)
 OLD_NOTE_WITHOUT_NAME = _oid(0x103)
@@ -81,9 +104,26 @@ NOTES = [
     {"_id": NOTE_ON_A_LARGE_FILE_IN_THE_BIN, "user_id": USER, "file_id": str(_oid(0xE2)), "file_name": "a.md"},
 ]
 
+NOTE_ON_HTML = _oid(0x201)
+NOTE_ON_HTML_BY_LANGUAGE = _oid(0x202)
+NOTE_ON_BOTH = _oid(0x203)
+NOTE_ON_HTML_IN_THE_BIN = _oid(0x204)
+NOTE_ON_LARGE_HTML = _oid(0x205)
+OLD_NOTE_ON_HTML_WITHOUT_NAME = _oid(0x206)
+
+NOTES += [
+    {"_id": NOTE_ON_HTML, "user_id": USER, "file_id": str(H1), "file_name": "page.html"},
+    {"_id": NOTE_ON_HTML_BY_LANGUAGE, "user_id": USER, "file_id": str(LANDING1), "file_name": "landing"},
+    {"_id": NOTE_ON_BOTH, "user_id": USER, "file_id": str(BOTH), "file_name": "both.md"},
+    {"_id": NOTE_ON_HTML_IN_THE_BIN, "user_id": USER, "file_id": str(HTML_TRASH), "file_name": "old.html"},
+    {"_id": NOTE_ON_LARGE_HTML, "user_id": USER, "file_id": str(LARGE_HTML), "file_name": "big.html"},
+    {"_id": OLD_NOTE_ON_HTML_WITHOUT_NAME, "user_id": USER, "file_id": str(LANDING1)},
+]
+
 LARGE_FILES = [
     {"_id": LARGE, "user_id": USER, "file_name": "a.md", "is_active": True},
     {"_id": _oid(0xE2), "user_id": USER, "file_name": "a.md", "is_active": False},
+    {"_id": LARGE_HTML, "user_id": USER, "file_name": "big.html", "is_active": True, "programming_language": "html"},
 ]
 
 
@@ -224,7 +264,8 @@ def test_redirecting_to_the_stored_version_breaks_the_test(monkeypatch):
     """ריצת בקרה: ההפניה הישנה — ל-``file_id`` השמור — מחזירה את הגרסה הישנה."""
     import webapp.app as webapp_app
 
-    monkeypatch.setattr(webapp_app, "_note_file_target_id", lambda _db, _uid, note: str(note.get("file_id")))
+    monkeypatch.setattr(webapp_app, "_note_file_target",
+                        lambda _db, _uid, note: (str(note.get("file_id")), "md_preview"))
     client, _db = _client(monkeypatch)
     assert _location(client, NOTE_ON_OLD_VERSION) == f"/md/{V1}?note={NOTE_ON_OLD_VERSION}"
 
@@ -236,3 +277,52 @@ def test_sorting_by_version_alone_breaks_the_tie_test(monkeypatch):
     monkeypatch.setattr(webapp_app, "_LATEST_VERSION_SORT", [("version", -1)])
     client, _db = _client(monkeypatch)
     assert _location(client, NOTE_ON_A_TIE) == f"/md/{TIE_OLD}?note={NOTE_ON_A_TIE}"
+
+
+# -- פתק על קובץ HTML: לתצוגת הדפדפן, שעליה הפתקים שלו יושבים (``_file_view_endpoint``) --
+
+
+def test_a_note_on_an_html_file_opens_the_browser_view_of_the_latest_version(monkeypatch):
+    client, _db = _client(monkeypatch)
+    assert _location(client, NOTE_ON_HTML) == f"/html/{H2}?note={NOTE_ON_HTML}"
+
+
+def test_an_html_file_without_the_extension_is_recognised_by_its_language(monkeypatch):
+    """השפה באה מהמסמך שהשאילתה כבר מביאה — אין שאילתה נוספת בשבילה."""
+    client, db = _client(monkeypatch)
+    assert _location(client, NOTE_ON_HTML_BY_LANGUAGE) == f"/html/{LANDING2}?note={NOTE_ON_HTML_BY_LANGUAGE}"
+    assert not [q for q in db.code_snippets.queries if "_id" in q], db.code_snippets.queries
+
+
+def test_an_old_html_note_without_a_name_reads_the_language_from_the_latest_version(monkeypatch):
+    """אותן שתי שאילתות כמו לפתק Markdown בלי שם: לפי ``_id`` לשם, ולפי השם לגרסה האחרונה."""
+    client, db = _client(monkeypatch)
+    assert _location(client, OLD_NOTE_ON_HTML_WITHOUT_NAME) == (
+        f"/html/{LANDING2}?note={OLD_NOTE_ON_HTML_WITHOUT_NAME}"
+    )
+    by_id = [q for q in db.code_snippets.queries if "_id" in q]
+    assert by_id == [{"_id": LANDING1, "user_id": USER}], by_id
+
+
+def test_a_file_that_is_both_markdown_and_html_keeps_opening_in_the_markdown_view(monkeypatch):
+    """עד היום פתק על קובץ נפתח תמיד ב-``/md/``; קובץ שעונה על שני הכללים לא זז."""
+    client, _db = _client(monkeypatch)
+    assert _location(client, NOTE_ON_BOTH) == f"/md/{BOTH}?note={NOTE_ON_BOTH}"
+
+
+def test_an_html_file_in_the_recycle_bin_opens_the_stored_version_in_the_browser_view(monkeypatch):
+    client, _db = _client(monkeypatch)
+    assert _location(client, NOTE_ON_HTML_IN_THE_BIN) == f"/html/{HTML_TRASH}?note={NOTE_ON_HTML_IN_THE_BIN}"
+
+
+def test_a_large_html_file_opens_itself_in_the_browser_view(monkeypatch):
+    client, db = _client(monkeypatch)
+    assert _location(client, NOTE_ON_LARGE_HTML) == f"/html/{LARGE_HTML}?note={NOTE_ON_LARGE_HTML}"
+    assert db.large_files.queries == [{"_id": LARGE_HTML, "user_id": USER}], db.large_files.queries
+
+
+def test_a_database_failure_on_an_html_note_still_opens_the_browser_view(monkeypatch, caplog):
+    """בלי מסמך — לפי השם שבפתק. הסיומת ``.html`` מספיקה."""
+    client, _db = _client(monkeypatch, snippets=_Broken([]))
+    with caplog.at_level(logging.WARNING, logger="webapp.app"):
+        assert _location(client, NOTE_ON_HTML) == f"/html/{H1}?note={NOTE_ON_HTML}"

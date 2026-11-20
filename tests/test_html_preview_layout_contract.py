@@ -4,8 +4,10 @@
 (``docs/testing.rst``, הסעיף "בדיקות דפדפן, ותקרת הזמן"). הקובץ הזה לא מודד מחדש. הוא שומר שההחלטות שהמדידה אישרה
 לא בוטלו בשקט:
 
-- הכרטיס הוא עמודה, ואין לו ``overflow`` — כך ה-iframe מקבל את מה שנשאר אחרי שורת הכלים, ושום דבר לא נחתך בשקט.
-- ה-iframe גדל עם ``flex`` ולא מקבל ``height: 100%``, שיחד עם שורת הכלים באותו כרטיס גולש מלמטה.
+- הכרטיס הוא עמודה, ואין לו ``overflow``: הוא אינו קופסת גלילה, ולכן קוד לא יכול לגלול אותו, וגם לא מסתיר בשקט מה
+  שגולש ממנו.
+- משטח הפתקים (``.html-preview-surface``), שהמסגרת ממלאת, הוא פריט ה-flex שגדל אל כל מה שנשאר אחרי שורת הכלים, ויכול
+  להתכווץ מתחת לגובה התוכן שלו (``min-height: 0``).
 - כל הרווחים סביב התצוגה וחישוב הגובה של הכרטיס נקבעים מ-``--html-preview-gutter``, ולא כל אחד בערך משלו.
 
 לכל החלטה יש מוטציה למטה, שמוכיחה שהבדיקה מסוגלת להיכשל עליה.
@@ -21,7 +23,7 @@ import pytest
 TEMPLATE = Path(__file__).resolve().parent.parent / "webapp" / "templates" / "html_preview.html"
 
 CARD = ".main-content .preview-container.glass-card"
-IFRAME = ".preview-iframe"
+SURFACE = ".html-preview-surface"
 GUTTER = "var(--html-preview-gutter)"
 
 
@@ -40,17 +42,17 @@ def _rules(source: str) -> dict[str, list[str]]:
 def _violations(source: str) -> list[str]:
     rules = _rules(source)
     card = rules.get(CARD)
-    iframe = rules.get(IFRAME)
-    assert card is not None and iframe is not None, f"הבוררים {CARD!r} / {IFRAME!r} לא נמצאו: {sorted(rules)}"
+    surface = rules.get(SURFACE)
+    assert card is not None and surface is not None, f"הבוררים {CARD!r} / {SURFACE!r} לא נמצאו: {sorted(rules)}"
     found = []
     if "display: flex" not in card or "flex-direction: column" not in card:
         found.append("card-not-a-column")
     if any(d.startswith("overflow") for d in card):
         found.append("card-has-overflow")
-    if any(re.fullmatch(r"height:\s*100%", d) for d in iframe):
-        found.append("iframe-height-100")
-    if "flex: 1 1 auto" not in iframe or "min-height: 0" not in iframe:
-        found.append("iframe-does-not-flex")
+    if "flex: 1 1 auto" not in surface:
+        found.append("surface-does-not-grow")
+    if "min-height: 0" not in surface:
+        found.append("surface-cannot-shrink")
     heights = [d for d in card if d.startswith("height:")]
     if not heights or not all(f"2 * {GUTTER}" in d for d in heights):
         found.append("card-height-not-from-gutter")
@@ -65,7 +67,7 @@ def _violations(source: str) -> list[str]:
 
 #: שמות ההפרות, לשמות המקרים במוטציות.
 _VIOLATION_IDS = {
-    "card-not-a-column", "card-has-overflow", "iframe-height-100", "iframe-does-not-flex",
+    "card-not-a-column", "card-has-overflow", "surface-does-not-grow", "surface-cannot-shrink",
     "card-height-not-from-gutter", "card-margin-not-from-gutter", "page-bottom-not-from-gutter", "sides-not-from-gutter",
 }
 
@@ -79,9 +81,10 @@ def test_the_template_keeps_the_layout_decisions():
      "    gap: var(--html-preview-gutter);", "card-not-a-column"),
     ("    padding: var(--html-preview-gutter);\n    border-radius: 12px;\n}",
      "    padding: var(--html-preview-gutter);\n    border-radius: 12px;\n    overflow: hidden;\n}", "card-has-overflow"),
-    ("    flex: 1 1 auto;\n    min-height: 0;\n    width: 100%;",
-     "    flex: 1 1 auto;\n    min-height: 0;\n    width: 100%;\n    height: 100%;", "iframe-height-100"),
-    ("    flex: 1 1 auto;\n    min-height: 0;\n", "    min-height: 0;\n", "iframe-does-not-flex"),
+    ("    position: relative;\n    flex: 1 1 auto;\n    min-height: 0;",
+     "    position: relative;\n    min-height: 0;", "surface-does-not-grow"),
+    ("    position: relative;\n    flex: 1 1 auto;\n    min-height: 0;",
+     "    position: relative;\n    flex: 1 1 auto;", "surface-cannot-shrink"),
     ("    height: calc(100dvh - 2 * var(--html-preview-gutter));", "    height: 70dvh;", "card-height-not-from-gutter"),
     ("margin-block: calc(var(--html-preview-gutter) + 1px) 0;", "margin-block: 1rem 0;", "card-margin-not-from-gutter"),
     ("    padding-bottom: var(--html-preview-gutter);", "    padding-bottom: 2rem;", "page-bottom-not-from-gutter"),
