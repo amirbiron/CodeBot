@@ -218,7 +218,7 @@ def test_an_update_in_an_update_log_is_its_own_result_and_its_link_jumps_to_it(w
     """הכרטיס של עדכון ב-What's New: הפתיח ככותרת, שאר העדכון כגוף, והקישור קופץ לפתיח בתוך היום."""
     day = "-   **fix: הכרטיס מציג את העדכון.** הסיבה: היום כולו היה כרטיס.\n    \n-   **feat: עדכון שני.** עוד."
     pages = [
-        page("whats-new.html", "docs/whats-new.rst", section("what-s-new", "What’s New", markdown=""),
+        page("whats-new/2026-09.html", "docs/whats-new/2026-09.rst", section("w", "What’s New", markdown=""),
              section("id9", "What’s New", "2026-09-29", markdown=day)),
         page("webapp/themes.html", "docs/webapp/themes.rst",
              section("themes-dark", "ערכות", "כהה"), section("themes-light", "ערכות", "בהירה")),
@@ -233,7 +233,7 @@ def test_an_update_in_an_update_log_is_its_own_result_and_its_link_jumps_to_it(w
     assert (result["title"], result["breadcrumb"], result["markdown"]) == (
         headline, ["What’s New", "2026-09-29", headline], "הסיבה: היום כולו היה כרטיס."
     )
-    assert result["url"] == contract.SITE_URL + "whats-new.html#id9" + contract.text_fragment(headline)
+    assert result["url"] == contract.SITE_URL + "whats-new/2026-09.html#id9" + contract.text_fragment(headline)
 
 
 @pytest.mark.parametrize("stored", [None, 7, "", "   ", ["fix: א"]])

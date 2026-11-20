@@ -22,7 +22,7 @@ from services import docs_index_service as index  # noqa: E402
 def _log_page():
     """יומן עדכונים: החימום בונה גם אותו, כי הפירוק לעדכונים טוען את markdown-it."""
     return page(
-        "whats-new.html", sorted(index.UPDATE_LOG_SOURCES)[0], section("whats-new", "What’s New", markdown=""),
+        "whats-new/2026-11.html", str(index.UPDATE_LOG_DIR / "2026-11.rst"), section("w", "What’s New", markdown=""),
         section("id1", "What’s New", "2026-11-20", markdown="-   **fix: א.** טקסט העדכון."),
     )
 

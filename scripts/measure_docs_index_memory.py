@@ -3,7 +3,8 @@
 
 **למה.** המעבר (``run_pass`` ב-``services/docs_index_service.py``) רץ בתהליך של הוובאפ ומחזיק את קובץ הייצוא
 כולו בזיכרון. ``EXPORT_MAX_BYTES`` ב-``services/docs_export_client.py`` אומר שהגדלה שלו צריכה מדידת זיכרון קודם,
-וזו המדידה. ``docs/webapp/global-search.rst`` (המעבר) ו-``docs/whats-new.rst`` מצטטים את מה שהיא מדפיסה.
+וזו המדידה. ``docs/webapp/global-search.rst`` (המעבר) ו-``docs/whats-new/2026-11.rst`` (2026-11-20) מצטטים את מה
+שהיא מדפיסה.
 
 **מה נמדד: השיא, ולא מה שנשאר.** המכסה של הוובאפ היא הקונטיינר כולו, ופייתון לא מחזיר למערכת זיכרון ששוחרר,
 ולכן גם שיא רגעי נשאר כגודל התהליך (``host-metric-in-container`` ב-amir-bug-patterns). לכל שלב מודפס שיא
@@ -19,7 +20,7 @@
 ``compute_plan`` בונה את שתיהן ומוסיף קריאה של המזהים וה-sha מהמסד, שקטנה מהן בהרבה. לכן הוא אינו כאן,
 והסקריפט לא צריך מסד.
 
-**חימום לפני המדידה:** בניית הרשומות והעמודים על עמוד אחד מהקובץ, ועל יומן העדכונים אם יש בו. כך ייבוא עצל
+**חימום לפני המדידה:** בניית הרשומות והעמודים על עמוד אחד מהקובץ, ועל עמוד אחד של יומן העדכונים אם יש בו. כך ייבוא עצל
 ומטמונים של ספריות (regex, markdown-it) אינם נספרים כעבודה של המעבר.
 
 **מה לא נמדד:** RSS, שגדל פחות מהשיא כשזיכרון ששוחרר חוזר לשימוש; וזיכרון של המסד ושל Gemini.
@@ -83,11 +84,13 @@ def _transport(data: bytes) -> httpx.MockTransport:
 
 
 def _warm_up(data: bytes) -> None:
-    """בניית רשומות ועמודים על עמוד אחד מהקובץ ועל יומן העדכונים, לפני שהמדידה מתחילה."""
+    """בניית רשומות ועמודים על עמוד אחד מהקובץ ועל עמוד אחד של יומן העדכונים, לפני שהמדידה מתחילה."""
     raw = json.loads(data)
-    pages = raw["pages"][:1] + [
-        page for page in raw["pages"][1:] if page.get("source_path") in index.UPDATE_LOG_SOURCES
+    logs = [
+        page for page in raw["pages"][1:]
+        if isinstance(page.get("source_path"), str) and index.is_update_log_source(page["source_path"])
     ]
+    pages = raw["pages"][:1] + logs[:1]
     raw.update(pages=pages, page_count=len(pages), section_count=sum(len(page["sections"]) for page in pages))
     document = export_client.parse_export(json.dumps(raw, ensure_ascii=False).encode("utf-8"))
     index.build_records(document)

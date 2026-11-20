@@ -20,8 +20,8 @@
 לשביל שחוזר באותו עמוד, ונתח לפי הסעיף ומספר החלק. עוגן שזז (מספר רץ של Sphinx) מעדכן את רשומת
 הסעיף בלבד, בלי הטמעה מחדש. ``sha256`` של טקסט הנתח קובע אם צריך הטמעה.
 
-**יומן עדכונים** (:data:`UPDATE_LOG_SOURCES`, היום What's New): ביומן כזה היחידה היא עדכון אחד ולא יום
-שלם — כל פריט ברשימה ברמה העליונה של סעיף הוא רשומה משלו. הכותרת שלה היא הפתיח המודגש של העדכון,
+**יומן עדכונים** (:func:`is_update_log_source`: העמודים של What's New, עמוד לכל חודש): ביומן כזה היחידה היא
+עדכון אחד ולא יום שלם — כל פריט ברשימה ברמה העליונה של סעיף הוא רשומה משלו. הכותרת שלה היא הפתיח המודגש של העדכון,
 השביל הוא שביל היום ועוד הפתיח, והכתובת שלה קופצת לפתיח בתוך היום (``link_text``). הפרטים
 ב-:func:`_update_log_units`. כש*כללים* כאלה משתנים — מה שהופך את הקובץ לרשומות — עולה
 :data:`RECORDS_VERSION`, והאינדקס נחשב לא שלם עד שמעבר בונה אותו מחדש.
@@ -63,7 +63,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
-from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, TypeGuard
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, TypeGuard
 
 from markdown_it import MarkdownIt
 from pymongo import ReadPreference, ReplaceOne, ReturnDocument
@@ -110,18 +110,33 @@ logger = logging.getLogger(__name__)
 #: הרבה מעל מה שקומיט תיעוד רגיל משנה, והרבה מתחת למילוי של האתר כולו.
 APPROVAL_THRESHOLD_CHUNKS = 300
 
-#: עמודים שהם יומן עדכונים, לפי קובץ המקור (``source_path`` בקובץ הייצוא): בהם כל עדכון — פריט ברשימה
-#: ברמה העליונה של סעיף — נכנס לאינדקס כרשומה משלו (:func:`_update_log_units`). הצהרה מפורשת ולא זיהוי
-#: לפי מבנה הטקסט: עמוד רגיל שיש בו רשימה לא מתפרק לפריטים.
-UPDATE_LOG_SOURCES = frozenset({"docs/whats-new.rst"})
+#: התיקייה של יומן העדכונים: עמוד rst לכל חודש, שהרשומות של החודש נכתבות אליו ולא זזות משם. ``docs/whats-new.rst``
+#: שלידה הוא עמוד רגיל, עם רשימת החודשים (``toctree``) ובלי עדכונים.
+UPDATE_LOG_DIR = PurePosixPath("docs/whats-new")
+
+
+def is_update_log_source(source_path: str) -> bool:
+    """האם עמוד הוא יומן עדכונים, לפי קובץ המקור שלו (``source_path`` בקובץ הייצוא): בו כל עדכון — פריט ברשימה
+    ברמה העליונה של סעיף — נכנס לאינדקס כרשומה משלו (:func:`_update_log_units`).
+
+    הצהרה מפורשת לפי מיקום, ולא זיהוי לפי מבנה הטקסט: עמוד רגיל שיש בו רשימה לא מתפרק לפריטים. יומן הוא קובץ rst
+    שיושב ישירות בתיקייה :data:`UPDATE_LOG_DIR`. ההשוואה היא בין תיקיות ולא בין תחיליות של מחרוזת (K16
+    ב-amir-bug-patterns): ``docs/whats-new-old/x.rst`` אינו ביומן, וגם לא ``docs/whats-new.rst`` (עמוד רשימת
+    החודשים) או קובץ בתת-תיקייה. ``source_path`` כבר עבר את ``SOURCE_PATH_RE``, שאינו מקבל מקטע שמתחיל בנקודה,
+    ולכן גם לא ``..``.
+    """
+    path = PurePosixPath(source_path)
+    return path.parent == UPDATE_LOG_DIR and path.suffix == ".rst"
+
 
 #: הגרסה של הכללים שהופכים את הקובץ לרשומות (:func:`build_records`). עולה בכל שינוי שגורם לאותו קובץ
 #: לתת רשומות או נתחים אחרים. היא נשמרת במסמך המצב כשמעבר מסתיים (``indexed_records_version``), ו-
 #: :func:`is_index_complete` דורש אותה — ולכן אחרי פריסה של כללים חדשים מעבר אוטומטי אינו נעצר על
 #: "הקובץ לא השתנה" (304), אלא בונה את התוכנית מחדש. 2 — רשומה לכל עדכון ביומן עדכונים. 3 — עמודים
 #: מורכבים (:data:`~services.docs_search_contract.PAGES_COLLECTION`). 4 — סעיפים ונתחים בלי בלוקי הניווט
-#: (``searchable_markdown``).
-RECORDS_VERSION = 4
+#: (``searchable_markdown``). 5 — יומן העדכונים הוא עמוד לכל חודש בתיקייה :data:`UPDATE_LOG_DIR`
+#: (:func:`is_update_log_source`), ו-``docs/whats-new.rst`` הוא עמוד רגיל.
+RECORDS_VERSION = 5
 
 #: הרמה העמוקה ביותר שיש לה כותרת במארקדאון, ושיש לה תגית ב-HTML. סעיף עמוק יותר מקבל באתר ``h6``
 #: (``section_title_tags`` ב-``docutils/writers/_html_base.py``, docutils 0.21.2), ולכן גם בעמוד המורכב.
@@ -356,7 +371,7 @@ def build_records(document: ExportDocument) -> Tuple[List[SectionRecord], List[C
     רשימת כותרות של סעיפים ועמודים אחרים ולא תוכן של הסעיף. ממנו גם הנתחים וגם המארקדאון שהכרטיס מציג. סעיף
     שכולו ניווט מדולג כמו סעיף ריק.
 
-    בעמוד של :data:`UPDATE_LOG_SOURCES` הרשומות הן העדכונים ולא הסעיפים (:func:`_update_log_units`).
+    בעמוד של יומן עדכונים (:func:`is_update_log_source`) הרשומות הן העדכונים ולא הסעיפים (:func:`_update_log_units`).
 
     זורק ``ValueError`` כשתקציב הנתח קטן מהשביל (``CHUNK_MAX_BYTES`` שהוגדר נמוך מדי), או
     כשנתח יוצא גדול מהתקציב — שניהם תקלות תצורה או באג, לא קלט.
@@ -367,7 +382,7 @@ def build_records(document: ExportDocument) -> Tuple[List[SectionRecord], List[C
         seen: Dict[Tuple[str, ...], int] = {}
         units = (
             _update_log_units(page)
-            if page.source_path in UPDATE_LOG_SOURCES
+            if is_update_log_source(page.source_path)
             else (
                 _RecordUnit(section, section.breadcrumb, section.title, section.searchable_markdown)
                 for section in page.sections
@@ -481,14 +496,12 @@ def _update_log_units(page: DocPage) -> Iterator[_RecordUnit]:
     # הטקסט שהעמוד מציג, בהשוואה של הדפדפן — פעם אחת לעמוד, ולא לכל עדכון: ``_match_key`` עובר על כל הטקסט
     # שהוא מקבל. כשהוא רץ על העמוד כולו בכל בדיקה (אז בלולאה על כל תו בפייתון), ``build_records`` על הייצוא של
     # 11.10.2026 לקח 7.1 שניות.
-    shown_key = _match_key(
-        "\n".join(
-            _shown_text(block)
-            for updates, outside in shown
-            for text in (*updates, outside)
-            for block in _BLANK_LINE_RE.split(text)
-            if block.strip()
-        )
+    shown_key = _page_match_key(
+        _shown_text(block)
+        for updates, outside in shown
+        for text in (*updates, outside)
+        for block in _BLANK_LINE_RE.split(text)
+        if block.strip()
     )
     for section, updates, outside in split:
         for update in updates:
@@ -526,8 +539,8 @@ def _match_key(text: str) -> str:
     ולכן פתיח נחשב ייחודי רק אם גם בהשוואה הזו הוא מופיע בעמוד פעם אחת. אחרת הקפיצה הייתה מגיעה להופעה
     הראשונה שלו, ולא לעדכון.
 
-    **הסימנים נמחקים ב-``str.translate``, ולא בלולאה על התווים.** הפונקציה רצה על הטקסט של יומן העדכונים כולו
-    (:func:`_update_log_units`). עד נובמבר 2026 היא בנתה את התוצאה ב-``"".join`` על כל תו שאינו סימן, ו-CPython
+    **הסימנים נמחקים ב-``str.translate``, ולא בלולאה על התווים.** הפונקציה רצה על כל הטקסט של יומן העדכונים
+    (:func:`_page_match_key`, בלוק אחר בלוק). עד נובמבר 2026 היא בנתה את התוצאה ב-``"".join`` על כל תו שאינו סימן, ו-CPython
     יוצר אובייקט ``str`` נפרד לכל תו שמחוץ ל-Latin-1, כלומר לכל אות עברית (76 בתים לאות ב-3.11, ו-60 ב-3.13;
     נבדק בשתיהן ב-20.11.2026), ו-``join`` אוסף את כולם לרשימה לפני שהוא מחבר. זה היה רוב השיא של בניית
     הרשומות במעבר (``scripts/measure_docs_index_memory.py``, השלב ``build_records``). כאן ``set`` אוסף רק את
@@ -538,6 +551,21 @@ def _match_key(text: str) -> str:
     text = unicodedata.normalize("NFKD", text)
     text = text.translate({ord(char): None for char in set(text) if unicodedata.category(char).startswith("M")})
     return text.casefold()
+
+
+def _page_match_key(blocks: Iterable[str]) -> str:
+    """:func:`_match_key` של הבלוקים מחוברים בשורה חדשה — אבל כל בלוק מנורמל לבד, והתוצאות מחוברות.
+
+    **התוצאה זהה ל-``_match_key("\\n".join(blocks))``,** משלוש סיבות. ``\\n`` הוא תו בסיס (מחלקת צירוף 0) שאין לו
+    פירוק, ולכן NFKD לא מסדר סימנים מחדש מעליו, ושום דבר שמשני צדדיו לא משפיע על הצד השני. אף תו ביוניקוד לא
+    מתנרמל ל-``\\n`` (נבדק על כל הטווח ב-20.11.2026). ומחיקת הסימנים ו-``casefold`` פועלות על כל תו לבד.
+
+    **למה לא לנרמל את העמוד כמחרוזת אחת.** אימוג'י אחד בעמוד הופך את כל המחרוזת לארבעה בתים לתו, ו-
+    :func:`_match_key` מחזיק בבת אחת כמה עותקים שלה: הפירוק, המחיקה ו-``casefold``. כאן כל בלוק מנורמל
+    ברוחב שלו — רוב הבלוקים בשני בתים לתו — ומה שבזיכרון בבת אחת הוא הבלוקים המנורמלים והחיבור שלהם. השיא של
+    בניית הרשומות נמדד ב-``scripts/measure_docs_index_memory.py`` (השלב ``build_records``).
+    """
+    return "\n".join([_match_key(block) for block in blocks])
 
 
 #: ``\r\n`` ו-``\r`` בודד ← ``\n``: מה ש-markdown-it עושה לקלט לפני הפרסור (``NEWLINES_RE`` ב-

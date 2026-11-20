@@ -533,8 +533,9 @@ def test_an_update_headline_is_the_text_on_the_page_and_its_link_jumps_to_it(chr
         target = site / "_static" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(STATIC / name, target)
-    _write(site / "whats-new.html", _page(0, _update_log_body()))
-    _write(site / "_sources" / "whats-new.rst.txt", "What's New\n==========\n")
+    # עמוד של חודש ביומן, בתיקייה שלו (``UPDATE_LOG_DIR``), כמו באתר — ולכן גם הנתיב ל-``_static`` עולה תיקייה.
+    _write(site / "whats-new" / "2026-10.html", _page(1, _update_log_body()))
+    _write(site / "_sources" / "whats-new" / "2026-10.rst.txt", "What's New — אוקטובר 2026\n=========================\n")
     _record_dependencies(site, {})
 
     exported = _export(site, chromium_executable)
@@ -556,7 +557,7 @@ def test_an_update_headline_is_the_text_on_the_page_and_its_link_jumps_to_it(chr
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(_QuietHandler, directory=site))
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    base = f"http://127.0.0.1:{server.server_address[1]}/whats-new.html"
+    base = f"http://127.0.0.1:{server.server_address[1]}/whats-new/2026-10.html"
     try:
         with sync_playwright() as p:
             try:
