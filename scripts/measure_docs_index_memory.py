@@ -11,8 +11,8 @@
 
 **השלבים, בסדר שבו המעבר מריץ אותם:**
 
-- **הורדה ופענוח** — ``fetch_export``, מול תעבורה מדומה שמגישה את בתי הקובץ: אותו מסלול כמו מול האתר, כולל
-  איסוף החתיכות וחיבורן, בלי רשת.
+- **הורדה ופענוח** — ``fetch_export``, מול תעבורה מדומה שמגישה את בתי הקובץ בחתיכות חדשות של
+  :data:`CHUNK_BYTES` (:class:`_ChunkedBody`): אותו מסלול כמו מול האתר, כולל איסוף החתיכות וחיבורן, בלי רשת.
 - **בניית הרשומות** — ``build_records``: הסעיפים והנתחים לחיפוש, וביומן עדכונים גם הפירוק לעדכונים.
 - **בניית העמודים** — ``build_pages``.
 
@@ -39,7 +39,7 @@ import platform
 import sys
 import tracemalloc
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, Iterator, List
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -53,6 +53,33 @@ from services import docs_index_service as index  # noqa: E402
 
 #: השלבים, בסדר שבו הם רצים ובשמות שבהם הם מודפסים.
 STAGES = ("download + parse (fetch_export)", "build_records", "build_pages")
+
+#: גודל החתיכה שהגוף מוגש בה: ``READ_NUM_BYTES`` של httpcore 1.0.9 (``httpcore/_sync/http11.py``), הכמות הגדולה
+#: ביותר שקריאה אחת מהרשת מחזירה. רשת יכולה להחזיר פחות בכל קריאה, וזה משנה את מספר החתיכות ולא את סכומן.
+CHUNK_BYTES = 64 * 1024
+
+
+class _ChunkedBody(httpx.SyncByteStream):
+    """הגוף כמו שהוא מגיע מהרשת: חתיכות ``bytes`` חדשות, אחת בכל פעם.
+
+    ``httpx.Response(content=data)`` מגיש את ``data`` עצמו בחתיכה אחת (``ByteStream`` ב-``httpx/_content.py``,
+    0.28.1), ו-``b"".join`` של חתיכה אחת מחזיר אותה בלי להעתיק. כך ``fetch_export`` לא הקצה לא את החתיכות ולא את
+    החיבור שלהן, שבמעבר האמיתי קורים שניהם, והשלב נמדד נמוך מהאמת. ``tobytes`` מעתיק תמיד, גם כשהחתיכה היא
+    הקובץ כולו.
+    """
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    def __iter__(self) -> Iterator[bytes]:
+        view = memoryview(self._data)
+        for start in range(0, len(view), CHUNK_BYTES):
+            yield view[start:start + CHUNK_BYTES].tobytes()
+
+
+def _transport(data: bytes) -> httpx.MockTransport:
+    """תעבורה שמגישה את הקובץ בחתיכות (:class:`_ChunkedBody`) לכל בקשה."""
+    return httpx.MockTransport(lambda request: httpx.Response(200, stream=_ChunkedBody(data)))
 
 
 def _warm_up(data: bytes) -> None:
@@ -74,7 +101,7 @@ def measure(data: bytes) -> Dict[str, Any]:
     עליה: הקובץ נקרא בלי לבדוק את גודלו.
     """
     _warm_up(data)
-    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=data))
+    transport = _transport(data)
     limit = export_client.EXPORT_MAX_BYTES
     export_client.EXPORT_MAX_BYTES = max(limit, len(data))
     stages: List[Dict[str, Any]] = []
