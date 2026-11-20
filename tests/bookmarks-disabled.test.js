@@ -4,9 +4,9 @@
 // עד נובמבר 2026 ההגדרה הסתירה רק את הכפתור הצף, ונגיעה במספר שורה או בכותרת
 // המשיכה ליצור סימניות. עכשיו כל דרכי היצירה ב-``bookmarks.js`` שואלות את
 // ``BookmarkUI.isEnabled``: הנגיעה במספר שורה (רגילה, Shift, Ctrl, ותפריט הצבע),
-// הנגיעה בכותרת במארקדאון, ו-Ctrl+B. הדרך החמישית — הודעה מתוך תצוגת HTML — ב-
-// ``html_preview.html``, ונבדקת למטה מול הטקסט שלה (וההודעה עצמה בדפדפן —
-// ``test_an_anchor_message_from_the_html_view``).
+// הנגיעה בכותרת במארקדאון, ו-Ctrl+B. עד נובמבר 2026 הייתה דרך חמישית — הודעה מתוך תצוגת
+// HTML ב-``html_preview.html`` — והיא הוסרה: הסקריפט שאמור היה לשלוח אותה לא רץ מעולם, והמאזין
+// קיבל רק הודעות מזויפות (``test_an_anchor_message_from_the_html_view`` בודק שאין לה המשך).
 //
 // **איך:** ``bookmarks.js`` נטען כמו שהוא בתוך ``vm``, עם DOM מדומה. המחלקות נחשפות
 // מהסקריפט, ומנהל נבנה בלי ``init`` (שפונה לשרת). מה שהיה יוצר סימנייה —
@@ -248,14 +248,6 @@ await acheck('Ctrl+B: כבוי — לא יוצר ולא חוסם את המקש',
   const on = load('1');
   eq(ctrlB(on), true, 'preventDefault כשמוצג');
   eq(on.calls.join(','), 'toggle:3', 'מוצג');
-});
-
-// ── הדרך החמישית: הודעה מתצוגת HTML ─────────────────────────────────────
-await acheck('תצוגת HTML שואלת את isEnabled לפני toggleBookmarkAnchor', async () => {
-  const tpl = fs.readFileSync(path.join(ROOT, 'webapp', 'templates', 'html_preview.html'), 'utf8');
-  const gate = tpl.indexOf('!window.bookmarkManager.ui.isEnabled()) return;');
-  const call = tpl.indexOf('window.bookmarkManager.api.toggleBookmarkAnchor(');
-  eq(gate !== -1 && call !== -1 && gate < call, true, 'השער לפני הקריאה');
 });
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);
