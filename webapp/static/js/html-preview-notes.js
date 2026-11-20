@@ -15,8 +15,12 @@
  * המסגרת הוא ``"null"``, כמו של כל מסגרת מבודדת, ולכן הוא אינו מזהה אותה. וגם ממנה כל שדה נבדק: במצב
  * "אפשר JS" הסקריפטים של הקובץ רצים באותה מסגרת ויכולים לשלוח הודעה באותו ``type``.
  *
- * **ה-``type`` של ההודעות מגיע מהתבנית** (``data-scroll-message`` / ``data-scroll-request``), שמקבלת אותו
- * מ-``html_preview_frame`` בשרת — הוא כתוב במקום אחד בלבד.
+ * **ה-``type`` של ההודעות מגיע מהתבנית** (``data-scroll-message`` / ``data-scroll-request`` /
+ * ``data-scroll-command``), שמקבלת אותו מ-``html_preview_frame`` בשרת — הוא כתוב במקום אחד בלבד.
+ *
+ * **והכיוון ההפוך — גלילה של המסגרת:** ל"גולל" יש ``scrollTo({top, left})``, כמו לאלמנט, והוא שולח למדווח הוראת
+ * גלילה. המנהל קורא לו כשקישור מוביל לפתק שמחוץ לחלון (``scrollToNote``), ומחכה לדיווח שמראה שהפתק בפנים
+ * (``_ensureInView``). הוראה שנשלחה לפני שהמדווח רץ הולכת לאיבוד — והמנהל שולח אותה שוב עד שהפתק מוצג.
  */
 (function () {
   'use strict';
@@ -50,7 +54,8 @@
     var fileId = surface.getAttribute('data-file-id');
     var messageType = surface.getAttribute('data-scroll-message');
     var requestType = surface.getAttribute('data-scroll-request');
-    if (!fileId || !messageType || !requestType) {
+    var commandType = surface.getAttribute('data-scroll-command');
+    if (!fileId || !messageType || !requestType || !commandType) {
       console.error('html-preview-notes: חסרים נתונים בתבנית (data-file-id / data-scroll-*) — אין פתקים');
       return;
     }
@@ -76,7 +81,15 @@
       get scrollTop() { return report ? report.y : 0; },
       get scrollWidth() { return report ? report.scrollWidth : frame.clientWidth; },
       get clientWidth() { return report ? report.clientWidth : frame.clientWidth; },
-      get direction() { return report ? report.direction : 'ltr'; }
+      get direction() { return report ? report.direction : 'ltr'; },
+      // **רק בצורה של אובייקט** (``{top, left}``), כמו שהמנהל קורא לו. ציר שלא נמסר נשאר במקומו. המיקום החדש מגיע
+      // בדיווח הבא, ולא כאן: ``scrollTop`` מתעדכן רק כשהמסגרת מספרת שגללה.
+      scrollTo: function (opts) {
+        var o = opts || {};
+        var x = finite(o.left) ? o.left : (report ? report.x : 0);
+        var y = finite(o.top) ? o.top : (report ? report.y : 0);
+        frame.contentWindow.postMessage({ type: commandType, x: x, y: y }, '*');
+      }
     };
 
     var manager;

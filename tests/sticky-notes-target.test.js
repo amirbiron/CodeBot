@@ -3832,7 +3832,7 @@ check('מנהל שבוטל תוך כדי טעינה אינו רושם מאזינ
 });
 
 check('גרירה ושינוי גודל רושמים את מאזיני ה-window דרך _on', async () => {
-  // כל פתק רושם ארבעה מאזיני ``window`` בגרירה וארבעה בשינוי גודל. כשהם
+  // כל פתק רושם חמישה מאזיני ``window`` בגרירה וחמישה בשינוי גודל (``touchcancel`` נוסף בנובמבר 2026). כשהם
   // נרשמו ישירות דרך ``window.addEventListener``, ``destroy`` לא הכיר
   // אותם: כל החלפת קובץ בדפדפן הריפו הותירה שמונה סגירות חיות לכל פתק,
   // שמחזיקות את האלמנט ואת המנהל המת בזיכרון.
@@ -3845,7 +3845,7 @@ check('גרירה ושינוי גודל רושמים את מאזיני ה-window
   m._enableResize(sandbox.document.createElement('div'), sandbox.document.createElement('div'));
 
   const added = m._boundHandlers.slice(before);
-  eq(added.length, 8, 'שמונה מאזינים לפתק');
+  eq(added.length, 10, 'עשרה מאזינים לפתק');
   eq(added.every((h) => h.target === sandbox.window), true, 'כולם על window');
 
   const mine = added.map((h) => h.fn);

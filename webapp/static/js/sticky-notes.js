@@ -2102,6 +2102,17 @@
     }
 
     /**
+     * איפה נתלים הדיאלוגים של המנהל (צבע, תזכורת, שם לארכיון). בדרך כלל ב-``body``. אבל כשאלמנט שמכיל את הקונטיינר
+     * נמצא במסך מלא (בתצוגת ה-HTML המשטח עצמו עובר למסך מלא, והפתקים איתו), הדפדפן מצייר רק אותו, ודיאלוג ב-``body``
+     * נוצר מתחתיו: לא רואים אותו, ונגיעה במקומו פוגעת במסגרת. לכן הדיאלוג נתלה אז בתוך האלמנט שבמסך מלא. מסך מלא של
+     * אלמנט שאינו מכיל את הקונטיינר מסתיר ממילא גם את הפתקים, אז שם אין מה לשנות.
+     */
+    _dialogHost(){
+      const fs = document.fullscreenElement;
+      return (fs && fs.contains(this.container)) ? fs : document.body;
+    }
+
+    /**
      * בורר הצבע: הפלטה הסגורה, כעיגולים, בלי שהמשתמש רואה או מקליד ``hex``.
      *
      * **הכל בצמתים, ואף ``innerHTML``** — בשונה ממודאל התזכורת שמעליו.
@@ -2188,7 +2199,7 @@
         backdrop.addEventListener('click', close);
         closeBtn.addEventListener('click', close);
         document.addEventListener('keydown', onKey, true);
-        document.body.appendChild(modal);
+        this._dialogHost().appendChild(modal);
         // מיקוד ראשוני על הצבע הפעיל, או על הראשון — כדי שניווט מקלדת
         // יתחיל בתוך המודאל ולא מאחוריו.
         try {
@@ -2860,7 +2871,7 @@
             alert('✅ התזכורת נשמרה');
           }
         });
-        document.body.appendChild(modal);
+        this._dialogHost().appendChild(modal);
         focusFirstChoice(modal);
       } catch(err){ console.warn('open reminder modal failed', err); }
     }
@@ -2992,7 +3003,7 @@
         document.addEventListener('keydown', onKey, true);
         cancelOpenArchiveDialog = cancelThis;
         sync();
-        document.body.appendChild(modal);
+        this._dialogHost().appendChild(modal);
         input.focus({ preventScroll: true });
         try { input.select(); } catch(_) { /* שדה שאינו תומך בבחירה — אין מה לבחור */ }
       });
@@ -3910,9 +3921,24 @@
           const w = this._resolveDisplaySize(el, note, { width: parent.clientWidth }).fitted.width;
           const minX = reach ? reach.left : 0;
           const maxX = Math.max(minX, (reach ? reach.right : parent.clientWidth) - w);
-          // ציר ה-Y נחסם מלמטה בלבד: המשטח גליל, וגרירה כלפי מטה מגדילה
+          // בלוח ציר ה-Y נחסם מלמעלה בלבד: המשטח גליל, וגרירה כלפי מטה מגדילה
           // אותו — כלומר פתק "רחוק" עדיין נגיש, בניגוד לפתק מעל הקצה.
-          return { x: clamp(Math.round(x), minX, maxX), y: Math.max(0, Math.round(y)) };
+          //
+          // **במשטח עם גולל פנימי (ריפו, תצוגת HTML) המשטח אינו גדל** (``_applySurfaceExtent``), ולכן שם בגרירה
+          // — ``reach`` חסר, ``y`` במרחב הרינדור — נחסמת גם התחתית: הכותרת, שהיא ידית הגרירה, נשארת כולה בתוך
+          // המסגרת הגלויה. עד נובמבר 2026 אפשר היה לגרור אותה אל מתחת לתחתית. נמדד בתצוגת ה-HTML, בקובץ קצר בלי
+          // גלילה: הכותרת נחתה 22 פיקסלים מתחת לתחתית המשטח, והפתק נשמר ב-455 מול מסמך בגובה 434 — שום גלילה לא
+          // החזירה אותו. ההמרה למרחב התוכן נשארת בשמירה (``_positionOrigin``), ולכן פתק עמוק בקובץ ארוך נשמר במקומו;
+          // כדי להוריד פתק מתחת לחלון גוללים קודם, כמו כדי להעלות אותו מעליו.
+          let maxY = Infinity;
+          if (!reach && this._innerScrollSurface && el && typeof parent.clientHeight === 'number') {
+            const header = el.querySelector('.sticky-note-header');
+            const headerReach = header
+              ? Math.ceil(header.getBoundingClientRect().bottom - el.getBoundingClientRect().top)
+              : 0;
+            maxY = Math.max(0, parent.clientHeight - headerReach);
+          }
+          return { x: clamp(Math.round(x), minX, maxX), y: clamp(Math.round(y), 0, maxY) };
         } catch(_) { return { x, y }; }
       }
 
@@ -7619,7 +7645,15 @@
      * צורך בזה — אירועי מגע ממשיכים ליעד שבו הנגיעה התחילה (נבדק בטאבלט מדומה). ``add``/``remove`` ולא
      * ``toggle``: אותה צורה שבה המנהל נוגע במחלקות בכל מקום.
      *
-     * הסימון יורד בכל ``mouseup``/``touchend`` — כל פתק מאזין להם בחלון, ושחרור כלשהו מסיים כל מחווה.
+     * הסימון יורד בכל ``mouseup``/``touchend``/``touchcancel`` — כל פתק מאזין להם בחלון, ושחרור כלשהו מסיים כל
+     * מחווה.
+     *
+     * **``touchcancel`` מבטל את המחווה, ולא מסיים אותה.** הדפדפן שולח אותו כשמגע נקטע באמצע — לפי MDN
+     * (``touchcancel``): מעבר לאפליקציה אחרת או כפתור הבית, סיבוב המסך, דחיית כף יד, יותר מדי אצבעות — ובכרומיום לא
+     * הגיע אחריו ``touchend`` (נמדד, נובמבר 2026). עד נובמבר 2026 לא היה לו מאזין: הגרירה נשארה "דלוקה",
+     * כך שהנגיעה הבאה בכל מקום הזיזה את הפתק; טיימר הלחיצה הארוכה המשיך והחליף את 📌; והסימון נשאר, ולכן המסגרת
+     * בתצוגת ה-HTML לא קיבלה נגיעות. מגע שנקטע אינו בחירה של המשתמש, ולכן הפתק חוזר למקום ולגודל שהיו לו לפני
+     * המחווה, ושום דבר לא נשמר — המוצג, הזיכרון והשרת נשארים זהים.
      */
     _setGestureActive(on){
       const cl = this.container && this.container.classList;
@@ -7631,10 +7665,13 @@
     _enableDrag(el, handle){
       let startX=0, startY=0, origLeft=0, origTop=0, startScrollX=0, startScrollY=0, dragging=false;
       let pressTimer=null, longPressHandled=false;
+      // הסגנון שהיה לפני המחווה, כמו שהוא (גם ריק) — לזה חוזרים ב-``touchcancel`` (``_setGestureActive``).
+      let startStyleLeft='', startStyleTop='';
       const onDown = (e)=>{
         if (this._isDragExempt(e.target)) return;
         this._setGestureActive(true);
         dragging = true;
+        startStyleLeft = el.style.left; startStyleTop = el.style.top;
         const ev = e.touches ? e.touches[0] : e;
         startX = ev.clientX; startY = ev.clientY;
         const r = el.getBoundingClientRect();
@@ -7706,6 +7743,16 @@
         this._flushFor(el);
         this._updateSurfaceExtent();
       };
+      // מגע שנקטע: הפתק חוזר למקומו, בלי שמירה (``_setGestureActive``). אחרי לחיצה ארוכה ``dragging`` כבר כבוי,
+      // ו-📌 כבר הוחלף — שם אין מה להחזיר.
+      const onCancel = ()=>{
+        this._setGestureActive(false);
+        try { clearTimeout(pressTimer); } catch(_) {}
+        if (!dragging) return;
+        dragging = false;
+        el.style.left = startStyleLeft;
+        el.style.top = startStyleTop;
+      };
       // ``touch-action`` מוצהר ב-CSS על ``.sticky-note-drag``, ולא כאן.
       //
       // סגנון inline גובר על גיליון סגנונות, ולכן ההצבה שהייתה כאן ביטלה
@@ -7714,9 +7761,9 @@
       // הערך נשאר ``none`` גם אחרי הוספת המחלקה. הצהרה אחת, במקום אחד.
       //
       // מאזיני ה-``window`` נרשמים דרך ``_on`` **בכוונה.** הם נרשמים פר
-      // פתק (ארבעה כאן, ארבעה ב-``_enableResize``), ובלי הרישום הזה
+      // פתק (חמישה כאן, חמישה ב-``_enableResize``), ובלי הרישום הזה
       // ``destroy`` לא היה מכיר אותם: כל החלפת קובץ בדפדפן הריפו הייתה
-      // משאירה שמונה סגירות חיות לכל פתק, שמחזיקות את האלמנט ואת המנהל
+      // משאירה עשר סגירות חיות לכל פתק, שמחזיקות את האלמנט ואת המנהל
       // המת בזיכרון וממשיכות לרוץ בכל תזוזת עכבר.
       handle.addEventListener('mousedown', onDown);
       this._on(window, 'mousemove', onMove, { passive: false });
@@ -7724,6 +7771,7 @@
       handle.addEventListener('touchstart', onDown, { passive: false });
       this._on(window, 'touchmove', onMove, { passive: false });
       this._on(window, 'touchend', onUp);
+      this._on(window, 'touchcancel', onCancel);
     }
     _toggleAnchor(el){
       try {
@@ -7766,10 +7814,13 @@
 
     _enableResize(el, handle){
       let startX=0, startY=0, startW=0, startH=0, resizing=false;
+      // כמו בגרירה: הגודל שהיה לפני המחווה, לביטול ב-``touchcancel``.
+      let startStyleWidth='', startStyleHeight='';
       const onDown = (e)=>{
         resizing = true;
         // אותה סיבה כמו בגרירה: מעל המסגרת של תצוגת ה-HTML העכבר "נבלע" בה (``_setGestureActive``).
         this._setGestureActive(true);
+        startStyleWidth = el.style.width; startStyleHeight = el.style.height;
         const ev = e.touches ? e.touches[0] : e;
         startX = ev.clientX; startY = ev.clientY;
         const r = el.getBoundingClientRect();
@@ -7816,6 +7867,14 @@
         // פתק שגדל כלפי מטה מאריך את המשטח, בדיוק כמו פתק שנגרר לשם
         this._updateSurfaceExtent();
       };
+      // מגע שנקטע: הגודל חוזר, בלי שמירה ובלי לגעת בכוונה (``_setGestureActive``).
+      const onCancel = ()=>{
+        this._setGestureActive(false);
+        if (!resizing) return;
+        resizing = false;
+        el.style.width = startStyleWidth;
+        el.style.height = startStyleHeight;
+      };
       try { handle.style.touchAction = 'none'; } catch(_) {}
       // דרך ``_on``, מאותו נימוק בדיוק כמו ב-``_enableDrag``.
       handle.addEventListener('mousedown', onDown);
@@ -7824,6 +7883,7 @@
       handle.addEventListener('touchstart', onDown, { passive: false });
       this._on(window, 'touchmove', onMove, { passive: false });
       this._on(window, 'touchend', onUp);
+      this._on(window, 'touchcancel', onCancel);
     }
 
     _queueSave(el, fragment){
@@ -8900,15 +8960,78 @@
      *
      * חוזרת על **הגלילה בלבד** — ראו את ההערה ב-
      * :js:func:`_maybeScrollToNoteFromUrl`.
+     *
+     * פתק משטח בגולל פנימי נבדק מול הגולל ומוחזר דרכו (:js:func:`_inInnerScroller`). בתצוגת ה-HTML זו גם ההמתנה
+     * לדיווח: המיקום החדש מגיע מהמסגרת אחרי ההוראה, והניסיון הבא בודק אותו.
      */
     _ensureInView(el, triesLeft){
       try {
-        if (!el || this._isInViewport(el)) return;
+        if (!el) return;
+        const inner = this._inInnerScroller(el);
+        if (inner ? this._isShownInScroller(el) : this._isInViewport(el)) return;
         if (triesLeft <= 0) return;
-        try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); }
-        catch(_) { try { el.scrollIntoView(); } catch(__) {} }
+        if (inner) {
+          this._revealInScroller(el);
+        } else {
+          try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); }
+          catch(_) { try { el.scrollIntoView(); } catch(__) {} }
+        }
         setTimeout(() => this._ensureInView(el, triesLeft - 1), 200);
       } catch(_) {}
+    }
+
+    /**
+     * **פתק משטח בגולל פנימי — דפדפן הריפו ותצוגת ה-HTML — מגיעים אליו דרך הגולל, ולא דרך ``scrollIntoView``.**
+     *
+     * הפתק יושב בקונטיינר, מחוץ לגולל, ומוזז לפי הגלילה שבו (``_positionOrigin``). ``scrollIntoView`` על הפתק לא
+     * גלל את הגולל; הוא גלל את הקונטיינר, שהוא ``overflow: hidden`` — קופסה שקוד יכול לגלול. נמדד בכרומיום (נובמבר
+     * 2026), בקישור ``?note=`` לפתק עמוק: בתצוגת ה-HTML המשטח נגלל ב-1360 והמסגרת כולה יצאה מהמסך; בדפדפן הריפו
+     * הקונטיינר נגלל ב-2734, הקוד כולו יצא מהמסך והגולל נשאר בראש — ובשניהם הפתק נשאר מוסתר, בלי דרך לחזור. פתק
+     * ``screen`` (``is-floating``) צף מול המסך, ואין לו מה לחפש בגולל.
+     */
+    _inInnerScroller(el){
+      return !!(this._innerScrollSurface && el && el.classList && el.classList.contains('is-pinned'));
+    }
+
+    /**
+     * גולל את הגולל הפנימי כך שהפתק במרכזו, ומביא את הקונטיינר לתוך המסך אם הוא מחוצה לו.
+     *
+     * המיקום של הפתק בתוכן נגזר מהמלבן שלו עכשיו — אותה המרה של ``_positionOrigin``, הפוכה: ראש הפתק ביחס לראש
+     * הגולל, ועוד מה שכבר נגלל. ``scrollTo`` עם אובייקט: לגולל אלמנט (הריפו) זה ``Element.scrollTo``, ובתצוגת ה-HTML
+     * זו הוראה למסגרת (``html-preview-notes.js``). רק הציר האנכי — ציר אופקי לא נמסר ולכן נשאר במקומו.
+     *
+     * בלי גולל, או בגולל בלי ``scrollTo`` — אין לאן לגלול, ולא חוזרים ל-``scrollIntoView``: זה בדיוק המסלול
+     * שגולל את הקונטיינר. ``_ensureInView`` מנסה שוב, ובדפדפן הריפו הגולל חוזר אחרי שהעורך נבנה מחדש.
+     */
+    _revealInScroller(el){
+      try {
+        const sc = this._innerScroller();
+        if (!sc || typeof sc.scrollTo !== 'function') return;
+        const sr = sc.getBoundingClientRect();
+        const er = el.getBoundingClientRect();
+        const top = (Number(sc.scrollTop) || 0) + (er.top - sr.top) - (sr.height - er.height) / 2;
+        sc.scrollTo({ top: Math.max(0, Math.round(top)) });
+        if (this.container && !this._isInViewport(this.container)) {
+          this.container.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+      } catch (err) {
+        console.warn('sticky note: scrolling the inner scroller to the note failed', err);
+      }
+    }
+
+    /** האם פתק משטח בגולל פנימי מוצג: לא מוסתר (``_updatePinnedVisibility``), חותך את הגולל, ובתוך המסך. */
+    _isShownInScroller(el){
+      try {
+        if (el.style && el.style.visibility === 'hidden') return false;
+        const sc = this._innerScroller();
+        if (!sc) return false;
+        const sr = sc.getBoundingClientRect();
+        const er = el.getBoundingClientRect();
+        return er.top < sr.bottom && er.bottom > sr.top && this._isInViewport(el);
+      } catch(_) {
+        // מדידה שנכשלה = "עוד לא מוצג": ``_ensureInView`` ינסה שוב, ומספר הניסיונות שלו חסום.
+        return false;
+      }
     }
 
     /** האם האלמנט נמצא בתוך תחום המסך כרגע. */
@@ -8944,10 +9067,15 @@
           this._updateAnchoredNotePosition(entry.el, data);
           target = entry.el;
         }
-        try {
-          target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
-        } catch(_) {
-          try { target.scrollIntoView(); } catch(__) {}
+        if (target === entry.el && this._inInnerScroller(entry.el)) {
+          // גולל פנימי — דרכו, ולא ``scrollIntoView`` (``_inInnerScroller``).
+          this._revealInScroller(entry.el);
+        } else {
+          try {
+            target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+          } catch(_) {
+            try { target.scrollIntoView(); } catch(__) {}
+          }
         }
         // הדגשה קצרה להפניית תשומת לב
         try {

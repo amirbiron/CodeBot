@@ -17750,6 +17750,7 @@ def html_preview(file_id):
         'new_window_src': url_for('raw_html', file_id=file_data['id']),
         'scroll_message_type': html_preview_frame.SCROLL_MESSAGE_TYPE,
         'scroll_request_type': html_preview_frame.SCROLL_REQUEST_TYPE,
+        'scroll_command_type': html_preview_frame.SCROLL_COMMAND_TYPE,
     }
     return render_template('html_preview.html', user=session.get('user_data', {}), file=file_data, frame=frame,
                            bot_username=BOT_USERNAME_CLEAN)
@@ -17775,6 +17776,10 @@ def raw_html(file_id):
     # ומקבל את הקובץ כמו שהוא. שלושת המצבים וה-CSP של כל אחד: ``webapp/html_preview_frame.py``.
     # שים לב: בכל המצבים ה-iframe נשאר בסנדבוקס ללא allow-forms/allow-popups/allow-same-origin.
     report_scroll = request.args.get(html_preview_frame.REPORT_SCROLL_PARAM) == '1'
+    # קובץ עם CSP משלו חוסם את המדווח ממילא, ו-``allow-scripts`` רק היה מסתיר את ה-``<noscript>`` שלו — לכן בלי "אפשר
+    # JS" הוא מוגש בלי מדווח, כמו ב"חלון חדש" (``declares_own_csp``).
+    if report_scroll and not scripts_enabled and html_preview_frame.declares_own_csp(str(code)):
+        report_scroll = False
     reporter_nonce = html_preview_frame.new_reporter_nonce() if (report_scroll and not scripts_enabled) else None
     csp = html_preview_frame.raw_html_csp(scripts_enabled=scripts_enabled, reporter_nonce=reporter_nonce)
     if report_scroll:

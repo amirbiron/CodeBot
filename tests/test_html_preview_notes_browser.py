@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import itertools
+import json
 from urllib.parse import urlsplit
 
 import pytest
@@ -31,7 +32,6 @@ from _browser_harness import Touch, poll  # noqa: E402
 from _fake_mongo import FakeDB  # noqa: E402
 
 HOST = "ck.test"
-OWNER_ID = 7171
 FORWARDED_HEADERS = ("content-type", "cache-control", "etag", "content-security-policy", "x-content-type-options")
 ROWS = "".join(f'<p id="p{i}" style="margin:0;height:40px">שורה {i}</p>' for i in range(200))
 #: הסקריפט של הקובץ מודיע לדף שהוא רץ. בלי "אפשר JS" ה-CSP חוסם אותו; עם — הוא רץ, ומזייף דיווח גלילה: שני דיווחים
@@ -57,8 +57,12 @@ FOREIGN_PAGE = (
     "parent.postMessage({type:'html-anchor-click',anchorId:'x',anchorText:'x'},'*');</script></body>"
 )
 
-_ADDRESSES = itertools.count(1)
 _OIDS = (ObjectId(f"0123456789abcdef01{n:06x}") for n in itertools.count(0x7100))
+#: **משתמש לכל קובץ.** המגביל של האתר (``default_limits`` ב-``webapp/app.py``, "50 per hour") סופר לפי ``user_id`` שבסשן
+#: (``_client_rate_key``), והמסד והשרת משותפים לכל הקובץ: עם משתמש אחד, ריצה של כל הבדיקות עברה את המכסה, ובדיקה מאוחרת
+#: קיבלה 429 על רשימת הפתקים — ולא הציגה אף פתק (נמדד, נובמבר 2026). איפוס של המגביל אינו התשובה: ב-CI ``REDIS_URL``
+#: מצביע על כתובת דמה (``tests/conftest.py``), ו-``Limiter.reset`` היה זורק שם.
+_OWNERS = itertools.count(7171)
 
 
 @pytest.fixture(scope="module")
@@ -93,18 +97,24 @@ def site(chromium_executable):
 
 
 def _file(db, *, note=None, code=HTML) -> ObjectId:
-    """קובץ HTML חדש למשתמש, ועליו — כשנמסר ``note`` — פתק עם השדות האלה."""
+    """קובץ HTML חדש, של משתמש משלו (``_OWNERS``), ועליו — כשנמסר ``note`` — פתק עם השדות האלה."""
     oid = next(_OIDS)
+    owner = next(_OWNERS)
     db["code_snippets"].insert_one({
-        "_id": oid, "user_id": OWNER_ID, "file_name": f"page-{oid}.html", "code": code,
+        "_id": oid, "user_id": owner, "file_name": f"page-{oid}.html", "code": code,
         "programming_language": "html", "version": 1, "is_active": True,
     })
     if note is not None:
         db["sticky_notes"].insert_one({
-            "user_id": OWNER_ID, "file_id": str(oid), "content": "פתק", "color": "yellow",
+            "user_id": owner, "file_id": str(oid), "content": "פתק", "color": "yellow",
             "width": 260, "height": 200, "is_minimized": False, **note,
         })
     return oid
+
+
+def _owner(db, oid) -> int:
+    """המשתמש שהקובץ שלו — זה שנכנס לעמוד, ושהמגביל סופר."""
+    return db["code_snippets"].find_one({"_id": oid})["user_id"]
 
 
 def _open(site, oid, *, viewport=None, touch=False, query="", bookmark_requests=None, wait_for_report=True):
@@ -114,12 +124,12 @@ def _open(site, oid, *, viewport=None, touch=False, query="", bookmark_requests=
     לשרת. ``FOREIGN_PATH`` מוגש תמיד כדף זר — בלי ה-CSP שלנו — שהקובץ יכול להוביל אליו את המסגרת.
     ``wait_for_report=False`` — רק שהמנהל עלה: מסגרת שעוברת מיד לדף זר (``meta refresh``) לא תשאיר דיווח.
     """
-    b, wa, _db = site
+    b, wa, db = site
+    owner = _owner(db, oid)
     client = wa.app.test_client()
-    client.environ_base["HTTP_X_FORWARDED_FOR"] = f"192.0.2.{next(_ADDRESSES) % 250 + 1}"
     with client.session_transaction() as sess:
-        sess["user_id"] = OWNER_ID
-        sess["user_data"] = {"id": OWNER_ID, "first_name": "בדיקה"}
+        sess["user_id"] = owner
+        sess["user_data"] = {"id": owner, "first_name": "בדיקה"}
     errors: list[str] = []
 
     def handle(route, request):
@@ -331,6 +341,95 @@ def test_dragging_a_note_over_the_frame_by_touch_on_a_tablet(site):
         ctx.close()
 
 
+SHORT_HTML = '<!doctype html><html dir="rtl"><body><p>קצר</p></body></html>'
+
+
+@pytest.mark.parametrize("case", ["short-file", "long-file-scrolled"])
+def test_a_note_dragged_past_the_bottom_keeps_its_header_inside_the_frame(site, case):
+    """המשטח סביב המסגרת אינו גדל כמו לוח, ולכן גרירה אל מתחת לתחתית נעצרת כשהכותרת — ידית הגרירה — בתחתית המשטח.
+    בריצת בקרה על הקוד שלפני החסימה, בקובץ הקצר, הכותרת נחתה כולה מתחת למשטח, והפתק נשמר נמוך מגובה המסמך — במקום
+    ששום גלילה לא מגיעה אליו. בקובץ הארוך, אחרי גלילה, המיקום עדיין נשמר במרחב התוכן: הגלילה ועוד המיקום במסגרת."""
+    _b, _wa, db = site
+    scrolled = 0 if case == "short-file" else 2000
+    oid = _file(db, code=SHORT_HTML if case == "short-file" else HTML,
+                note={"anchor_id": "__pinned__", "position_x": 40, "position_y": scrolled + 40})
+    ctx, page, errors = _open(site, oid)
+    try:
+        if scrolled:
+            _scroll_frame(page, scrolled)
+        _note_settled(page, ".sticky-note.is-pinned")
+        assert page.evaluate("parseInt(document.querySelector('.sticky-note').style.top, 10)") == 40
+        x, y = _drag_handle_center(page)
+        surface_bottom = page.evaluate("Math.round(document.getElementById('htmlPreviewSurface')"
+                                       ".getBoundingClientRect().bottom)")
+        page.mouse.move(x, y)
+        page.mouse.down()
+        for i in range(1, 11):
+            page.mouse.move(x, y + (surface_bottom + 60 - y) * i / 10)
+        page.mouse.up()
+        header_bottom = page.evaluate("Math.round(document.querySelector('.sticky-note .sticky-note-header')"
+                                      ".getBoundingClientRect().bottom)")
+        assert header_bottom == surface_bottom, (header_bottom, surface_bottom)
+        style_top = page.evaluate("parseInt(document.querySelector('.sticky-note').style.top, 10)")
+        assert style_top > 40, style_top
+        assert _poll_saved(page, db, oid, (40, scrolled + style_top)) == (40, scrolled + style_top)
+        if case == "short-file":
+            doc_height = _frame(page).evaluate("document.documentElement.scrollHeight")
+            assert style_top < doc_height, (style_top, doc_height)
+        assert errors == []
+    finally:
+        ctx.close()
+
+
+NOTE_GEOMETRY = "() => { const el = document.querySelector('.sticky-note'), r = el.getBoundingClientRect(); " \
+                "return {left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), " \
+                "height: Math.round(r.height), pinned: el.classList.contains('is-pinned')}; }"
+
+
+@pytest.mark.parametrize("gesture", ["drag", "press", "resize"])
+def test_a_touch_the_system_cancels_leaves_the_note_as_it_was(site, gesture):
+    """``touchcancel`` (מעבר לאפליקציה אחרת, סיבוב המסך, דחיית כף יד — MDN) מגיע במקום ``touchend``.
+
+    הפתק חוזר למקום ולגודל שהיו לו, שום דבר לא נשמר, טיימר הלחיצה הארוכה אינו מחליף את 📌, והמסגרת מקבלת
+    שוב נגיעות. ואז נגיעה חדשה על המסגרת — שאינה נוגעת בפתק. בריצת בקרה על הקוד שלפני מאזין ה-``touchcancel``
+    הגרירה נשארה דלוקה, והנגיעה החדשה הזיזה את הפתק ושמרה אותו; בלחיצה בלבד הטיימר הפך את הפתק לצמוד למסך;
+    בשינוי גודל — הנגיעה החדשה המשיכה לשנות אותו."""
+    _b, _wa, db = site
+    oid = _file(db, note={"anchor_id": "__pinned__", "position_x": 40, "position_y": 40})
+    ctx, page, errors = _open(site, oid, viewport={"width": 1112, "height": 834}, touch=True)
+    saves: list[str] = []
+    page.on("request", lambda r: saves.append(r.url) if r.method == "PUT" and "/api/sticky-notes/" in r.url else None)
+    try:
+        _note_settled(page, ".sticky-note.is-pinned")
+        start = page.evaluate(NOTE_GEOMETRY)
+        touch = Touch(ctx.new_cdp_session(page))
+        if gesture == "resize":
+            x, y = page.evaluate("() => { const r = document.querySelector('.sticky-note .sticky-note-resize')"
+                                 ".getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }")
+        else:
+            x, y = _drag_handle_center(page)
+        touch.start(x, y)
+        if gesture != "press":
+            for i in range(1, 9):
+                touch.move(x + 20 * i, y + 15 * i)
+            assert page.evaluate(NOTE_GEOMETRY) != start, "המחווה לא התחילה — הבדיקה לא בודקת כלום"
+        touch.cdp.send("Input.dispatchTouchEvent", {"type": "touchCancel", "touchPoints": []})
+        assert page.evaluate(NOTE_GEOMETRY) == start
+        assert not page.evaluate("document.getElementById('htmlPreviewSurface')"
+                                 ".classList.contains('sticky-note-gesture')")
+        page.wait_for_timeout(600)  # יותר מ-``LONG_PRESS_MS`` (450)
+        frame = page.evaluate(FRAME_BOX)
+        touch.swipe(frame["left"] + 700, frame["top"] + 500, -120, -90)
+        page.wait_for_timeout(700)  # ``debounce`` של השמירה
+        assert page.evaluate(NOTE_GEOMETRY) == start
+        assert saves == [], saves
+        doc = next(iter(db["sticky_notes"].find({"file_id": str(oid)})))
+        assert (doc["position_x"], doc["position_y"], doc["anchor_id"]) == (40, 40, "__pinned__")
+        assert errors == []
+    finally:
+        ctx.close()
+
+
 @pytest.mark.parametrize("width, height", [(1280, 700), (834, 1112), (1112, 834), (390, 844)],
                          ids=["desktop", "tablet-portrait", "tablet-landscape", "phone"])
 def test_the_bottom_of_the_frame_is_not_cut_off(site, width, height):
@@ -397,6 +496,60 @@ def test_noscript_content_shows_while_the_files_scripts_are_off(site):
         ctx.close()
 
 
+OWN_CSP_NOSCRIPT_HTML = ('<!doctype html><html><head><meta http-equiv="Content-Security-Policy" '
+                         "content=\"script-src 'none'\"></head><body><p>רגיל</p>"
+                         '<noscript><p id="fallback">הגרסה בלי JS</p></noscript></body></html>')
+
+
+def test_noscript_shows_in_a_file_with_its_own_policy(site):
+    """קובץ שאוסר סקריפטים ב-CSP משלו חוסם את המדווח, ולכן גם ``_NOSCRIPT_JS`` לא רץ — ועם ``allow-scripts`` הדפדפן
+    הסתיר את ``<noscript>``. עכשיו קובץ כזה מוגש בלי מדווח (``declares_own_csp``), וה-``sandbox`` של התשובה מבטל את
+    ``allow-scripts`` של המסגרת. בריצת בקרה על הקוד שלפני התיקון התוכן לא הוצג."""
+    _b, _wa, db = site
+    ctx, page, errors = _open(site, _file(db, code=OWN_CSP_NOSCRIPT_HTML), wait_for_report=False)
+    try:
+        # ``wait_for`` ולא ``is_visible``: האחרון אינו מחכה, ומסגרת שעוד נטענת הייתה נראית כמו תוכן מוסתר.
+        page.frame_locator("#previewFrame").locator("#fallback").wait_for(state="visible", timeout=10000)
+        assert errors == []
+    finally:
+        ctx.close()
+
+
+#: הדיאלוג נגיש כשהנגיעה במרכז הכפתור או השדה הראשון שלו פוגעת בו — ולא במה שמצויר מעליו.
+DIALOG_REACHABLE = """(sel) => { const m = document.querySelector(sel); if (!m) return 'אין דיאלוג';
+  const t = [...m.querySelectorAll('button, input')].find((x) => x.getBoundingClientRect().width > 0);
+  const r = t.getBoundingClientRect();
+  const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  return (hit && m.contains(hit)) ? 'נגיש' : `הנגיעה פגעה ב-${hit && (hit.id || hit.className)}`; }"""
+
+
+@pytest.mark.parametrize("dialog, menu_item, selector", [
+    ("color", None, ".sticky-color-modal"),
+    ("reminder", "reminder", ".sticky-reminder-modal"),
+    ("archive-name", "archive", ".sticky-archive-modal"),
+])
+def test_the_note_dialogs_are_reachable_in_fullscreen(site, dialog, menu_item, selector):
+    """המשטח עובר למסך מלא עם הפתקים, והדפדפן מצייר רק אותו. דיאלוג שנתלה ב-``body`` נוצר מתחתיו: בריצת בקרה על הקוד
+    שלפני ``_dialogHost`` הנגיעה במקום הדיאלוג פגעה במסגרת (``previewFrame``), בשלושתם."""
+    _b, _wa, db = site
+    ctx, page, errors = _open(site, _file(db, note={"anchor_id": "__pinned__", "position_x": 40, "position_y": 40}))
+    try:
+        _note_settled(page, ".sticky-note.is-pinned")
+        page.click("#btnFullscreen")
+        poll(page, "() => document.fullscreenElement && document.fullscreenElement.id === 'htmlPreviewSurface'",
+             "המשטח במסך מלא")
+        if menu_item is None:
+            page.click(".sticky-note .sticky-note-color")
+        else:
+            page.click(".sticky-note .sticky-note-more")
+            page.click(f'.sticky-note .sticky-note-menu-item[data-menu-item="{menu_item}"]')
+        poll(page, f"() => !!document.querySelector({selector!r})", f"הדיאלוג ({dialog}) נפתח")
+        assert page.evaluate(DIALOG_REACHABLE, selector) == "נגיש"
+        assert errors == []
+    finally:
+        ctx.close()
+
+
 def test_the_link_of_a_note_on_an_html_file_opens_it_in_the_browser_view(site):
     """``/note/<id>`` — הקישור של התראות, הפעמון ו"פתקים אחרונים" — נוחת על התצוגה הזו, והפתק נמצא בה."""
     _b, _wa, db = site
@@ -409,10 +562,82 @@ def test_the_link_of_a_note_on_an_html_file_opens_it_in_the_browser_view(site):
         assert errors == []
     finally:
         ctx.close()
-    _b, wa, _db = site
+    _b, wa, db = site
     client = wa.app.test_client()
     with client.session_transaction() as sess:
-        sess["user_id"] = OWNER_ID
+        sess["user_id"] = _owner(db, oid)
     resp = client.get(f"/note/{note['_id']}")
     assert resp.status_code == 302, resp.status_code
     assert resp.headers["Location"] == f"/html/{oid}?note={note['_id']}"
+
+
+def _scroll_command_type():
+    from webapp import html_preview_frame
+    return html_preview_frame.SCROLL_COMMAND_TYPE
+
+
+def test_a_scroll_command_is_taken_only_from_the_page_and_only_with_numbers(site):
+    """הוראת הגלילה (``SCROLL_COMMAND_TYPE``) מתקבלת רק כשהשולח הוא ``parent``, ורק עם שני מספרים סופיים. במצב
+    "אפשר JS" הקובץ שולח לעצמו הוראה באותו ``type`` — והמסגרת לא זזה; הדף שולח הוראה עם מחרוזת במקום מספר — ולא
+    זזה; והוראה תקינה מהדף — זזה, כך שהשתיים הראשונות אינן עוברות רק כי הערוץ שבור. במוטציה בלי בדיקת השולח
+    המסגרת נגללה בהוראה של הקובץ."""
+    _b, _wa, db = site
+    command = json.dumps(_scroll_command_type())
+    code = (f'<!doctype html><html dir="rtl"><body style="margin:0">{ROWS}'
+            "<script>addEventListener('load',function(){setTimeout(function(){"
+            f"window.postMessage({{type:{command},x:0,y:3000}},'*');"
+            "parent.postMessage({type:'self-command-sent'},'*');},300);});</script></body></html>")
+    ctx, page, errors = _open(site, _file(db, code=code))
+    try:
+        page.check("#toggleJs")
+        poll(page, "() => window.__messages.includes('self-command-sent')", "הקובץ שלח לעצמו הוראת גלילה")
+        page.wait_for_timeout(300)
+        assert _frame(page).evaluate("window.scrollY") == 0
+
+        send = (f"(y) => document.getElementById('previewFrame').contentWindow"
+                f".postMessage({{type: {command}, x: 0, y}}, '*')")
+        page.evaluate(send, "3000")
+        page.wait_for_timeout(300)
+        assert _frame(page).evaluate("window.scrollY") == 0
+
+        page.evaluate(send, 3000)
+        poll(page, "() => window.htmlPreviewNotes.report().y === 3000", "הוראה תקינה מהדף גוללת")
+        assert errors == []
+    finally:
+        ctx.close()
+
+
+def test_the_link_of_a_note_deep_in_the_file_scrolls_the_frame_to_it(site):
+    """פתק שמתחת לחלון המסגרת: הקישור גולל את **התוכן שבמסגרת** אליו (הוראת גלילה למדווח), והפתק מוצג יחד עם התוכן.
+    בריצת בקרה על הקוד שלפני התיקון, ``scrollIntoView`` גלל את המשטח עצמו: המסגרת יצאה מהמסך, המסגרת לא נגללה (0),
+    והפתק נשאר מוסתר.
+
+    ובסוף — **המשטח אינו נגלל בכלל** (``overflow: clip``): פתק שני, רחוק מתחת, יוצר גלישה במשטח, וגלילה שלו מקוד
+    נשארת 0. עם ``hidden`` בלבד היא זזה (מוטציה)."""
+    _b, _wa, db = site
+    oid = _file(db, note={"anchor_id": "__pinned__", "position_x": 40, "position_y": 3000})
+    note = next(iter(db["sticky_notes"].find({"file_id": str(oid)})))
+    db["sticky_notes"].insert_one({"user_id": _owner(db, oid), "file_id": str(oid), "content": "רחוק",
+                                   "color": "yellow", "width": 260, "height": 200, "is_minimized": False,
+                                   "anchor_id": "__pinned__", "position_x": 400, "position_y": 7000})
+    ctx, page, errors = _open(site, oid, query=f"?note={note['_id']}")
+    try:
+        frame_before = page.evaluate(FRAME_BOX)
+        selector = f'.sticky-note[data-note-id="{note["_id"]}"]'
+        poll(page, f"() => {{ const el = document.querySelector({selector!r}),"
+                   " f = document.getElementById('previewFrame'); if (!el) return false;"
+                   " const r = el.getBoundingClientRect(), fr = f.getBoundingClientRect();"
+                   " return el.style.visibility !== 'hidden' && r.top >= fr.top && r.bottom <= fr.bottom; }",
+             "הפתק מוצג כולו בתוך המסגרת")
+        assert page.evaluate(FRAME_BOX) == frame_before
+        assert page.evaluate("document.getElementById('htmlPreviewSurface').scrollTop") == 0
+        _note_settled(page, selector)
+        report_y = page.evaluate("window.htmlPreviewNotes.report().y")
+        note_top = page.evaluate(f"Math.round(document.querySelector({selector!r}).getBoundingClientRect().top)")
+        assert note_top == frame_before["top"] + 3000 - report_y, (note_top, frame_before, report_y)
+        assert page.evaluate("(() => { const s = document.getElementById('htmlPreviewSurface');"
+                             " const overflowing = s.scrollHeight > s.clientHeight; s.scrollTop = 500;"
+                             " return [overflowing, s.scrollTop]; })()") == [True, 0]
+        assert errors == []
+    finally:
+        ctx.close()

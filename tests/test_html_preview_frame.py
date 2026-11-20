@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from bson import ObjectId
 
 from webapp import app as webapp_app
@@ -33,8 +35,8 @@ CSP_SCRIPTS_BEFORE_THE_REPORTER = (
 NONCE_RE = re.compile(r"[A-Za-z0-9_-]{16,}")
 
 
-def _client(monkeypatch, *, file_name="page.html", language="html"):
-    doc = {"_id": FILE_OID, "user_id": OWNER_ID, "file_name": file_name, "code": USER_HTML,
+def _client(monkeypatch, *, file_name="page.html", language="html", code=USER_HTML):
+    doc = {"_id": FILE_OID, "user_id": OWNER_ID, "file_name": file_name, "code": code,
            "programming_language": language, "is_active": True}
     monkeypatch.setattr(webapp_app, "get_db", lambda: object())
     monkeypatch.setattr(webapp_app, "_get_user_any_file_by_id", lambda db_ref, user_id, file_id: (doc, "regular"))
@@ -115,6 +117,89 @@ def test_any_other_value_of_the_parameter_does_not_add_the_reporter(monkeypatch)
     csp, body = _raw(_client(monkeypatch), f"?{html_preview_frame.REPORT_SCROLL_PARAM}=yes")
     assert csp == CSP_BEFORE_THE_REPORTER
     assert body == USER_HTML
+
+
+# -- קובץ עם CSP משלו: בלי "אפשר JS" — בלי מדווח, כמו ב"חלון חדש" (``declares_own_csp``) --
+
+OWN_CSP_META = "<meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'none'\">"
+OWN_CSP_HTML = (f"<!doctype html><html><head>{OWN_CSP_META}</head>"
+                "<body><noscript><p>בלי JS</p></noscript></body></html>")
+
+
+def test_a_file_with_its_own_policy_is_served_without_the_reporter_while_its_scripts_are_off(monkeypatch):
+    """המדיניות של הקובץ חוסמת את המדווח ממילא, ו-``allow-scripts`` היה מסתיר את ה-``<noscript>`` שלו. בלי מדווח
+    ה-``sandbox`` של התשובה בלי ``allow-scripts``, והדפדפן מציג אותו —
+    ``test_noscript_shows_in_a_file_with_its_own_policy`` בבדיקות הדפדפן."""
+    csp, body = _raw(_client(monkeypatch, code=OWN_CSP_HTML), f"?{html_preview_frame.REPORT_SCROLL_PARAM}=1")
+    assert csp == CSP_BEFORE_THE_REPORTER
+    assert body == OWN_CSP_HTML
+
+
+def test_with_scripts_a_file_with_its_own_policy_still_gets_the_reporter(monkeypatch):
+    """במצב JS לא השתנה דבר: ``<noscript>`` מוסתר שם ממילא, והמדווח רץ כשהמדיניות של הקובץ מתירה אותו."""
+    csp, body = _raw(_client(monkeypatch, code=OWN_CSP_HTML),
+                     f"?allow=scripts&{html_preview_frame.REPORT_SCROLL_PARAM}=1")
+    assert csp == CSP_SCRIPTS_BEFORE_THE_REPORTER
+    assert body.startswith(OWN_CSP_HTML) and html_preview_frame.SCROLL_MESSAGE_TYPE in body[len(OWN_CSP_HTML):]
+
+
+@pytest.mark.parametrize("html, expected", [
+    (f"<!doctype html><html><head>{OWN_CSP_META}</head><body></body></html>", True),
+    # בלי ``<head>`` כתוב, לפני כל תוכן — הדפדפן שם אותו בראש, והוא נאכף (נמדד)
+    (f"<!doctype html>{OWN_CSP_META}<p>x</p>", True),
+    # אחרי תחילת ה-body — לא נאכף (נמדד), ולכן המדווח נשאר
+    (f"<!doctype html><p>x</p>{OWN_CSP_META}", False),
+    (f"<!doctype html><html><head></head><body><p>x</p>{OWN_CSP_META}</body></html>", False),
+    # אחרי ``</head>`` ולפני ``<body>`` — הדפדפן מחזיר אותו לראש, והוא נאכף (נמדד)
+    (f"<!doctype html><html><head></head>{OWN_CSP_META}<body></body></html>", True),
+    ('<META HTTP-EQUIV="content-security-policy" CONTENT="x">', True),
+    # תו מקודד בערך — הדפדפן מפענח אותו לפני ההשוואה, והוא נאכף (נמדד)
+    ('<meta http-equiv="Content&#45;Security-Policy" content="x">', True),
+    ('<meta http-equiv="Content-Security-Policy-Report-Only" content="x">', False),
+    ("<meta http-equiv>", False),
+    ('<meta name="viewport" content="width=device-width">', False),
+    ("", False),
+], ids=["head", "first-without-head", "after-p", "in-body", "after-head-before-body", "upper-case", "char-ref",
+        "report-only", "no-value", "other-meta", "empty"])
+def test_the_own_policy_rule_looks_at_the_head_only(html, expected):
+    assert html_preview_frame.declares_own_csp(html) is expected
+
+
+def test_the_scan_stops_at_the_body_and_does_not_read_the_rest_of_the_file(monkeypatch):
+    """העצירה בתחילת ה-body היא מה שהופך את הבדיקה לזולה בקובץ גדול: המפרסר מקבל רק את הנתחים עד שם."""
+    fed: list[int] = []
+    original = html_preview_frame._OwnCspScanner.feed
+
+    def counting_feed(self, data):
+        fed.append(len(data))
+        return original(self, data)
+
+    monkeypatch.setattr(html_preview_frame._OwnCspScanner, "feed", counting_feed)
+    big = "<!doctype html><html><head><title>t</title></head><body>" + "<p>שורה</p>" * 100_000 + OWN_CSP_META
+    assert html_preview_frame.declares_own_csp(big) is False
+    assert fed == [html_preview_frame._SCAN_CHUNK]
+
+
+def test_a_parser_failure_is_treated_as_an_own_policy_and_logged(monkeypatch, caplog):
+    """``_markupbase`` של 3.11 מכיל ``raise AssertionError`` על הצהרות פגומות. כשל = הקובץ מוגש בלי סקריפטים, כמו ב"חלון
+    חדש", ולא 500 — ונרשם, בלי תוכן מהקובץ."""
+    def failing_feed(self, data):
+        raise AssertionError("unexpected char in declaration: SECRET-FROM-THE-FILE")
+
+    monkeypatch.setattr(html_preview_frame._OwnCspScanner, "feed", failing_feed)
+    with caplog.at_level("WARNING", logger=html_preview_frame.__name__):
+        assert html_preview_frame.declares_own_csp("<!x>") is True
+    assert any("parser rejected" in r.getMessage() for r in caplog.records)
+    assert "SECRET-FROM-THE-FILE" not in caplog.text
+
+
+def test_any_other_parser_error_is_a_bug_and_propagates(monkeypatch):
+    def broken_feed(self, data):
+        raise TypeError("a bug")
+
+    monkeypatch.setattr(html_preview_frame._OwnCspScanner, "feed", broken_feed)
+    with pytest.raises(TypeError):
+        html_preview_frame.declares_own_csp("<p>")
 
 
 # -- הכלל "יש לקובץ תצוגת דפדפן": ``_is_html_file``, האחד לראוט, לתבניות ולקישור הקבוע --

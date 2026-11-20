@@ -19,7 +19,9 @@
     height: clamp(360px, 70vh, calc(100vh - 180px));
     background: rgba(255,255,255,0.05);
     border-radius: 12px;
+    /* ``clip`` אחרי ``hidden`` — ראו את המשטח למטה. דפדפן שאינו מכיר ``clip`` נשאר עם ``hidden``. */
     overflow: hidden;
+    overflow: clip;
     display: flex;
     flex-direction: column;
 }
@@ -39,13 +41,20 @@
     flex: 0 0 auto;
 }
 /* **המשטח של הפתקים: המסגרת והפתקים שמעליה** (``html-preview-notes.js``). ``position: relative`` — פתק
-   ``absolute`` נמדד ממנו. ``overflow: hidden`` — פתק שנגלל עם התוכן אל מעבר לקצה נחתך בקצה המסגרת, כמו התוכן
-   עצמו. */
+   ``absolute`` נמדד ממנו. החיתוך — פתק שנגלל עם התוכן אל מעבר לקצה נחתך בקצה המסגרת, כמו התוכן עצמו.
+
+   **``clip`` ולא רק ``hidden``: המשטח והכרטיס שסביבו אינם נגללים לעולם** — הגלילה היא בתוך המסגרת. קופסה עם
+   ``hidden`` היא עדיין גולל, וקוד יכול לגלול אותה (``scrollIntoView``, מיקוד של שדה); ``clip`` אינה גולל בכלל (MDN,
+   ``overflow``: "programmatic scrolling is not supported"). עד נובמבר 2026 קישור לפתק עמוק (``?note=``) גלל את המשטח
+   עצמו: נמדד בכרומיום — המשטח נגלל ב-1360 פיקסלים, והמסגרת כולה יצאה מהמסך (ראשה ב-1091-), בלי דרך לגלול
+   אותה בחזרה. את הגלילה אל הפתק עושה עכשיו המנהל בתוך המסגרת (``scrollToNote``); ``clip`` מבטיח שגם מסלול אחר לא
+   יזיז את המשטח. ``hidden`` נשאר לפניו לדפדפן שאינו מכיר את ``clip``. */
 .html-preview-surface {
     position: relative;
     flex: 1 1 auto;
     min-height: 0;
     overflow: hidden;
+    overflow: clip;
 }
 /* **בזמן גרירה או שינוי גודל של פתק, המסגרת אינה מקבלת אירועי מצביע** (``_setGestureActive`` ב-``sticky-notes.js``,
    שם גם המדידה). בלי זה, עכבר שמקדים את הפתק ונוחת מעל המסגרת מוסר את התנועות ואת השחרור למסמך שבתוכה, והגרירה
@@ -134,7 +143,8 @@
          class="html-preview-surface"
          data-file-id="{{ file.id }}"
          data-scroll-message="{{ frame.scroll_message_type }}"
-         data-scroll-request="{{ frame.scroll_request_type }}">
+         data-scroll-request="{{ frame.scroll_request_type }}"
+         data-scroll-command="{{ frame.scroll_command_type }}">
         {# ``allow-scripts`` בשני המצבים: בלעדיו גם המדווח לא רץ. בלי "אפשר JS" ה-CSP של התשובה מתיר רק אותו, לפי
            ``nonce``, והסקריפטים של הקובץ נחסמים. #}
         <iframe
