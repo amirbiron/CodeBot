@@ -190,8 +190,13 @@ def test_the_old_webapp_host_is_not_in_code_that_runs():
 #: ``_OLD_WEBAPP_HOST``, כדי שהקובץ הזה עצמו לא יכיל אותן ברצף.
 _RETIRED_HOSTS = (_OLD_WEBAPP_HOST, "codekeeper-mcp" + ".onrender.com")
 
-#: יומן השינויים מתאר את המעבר מהכתובות הישנות. רשומה היסטורית נכונה לתמיד, ולכן היא המקום היחיד שהן נשארות בו.
-_RETIRED_HOSTS_KEPT_IN = frozenset({"docs/whats-new.rst"})
+
+#: יומן השינויים מתאר את המעבר מהכתובות הישנות. רשומה היסטורית נכונה לתמיד, ולכן היא המקום היחיד שהן נשארות בו —
+#: בעמודי החודשים שלו, לפי אותו כלל שהאינדקס מזהה בו יומן (``is_update_log_source``).
+def _kept_in_changelog(rel: str) -> bool:
+    from services.docs_index_service import is_update_log_source
+
+    return is_update_log_source(rel)
 
 
 def test_retired_hosts_appear_only_in_the_changelog():
@@ -210,7 +215,7 @@ def test_retired_hosts_appear_only_in_the_changelog():
     offenders = []
     for rel in tracked:
         path = REPO_ROOT / rel
-        if rel in _RETIRED_HOSTS_KEPT_IN or not path.is_file():
+        if _kept_in_changelog(rel) or not path.is_file():
             continue
         data = path.read_bytes()
         offenders.extend(f"{rel}: {needle.decode('utf-8')}" for needle in needles if needle in data)

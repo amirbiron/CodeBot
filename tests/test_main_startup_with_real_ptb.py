@@ -4,7 +4,7 @@
 ה-jobstore ``persistent`` של APScheduler, והוא ניסה ליצור אינדקס — כתיבה, שדורשת primary — ונכשל ב-
 ``ServerSelectionTimeoutError``. בסגירה שאחרי זה PTB העתיק את ``bot_data`` בשביל ``PicklePersistence``,
 נפל על לקוח ה-pymongo של אותו jobstore (``cannot pickle 'SSLContext' object``), וה-TypeError הזה הסתיר
-את השגיאה האמיתית. שניהם הוסרו; הפירוט ב-``docs/whats-new.rst``.
+את השגיאה האמיתית. שניהם הוסרו; הפירוט ב-``docs/whats-new/2026-10.rst``, 2026-10-11.
 
 שני הטסטים מריצים את ``tests/helpers/main_startup_probe.py`` בתת-תהליך. שם מוסבר למה, ומה אמיתי ומה מדומה.
 

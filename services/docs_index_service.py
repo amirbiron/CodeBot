@@ -20,8 +20,8 @@
 לשביל שחוזר באותו עמוד, ונתח לפי הסעיף ומספר החלק. עוגן שזז (מספר רץ של Sphinx) מעדכן את רשומת
 הסעיף בלבד, בלי הטמעה מחדש. ``sha256`` של טקסט הנתח קובע אם צריך הטמעה.
 
-**יומן עדכונים** (:data:`UPDATE_LOG_SOURCES`, היום What's New): ביומן כזה היחידה היא עדכון אחד ולא יום
-שלם — כל פריט ברשימה ברמה העליונה של סעיף הוא רשומה משלו. הכותרת שלה היא הפתיח המודגש של העדכון,
+**יומן עדכונים** (:func:`is_update_log_source`: העמודים של What's New, עמוד לכל חודש): ביומן כזה היחידה היא
+עדכון אחד ולא יום שלם — כל פריט ברשימה ברמה העליונה של סעיף הוא רשומה משלו. הכותרת שלה היא הפתיח המודגש של העדכון,
 השביל הוא שביל היום ועוד הפתיח, והכתובת שלה קופצת לפתיח בתוך היום (``link_text``). הפרטים
 ב-:func:`_update_log_units`. כש*כללים* כאלה משתנים — מה שהופך את הקובץ לרשומות — עולה
 :data:`RECORDS_VERSION`, והאינדקס נחשב לא שלם עד שמעבר בונה אותו מחדש.
@@ -110,18 +110,33 @@ logger = logging.getLogger(__name__)
 #: הרבה מעל מה שקומיט תיעוד רגיל משנה, והרבה מתחת למילוי של האתר כולו.
 APPROVAL_THRESHOLD_CHUNKS = 300
 
-#: עמודים שהם יומן עדכונים, לפי קובץ המקור (``source_path`` בקובץ הייצוא): בהם כל עדכון — פריט ברשימה
-#: ברמה העליונה של סעיף — נכנס לאינדקס כרשומה משלו (:func:`_update_log_units`). הצהרה מפורשת ולא זיהוי
-#: לפי מבנה הטקסט: עמוד רגיל שיש בו רשימה לא מתפרק לפריטים.
-UPDATE_LOG_SOURCES = frozenset({"docs/whats-new.rst"})
+#: התיקייה של יומן העדכונים: עמוד rst לכל חודש, שהרשומות של החודש נכתבות אליו ולא זזות משם. ``docs/whats-new.rst``
+#: שלידה הוא עמוד רגיל, עם רשימת החודשים (``toctree``) ובלי עדכונים.
+UPDATE_LOG_DIR = PurePosixPath("docs/whats-new")
+
+
+def is_update_log_source(source_path: str) -> bool:
+    """האם עמוד הוא יומן עדכונים, לפי קובץ המקור שלו (``source_path`` בקובץ הייצוא): בו כל עדכון — פריט ברשימה
+    ברמה העליונה של סעיף — נכנס לאינדקס כרשומה משלו (:func:`_update_log_units`).
+
+    הצהרה מפורשת לפי מיקום, ולא זיהוי לפי מבנה הטקסט: עמוד רגיל שיש בו רשימה לא מתפרק לפריטים. יומן הוא קובץ rst
+    שיושב ישירות בתיקייה :data:`UPDATE_LOG_DIR`. ההשוואה היא בין תיקיות ולא בין תחיליות של מחרוזת (K16
+    ב-amir-bug-patterns): ``docs/whats-new-old/x.rst`` אינו ביומן, וגם לא ``docs/whats-new.rst`` (עמוד רשימת
+    החודשים) או קובץ בתת-תיקייה. ``source_path`` כבר עבר את ``SOURCE_PATH_RE``, שאינו מקבל מקטע שמתחיל בנקודה,
+    ולכן גם לא ``..``.
+    """
+    path = PurePosixPath(source_path)
+    return path.parent == UPDATE_LOG_DIR and path.suffix == ".rst"
+
 
 #: הגרסה של הכללים שהופכים את הקובץ לרשומות (:func:`build_records`). עולה בכל שינוי שגורם לאותו קובץ
 #: לתת רשומות או נתחים אחרים. היא נשמרת במסמך המצב כשמעבר מסתיים (``indexed_records_version``), ו-
 #: :func:`is_index_complete` דורש אותה — ולכן אחרי פריסה של כללים חדשים מעבר אוטומטי אינו נעצר על
 #: "הקובץ לא השתנה" (304), אלא בונה את התוכנית מחדש. 2 — רשומה לכל עדכון ביומן עדכונים. 3 — עמודים
 #: מורכבים (:data:`~services.docs_search_contract.PAGES_COLLECTION`). 4 — סעיפים ונתחים בלי בלוקי הניווט
-#: (``searchable_markdown``).
-RECORDS_VERSION = 4
+#: (``searchable_markdown``). 5 — יומן העדכונים הוא עמוד לכל חודש בתיקייה :data:`UPDATE_LOG_DIR`
+#: (:func:`is_update_log_source`), ו-``docs/whats-new.rst`` הוא עמוד רגיל.
+RECORDS_VERSION = 5
 
 #: הרמה העמוקה ביותר שיש לה כותרת במארקדאון, ושיש לה תגית ב-HTML. סעיף עמוק יותר מקבל באתר ``h6``
 #: (``section_title_tags`` ב-``docutils/writers/_html_base.py``, docutils 0.21.2), ולכן גם בעמוד המורכב.
@@ -356,7 +371,7 @@ def build_records(document: ExportDocument) -> Tuple[List[SectionRecord], List[C
     רשימת כותרות של סעיפים ועמודים אחרים ולא תוכן של הסעיף. ממנו גם הנתחים וגם המארקדאון שהכרטיס מציג. סעיף
     שכולו ניווט מדולג כמו סעיף ריק.
 
-    בעמוד של :data:`UPDATE_LOG_SOURCES` הרשומות הן העדכונים ולא הסעיפים (:func:`_update_log_units`).
+    בעמוד של יומן עדכונים (:func:`is_update_log_source`) הרשומות הן העדכונים ולא הסעיפים (:func:`_update_log_units`).
 
     זורק ``ValueError`` כשתקציב הנתח קטן מהשביל (``CHUNK_MAX_BYTES`` שהוגדר נמוך מדי), או
     כשנתח יוצא גדול מהתקציב — שניהם תקלות תצורה או באג, לא קלט.
@@ -367,7 +382,7 @@ def build_records(document: ExportDocument) -> Tuple[List[SectionRecord], List[C
         seen: Dict[Tuple[str, ...], int] = {}
         units = (
             _update_log_units(page)
-            if page.source_path in UPDATE_LOG_SOURCES
+            if is_update_log_source(page.source_path)
             else (
                 _RecordUnit(section, section.breadcrumb, section.title, section.searchable_markdown)
                 for section in page.sections

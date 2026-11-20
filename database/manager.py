@@ -2623,7 +2623,7 @@ class DatabaseManager:
         DatabaseManager._create_profiler_indexes(self, safe_create_index)
 
         # scheduler_jobs — בלי אינדקס, בכוונה. האוסף שימש את ה-jobstore ``persistent`` של APScheduler, שהוסר
-        # (``docs/whats-new.rst``, 2026-10-11), ואין קוד שקורא ממנו מסמכים או כותב אליו. האוסף עצמו, ומה שכבר
+        # (``docs/whats-new/2026-10.rst``, 2026-10-11), ואין קוד שקורא ממנו מסמכים או כותב אליו. האוסף עצמו, ומה שכבר
         # נוצר עליו במסד, נשארים כמו שהם. מסלול האדמין ``/admin/resolve-naming-conflicts`` עוד יוצר עליו אינדקס
         # כשמריצים אותו ידנית.
 

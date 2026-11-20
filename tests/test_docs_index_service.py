@@ -218,10 +218,10 @@ def test_navigation_in_an_update_log_day_is_not_an_update_and_still_counts_as_pa
     רשומה בשם של היום. בלי הניווט היא לא נכנסת. אבל הדפדפן מחפש את הפתיח בעמוד כמו שהוא מוצג, ניווט כולל: פתיח
     שמופיע גם בניווט אינו ייחודי, והעדכון שלו הולך תחת היום."""
     update = "-   **fix: א.** טקסט העדכון."
-    navigation = "תוכן עניינים\n\n-   [fix: א.](https://amirbiron.github.io/CodeBot/whats-new.html#id1)"
+    navigation = f"תוכן עניינים\n\n-   [fix: א.](https://amirbiron.github.io/CodeBot/{WHATS_NEW_HTML}#id1)"
     pages = [
         page(
-            "whats-new.html", WHATS_NEW,
+            WHATS_NEW_HTML, WHATS_NEW,
             section("what-s-new", TOP, markdown=""),
             section("id1", TOP, "2026-11-20", markdown=f"{navigation}\n\n{update}", markdown_without_nav=update),
         )
@@ -282,14 +282,16 @@ def test_the_section_sha_covers_every_field_the_card_shows():
 # של What's New. ``test_an_update_headline_is_the_text_on_the_page_and_its_link_jumps_to_it`` ב-
 # ``tests/test_docs_export_sections_browser.py`` עובר באותה שרשרת עם הממיר עצמו, ובדפדפן.
 
-WHATS_NEW = "docs/whats-new.rst"
+WHATS_NEW = "docs/whats-new/2026-11.rst"
+WHATS_NEW_HTML = "whats-new/2026-11.html"
 TOP = "What’s New"
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def _log_page(*days, source_path=WHATS_NEW):
     """עמוד יומן עדכונים: הסעיף העליון ריק, ואחריו יום לכל ``(עוגן, תאריך, מארקדאון)``."""
     return page(
-        "whats-new.html", source_path, section("what-s-new", TOP, markdown=""),
+        WHATS_NEW_HTML, source_path, section("what-s-new", TOP, markdown=""),
         *(section(anchor, TOP, date, markdown=markdown) for anchor, date, markdown in days),
     )
 
@@ -316,9 +318,49 @@ def test_each_update_in_an_update_log_is_a_record_titled_by_its_headline():
     ]
 
 
-def test_a_page_that_is_not_an_update_log_keeps_one_record_per_section():
+@pytest.mark.parametrize(
+    "source_path,expected",
+    [
+        ("docs/whats-new/2026-11.rst", True),
+        ("docs/whats-new/2026-10.rst", True),
+        ("docs/whats-new/earlier.rst", True),
+        # תחילית של מחרוזת אינה תיקייה (K16): תיקייה-אחות שמתחילה באותם תווים אינה הארכיון.
+        ("docs/whats-new-old/2026-10.rst", False),
+        ("docs/whats-new.rst.bak/x.rst", False),
+        # רק ישירות בתיקיית הארכיון, ורק rst.
+        ("docs/whats-new/2026/10.rst", False),
+        ("docs/whats-new/2026-10.md", False),
+        # העמוד שליד התיקייה הוא רשימת החודשים, ולא יומן.
+        ("docs/whats-new.rst", False),
+        ("docs/webapp/global-search.rst", False),
+        ("whats-new.rst", False),
+    ],
+)
+def test_an_update_log_is_a_page_directly_in_the_update_log_folder(source_path, expected):
+    assert svc.is_update_log_source(source_path) is expected
+
+
+def test_a_headline_is_unique_on_its_own_page_even_when_another_month_repeats_it():
+    """הקפיצה של הדפדפן מחפשת את הפתיח רק בעמוד שהיא פותחת, ולכן גם הייחודיות נבדקת בתוך העמוד: פתיח שחוזר בחודש אחר,
+    בעמוד אחר, עדיין קופץ אל העדכון שלו."""
+    label = "fix: מגבלה ידועה."
+    live = _log_page(("id1", "2026-11-20", _updates(f"**{label}** בחודש הזה.")))
+    archive = page(
+        "whats-new/2026-10.html", "docs/whats-new/2026-10.rst", section("w", TOP, markdown=""),
+        section("id1", TOP, "2026-10-31", markdown=_updates(f"**{label}** בחודש הקודם.")),
+    )
+
+    sections, _chunks = _records([live, archive])
+
+    assert [(s.source_path, s.link_text) for s in sections] == [
+        (WHATS_NEW, label), ("docs/whats-new/2026-10.rst", label),
+    ]
+
+
+@pytest.mark.parametrize("source_path", ["docs/other.rst", "docs/whats-new.rst"])
+def test_a_page_that_is_not_an_update_log_keeps_one_record_per_section(source_path):
     day = _updates("**fix: א.** טקסט.", "**fix: ב.** טקסט.")
-    sections, chunks = _records([_log_page(("id1", "2026-10-01", day), source_path="docs/other.rst")])
+    sections, chunks = _records([_log_page(("id1", "2026-10-01", day), source_path=source_path)])
 
     assert [(s.title, s.breadcrumb, s.markdown, s.link_text) for s in sections] == [
         ("2026-10-01", (TOP, "2026-10-01"), day, "")
@@ -530,9 +572,20 @@ def test_the_match_key_is_the_reference_definition_on_every_character():
     assert different == []
 
 
+def _real_update_log() -> str:
+    """כל יומן העדכונים שבריפו — כל עמודי החודשים יחד, לפי אותו כלל שהאינדקס מזהה בו יומן."""
+    pages = sorted((ROOT / svc.UPDATE_LOG_DIR).glob("*.rst"))
+    assert pages, "לא נמצא אף עמוד של יומן העדכונים"
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in pages
+        if svc.is_update_log_source(path.relative_to(ROOT).as_posix())
+    )
+
+
 def test_the_match_key_is_the_reference_definition_on_the_update_log():
     """הטקסט האמיתי שהפונקציה רצה עליו: יומן העדכונים, עברית מנוקדת ולא מנוקדת, קוד, אנגלית ואימוג'י."""
-    text = (Path(__file__).resolve().parent.parent / WHATS_NEW).read_text(encoding="utf-8")
+    text = _real_update_log()
     assert svc._match_key(text) == _reference_match_key(text)
 
 
@@ -600,7 +653,7 @@ def test_the_page_key_is_the_key_of_the_joined_blocks_with_every_mark_at_a_block
 
 
 def test_the_page_key_is_the_key_of_the_joined_blocks_on_the_update_log():
-    blocks = _blocks_of((Path(__file__).resolve().parent.parent / WHATS_NEW).read_text(encoding="utf-8"))
+    blocks = _blocks_of(_real_update_log())
     assert svc._page_match_key(blocks) == svc._match_key("\n".join(blocks))
 
 
@@ -700,7 +753,7 @@ def test_a_headline_over_the_title_ceiling_is_not_cut_and_its_update_goes_under_
 
     assert (record.title, record.link_text) == ("2026-10-11", "")
     assert record.markdown == f"**{headline}** עוד."
-    assert "whats-new.html#id1" in caplog.text and "over MAX_TITLE_BYTES" in caplog.text
+    assert f"{WHATS_NEW_HTML}#id1" in caplog.text and "over MAX_TITLE_BYTES" in caplog.text
 
 
 def test_a_new_update_does_not_change_the_keys_of_the_others():

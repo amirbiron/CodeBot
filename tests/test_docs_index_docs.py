@@ -36,7 +36,7 @@ def _section(path: Path, label: str) -> str:
         ("services.docs_index_service", "APPROVAL_THRESHOLD_CHUNKS"),
         ("services.docs_index_service", "PASS_DEADLINE_SECONDS"),
         ("services.docs_index_service", "TRIGGERS"),
-        ("services.docs_index_service", "UPDATE_LOG_SOURCES"),
+        ("services.docs_index_service", "is_update_log_source"),
         ("services.docs_index_service", "RECORDS_VERSION"),
         ("services.docs_index_service", "is_index_complete"),
         ("services.docs_index_service", "ALERT_APPROVAL_NEEDED"),
