@@ -112,6 +112,50 @@ _OTHER_BODY = """<section id="other">
 </section>"""
 
 
+#: עמוד עם בלוקי ניווט, בסימון ש-Sphinx 8.2.3 ו-docutils 0.21.2 מייצרים — הועתק מבנייה אמיתית (20.11.2026) של עמוד
+#: עם ``toctree`` (``:caption:``), ``.. contents::`` עם כותרת ובלעדיה, ו-``.. topic::``: ``div.toctree-wrapper``,
+#: ``nav.contents``, ו-``aside.topic``, שהוא תוכן ונשאר.
+_HUB_BODY = """<section id="hub">
+<h1>מרכז<a class="headerlink" href="#hub" title="Link to this heading"></a></h1>
+<p>פתיחה של העמוד.</p>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">למפתחים:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="guide/other.html">עמוד נוסף</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/other.html#target">היעד</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="admonition note">
+<p class="admonition-title">הערה</p>
+<p>הערה בעמוד הראשי.</p>
+</div>
+<nav class="contents local" id="id2">
+<p class="topic-title">תוכן עניינים</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#part" id="id7">חלק</a></p></li>
+</ul>
+</nav>
+<aside class="topic">
+<p class="topic-title">נושא</p>
+<p>תוכן של נושא.</p>
+</aside>
+<section id="part">
+<h2><a class="toc-backref" href="#id7" role="doc-backlink">חלק</a><a class="headerlink" href="#part" title="Link to this heading"></a></h2>
+<nav class="contents local" id="id5">
+<ul class="simple">
+<li><p><a class="reference internal" href="#deeper" id="id10">עמוק יותר</a></p></li>
+</ul>
+</nav>
+<section id="deeper">
+<h3><a class="toc-backref" href="#id10" role="doc-backlink">עמוק יותר</a><a class="headerlink" href="#deeper" title="Link to this heading"></a></h3>
+<p>טקסט עמוק.</p>
+</section>
+</section>
+</section>"""
+
+
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -231,6 +275,44 @@ def test_every_content_section_is_exported_on_its_own(chromium_executable, tmp_p
         ("היעד x_y", "היעד `x_y`"),
     ]
     assert [s["title_markdown"] for s in sections.values()] == ["מדריך", "סעיף ראשון", "עמוק"]
+
+
+def test_the_navigation_of_a_section_is_left_out_of_its_searchable_body(chromium_executable, tmp_path):
+    """``markdown`` נשאר כמו באתר, כולל הניווט, כי ממנו העמוד המורכב. ``markdown_without_nav`` הוא אותו סעיף בלי
+    ``toctree`` ובלי ``.. contents::`` — ממנו החיפוש; ``null`` כשאין בסעיף ניווט, וריק כשהסעיף כולו ניווט."""
+    site = _site(tmp_path)
+    _write(site / "hub.html", _page(0, _HUB_BODY))
+    _write(site / "_sources" / "hub.rst.txt", "מרכז\n====\n")
+
+    stored = _export(site, chromium_executable)
+
+    pages = {page["path"]: page for page in stored["pages"]}
+    hub = {section["anchor"]: section for section in pages["hub.html"]["sections"]}
+    top = hub["hub"]
+    assert "למפתחים:" in top["markdown"] and f"[היעד]({SITE_URL}guide/other.html#target)" in top["markdown"]
+    assert "תוכן עניינים" in top["markdown"]
+    assert top["markdown_without_nav"] == (
+        "פתיחה של העמוד.\n\n::: note\nהערה בעמוד הראשי.\n:::\n\nנושא\n\nתוכן של נושא.\n"
+    )
+    # סעיף שכל הגוף שלו הוא ``.. contents::``: אין לחיפוש מה לקרוא בו.
+    assert hub["part"]["markdown"] == f"-   [עמוק יותר]({SITE_URL}hub.html#deeper)\n"
+    assert hub["part"]["markdown_without_nav"] == ""
+    # בלי ניווט — ``null``, ולא עותק של ``markdown``.
+    assert hub["deeper"]["markdown_without_nav"] is None
+    assert all(
+        section["markdown_without_nav"] is None
+        for path in ("index.html", "guide/other.html")
+        for section in pages[path]["sections"]
+    )
+
+    # ומה שהוובאפ בונה מזה: בחיפוש — בלי הניווט; בעמוד המורכב — כמו באתר.
+    document = parse_export((site / export.EXPORT_PATH).read_bytes())
+    sections, chunks = index.build_records(document)
+    hub_records = [s for s in sections if s.page_path == "hub.html"]
+    assert [s.anchor for s in hub_records] == ["hub", "deeper"]
+    assert not any("למפתחים" in c.text or "תוכן עניינים" in c.text for c in chunks)
+    [hub_page] = [p for p in index.build_pages(document) if p.page_path == "hub.html"]
+    assert "למפתחים:" in hub_page.markdown and "תוכן עניינים" in hub_page.markdown
 
 
 #: הבאנדל שהוובאפ מגיש, עם ה-markdown-it שבתוכו (``window.markdownit`` ב-``webapp/static_build/md-preview-entry.js``).

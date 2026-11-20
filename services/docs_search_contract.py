@@ -45,7 +45,7 @@ PAGES_ENVIRONMENT = "github-pages"
 
 #: גרסת המבנה של הקובץ שהוובאפ יודע לקרוא. עותק של ``SCHEMA_VERSION`` בסקריפט הייצוא, שגם מתעד מה
 #: השתנה בכל גרסה.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 #: מיקום הקובץ הראשי, יחסית ל-:data:`SITE_URL`. עותק של ``EXPORT_PATH`` בסקריפט הייצוא.
 EXPORT_PATH = "_export/sections.json"

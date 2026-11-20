@@ -41,10 +41,12 @@ LATER = "2026-10-07T13:00:00+00:00"
 
 
 def section(
-    anchor: str, *breadcrumb: str, markdown: str = "טקסט של הסעיף.", title_markdown: Optional[str] = None
+    anchor: str, *breadcrumb: str, markdown: str = "טקסט של הסעיף.", title_markdown: Optional[str] = None,
+    markdown_without_nav: Optional[str] = None,
 ) -> Dict[str, Any]:
     """סעיף בצורה שסקריפט הייצוא כותב: הכותרת היא סוף השביל, והרמה היא אורכו. ``title_markdown`` —
-    הכותרת כמארקדאון; בלעדיו, אותו טקסט כמו הכותרת."""
+    הכותרת כמארקדאון; בלעדיו, אותו טקסט כמו הכותרת. ``markdown_without_nav`` — הסעיף בלי בלוקי הניווט;
+    בלעדיו ``None``, כמו שהייצוא כותב סעיף שאין בו ניווט."""
     return {
         "anchor": anchor,
         "title": breadcrumb[-1],
@@ -52,6 +54,7 @@ def section(
         "breadcrumb": list(breadcrumb),
         "level": len(breadcrumb),
         "markdown": markdown,
+        "markdown_without_nav": markdown_without_nav,
     }
 
 

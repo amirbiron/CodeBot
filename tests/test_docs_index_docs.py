@@ -67,6 +67,15 @@ def test_a_name_the_docs_cite_exists_in_the_code(module, name):
     assert f"``{name}``" in pages, f"{name} אינו מוזכר עוד בתיעוד — הסירו אותו מהרשימה"
 
 
+def test_the_searchable_body_the_docs_cite_is_what_the_index_reads():
+    """``searchable_markdown`` אינו שם ברמת המודול אלא property של הסעיף, ולכן הוא לא ברשימה שלמעלה."""
+    from services.docs_export_client import DocSection
+
+    assert isinstance(getattr(DocSection, "searchable_markdown", None), property)
+    section = _section(GLOBAL_SEARCH, "docs-index")
+    assert "``searchable_markdown``" in section and "``markdown_without_nav``" in section
+
+
 def test_the_values_the_docs_spell_out_are_the_codes_in_the_code():
     from services import docs_index_service as svc
 

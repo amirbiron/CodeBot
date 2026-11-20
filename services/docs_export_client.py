@@ -135,7 +135,17 @@ class DocSection:
     title_markdown: str
     breadcrumb: Tuple[str, ...]
     level: int
+    #: הסעיף כמו שהאתר מציג אותו, כולל בלוקי הניווט שבו. ממנו העמוד המורכב.
     markdown: str
+    #: הסעיף בלי בלוקי הניווט (``toctree``, ``.. contents::``; ``NAVIGATION_SELECTOR`` בסקריפט הייצוא), או ``None``
+    #: כשאין בו ניווט. החיפוש קורא את :attr:`searchable_markdown`, ולא את השדה הזה ישירות.
+    markdown_without_nav: Optional[str]
+
+    @property
+    def searchable_markdown(self) -> str:
+        """הגוף שנכנס לחיפוש: בלי בלוקי הניווט. ``None`` ב-:attr:`markdown_without_nav` הוא "אין ניווט", ואז זה
+        :attr:`markdown` עצמו. ריק — הסעיף כולו ניווט."""
+        return self.markdown if self.markdown_without_nav is None else self.markdown_without_nav
 
 
 @dataclass(frozen=True)
@@ -418,6 +428,15 @@ def _section(item: Any, where: str) -> DocSection:
     if not isinstance(markdown, str):
         _invalid(f"{where}.markdown is not text")
     _utf8_size(markdown, f"{where}.markdown")
+    # המפתח חובה, כמו שסקריפט הייצוא כותב אותו: ``null`` הוא "אין ניווט בסעיף", ומפתח חסר — קובץ שבור, ולא
+    # עוד דרך לומר ``null``. אחרת הניווט היה חוזר לחיפוש בשקט.
+    if "markdown_without_nav" not in item:
+        _invalid(f"{where}.markdown_without_nav is missing")
+    markdown_without_nav = item["markdown_without_nav"]
+    if markdown_without_nav is not None:
+        if not isinstance(markdown_without_nav, str):
+            _invalid(f"{where}.markdown_without_nav is neither text nor null")
+        _utf8_size(markdown_without_nav, f"{where}.markdown_without_nav")
     return DocSection(
         anchor=anchor,
         title=title,
@@ -425,6 +444,7 @@ def _section(item: Any, where: str) -> DocSection:
         breadcrumb=breadcrumb,
         level=level,
         markdown=markdown,
+        markdown_without_nav=markdown_without_nav,
     )
 
 
