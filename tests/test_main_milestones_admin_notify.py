@@ -40,7 +40,8 @@ async def test_milestones_admin_notify_for_500(monkeypatch):
         async def send_message(self, **_k):
             return None
     class JQ:
-        def run_once(self, cb, when=0, name=None):
+        # החתימה של ``JobQueue.run_once`` ב-python-telegram-bot 22.5 — ``log_user_activity`` מעביר גם ``user_id``/``chat_id``.
+        def run_once(self, cb, when=0, data=None, name=None, chat_id=None, user_id=None, job_kwargs=None):
             cb(None)
     class App:
         def __init__(self):
@@ -54,6 +55,9 @@ async def test_milestones_admin_notify_for_500(monkeypatch):
         @property
         def effective_user(self):
             return types.SimpleNamespace(id=7, username="user")
+        @property
+        def effective_chat(self):
+            return types.SimpleNamespace(id=7)
 
     await log_user_activity(Upd(), ctx)
     if getattr(ctx.application, "coro", None) is not None:

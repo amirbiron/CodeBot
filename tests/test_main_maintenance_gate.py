@@ -80,6 +80,10 @@ async def test_maintenance_message_sent_during_warmup_for_message(monkeypatch):
 
         def get_updates_request(self, *a, **k):
             return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
+            return self
 
         def build(self):
             return _MiniApp()
@@ -160,6 +164,10 @@ async def test_maintenance_message_not_sent_after_ttl_elapsed_by_time(monkeypatc
             return self
 
         def get_updates_request(self, *a, **k):
+            return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
             return self
 
         def build(self):
@@ -243,6 +251,10 @@ async def test_maintenance_clear_job_disables_message_immediately(monkeypatch):
 
         def get_updates_request(self, *a, **k):
             return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
+            return self
 
         def build(self):
             return _MiniApp()
@@ -324,6 +336,10 @@ async def test_maintenance_message_sent_during_warmup_for_callback_query(monkeyp
             return self
 
         def get_updates_request(self, *a, **k):
+            return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
             return self
 
         def build(self):
@@ -412,6 +428,10 @@ async def test_maintenance_env_false_overrides_config_true(monkeypatch):
 
         def get_updates_request(self, *a, **k):
             return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
+            return self
 
         def build(self):
             return _MiniApp()
@@ -471,6 +491,10 @@ async def test_maintenance_message_falls_back_to_reply_on_edit_failure(monkeypat
             return self
 
         def get_updates_request(self, *a, **k):
+            return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
             return self
 
         def build(self):
@@ -542,6 +566,10 @@ async def test_maintenance_message_uses_context_bot_when_no_message(monkeypatch)
             return self
 
         def get_updates_request(self, *a, **k):
+            return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
             return self
 
         def build(self):
@@ -626,6 +654,10 @@ async def test_maintenance_message_uses_application_bot_when_context_bot_missing
 
         def get_updates_request(self, *a, **k):
             return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
+            return self
 
         def build(self):
             return _MiniApp()
@@ -709,6 +741,10 @@ async def test_maintenance_message_uses_app_bot_and_user_fallback(monkeypatch):
             return self
 
         def get_updates_request(self, *a, **k):
+            return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
             return self
 
         def build(self):

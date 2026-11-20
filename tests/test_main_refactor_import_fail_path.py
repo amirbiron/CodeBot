@@ -16,6 +16,8 @@ def test_codekeeperbot_setup_handlers_import_fail(monkeypatch):
         def persistence(self, *a, **k): return self
         def post_init(self, *a, **k): return self
         def get_updates_request(self, *a, **k): return self
+        def job_queue(self, *a, **k): return self
+        def application_class(self, *a, **k): return self
         def build(self):
             class _App:
                 def __init__(self):

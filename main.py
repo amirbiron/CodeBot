@@ -89,6 +89,12 @@ from services.telegram_polling_health import (
     report_polling_event,
     watchdog_interval_secs,
 )
+from services.telegram_observability_scope import (
+    IsolatedJobQueue,
+    IsolatedUpdateApplication,
+    update_command_name,
+)
+from user_roles import admin_user_ids
 try:
     import observability as _observability
 except Exception:
@@ -766,13 +772,12 @@ reporter = None
 
 # ===== עזר: שליחת הודעת אדמין =====
 def get_admin_ids() -> list[int]:
-    try:
-        raw = os.getenv('ADMIN_USER_IDS')
-        if not raw:
-            return []
-        return [int(x.strip()) for x in raw.split(',') if x.strip().isdigit()]
-    except Exception:
-        return []
+    """מזהי האדמינים — מ-``user_roles.admin_user_ids``, מקור האמת היחיד ל"מי אדמין".
+
+    מודול אחר שצריך לדעת מי אדמין מייבא את ``user_roles`` ולא את ``main``: התהליך רץ כ-``__main__``, ו-``import main``
+    טוען את הקובץ הזה פעם שנייה, על כל מה שרץ בו ברמת המודול (``docs/whats-new/2026-11.rst``, 2026-11-20).
+    """
+    return admin_user_ids()
 
 
 async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
@@ -1321,8 +1326,14 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         jq = getattr(context, "job_queue", None) or getattr(context.application, "job_queue", None)
         if jq is not None:
-            # הרצה מיידית ברקע ללא חסימה
-            jq.run_once(lambda _ctx: context.application.create_task(_milestones_job(update.effective_user.id, update.effective_user.username)), when=0)
+            # הרצה מיידית ברקע ללא חסימה. ``user_id``/``chat_id`` — כדי שהלוגים של הג'וב יישאו את המשתמש שהוא רץ עבורו
+            # (``bind_job_context`` ב-``services/telegram_observability_scope.py``); ג'וב לא יורש את ההקשר של העדכון.
+            jq.run_once(
+                lambda _ctx: context.application.create_task(_milestones_job(update.effective_user.id, update.effective_user.username)),
+                when=0,
+                user_id=update.effective_user.id,
+                chat_id=update.effective_chat.id if update.effective_chat else None,
+            )
         else:
             # fallback: יצירת משימה אסינכרונית ישירות
             import asyncio as _aio
@@ -2907,13 +2918,17 @@ class CodeKeeperBot:
         # משווה בין השתיים.
         self.polling_health = PollingHealthMonitor(threshold_secs=read_stall_alert_secs())
         polling_heartbeat_request = PollingHeartbeatRequest(self.polling_health.record_success, connection_pool_size=1)
+        # ``IsolatedUpdateApplication`` ו-``IsolatedJobQueue``: כל עדכון וכל ריצה של ג'וב בהקשר לוגים ו-scope של Sentry משלהם,
+        # ולא בהקשר של העדכון הקודם או של העדכון האחרון שתזמן משהו (``services/telegram_observability_scope.py``).
         try:
             _builder = (
                 Application.builder()
+                .application_class(IsolatedUpdateApplication)
                 .token(config.BOT_TOKEN)
                 .defaults(Defaults(parse_mode=ParseMode.HTML))
                 .post_init(setup_bot_data)
                 .get_updates_request(polling_heartbeat_request)
+                .job_queue(IsolatedJobQueue())
             )
             _builder = _apply_ptb_timeouts(_builder)
             self.application = _builder.build()
@@ -2923,9 +2938,11 @@ class CodeKeeperBot:
             try:
                 _builder = (
                     Application.builder()
+                    .application_class(IsolatedUpdateApplication)
                     .token(dummy_token)
                     .defaults(Defaults(parse_mode=ParseMode.HTML))
                     .get_updates_request(polling_heartbeat_request)
+                    .job_queue(IsolatedJobQueue())
                 )
                 _builder = _apply_ptb_timeouts(_builder)
                 self.application = _builder.build()
@@ -3124,71 +3141,20 @@ class CodeKeeperBot:
             pass
 
     def _install_correlation_layer(self) -> None:
-        """רישום Handler מוקדם שמייצר ומקשר request_id ומודד מטריקות בסיסיות."""
+        """רישום Handler מוקדם: הפקודה ל-``user_data``, ביטול מצב חיפוש על כל פקודה, ומטריקת סוג העדכון.
+
+        ההקשר של הלוגים — ``request_id`` חדש לכל עדכון, המשתמש, הצ'אט והפקודה — נכרך לפני כל ה-handlers, ב-``process_update``
+        של ``IsolatedUpdateApplication`` (``services/telegram_observability_scope.py``).
+        """
         async def _pre_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            # request_id קצר ונוח
-            try:
-                req_id = context.user_data.get("request_id") if hasattr(context, "user_data") else None
-            except Exception:
-                req_id = None
-            if not req_id:
-                req_id = generate_request_id()
-                try:
-                    if hasattr(context, "user_data"):
-                        context.user_data["request_id"] = req_id
-                except Exception:
-                    pass
-            # כרוך ל-contextvars כך שיופיע בכל רשומת לוג בהמשך השרשור
-            try:
-                bind_request_id(req_id)
-            except Exception:
-                pass
-            try:
-                user = getattr(update, "effective_user", None)
-                chat = getattr(update, "effective_chat", None)
-                uid = getattr(user, "id", None)
-                cid = getattr(chat, "id", None)
-                bind_user_context(user_id=uid, chat_id=cid)
-            except Exception:
-                pass
-            try:
-                command_name = ""
-                message = getattr(update, "effective_message", None)
-                if message is not None:
-                    text = getattr(message, "text", None)
-                    if isinstance(text, str):
-                        parts = text.split()
-                        if parts and parts[0].startswith("/"):
-                            command_name = parts[0]
-                if not command_name:
-                    callback = getattr(update, "callback_query", None)
-                    if callback is not None:
-                        data = getattr(callback, "data", None)
-                        if isinstance(data, str):
-                            parts = data.split()
-                            if parts:
-                                command_name = parts[0]
-                if not command_name and getattr(update, "inline_query", None):
-                    command_name = "inline_query"
-                if command_name:
-                    cleaned = command_name.strip()
-                    if cleaned.startswith("/"):
-                        cleaned = cleaned[1:]
-                    if "@" in cleaned:
-                        cleaned = cleaned.split("@", 1)[0]
-                    cleaned = cleaned.lower()
-                    if cleaned:
-                        bind_command(f"bot:{cleaned}")
-                        try:
-                            if hasattr(context, "user_data"):
-                                context.user_data["command"] = cleaned
-                                # ביטול מצב חיפוש על כל פקודה
-                                context.user_data.pop('awaiting_search_text', None)
-                                context.user_data.pop('search_ctx', None)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+            command = update_command_name(update)
+            # ``user_data`` הוא ``None`` בעדכון בלי משתמש (למשל פוסט בערוץ).
+            user_data = getattr(context, "user_data", None)
+            if command and user_data is not None:
+                user_data["command"] = command
+                # ביטול מצב חיפוש על כל פקודה
+                user_data.pop('awaiting_search_text', None)
+                user_data.pop('search_ctx', None)
             # עדכון מטריקה כללית על סוג ה-update
             try:
                 upd_type = (

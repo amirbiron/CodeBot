@@ -51,6 +51,8 @@ async def test_rate_limit_gate_blocks_message_flow(monkeypatch):
         def persistence(self, *a, **k): return self
         def post_init(self, *a, **k): return self
         def get_updates_request(self, *a, **k): return self
+        def job_queue(self, *a, **k): return self
+        def application_class(self, *a, **k): return self
         def build(self): return _MiniApp()
 
     class _AppNS:
@@ -112,6 +114,8 @@ async def test_rate_limit_gate_blocks_callback_query(monkeypatch):
         def persistence(self, *a, **k): return self
         def post_init(self, *a, **k): return self
         def get_updates_request(self, *a, **k): return self
+        def job_queue(self, *a, **k): return self
+        def application_class(self, *a, **k): return self
         def build(self): return _MiniApp()
 
     class _AppNS:
@@ -161,6 +165,8 @@ async def test_rate_limit_gate_with_no_effective_user(monkeypatch):
         def persistence(self, *a, **k): return self
         def post_init(self, *a, **k): return self
         def get_updates_request(self, *a, **k): return self
+        def job_queue(self, *a, **k): return self
+        def application_class(self, *a, **k): return self
         def build(self): return _MiniApp()
 
     class _AppNS:
@@ -202,6 +208,8 @@ async def test_rate_limit_gate_when_limiter_raises_allows_pass(monkeypatch):
         def persistence(self, *a, **k): return self
         def post_init(self, *a, **k): return self
         def get_updates_request(self, *a, **k): return self
+        def job_queue(self, *a, **k): return self
+        def application_class(self, *a, **k): return self
         def build(self): return _MiniApp()
 
     class _AppNS:
@@ -249,6 +257,8 @@ async def test_rate_limit_gate_soft_warning_message_once_per_min(monkeypatch):
         def persistence(self, *a, **k): return self
         def post_init(self, *a, **k): return self
         def get_updates_request(self, *a, **k): return self
+        def job_queue(self, *a, **k): return self
+        def application_class(self, *a, **k): return self
         def build(self): return _MiniApp()
 
     class _AppNS:
@@ -316,6 +326,8 @@ async def test_rate_limit_gate_soft_warning_callback_query_once_per_min(monkeypa
         def persistence(self, *a, **k): return self
         def post_init(self, *a, **k): return self
         def get_updates_request(self, *a, **k): return self
+        def job_queue(self, *a, **k): return self
+        def application_class(self, *a, **k): return self
         def build(self): return _MiniApp()
 
     class _AppNS:

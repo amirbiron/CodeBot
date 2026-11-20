@@ -1,5 +1,6 @@
 import asyncio
 import atexit
+import contextlib
 import logging
 import os
 import secrets
@@ -52,12 +53,14 @@ from services.db_health_service import (
 from services.sentry_utils import first_int
 try:
     # Correlation for web requests
-    from observability import generate_request_id, bind_request_id  # type: ignore
+    from observability import generate_request_id, bind_request_id, isolated_observability_scope  # type: ignore
 except Exception:  # pragma: no cover
     def generate_request_id():  # type: ignore
         return ""
     def bind_request_id(_rid: str) -> None:  # type: ignore
         return None
+    def isolated_observability_scope():  # type: ignore
+        return contextlib.nullcontext()
 try:
     from metrics import (
         metrics_endpoint_bytes,
@@ -697,7 +700,15 @@ def create_app() -> web.Application:
                 )
         return response
 
-    app = web.Application(middlewares=[_request_id_mw, db_health_auth_middleware])
+    # השרת עולה מתוך ג'וב (``_start_web_job`` ב-``main.py``), ו-aiohttp פותח משימה לכל בקשה בתוך ההקשר שבו השרת עלה —
+    # כלומר בהקשר של אותו ג'וב, ועם ה-scope שלו ב-Sentry. החיצוני מבין ה-middlewares: כל בקשה מתחילה בהקשר משלה, ריק,
+    # ו-``_request_id_mw`` כורך בו את ה-``request_id`` שלה.
+    @web.middleware
+    async def _observability_scope_mw(request: web.Request, handler):
+        with isolated_observability_scope():
+            return await handler(request)
+
+    app = web.Application(middlewares=[_observability_scope_mw, _request_id_mw, db_health_auth_middleware])
 
     # --- Query Performance Profiler routes (best-effort) ---
     # NOTE: המנגנון יכול להיות מנוטרל "קשיח" ברמת הקוד בתוך DatabaseManager.ENABLE_PROFILING.

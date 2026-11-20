@@ -58,6 +58,10 @@ async def test_stop_calls_cleanup_once_and_sets_flag(monkeypatch):
             return self
         def get_updates_request(self, *a, **k):
             return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
+            return self
         def build(self):
             return _MiniApp()
 

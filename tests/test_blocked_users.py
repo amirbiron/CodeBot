@@ -411,6 +411,10 @@ def _build_bot(monkeypatch, tmp_path):
 
         def get_updates_request(self, *a, **k):
             return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
+            return self
 
         def build(self):
             return _MiniApp()

@@ -187,6 +187,10 @@ async def test_main_upload_cancel_fallback_returns_end(monkeypatch):
             return self
         def get_updates_request(self, *_a, **_k):
             return self
+        def job_queue(self, *_a, **_k):
+            return self
+        def application_class(self, *_a, **_k):
+            return self
         def build(self):
             return _App()
 
