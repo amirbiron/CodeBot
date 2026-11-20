@@ -475,25 +475,24 @@ def test_a_headline_shown_earlier_in_italics_is_not_unique(earlier):
 
 
 def test_the_page_text_is_normalized_once_and_not_once_per_update(monkeypatch):
-    """``_match_key`` עובר על כל הטקסט שהוא מקבל, ולכן על הטקסט של העמוד כולו הוא רץ פעם אחת. כשהוא רץ מחדש בבדיקה
-    של כל עדכון (אז בלולאה על כל תו בפייתון), ``build_records`` על הייצוא של 11.10.2026 לקח 7.1 שניות. נבדק המבנה
-    ולא הזמן, שתלוי במכונה."""
-    lengths = []
-    real = svc._match_key
+    """הטקסט של העמוד מנורמל פעם אחת לעמוד — קריאה אחת ל-``_page_match_key``, עם כל הבלוקים שלו — ולא בבדיקה של
+    כל עדכון. כשהוא נורמל מחדש בבדיקה של כל עדכון (אז בלולאה על כל תו בפייתון), ``build_records`` על הייצוא של
+    11.10.2026 לקח 7.1 שניות. נבדק המבנה ולא הזמן, שתלוי במכונה."""
+    calls = []
+    real = svc._page_match_key
 
-    def counting(text):
-        lengths.append(len(text))
-        return real(text)
+    def counting(blocks):
+        blocks = list(blocks)
+        calls.append(len(blocks))
+        return real(blocks)
 
-    monkeypatch.setattr(svc, "_match_key", counting)
+    monkeypatch.setattr(svc, "_page_match_key", counting)
     day = _updates(*(f"**fix: עדכון מספר {n}.** גוף העדכון, ארוך יותר מהפתיח שלו." for n in range(20)))
 
     sections, _chunks = _records([_log_page(("id1", "2026-10-11", day))])
 
     assert sum(1 for record in sections if record.link_text) == 20
-    page = max(lengths)
-    assert lengths.count(page) == 1, lengths
-    assert sum(lengths) < 2 * page, lengths
+    assert calls == [20], calls
 
 
 def _reference_match_key(text):
@@ -568,6 +567,59 @@ def test_the_match_key_does_not_build_an_object_per_character():
     assert per_character > ceiling, (
         f"ההגדרה תו-תו הגיעה רק ל-{per_character:,} בתים, מתחת לתקרה {ceiling:,}: הטסט כבר לא מבחין בין השתיים"
     )
+
+
+def _blocks_of(text):
+    return [block for block in text.split("\n\n") if block.strip()]
+
+
+@pytest.mark.parametrize(
+    "blocks",
+    [
+        [],
+        ["fix: א."],
+        ["́x", "y"],  # סימן בתחילת בלוק: אין לו אות לפניו, ו-``\n`` לא יקבל אותו
+        ["שָ", "ּׁלוֹם"],  # ניקוד בסוף בלוק ובתחילת הבא
+        ["שלום", "fix 🎉", "עולם"],  # אימוג'י רק בבלוק אחד
+        ["ﬁ Ⅻ", "İ ß ΣΑΣ"],  # פירוק תאימות ו-casefold שמשנה אורך
+    ],
+)
+def test_the_page_key_is_the_key_of_the_joined_blocks(blocks):
+    assert svc._page_match_key(blocks) == svc._match_key("\n".join(blocks))
+
+
+def test_the_page_key_is_the_key_of_the_joined_blocks_with_every_mark_at_a_block_edge():
+    """כל סימן ביוניקוד (קטגוריה ``M``) בסוף בלוק ובתחילת הבלוק שאחריו: הסימנים הם מה ש-NFKD מסדר מחדש, ולכן הם
+    המקום שבו נרמול של כל בלוק לבד יכול היה להיות שונה מנרמול של הכול יחד."""
+    marks = [chr(cp) for cp in range(sys.maxunicode + 1) if unicodedata.category(chr(cp)).startswith("M")]
+    different = [
+        hex(ord(mark)) for mark in marks
+        if svc._page_match_key(["a" + mark, mark + "b"]) != svc._match_key("a" + mark + "\n" + mark + "b")
+    ]
+    assert len(marks) > 2000 and different == []
+
+
+def test_the_page_key_is_the_key_of_the_joined_blocks_on_the_update_log():
+    blocks = _blocks_of((Path(__file__).resolve().parent.parent / WHATS_NEW).read_text(encoding="utf-8"))
+    assert svc._page_match_key(blocks) == svc._match_key("\n".join(blocks))
+
+
+def test_the_page_key_does_not_hold_the_whole_page_at_four_bytes_a_character():
+    """אימוג'י אחד בעמוד הופך את המחרוזת המחוברת לארבעה בתים לתו, ונרמול שלה מחזיק כמה עותקים כאלה בבת אחת.
+    ב-20.11.2026, על Python 3.11 עד 3.13, על בלוקים כאלה: נרמול של הכול יחד הגיע לשיא של פי 4.8 מגודל המחרוזת
+    המחוברת, ונרמול של כל בלוק לבד לפי 1.7.
+
+    התקרה, פי 3, נבדקת משני הצדדים, כמו ב-``test_the_match_key_does_not_build_an_object_per_character``: הגרסה הנוכחית
+    מתחתיה, ונרמול של הכול יחד מעליה."""
+    blocks = [f"fix (WebApp): עדכון מספר {n} — הקובץ מוצג כמו שהוא בריפו, ושָׁלוֹם נשאר." for n in range(300)]
+    blocks.append("🎉 עדכון עם אימוג'י")
+    ceiling = 3 * sys.getsizeof("\n".join(blocks))
+
+    per_block = _allocation_peak(svc._page_match_key, blocks)
+    whole = _allocation_peak(lambda parts: svc._match_key("\n".join(parts)), blocks)
+
+    assert per_block < ceiling, f"שיא של {per_block:,} בתים, תקרה {ceiling:,}"
+    assert whole > ceiling, f"נרמול של הכול יחד הגיע רק ל-{whole:,} בתים, מתחת לתקרה {ceiling:,}: הטסט כבר לא מבחין"
 
 
 def test_an_update_without_a_headline_goes_under_its_day_without_a_jump():

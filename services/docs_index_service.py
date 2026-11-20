@@ -63,7 +63,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
-from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, TypeGuard
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, TypeGuard
 
 from markdown_it import MarkdownIt
 from pymongo import ReadPreference, ReplaceOne, ReturnDocument
@@ -481,14 +481,12 @@ def _update_log_units(page: DocPage) -> Iterator[_RecordUnit]:
     # הטקסט שהעמוד מציג, בהשוואה של הדפדפן — פעם אחת לעמוד, ולא לכל עדכון: ``_match_key`` עובר על כל הטקסט
     # שהוא מקבל. כשהוא רץ על העמוד כולו בכל בדיקה (אז בלולאה על כל תו בפייתון), ``build_records`` על הייצוא של
     # 11.10.2026 לקח 7.1 שניות.
-    shown_key = _match_key(
-        "\n".join(
-            _shown_text(block)
-            for updates, outside in shown
-            for text in (*updates, outside)
-            for block in _BLANK_LINE_RE.split(text)
-            if block.strip()
-        )
+    shown_key = _page_match_key(
+        _shown_text(block)
+        for updates, outside in shown
+        for text in (*updates, outside)
+        for block in _BLANK_LINE_RE.split(text)
+        if block.strip()
     )
     for section, updates, outside in split:
         for update in updates:
@@ -526,8 +524,8 @@ def _match_key(text: str) -> str:
     ולכן פתיח נחשב ייחודי רק אם גם בהשוואה הזו הוא מופיע בעמוד פעם אחת. אחרת הקפיצה הייתה מגיעה להופעה
     הראשונה שלו, ולא לעדכון.
 
-    **הסימנים נמחקים ב-``str.translate``, ולא בלולאה על התווים.** הפונקציה רצה על הטקסט של יומן העדכונים כולו
-    (:func:`_update_log_units`). עד נובמבר 2026 היא בנתה את התוצאה ב-``"".join`` על כל תו שאינו סימן, ו-CPython
+    **הסימנים נמחקים ב-``str.translate``, ולא בלולאה על התווים.** הפונקציה רצה על כל הטקסט של יומן העדכונים
+    (:func:`_page_match_key`, בלוק אחר בלוק). עד נובמבר 2026 היא בנתה את התוצאה ב-``"".join`` על כל תו שאינו סימן, ו-CPython
     יוצר אובייקט ``str`` נפרד לכל תו שמחוץ ל-Latin-1, כלומר לכל אות עברית (76 בתים לאות ב-3.11, ו-60 ב-3.13;
     נבדק בשתיהן ב-20.11.2026), ו-``join`` אוסף את כולם לרשימה לפני שהוא מחבר. זה היה רוב השיא של בניית
     הרשומות במעבר (``scripts/measure_docs_index_memory.py``, השלב ``build_records``). כאן ``set`` אוסף רק את
@@ -538,6 +536,21 @@ def _match_key(text: str) -> str:
     text = unicodedata.normalize("NFKD", text)
     text = text.translate({ord(char): None for char in set(text) if unicodedata.category(char).startswith("M")})
     return text.casefold()
+
+
+def _page_match_key(blocks: Iterable[str]) -> str:
+    """:func:`_match_key` של הבלוקים מחוברים בשורה חדשה — אבל כל בלוק מנורמל לבד, והתוצאות מחוברות.
+
+    **התוצאה זהה ל-``_match_key("\\n".join(blocks))``,** משלוש סיבות. ``\\n`` הוא תו בסיס (מחלקת צירוף 0) שאין לו
+    פירוק, ולכן NFKD לא מסדר סימנים מחדש מעליו, ושום דבר שמשני צדדיו לא משפיע על הצד השני. אף תו ביוניקוד לא
+    מתנרמל ל-``\\n`` (נבדק על כל הטווח ב-20.11.2026). ומחיקת הסימנים ו-``casefold`` פועלות על כל תו לבד.
+
+    **למה לא לנרמל את העמוד כמחרוזת אחת.** אימוג'י אחד בעמוד הופך את כל המחרוזת לארבעה בתים לתו, ו-
+    :func:`_match_key` מחזיק בבת אחת כמה עותקים שלה: הפירוק, המחיקה ו-``casefold``. כאן כל בלוק מנורמל
+    ברוחב שלו — רוב הבלוקים בשני בתים לתו — ומה שבזיכרון בבת אחת הוא הבלוקים המנורמלים והחיבור שלהם. השיא של
+    בניית הרשומות נמדד ב-``scripts/measure_docs_index_memory.py`` (השלב ``build_records``).
+    """
+    return "\n".join([_match_key(block) for block in blocks])
 
 
 #: ``\r\n`` ו-``\r`` בודד ← ``\n``: מה ש-markdown-it עושה לקלט לפני הפרסור (``NEWLINES_RE`` ב-

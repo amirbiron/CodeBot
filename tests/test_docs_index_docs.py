@@ -42,6 +42,7 @@ def _section(path: Path, label: str) -> str:
         ("services.docs_index_service", "ALERT_APPROVAL_NEEDED"),
         ("services.docs_export_client", "EXPORT_MAX_BYTES"),
         ("services.docs_index_service", "_match_key"),
+        ("services.docs_index_service", "_page_match_key"),
         ("services.docs_export_client", "MAX_TITLE_BYTES"),
         ("services.docs_export_client", "MAX_BREADCRUMB_BYTES"),
         ("services.docs_search_contract", "text_fragment"),
