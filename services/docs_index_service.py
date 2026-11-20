@@ -478,8 +478,9 @@ def _update_log_units(page: DocPage) -> Iterator[_RecordUnit]:
                     else _split_updates(section.searchable_markdown)))
         for section, pieces in zip(page.sections, shown)
     ]
-    # הטקסט שהעמוד מציג, בהשוואה של הדפדפן — פעם אחת לעמוד, ולא לכל עדכון: ``_match_key`` עובר על כל תו
-    # בפייתון, וכשהוא רץ על העמוד כולו בכל בדיקה, ``build_records`` על הייצוא של 11.10.2026 לקח 7.1 שניות.
+    # הטקסט שהעמוד מציג, בהשוואה של הדפדפן — פעם אחת לעמוד, ולא לכל עדכון: ``_match_key`` עובר על כל הטקסט
+    # שהוא מקבל. כשהוא רץ על העמוד כולו בכל בדיקה (אז בלולאה על כל תו בפייתון), ``build_records`` על הייצוא של
+    # 11.10.2026 לקח 7.1 שניות.
     shown_key = _match_key(
         "\n".join(
             _shown_text(block)
@@ -524,9 +525,19 @@ def _match_key(text: str) -> str:
     וב-141 (11.10.2026): ``fix: the parser`` קופץ ל-``Fix: The Parser``, ‏``cafe`` ל-``Café`` ו-``שלום`` ל-``שָׁלוֹם``.
     ולכן פתיח נחשב ייחודי רק אם גם בהשוואה הזו הוא מופיע בעמוד פעם אחת. אחרת הקפיצה הייתה מגיעה להופעה
     הראשונה שלו, ולא לעדכון.
+
+    **הסימנים נמחקים ב-``str.translate``, ולא בלולאה על התווים.** הפונקציה רצה על הטקסט של יומן העדכונים כולו
+    (:func:`_update_log_units`). עד נובמבר 2026 היא בנתה את התוצאה ב-``"".join`` על כל תו שאינו סימן, ו-CPython
+    יוצר אובייקט ``str`` נפרד לכל תו שמחוץ ל-Latin-1, כלומר לכל אות עברית (76 בתים לאות ב-3.11, ו-60 ב-3.13;
+    נבדק בשתיהן ב-20.11.2026), ו-``join`` אוסף את כולם לרשימה לפני שהוא מחבר. זה היה רוב השיא של בניית
+    הרשומות במעבר (``scripts/measure_docs_index_memory.py``, השלב ``build_records``). כאן ``set`` אוסף רק את
+    התווים השונים שבטקסט, מהם נבנית טבלה של הסימנים, ו-``translate`` מוחק אותם בלי אובייקט לכל תו. הטבלה
+    נבנית מהטקסט עצמו ולא מראש לכל טווח היוניקוד, כדי שלא יהיה מצב ברמת המודול: אותו ``unicodedata``, אותה
+    בדיקת קטגוריה, ולכן אותה תוצאה. כל שלב נכתב על אותו שם, כדי שהעותק הקודם ישתחרר לפני שהבא נבנה.
     """
-    decomposed = unicodedata.normalize("NFKD", text)
-    return "".join(char for char in decomposed if not unicodedata.category(char).startswith("M")).casefold()
+    text = unicodedata.normalize("NFKD", text)
+    text = text.translate({ord(char): None for char in set(text) if unicodedata.category(char).startswith("M")})
+    return text.casefold()
 
 
 #: ``\r\n`` ו-``\r`` בודד ← ``\n``: מה ש-markdown-it עושה לקלט לפני הפרסור (``NEWLINES_RE`` ב-

@@ -11,8 +11,12 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import logging
+import sys
 import threading
+import tracemalloc
+import unicodedata
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -471,8 +475,9 @@ def test_a_headline_shown_earlier_in_italics_is_not_unique(earlier):
 
 
 def test_the_page_text_is_normalized_once_and_not_once_per_update(monkeypatch):
-    """``_match_key`` עובר על כל תו בפייתון, ולכן על הטקסט של העמוד כולו הוא רץ פעם אחת. כשהוא רץ מחדש בבדיקה
-    של כל עדכון, ``build_records`` על הייצוא של 11.10.2026 לקח 7.1 שניות. נבדק המבנה ולא הזמן, שתלוי במכונה."""
+    """``_match_key`` עובר על כל הטקסט שהוא מקבל, ולכן על הטקסט של העמוד כולו הוא רץ פעם אחת. כשהוא רץ מחדש בבדיקה
+    של כל עדכון (אז בלולאה על כל תו בפייתון), ``build_records`` על הייצוא של 11.10.2026 לקח 7.1 שניות. נבדק המבנה
+    ולא הזמן, שתלוי במכונה."""
     lengths = []
     real = svc._match_key
 
@@ -489,6 +494,80 @@ def test_the_page_text_is_normalized_once_and_not_once_per_update(monkeypatch):
     page = max(lengths)
     assert lengths.count(page) == 1, lengths
     assert sum(lengths) < 2 * page, lengths
+
+
+def _reference_match_key(text):
+    """ההגדרה של ``_match_key`` כפי שנכתבה עד נובמבר 2026, תו אחר תו: פירוק ב-NFKD, השמטת קטגוריה ``M``, ו-``casefold``.
+    האורקל שהגרסה ב-``str.translate`` חייבת להסכים איתו על כל קלט."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(char for char in decomposed if not unicodedata.category(char).startswith("M")).casefold()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "שָׁלוֹם עוֹלָם",  # ניקוד עברי
+        "Café crème ÉTÉ",  # אקסנטים, וגם אות גדולה מורכבת
+        "ﬁ Ⅻ ﷺ ﻼ",  # תווי תאימות שה-NFKD מפרק לכמה תווים
+        "fix: א-ב, ג&ד 🎉",  # אימוג'י: הטקסט כולו נשמר בארבעה בתים לתו
+        "x̧́̂",  # כמה סימנים על אות אחת
+        "́",  # סימן בלי אות לפניו
+        "İstanbul Straße ΣΑΣ",  # casefold שמשנה את האורך
+    ],
+)
+def test_the_match_key_is_the_reference_definition(text):
+    assert svc._match_key(text) == _reference_match_key(text)
+
+
+def test_the_match_key_is_the_reference_definition_on_every_character():
+    """כל נקודת קוד ביוניקוד חוץ מ-surrogates, תו בודד: הטבלה של ``translate`` נבנית מהטקסט עצמו, ולכן תו יחיד
+    הוא המקרה שבו היא קטנה ביותר, וכל תו שהגדרת הקטגוריה מסווגת אחרת היה נראה כאן."""
+    different = [
+        hex(code_point)
+        for code_point in range(sys.maxunicode + 1)
+        if not 0xD800 <= code_point <= 0xDFFF and svc._match_key(chr(code_point)) != _reference_match_key(chr(code_point))
+    ]
+    assert different == []
+
+
+def test_the_match_key_is_the_reference_definition_on_the_update_log():
+    """הטקסט האמיתי שהפונקציה רצה עליו: יומן העדכונים, עברית מנוקדת ולא מנוקדת, קוד, אנגלית ואימוג'י."""
+    text = (Path(__file__).resolve().parent.parent / WHATS_NEW).read_text(encoding="utf-8")
+    assert svc._match_key(text) == _reference_match_key(text)
+
+
+def _allocation_peak(fn, text):
+    tracemalloc.start()
+    try:
+        before, _ = tracemalloc.get_traced_memory()
+        fn(text)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return peak - before
+
+
+def test_the_match_key_does_not_build_an_object_per_character():
+    """הפונקציה רצה על הטקסט של יומן העדכונים כולו. בלולאה תו-תו כל אות עברית הייתה אובייקט משלו — CPython שומר
+    עותק אחד רק לתווים של Latin-1 — ו-``"".join`` אוסף את כולם לפני שהוא מחבר. ב-20.11.2026, על Python 3.11 עד
+    3.13, השיא של ההגדרה תו-תו על טקסט כזה היה פי 11.6–14.1 מגודל המחרוזת, ושל הגרסה הנוכחית פי 4.8.
+
+    התקרה, פי 7, נבדקת משני הצדדים: הגרסה הנוכחית מתחתיה, והאורקל — אותה הגדרה תו-תו — מעליה. כך הטסט מראה שהוא
+    מסוגל להיכשל; ואם CPython ישתנה כך שהלולאה כבר לא יקרה, הוא ייכשל ויאמר שהתקרה איבדה את המשמעות שלה.
+
+    הטקסט בנוי כמו העמוד: עדכונים בעברית לא מנוקדת עם מעט ניקוד ואנגלית, ואימוג'י אחד — ולכן ארבעה בתים לתו, כמו
+    יומן העדכונים האמיתי."""
+    text = "**fix (WebApp): הקובץ מוצג כמו שהוא בריפו.** הסיבה: הצנזור רץ גם על התוכן, ושָׁלוֹם נשאר. " * 500 + "🎉"
+    ceiling = 7 * sys.getsizeof(text)
+
+    current = _allocation_peak(svc._match_key, text)
+    per_character = _allocation_peak(_reference_match_key, text)
+
+    assert current < ceiling, f"שיא של {current:,} בתים, תקרה {ceiling:,}"
+    assert per_character > ceiling, (
+        f"ההגדרה תו-תו הגיעה רק ל-{per_character:,} בתים, מתחת לתקרה {ceiling:,}: הטסט כבר לא מבחין בין השתיים"
+    )
 
 
 def test_an_update_without_a_headline_goes_under_its_day_without_a_jump():

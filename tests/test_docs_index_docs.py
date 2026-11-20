@@ -40,6 +40,8 @@ def _section(path: Path, label: str) -> str:
         ("services.docs_index_service", "RECORDS_VERSION"),
         ("services.docs_index_service", "is_index_complete"),
         ("services.docs_index_service", "ALERT_APPROVAL_NEEDED"),
+        ("services.docs_export_client", "EXPORT_MAX_BYTES"),
+        ("services.docs_index_service", "_match_key"),
         ("services.docs_export_client", "MAX_TITLE_BYTES"),
         ("services.docs_export_client", "MAX_BREADCRUMB_BYTES"),
         ("services.docs_search_contract", "text_fragment"),
@@ -65,6 +67,13 @@ def test_a_name_the_docs_cite_exists_in_the_code(module, name):
     assert hasattr(importlib.import_module(module), name), f"{module}.{name}"
     pages = GLOBAL_SEARCH.read_text(encoding="utf-8") + EVENTS_CATALOG.read_text(encoding="utf-8")
     assert f"``{name}``" in pages, f"{name} אינו מוזכר עוד בתיעוד — הסירו אותו מהרשימה"
+
+
+def test_the_memory_script_the_docs_cite_exists():
+    """העמוד מפנה לסקריפט שמודד את השיא של המעבר; שינוי שם שלו היה משאיר את ההפניה ריקה."""
+    script = "scripts/measure_docs_index_memory.py"
+    assert (ROOT / script).is_file()
+    assert f"``{script}``" in _section(GLOBAL_SEARCH, "docs-index")
 
 
 def test_the_searchable_body_the_docs_cite_is_what_the_index_reads():
