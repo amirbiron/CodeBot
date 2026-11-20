@@ -2895,7 +2895,7 @@ class CodeKeeperBot:
 
         # בלי persistence, בכוונה. ``bot_data`` מחזיק אובייקטים חיים — handlers, לקוחות מסד, נעילות — ו-PTB
         # (22.5) מעתיק אותו ב-``deepcopy`` בכל שמירה ובסגירה, ובעלייה מחליף אותו בתוכן השמור. נתון שצריך
-        # לשרוד ריסטארט נשמר במסד. למה הוסר: ``docs/whats-new.rst``, 2026-10-11.
+        # לשרוד ריסטארט נשמר במסד. למה הוסר: ``docs/whats-new/2026-10.rst``, 2026-10-11.
         #
         # במצב בדיקות/CI, חלק מתלויות הטלגרם (Updater פנימי) עלולות להיכשל.
         # נשתמש בבנאי הרגיל, ואם נכשל – נבנה Application מינימלי עם טוקן דמה.
@@ -6438,7 +6438,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # ה-jobs של ה-JobQueue חיים בזיכרון בלבד, ולכן ``drive_reschedule`` בונה מחדש את ה-jobs של הגיבוי
         # המתוזמן מהתזמון השמור במסד — בעלייה, ושוב בכל סבב. jobstore של APScheduler במסד אינו חלופה: job
         # של PTB 22.5 אינו עובר pickle (``weakref``). ה-jobstore ``persistent`` שהיה ב-``setup_bot_data`` הוסר —
-        # ``docs/whats-new.rst``, 2026-10-11.
+        # ``docs/whats-new/2026-10.rst``, 2026-10-11.
         bootstrap_delay = int(os.getenv("DRIVE_RESCHEDULE_BOOTSTRAP_DELAY", "5") or 5)
         keepalive_interval = int(os.getenv("DRIVE_RESCHEDULE_INTERVAL", "900") or 900)
         keepalive_first = int(os.getenv("DRIVE_RESCHEDULE_FIRST_DELAY", "60") or 60)

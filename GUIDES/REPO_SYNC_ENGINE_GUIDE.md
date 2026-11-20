@@ -154,7 +154,7 @@ print(f"Disk writable: {os.access(mirror_path, os.W_OK)}")
 
 > ℹ️ **אימות מול GitHub (#3480).** הקוד שלמטה הוא המדריך המקורי, והוא אינו מסונכרן עם הקוד בכל פרט. בחלק של האימות הוא עודכן: הטוקן לא נכנס ל-URL, כי git שומר את ה-URL בטקסט גלוי בקובץ ה-`config` של המראה. המימוש — `services/mirror_credentials.py` ו-`GitMirrorService._run_network_git`; ההסבר — `docs/mcp-server.rst`, הסעיף "אימות מול GitHub — הטוקן לא נשמר במראה".
 
-> ℹ️ **ה-stdout לא עובר ניקוי (אוקטובר 2026).** בקוד שלמטה `_run_git_command` מעביר ב-`_sanitize_output` גם את ה-stdout. בקוד האמיתי לא: ה-stdout הוא תוכן הקובץ, שמות הקבצים והודעת הקומיט, והניקוי שיבש אותם בדפדפן הקוד (`key = x.get("key")` הוצג `key=***`). הניקוי חל על ה-stderr ועל הפקודה שבלוג בלבד, כי שם git מדפיס את ה-URL כשפקודת רשת נכשלת. ההסבר — ה-docstring של `_run_git_command`, והרשומה של 11.10.2026 ב-`docs/whats-new.rst`.
+> ℹ️ **ה-stdout לא עובר ניקוי (אוקטובר 2026).** בקוד שלמטה `_run_git_command` מעביר ב-`_sanitize_output` גם את ה-stdout. בקוד האמיתי לא: ה-stdout הוא תוכן הקובץ, שמות הקבצים והודעת הקומיט, והניקוי שיבש אותם בדפדפן הקוד (`key = x.get("key")` הוצג `key=***`). הניקוי חל על ה-stderr ועל הפקודה שבלוג בלבד, כי שם git מדפיס את ה-URL כשפקודת רשת נכשלת. ההסבר — ה-docstring של `_run_git_command`, והרשומה של 11.10.2026 ב-`docs/whats-new/2026-10.rst`.
 
 צור קובץ `services/git_mirror_service.py`:
 

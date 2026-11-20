@@ -4,7 +4,7 @@
 נכשלת לפעמים לרגע — ניתוק של חיבור קיים, ``ConnectError``, או ``502 Bad Gateway`` מ-``api.telegram.org`` — והספרייה
 מנסה שוב לבד. עד היום כל כשל כזה הגיע ל-``error_handler`` ב-``main.py``, נרשם ב-``logger.error``, ונפתח עליו issue
 ב-Sentry (``LoggingIntegration`` עם ``event_level=ERROR`` ב-``observability.init_sentry``). ההיסטוריה והמדידות:
-``docs/whats-new.rst``, 2026-11-19.
+``docs/whats-new/2026-11.rst``, 2026-11-19.
 
 המודול מפריד בין שני דברים:
 
