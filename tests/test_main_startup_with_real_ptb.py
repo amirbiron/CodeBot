@@ -54,8 +54,10 @@ def _run_probe(tmp_path: Path, env: dict[str, str], failing_bot_api_method: str 
         f"דוח: {report}\nstderr:\n{completed.stderr[-3000:]}"
     )
     # הפרוב בדק את האפליקציה של הפרודקשן, ולא אחד ממסלולי ה-fallback ש-``CodeKeeperBot`` בונה כשהבנייה
-    # הרגילה נכשלת — בלי post_init ובלי persistence, כלומר בלי שני הדברים שהטסטים כאן בודקים.
-    assert report["application"] == "telegram.ext._application.Application", _describe(report)
+    # הרגילה נכשלת — בלי post_init ובלי persistence, כלומר בלי שני הדברים שהטסטים כאן בודקים. המחלקה היא זו
+    # ש-``main.py`` מעביר ל-``ApplicationBuilder.application_class`` (תת-מחלקה של ``Application`` של PTB);
+    # ה-``_MiniApp`` של ה-fallback האחרון היה מופיע כאן בשם אחר.
+    assert report["application"] == "services.telegram_observability_scope.IsolatedUpdateApplication", _describe(report)
     assert report["post_init"] == "main.setup_bot_data", _describe(report)
     assert report["fake_server_errors"] == [], _describe(report)
     return report
