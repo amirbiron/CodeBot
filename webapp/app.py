@@ -284,6 +284,8 @@ from webapp.size_format import format_file_size as _format_file_size_shared
 from webapp.file_name_display import TEMPLATE_FILTERS as _FILE_NAME_TEMPLATE_FILTERS  # noqa: E402
 from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
+# המסגרת של תצוגת ה-HTML: ה-CSP של ``/raw_html`` ומדווח הגלילה שהפתקים נשענים עליו.
+from webapp import html_preview_frame  # noqa: E402
 # הצ'קליסט "צעדים ראשונים" בדשבורד: שמות הדגלים ב-``ui_prefs`` ש-``/api/ui_prefs`` כותב,
 # והרישום של בחירת ערכה "רק במכשיר הזה".
 from webapp import first_steps  # noqa: E402
@@ -13543,7 +13545,7 @@ def _dashboard_note_location(
 
     * לוח — שם הלוח (:func:`_board_location_label`), מ-``board_names``.
     * קובץ — השם ששמור בפתק, שהוא גם השם שהקישור פותח את הגרסה האחרונה שלו
-      (``_note_file_target_id``). פתק בלי שם שמור — מ-``file_names`` (:func:`_lookup_files_map`).
+      (``_note_file_target``). פתק בלי שם שמור — מ-``file_names`` (:func:`_lookup_files_map`).
     * קובץ בריפו — ``ריפו: <ריפו>/<נתיב>``.
     * מסמך בלי יעד תקין (``"unknown"``) — "מיקום לא ידוע", ולא ניחוש.
 
@@ -15317,9 +15319,32 @@ def _resolve_file_doc_by_name(
     return None, 'not_found'
 
 
-def _note_file_target_id(db_ref, user_id: int, note: Dict[str, Any]) -> str:
-    """המזהה שהקישור הקבוע של פתק על קובץ (``/note/<id>``) מפנה אליו: הגרסה הפעילה
-    האחרונה של **הקובץ**, ולא הגרסה שעליה הפתק נוצר.
+def _file_view_endpoint(language: Any, file_name: Any) -> str:
+    """התצוגה המרונדרת של קובץ, שעליה יושבים הפתקים שלו: ``md_preview`` או ``html_preview``.
+
+    **Markdown קודם**, כי עד נובמבר 2026 זו הייתה התצוגה היחידה של פתקי קובץ: קובץ שעונה על שני הכללים (שפה אחת,
+    סיומת של השני) ממשיך להיפתח איפה שנפתח עד היום. קובץ שאינו אף אחד מהשניים — גם הוא ``md_preview``, כמו
+    קודם, והראוט ההוא מפנה אותו לעמוד הקובץ.
+    """
+    if _is_markdown_file(language, file_name):
+        return 'md_preview'
+    if _is_html_file(language, file_name):
+        return 'html_preview'
+    return 'md_preview'
+
+
+#: השדות שהקישור הקבוע קורא ממסמך הקובץ: המזהה, והשפה והשם שקובעים את התצוגה (:func:`_file_view_endpoint`).
+#: בלי ``code`` — קובץ גדול יכול להחזיק מגהבייטים.
+_NOTE_TARGET_FILE_PROJECTION = {'_id': 1, 'file_name': 1, 'programming_language': 1}
+
+
+def _note_file_target(db_ref, user_id: int, note: Dict[str, Any]) -> Tuple[str, str]:
+    """לאן הקישור הקבוע של פתק על קובץ (``/note/<id>``) מפנה: ``(מזהה, endpoint)``.
+
+    **המזהה** — הגרסה הפעילה האחרונה של **הקובץ**, ולא הגרסה שעליה הפתק נוצר. **ה-endpoint** — התצוגה שעליה
+    הפתקים של הקובץ יושבים (:func:`_file_view_endpoint`): ``/md/`` לקובץ Markdown, ``/html/`` לקובץ HTML. שניהם
+    נקבעים מאותו מסמך, באותן שאילתות — ההיטלה (:data:`_NOTE_TARGET_FILE_PROJECTION`) מביאה גם את השפה והשם. עד
+    נובמבר 2026 ההפניה הייתה תמיד ל-``/md/``, כשהפתקים ישבו רק על תצוגת Markdown.
 
     פתק על קובץ מזוהה עם הקובץ לפי השם (``file_name`` ו-``scope_id``, ששינוי שם מעדכן —
     ``sync_sticky_notes_on_rename``, אחרי שינוי שם בבוט או של קובץ גדול בוובאפ; בוובאפ, שמירה
@@ -15341,6 +15366,9 @@ def _note_file_target_id(db_ref, user_id: int, note: Dict[str, Any]) -> str:
 
     כשל של המסד (``PyMongoError``) מחזיר גם הוא את ה-``file_id`` השמור, עם אזהרה בלוג:
     קישור לגרסה ישנה, עם הבאנר שלה, עדיף על קישור שבור. חריגה אחרת עולה.
+
+    **התצוגה כשלא נקרא מסמך** — הסל, מזהה פגום, כשל של המסד: לפי השם בלבד (שפה לא ידועה). קובץ ``.html`` עדיין
+    נפתח ב-``/html/``; קובץ HTML שהשם שלו בלי הסיומת נפתח ב-``/md/``, כמו כל פתק עד היום.
     """
     stored = str(note.get('file_id') or '')
     raw_name = note.get('file_name')
@@ -15352,22 +15380,24 @@ def _note_file_target_id(db_ref, user_id: int, note: Dict[str, Any]) -> str:
     try:
         large_coll = getattr(db_ref, 'large_files', None)
         if stored_oid is not None and large_coll is not None:
-            # רק ``_id`` בהיטלה: קובץ גדול יכול להחזיק מגהבייטים, וכאן שואלים רק אם הוא קיים.
-            if large_coll.find_one({'_id': stored_oid, 'user_id': user_id}, {'_id': 1}) is not None:
-                return stored
+            large_doc = large_coll.find_one({'_id': stored_oid, 'user_id': user_id}, _NOTE_TARGET_FILE_PROJECTION)
+            if large_doc is not None:
+                return stored, _file_view_endpoint(large_doc.get('programming_language'),
+                                                   large_doc.get('file_name') or name)
         if not name and stored_oid is not None:
             stored_doc = db_ref.code_snippets.find_one(
                 {'_id': stored_oid, 'user_id': user_id}, {'file_name': 1}
             )
             stored_name = (stored_doc or {}).get('file_name')
             name = stored_name.strip() if isinstance(stored_name, str) else ''
-        latest = _latest_active_version_doc(db_ref, user_id, name, {'_id': 1}) if name else None
+        latest = _latest_active_version_doc(db_ref, user_id, name, _NOTE_TARGET_FILE_PROJECTION) if name else None
     except PyMongoError:
         logger.warning("note permalink: latest file version lookup failed", exc_info=True)
-        return stored
+        return stored, _file_view_endpoint(None, name)
     if isinstance(latest, dict) and latest.get('_id') is not None:
-        return str(latest['_id'])
-    return stored
+        return str(latest['_id']), _file_view_endpoint(latest.get('programming_language'),
+                                                       latest.get('file_name') or name)
+    return stored, _file_view_endpoint(None, name)
 
 
 def _reject_when_not_latest_version(db_ref, user_id: int, file_id: str):
@@ -17681,10 +17711,20 @@ def download_file(file_id):
         mimetype='text/plain'
     )
 
+# "יש לקובץ תצוגת דפדפן" — הכלל ב-``webapp/html_preview_frame.py`` (``is_html_file``), והוא גם מה שהתבניות מקבלות.
+_is_html_file = html_preview_frame.is_html_file
+for _global_name, _global_func in html_preview_frame.TEMPLATE_GLOBALS.items():
+    app.add_template_global(_global_func, _global_name)
+
+
 @app.route('/html/<file_id>')
 @login_required
 def html_preview(file_id):
-    """תצוגת דפדפן לקובץ HTML בתוך iframe עם sandbox."""
+    """תצוגת דפדפן לקובץ HTML בתוך iframe עם sandbox, ועליה הפתקים של הקובץ.
+
+    המסגרת טוענת את ``/raw_html`` עם :data:`webapp.html_preview_frame.REPORT_SCROLL_PARAM`, כדי שהפתקים ינועו עם
+    הגלילה בתוכה; "חלון חדש" טוען אותו בלי הפרמטר. ``type`` ההודעות של המדווח עובר לדף מכאן, ולא נכתב בו פעם שנייה.
+    """
     db = get_db()
     user_id = session['user_id']
     try:
@@ -17697,7 +17737,7 @@ def html_preview(file_id):
     language = (file.get('programming_language') or '').lower()
     file_name = file.get('file_name') or 'index.html'
     # מציגים תצוגת דפדפן רק לקבצי HTML
-    if language != 'html' and not (isinstance(file_name, str) and file_name.lower().endswith(('.html', '.htm'))):
+    if not _is_html_file(language, file_name):
         return redirect(url_for('view_file', file_id=file_id))
 
     file_data = {
@@ -17705,7 +17745,15 @@ def html_preview(file_id):
         'file_name': file_name,
         'language': language or 'html',
     }
-    return render_template('html_preview.html', user=session.get('user_data', {}), file=file_data, bot_username=BOT_USERNAME_CLEAN)
+    frame = {
+        'src': url_for('raw_html', file_id=file_data['id'], **{html_preview_frame.REPORT_SCROLL_PARAM: '1'}),
+        'new_window_src': url_for('raw_html', file_id=file_data['id']),
+        'scroll_message_type': html_preview_frame.SCROLL_MESSAGE_TYPE,
+        'scroll_request_type': html_preview_frame.SCROLL_REQUEST_TYPE,
+        'scroll_command_type': html_preview_frame.SCROLL_COMMAND_TYPE,
+    }
+    return render_template('html_preview.html', user=session.get('user_data', {}), file=file_data, frame=frame,
+                           bot_username=BOT_USERNAME_CLEAN)
 
 @app.route('/raw_html/<file_id>')
 @login_required
@@ -17724,33 +17772,19 @@ def raw_html(file_id):
     # קביעת מצב הרצה: ברירת מחדל ללא סקריפטים
     allow = (request.args.get('allow') or request.args.get('mode') or '').strip().lower()
     scripts_enabled = allow in {'1', 'true', 'yes', 'scripts', 'js'}
-    if scripts_enabled:
-        csp = \
-            "sandbox allow-scripts; " \
-            "default-src 'none'; " \
-            "base-uri 'none'; " \
-            "form-action 'none'; " \
-            "connect-src 'none'; " \
-            "img-src data:; " \
-            "style-src 'unsafe-inline'; " \
-            "font-src data:; " \
-            "object-src 'none'; " \
-            "frame-ancestors 'self'; " \
-            "script-src 'unsafe-inline'"
-        # שים לב: גם במצב זה ה-iframe נשאר בסנדבוקס ללא allow-forms/allow-popups/allow-same-origin
-    else:
-        csp = \
-            "sandbox; " \
-            "default-src 'none'; " \
-            "base-uri 'none'; " \
-            "form-action 'none'; " \
-            "connect-src 'none'; " \
-            "img-src data:; " \
-            "style-src 'unsafe-inline'; " \
-            "font-src data:; " \
-            "object-src 'none'; " \
-            "frame-ancestors 'self'; " \
-            "script-src 'none'"
+    # מדווח הגלילה — רק למסגרת של ``/html/<id>``, שהפתקים שמעליה נעים לפיו. "חלון חדש" אינו שולח את הפרמטר
+    # ומקבל את הקובץ כמו שהוא. שלושת המצבים וה-CSP של כל אחד: ``webapp/html_preview_frame.py``.
+    # שים לב: בכל המצבים ה-iframe נשאר בסנדבוקס ללא allow-forms/allow-popups/allow-same-origin.
+    report_scroll = request.args.get(html_preview_frame.REPORT_SCROLL_PARAM) == '1'
+    # קובץ עם CSP משלו חוסם את המדווח ממילא, ו-``allow-scripts`` רק היה מסתיר את ה-``<noscript>`` שלו — לכן בלי "אפשר
+    # JS" הוא מוגש בלי מדווח, כמו ב"חלון חדש" (``declares_own_csp``).
+    if report_scroll and not scripts_enabled and html_preview_frame.declares_own_csp(str(code)):
+        report_scroll = False
+    reporter_nonce = html_preview_frame.new_reporter_nonce() if (report_scroll and not scripts_enabled) else None
+    csp = html_preview_frame.raw_html_csp(scripts_enabled=scripts_enabled, reporter_nonce=reporter_nonce)
+    if report_scroll:
+        code = html_preview_frame.with_scroll_reporter(str(code), nonce=reporter_nonce,
+                                                       file_scripts_enabled=scripts_enabled)
 
     resp = Response(code, mimetype='text/html; charset=utf-8')
     resp.headers['Content-Security-Policy'] = csp
