@@ -8,8 +8,8 @@
 ``database/blocked_users_manager.py`` ייבא ``get_admin_ids`` מ-``main`` בשביל בדיקת אדמין. מי שצריך לדעת מי אדמין מייבא
 את ``user_roles``.
 
-הבדיקה סטטית, על עץ ה-AST של כל קובץ ``.py`` בריפו מחוץ ל-``tests/`` ולקובצי טסט: ``import main``, ‏``from main import``,
-‏``importlib.import_module("main")`` ו-``__import__("main")``.
+הבדיקה סטטית, על עץ ה-AST של כל קובץ ``.py`` בריפו מחוץ ל-``tests/`` ולקובצי טסט: ``import main``, ``from main import``,
+``importlib.import_module("main")`` ו-``__import__("main")``.
 """
 
 from __future__ import annotations

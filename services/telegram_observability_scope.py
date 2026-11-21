@@ -8,7 +8,7 @@
 ``main.py``:
 
 - **עדכון** — :class:`IsolatedUpdateApplication` דורס את ``Application.process_update`` (``.application_class(...)``). ב-
-  python-telegram-bot 22.5 ‏``Application.__process_update_wrapper`` קורא ל-``self.process_update(update)``, ולכן כל עדכון
+  python-telegram-bot 22.5 ``Application.__process_update_wrapper`` קורא ל-``self.process_update(update)``, ולכן כל עדכון
   עובר שם. תת-מחלקה ולא עטיפה על המופע: ל-``Application`` יש ``__slots__`` בלי ``__dict__``, והשמה של ``process_update``
   על מופע נכשלת ב-``AttributeError: ... is read-only``. ``request_id`` חדש נוצר לכל עדכון: "מזהה מתואם לבקשה/פעולה"
   (``docs/observability/guidelines.md``).
@@ -18,22 +18,35 @@
 
 from __future__ import annotations
 
+import logging
+import sys
 from typing import Any
 
 from telegram import Update
 from telegram.ext import Application, JobQueue
 
+logger = logging.getLogger(__name__)
+
+# ``main.py`` ממשיך לעבוד כש-``observability`` לא נטען (``_observability = None`` ופונקציות ריקות), ו"מערכת observability
+# לעולם לא מפילה את היישום" (עקרון Fail-Open ב-``docs/observability/guidelines.md``). המודול הזה נטען מ-``main.py`` בעלייה,
+# ולכן אותה החלטה, פעם אחת, כאן: בלי ``observability`` עדכונים וג'ובים רצים בלי הקשר מבודד. גבול של עלייה, ולכן ``Exception``
+# כמו ב-``main.py`` — עם traceback מלא, ולמצב משלו ("אין observability"), לא לשום מצב של סיכון אחר.
+try:
+    import observability as _observability_at_import
+except Exception:
+    logger.exception("observability failed to import; bot updates and jobs run without an isolated logging scope")
+    _observability_at_import = None
+
 
 def _observability() -> Any:
-    """המודול ``observability`` כפי שהוא ב-``sys.modules`` עכשיו, בזמן הקריאה ולא בזמן הייבוא.
+    """המודול ``observability`` כפי שהוא ב-``sys.modules`` בזמן הקריאה, או ``None`` כשהייבוא שלו נכשל בעלייה.
 
-    טסטים מחליפים את ``observability`` ב-``sys.modules`` בדמה חלקית לפני ``import main`` (למשל
-    ``tests/test_backups_cleanup_disabled_by_default.py``). ``from observability import ...`` ברמת המודול היה מפיל שם את
-    הייבוא של ``main`` כולו, והפניה שנשמרת בייבוא הייתה נשארת על הדמה גם אחרי שהטסט מחזיר את המודול האמיתי.
+    ``sys.modules`` ולא ההפניה מהייבוא: טסטים מחליפים את ``observability`` ב-``sys.modules`` בדמה חלקית לפני
+    ``import main`` (למשל ``tests/test_backups_cleanup_disabled_by_default.py``), והפניה שנשמרת בייבוא הייתה נשארת על
+    הדמה גם אחרי שהטסט מחזיר את המודול האמיתי. ייבוא שנכשל לא נשאר ב-``sys.modules``, ולכן אז חוזר ``None`` — בלי ניסיון
+    ייבוא חוזר בכל עדכון.
     """
-    import observability
-
-    return observability
+    return sys.modules.get("observability", _observability_at_import)
 
 
 #: התחילית של ``command`` בעדכון, כמו ``webapp:`` בוובאפ (``webapp/app.py``).
@@ -73,20 +86,20 @@ def update_command_name(update: object) -> str:
     return cleaned.lower()
 
 
-def bind_update_context(update: object) -> None:
+def bind_update_context(observability: Any, update: object) -> None:
     """כורך את ההקשר של עדכון: ``request_id`` חדש, המשתמש והצ'אט (מטושטשים ב-``bind_user_context``), והפקודה אם יש."""
-    _observability().bind_request_id(_observability().generate_request_id())
+    observability.bind_request_id(observability.generate_request_id())
     if not isinstance(update, Update):
         return
     user = update.effective_user
     chat = update.effective_chat
-    _observability().bind_user_context(
+    observability.bind_user_context(
         user_id=user.id if user is not None else None,
         chat_id=chat.id if chat is not None else None,
     )
     command = update_command_name(update)
     if command:
-        _observability().bind_command(f"{UPDATE_COMMAND_PREFIX}{command}")
+        observability.bind_command(f"{UPDATE_COMMAND_PREFIX}{command}")
 
 
 class IsolatedUpdateApplication(Application):
@@ -100,8 +113,13 @@ class IsolatedUpdateApplication(Application):
     __slots__ = ()
 
     async def process_update(self, update: object) -> None:
-        with _observability().isolated_observability_scope():
-            bind_update_context(update)
+        observability = _observability()
+        if observability is None:
+            # ``observability`` לא נטען (נרשם בעלייה): העדכון מטופל בלי הקשר מבודד, ולא נכשל בגללו.
+            await super().process_update(update)
+            return
+        with observability.isolated_observability_scope():
+            bind_update_context(observability, update)
             await super().process_update(update)
 
 
@@ -113,12 +131,12 @@ def _job_callback_name(job: Any) -> str:
     return getattr(callback, "__name__", None) or type(callback).__name__
 
 
-def bind_job_context(job: Any) -> None:
+def bind_job_context(observability: Any, job: Any) -> None:
     """כורך את ההקשר של ריצת ג'וב: ``request_id`` משלה, ``command=job:<שם הפונקציה>``, והמשתמש והצ'אט שהג'וב תוזמן
     עבורם (``chat_id``/``user_id`` של ``run_once`` וחבריו) — ולא מי שבמקרה תזמן ג'וב אחרון."""
-    _observability().bind_request_id(_observability().generate_request_id())
-    _observability().bind_command(f"{JOB_COMMAND_PREFIX}{_job_callback_name(job)}")
-    _observability().bind_user_context(user_id=job.user_id, chat_id=job.chat_id)
+    observability.bind_request_id(observability.generate_request_id())
+    observability.bind_command(f"{JOB_COMMAND_PREFIX}{_job_callback_name(job)}")
+    observability.bind_user_context(user_id=job.user_id, chat_id=job.chat_id)
 
 
 class IsolatedJobQueue(JobQueue):
@@ -130,6 +148,11 @@ class IsolatedJobQueue(JobQueue):
 
     @staticmethod
     async def job_callback(job_queue: Any, job: Any) -> None:
-        with _observability().isolated_observability_scope():
-            bind_job_context(job)
+        observability = _observability()
+        if observability is None:
+            # כמו ב-``IsolatedUpdateApplication.process_update``: בלי ``observability`` הג'וב רץ בלי הקשר מבודד.
+            await JobQueue.job_callback(job_queue, job)
+            return
+        with observability.isolated_observability_scope():
+            bind_job_context(observability, job)
             await JobQueue.job_callback(job_queue, job)
