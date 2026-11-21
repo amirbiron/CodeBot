@@ -137,12 +137,12 @@ class FakeRepoApi:
 
 
 @contextlib.contextmanager
-def repo_page(server, executable, api: FakeRepoApi, viewport: dict, *, md_preview: bool = False):
+def repo_page(server, executable, api: FakeRepoApi, viewport: dict, *, md_preview: bool = False, query: str = ""):
     """עמוד ``/repo/`` על הקובץ של ``api``, עם הפתקים דלוקים — **המקום היחיד שמרים דפדפן כאן**.
 
     ההעדפה ``repo-notes:<ריפו>:<נתיב>`` נזרעת לפני הטעינה, ולכן ``repo-notes.js``
     מרכיב את המנהל כמו אצל משתמש שכבר הדליק פתקים על הקובץ. כל הניקוי
-    ב-``finally``: כשל באמצע לא מדליף דפדפן.
+    ב-``finally``: כשל באמצע לא מדליף דפדפן. ``query`` — מחרוזת שאילתה לכתובת (``?repo=…&note=…``, כמו הקישור הקבוע).
     """
     with sync_playwright() as pw:
         try:
@@ -166,7 +166,7 @@ def repo_page(server, executable, api: FakeRepoApi, viewport: dict, *, md_previe
             context.add_init_script("try{" + seed + "}catch(e){}")
             page = context.new_page()
             page.route("**/*", api.handle)
-            page.goto(f"{server.base_url}/repo/#file={api.path}", wait_until="load")
+            page.goto(f"{server.base_url}/repo/{query}#file={api.path}", wait_until="load")
             if md_preview:
                 page.wait_for_selector("#markdown-preview-container .markdown-preview-content > *", timeout=20000)
             else:
@@ -468,6 +468,25 @@ def test_a_note_never_cuts_off_the_end_of_the_file(admin_live_server, chromium_e
             f"{scenario}: השורה האחרונה שאפשר להגיע אליה היא {result['lastShown']} — סוף הקובץ חסום "
             f"(הקונטיינר בגובה {frame['height']} מול {frame['parentHeight']}, min-height={frame['minHeight']!r})")
         assert frame["height"] <= frame["parentHeight"] + 1, f"{scenario}: הקונטיינר גדל מעבר להורה: {frame}"
+
+
+def test_the_link_of_a_deep_note_scrolls_the_code_to_it(admin_live_server, chromium_executable):
+    """הקישור הקבוע של פתק ריפו (``/repo/?repo=…&note=…``) לפתק עמוק: הגולל של הקוד נגלל אליו, והקונטיינר נשאר במקומו.
+
+    בריצת בקרה על הקוד שלפני ``_revealInScroller`` (``sticky-notes.js``), ``scrollIntoView`` על הפתק גלל את
+    הקונטיינר — ``overflow: hidden``, כלומר קופסה שקוד יכול לגלול — ב-2734: הקוד כולו יצא מהמסך, הגולל נשאר בראש,
+    והפתק נשאר מוסתר.
+    """
+    api = FakeRepoApi(CODE_PATH, code_file(600), [repo_note("a", y=6000)])
+    with repo_page(admin_live_server, chromium_executable, api, LANDSCAPE, query=f"?repo={REPO}&note=a") as (page, _t):
+        poll(page, f"""() => {{ const el = document.querySelector('.sticky-note[data-note-id="a"]');
+                               if (!el || el.style.visibility === 'hidden') return false;
+                               const r = el.getBoundingClientRect(), s = ({SCROLLER_JS})().getBoundingClientRect();
+                               return r.top >= s.top && r.bottom <= Math.min(s.bottom, innerHeight); }}""",
+             "הפתק מוצג כולו בתוך הגולל של הקוד")
+        state = scroller_state(page)
+        assert state["scrollTop"] > 0, state
+        assert page.evaluate("document.getElementById('code-viewer-container').scrollTop") == 0
 
 
 # -------------------------------------------------------------------------

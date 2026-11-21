@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import quote
 
-from flask import Blueprint, redirect, render_template, request, session
+from flask import Blueprint, redirect, render_template, request, session, url_for
 
 try:  # type: ignore
     from bson import ObjectId  # type: ignore
@@ -157,14 +157,14 @@ def note_permalink(note_id: str):
     if board_id:
         return redirect(f'/boards/{board_id}?note={note_id}{thread_param}')
 
-    # פתק על קובץ — לגרסה הפעילה האחרונה של הקובץ, ולא לגרסה שעליה הפתק נוצר
-    # (``_note_file_target_id``). ``file_id`` הוא שדה הזיהוי של היעד הזה
-    # (``sticky_notes_target._TARGET_IDENTITY``), ולכן הוא שמחליט שזה הענף.
+    # פתק על קובץ — לגרסה הפעילה האחרונה של הקובץ, ולא לגרסה שעליה הפתק נוצר, ובתצוגה
+    # שהפתקים שלו יושבים עליה: ``/md/`` או ``/html/`` (``_note_file_target``). ``file_id`` הוא
+    # שדה הזיהוי של היעד הזה (``sticky_notes_target._TARGET_IDENTITY``), ולכן הוא שמחליט שזה הענף.
     if note.get('file_id'):
-        from webapp.app import _note_file_target_id
+        from webapp.app import _note_file_target
 
-        file_id = _note_file_target_id(db, int(session['user_id']), note)
-        return redirect(f'/md/{file_id}?note={note_id}{thread_param}')
+        file_id, endpoint = _note_file_target(db, int(session['user_id']), note)
+        return redirect(f'{url_for(endpoint, file_id=file_id)}?note={note_id}{thread_param}')
 
     # פתק על קובץ בריפו ממורר. **זה היה חסר** — הפונקציה הכירה שני סוגי
     # יעד בלבד, ולכן פתק ריפו נפל אל ``/boards`` הכללי: לחיצה על תזכורת

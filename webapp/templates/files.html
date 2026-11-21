@@ -493,7 +493,8 @@
                     </a>
                     {% endif %}
                     <button class="btn btn-secondary btn-icon" style="padding:0.5rem 1rem;" title="הוסף לאוסף" onclick="openAddToCollectionModal('{{ file.file_name|escape }}')">📁+ <span class="btn-text">הוסף לאוסף</span></button>
-                    {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
+                    {# הכלל "יש לקובץ תצוגת דפדפן" — ``is_html_file`` ב-``webapp/html_preview_frame.py``. #}
+                    {% if is_html_file(file.language, file.file_name) %}
                     <a href="/html/{{ file.id }}" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="תצוגת דפדפן">🌐</a>
                     {% endif %}
                     {% if file.language|lower in ['markdown', 'md'] or (file.file_name|lower).endswith('.md') or (file.file_name|lower).endswith('.markdown') %}
