@@ -39,8 +39,9 @@ async def test_log_user_activity_schedules_and_samples(monkeypatch):
     class _JQ:
         def __init__(self):
             self.captured = None
-        def run_once(self, cb, when=0, name=None):
-            self.captured = {"cb": cb, "when": when, "name": name}
+        # החתימה של ``JobQueue.run_once`` ב-python-telegram-bot 22.5.
+        def run_once(self, cb, when=0, data=None, name=None, chat_id=None, user_id=None, job_kwargs=None):
+            self.captured = {"cb": cb, "when": when, "name": name, "chat_id": chat_id, "user_id": user_id}
             return types.SimpleNamespace()
     class _App:
         def __init__(self):
@@ -66,6 +67,9 @@ async def test_log_user_activity_schedules_and_samples(monkeypatch):
         @property
         def effective_user(self):
             return self._eu
+        @property
+        def effective_chat(self):
+            return types.SimpleNamespace(id=4242)
 
     await log_user_activity(_Upd(), ctx)
     # user_stats.log_user called due to sampling
@@ -73,3 +77,7 @@ async def test_log_user_activity_schedules_and_samples(monkeypatch):
     # scheduled a background milestone job
     assert ctx.job_queue.captured is not None
     assert ctx.job_queue.captured["when"] == 0
+    # הג'וב מתוזמן עם המשתמש והצ'אט, כדי שהלוגים שלו יישאו אותם: ג'וב לא יורש את ההקשר של העדכון
+    # (``bind_job_context`` ב-``services/telegram_observability_scope.py``).
+    assert ctx.job_queue.captured["user_id"] == 42
+    assert ctx.job_queue.captured["chat_id"] == 4242

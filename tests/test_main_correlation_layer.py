@@ -33,6 +33,10 @@ async def test_correlation_layer_registers_typehandler(monkeypatch):
             return self
         def get_updates_request(self, *a, **k):
             return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
+            return self
         def build(self):
             return _MiniApp()
 
@@ -90,6 +94,10 @@ async def test_tracing_layer_wraps_process_update(monkeypatch):
             return self
 
         def get_updates_request(self, *a, **k):
+            return self
+        def job_queue(self, *a, **k):
+            return self
+        def application_class(self, *a, **k):
             return self
 
         def build(self):
