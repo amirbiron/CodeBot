@@ -10,20 +10,64 @@
 
 {% block extra_css %}
 <style>
-/* **עמודה: שורת הכלים בגובה הטבעי שלה, והמסגרת בכל מה שנשאר.** עד נובמבר 2026 המסגרת קיבלה ``height: 100%``
-   של המכל, מתחת לשורת הכלים — כלומר גבוהה מהמקום שנשאר לה בגובה השורה, וה-``overflow: hidden`` של המכל חתך את
-   התחתית שלה: סוף הקובץ לא נראה בשום גלילה. ``min-height: 0`` נותן לפריט ה-flex להתכווץ מתחת לגובה התוכן. */
-.preview-container {
-    width: 100%;
-    /* במובייל 100vh + כותרות/כרום גורם לפעמים למסגרת "פצפונת" */
-    height: clamp(360px, 70vh, calc(100vh - 180px));
-    background: rgba(255,255,255,0.05);
-    border-radius: 12px;
-    /* ``clip`` אחרי ``hidden`` — ראו את המשטח למטה. דפדפן שאינו מכיר ``clip`` נשאר עם ``hidden``. */
-    overflow: hidden;
-    overflow: clip;
+/* תצוגת הדפדפן ממלאת את המסך: כשגוללים אליה עד הסוף, בראש המסך נשארת רק שורת הכלים (JS, מסך מלא, חלון חדש),
+   ומסביב — שוליים דקים. הכותרת ושורת קוד/הורד/חזור נשארות מעליה, וגלילה למעלה מחזירה אותן.
+
+   **שוליים ממקור אחד.** ``--html-preview-gutter`` קובע את כל הרווחים סביב התצוגה — בצדדים, מעל הכרטיס, מתחתיו —
+   וגם את חישוב הגובה של הכרטיס. החישוב מניח שמתחת לכרטיס יש בדיוק רווח אחד כזה, ומעליו לפחות אחד, ולכן גם הם
+   נקבעים ממנו: ערך שונה באחד המקומות היה משאיר פס מהשורה שמעל, או גלילה מיותרת. הכללים האלה הם בבלוק
+   ``extra_css`` של העמוד הזה בלבד, כך שהם לא נוגעים בעמודים אחרים — כמו בגלריה (``gallery.html``). */
+.main-content {
+    --html-preview-gutter: 0.5rem;
+    padding-bottom: var(--html-preview-gutter);
+}
+
+/* ``.container`` ב-base.html מגביל את הרוחב ומוסיף ריפוד צד לעמודים רגילים; כאן התצוגה מגיעה כמעט לקצה */
+.main-content > .container {
+    max-width: none;
+    padding-inline: var(--html-preview-gutter);
+}
+
+/* **עמודה: שורת הכלים בגובה הטבעי שלה, ומשטח הפתקים — עם המסגרת שבתוכו — בכל מה שנשאר.** עד נובמבר 2026 המסגרת
+   קיבלה ``height: 100%`` של המכל, מתחת לשורת הכלים — כלומר גבוהה מהמקום שנשאר לה בגובה השורה, וה-``overflow: hidden``
+   של המכל חתך את התחתית שלה: סוף הקובץ לא נראה בשום גלילה. היום ``.html-preview-surface`` (למטה) הוא פריט ה-flex
+   שגדל, עם ``min-height: 0``, והמסגרת ממלאת אותו.
+
+   **בלי ``overflow`` על הכרטיס.** כרטיס בלי ``overflow`` אינו קופסת גלילה, ולכן קוד לא יכול לגלול אותו — אותה הבטחה
+   שבגללה המשטח הוא ``clip`` (ראו שם) — והוא גם לא מסתיר כלום: אם חישוב הגובה יטעה, מה שגולש ייראה, ולא ייעלם בשקט
+   כמו התחתית שנחתכה.
+
+   הבורר כולל את ``.main-content`` ואת ``.glass-card`` כדי לגבור על כללי הכרטיס הכלליים: ``.main-content .glass-card``
+   ב-base.html (שוליים, רוחב, ריפוד צד במסך צר) ו-``[data-theme="dark"] .glass-card`` ב-``dark-mode.css``, שנטען אחרי
+   הבלוק הזה (ריפוד במסך צר). הריפוד שלהם נועד לכרטיסי טקסט, לא למסגרת תצוגה.
+
+   הגובה: ``vh`` קודם כנפילה לדפדפן שאינו מכיר ``dvh``, שמתעלם מההצהרה השנייה. ``vh`` מחושב לפי המסך כשסרגל הדפדפן
+   מקופל, ו-``dvh`` לפי מה שגלוי בפועל (CSS Values 4, 6.1.2.1) — כמו ``.add-to-collection-dialog`` ב-base.html.
+   ``min-height`` שומר על מסגרת שמישה במסך נמוך מאוד (טלפון לרוחב); שם הכרטיס גבוה מהמסך, והעמוד נגלל.
+
+   **פיקסל אחד יותר מעל הכרטיס.** גלילה עד הסוף נעצרת על מספר שלם של פיקסלים, אבל גובה הכותרת שמעל אינו שלם,
+   ולכן הכרטיס נעצר עד פיקסל אחד מעל או מתחת למקום המחושב, ובלי הפיקסל הזה שורת קוד/הורד/חזור הציצה לראש המסך
+   בשבר של פיקסל (נמדד בכרומיום 153, 20.11.2026: ``test_scrolled_to_the_end_the_preview_fills_the_screen`` ב-
+   ``tests/test_html_preview_layout_browser.py`` נכשל בלעדיו בטלפון). כשגוללים עד הסוף הפיקסל הנוסף נמצא מחוץ
+   למסך, והרווח שנראה מעל הכרטיס נשאר רווח אחד. */
+.main-content .preview-container.glass-card {
     display: flex;
     flex-direction: column;
+    gap: var(--html-preview-gutter);
+    box-sizing: border-box;
+    width: auto;
+    height: calc(100vh - 2 * var(--html-preview-gutter));
+    height: calc(100dvh - 2 * var(--html-preview-gutter));
+    min-height: 360px;
+    margin-block: calc(var(--html-preview-gutter) + 1px) 0;
+    margin-inline: 0;
+    padding: var(--html-preview-gutter);
+    border-radius: 12px;
+}
+/* הרקע — כמו קודם, ובכוונה בבורר של מחלקה אחת ולא בכלל שלמעלה: כך כללי הערכה על ``.glass-card`` ב-``dark-mode.css``
+   ממשיכים לגבור עליו, כמו עד היום. */
+.preview-container {
+    background: rgba(255,255,255,0.05);
 }
 /* **בלי ``backdrop-filter`` על הכרטיס שמחזיק את משטח הפתקים.** ``backdrop-filter`` שאינו ``none`` הופך את האלמנט
    למכל של צאצאים ``position: fixed``, ולכן פתק "צמוד למסך" נמדד מראש הכרטיס ולא מראש המסך: נמדד בכרומיום
@@ -34,21 +78,38 @@
 }
 .preview-toolbar {
     display: flex;
-    gap: .5rem;
-    padding: .5rem;
-    align-items: center;
+    flex: none;
     flex-wrap: wrap;
-    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.5rem;
+}
+.preview-js-toggle {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+.preview-js-note {
+    opacity: 0.8;
+}
+/* שני הכפתורים יחד, בקצה השורה — גם כשהשורה נשברת בטלפון הם לא נפרדים */
+.preview-toolbar-buttons {
+    display: flex;
+    gap: 0.5rem;
+    margin-inline-start: auto;
+}
+/* קטנים מ-``.btn`` הרגיל של base.html: כאן הם כלים בשורה צפופה, לא כפתורי פעולה */
+.preview-toolbar .btn {
+    padding: 0.4rem 0.75rem;
 }
 /* **המשטח של הפתקים: המסגרת והפתקים שמעליה** (``html-preview-notes.js``). ``position: relative`` — פתק
    ``absolute`` נמדד ממנו. החיתוך — פתק שנגלל עם התוכן אל מעבר לקצה נחתך בקצה המסגרת, כמו התוכן עצמו.
 
-   **``clip`` ולא רק ``hidden``: המשטח והכרטיס שסביבו אינם נגללים לעולם** — הגלילה היא בתוך המסגרת. קופסה עם
-   ``hidden`` היא עדיין גולל, וקוד יכול לגלול אותה (``scrollIntoView``, מיקוד של שדה); ``clip`` אינה גולל בכלל (MDN,
-   ``overflow``: "programmatic scrolling is not supported"). עד נובמבר 2026 קישור לפתק עמוק (``?note=``) גלל את המשטח
-   עצמו: נמדד בכרומיום — המשטח נגלל ב-1360 פיקסלים, והמסגרת כולה יצאה מהמסך (ראשה ב-1091-), בלי דרך לגלול
-   אותה בחזרה. את הגלילה אל הפתק עושה עכשיו המנהל בתוך המסגרת (``scrollToNote``); ``clip`` מבטיח שגם מסלול אחר לא
-   יזיז את המשטח. ``hidden`` נשאר לפניו לדפדפן שאינו מכיר את ``clip``. */
+   **``clip`` ולא רק ``hidden``: המשטח אינו נגלל לעולם** — הגלילה היא בתוך המסגרת. קופסה עם ``hidden`` היא עדיין גולל,
+   וקוד יכול לגלול אותה (``scrollIntoView``, מיקוד של שדה); ``clip`` אינה גולל בכלל (MDN, ``overflow``: "programmatic
+   scrolling is not supported"). עד נובמבר 2026 קישור לפתק עמוק (``?note=``) גלל את המשטח עצמו: נמדד בכרומיום —
+   המשטח נגלל ב-1360 פיקסלים, והמסגרת כולה יצאה מהמסך (ראשה ב-1091-), בלי דרך לגלול אותה בחזרה. את הגלילה אל הפתק
+   עושה עכשיו המנהל בתוך המסגרת (``scrollToNote``); ``clip`` מבטיח שגם מסלול אחר לא יזיז את המשטח. ``hidden`` נשאר
+   לפניו לדפדפן שאינו מכיר את ``clip``. הכרטיס שסביבו אינו גולל מסיבה אחרת: אין לו ``overflow`` בכלל (למעלה). */
 .html-preview-surface {
     position: relative;
     flex: 1 1 auto;
@@ -78,9 +139,6 @@
 .bookmarks-toggle-btn,
 .bookmarks-panel {
     display: none !important;
-}
-@media (max-width: 768px) {
-    .preview-container { height: clamp(360px, 70vh, calc(100vh - 220px)); }
 }
 
 @media (max-width: 480px) {
@@ -124,19 +182,21 @@
 
 <div class="glass-card preview-container">
     <div class="preview-toolbar">
-        <label style="display:flex; gap:.5rem; align-items:center;">
+        <label class="preview-js-toggle">
             <input id="toggleJs" type="checkbox"> אפשר JS (מוגבל)
         </label>
-        <small style="opacity:.8;">JS ללא <code>connect</code>/<code>form</code>, sandbox פעיל</small>
-        <button id="btnFullscreen" class="btn btn-secondary btn-icon" style="margin-inline-start:auto;">
-            <i class="fas fa-expand" aria-hidden="true"></i>
-            <span class="btn-text">מסך מלא</span>
-        </button>
-        {# "חלון חדש" — הקובץ כמו שהוא, בלי מדווח הגלילה ובלי סקריפטים (``webapp/html_preview_frame.py``). #}
-        <a id="btnNewWindow" href="{{ frame.new_window_src }}" target="_blank" rel="noopener" class="btn btn-secondary btn-icon">
-            <i class="fas fa-external-link-alt" aria-hidden="true"></i>
-            <span class="btn-text">חלון חדש</span>
-        </a>
+        <small class="preview-js-note">JS ללא <code>connect</code>/<code>form</code>, sandbox פעיל</small>
+        <div class="preview-toolbar-buttons">
+            <button id="btnFullscreen" class="btn btn-secondary btn-icon">
+                <i class="fas fa-expand" aria-hidden="true"></i>
+                <span class="btn-text">מסך מלא</span>
+            </button>
+            {# "חלון חדש" — הקובץ כמו שהוא, בלי מדווח הגלילה ובלי סקריפטים (``webapp/html_preview_frame.py``). #}
+            <a id="btnNewWindow" href="{{ frame.new_window_src }}" target="_blank" rel="noopener" class="btn btn-secondary btn-icon">
+                <i class="fas fa-external-link-alt" aria-hidden="true"></i>
+                <span class="btn-text">חלון חדש</span>
+            </a>
+        </div>
     </div>
     {# המשטח של הפתקים — ``html-preview-notes.js``. ה-``type`` של הודעות המדווח מגיע מהשרת. #}
     <div id="htmlPreviewSurface"
