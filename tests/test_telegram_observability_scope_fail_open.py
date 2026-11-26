@@ -70,9 +70,15 @@ async def test_an_update_is_still_processed_without_observability(observability_
 
 @pytest.mark.asyncio
 async def test_with_observability_the_job_and_the_update_run_in_their_own_context(recorded_base_process_update):
-    """המצב התקין, באותה דרך: עם ``observability`` שני העוטפים כורכים הקשר משלהם — ולא נשארים אחריהם."""
+    """המצב התקין, באותה דרך: עם ``observability`` שני העוטפים כורכים הקשר משלהם — ומחזירים אחריהם את מה שהיה.
+
+    ההשוואה היא ל-``before`` ולא להקשר ריק: ההקשר שהטסט מתחיל בו אינו בהכרח ריק. ``_correlation_bind`` ב-
+    ``webapp/app.py`` כורך ``request_id``, ``user_id`` ו-``queue_delay`` בכל בקשה בלי לנקות — בפרודקשן כל בקשה היא גרינלט
+    שמתחיל בהקשר ריק, אבל ה-test client של Flask רץ בהקשר הראשי, ומה שנכרך שם נשאר לטסטים שאחריו באותו worker.
+    """
     ran: list = []
     structlog.contextvars.bind_contextvars(command="bot:previous_update")
+    before = dict(structlog.contextvars.get_contextvars())
     try:
         await scope.IsolatedJobQueue.job_callback(types.SimpleNamespace(application=object()), _Job(ran))
         await scope.IsolatedUpdateApplication().process_update(object())
@@ -85,4 +91,8 @@ async def test_with_observability_the_job_and_the_update_run_in_their_own_contex
     (update_context,) = recorded_base_process_update
     assert "command" not in update_context and update_context.get("request_id"), update_context
     assert update_context["request_id"] != job_context["request_id"]
-    assert after == {"command": "bot:previous_update"}, after
+    # היחידות לא השאירו דבר מעצמן, ולא מחקו דבר ממה שהיה לפניהן.
+    assert after == before, (before, after)
+    # ומה שהיה לפניהן לא דלף פנימה — לא ה-command של "העדכון הקודם", ולא מה שטסטים קודמים השאירו.
+    leaked = {key: value for key, value in before.items() if job_context.get(key) == value or update_context.get(key) == value}
+    assert leaked == {}, leaked
