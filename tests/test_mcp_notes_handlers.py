@@ -382,11 +382,20 @@ def test_notes_scope_filter_without_clauses_matches_nothing():
     assert _notes_scope_filter(42, None, []) == {"user_id": 42, "_id": {"$in": []}}
 
 
+#: הצורה של כל תשובה שמחזירה פתק בודד או רשימה עם גופים — ``backend._as_note`` עם הארגומנטים
+#: של המסלול. ``READ``: ``codekeeper_get_note`` והרשימות (היעד מחוץ ל-``note``); ``WRITE``: תשובת
+#: כתיבה לסוכן (בלי הגוף, היעד בתוך ``note``). הבדיקות דרך הכלים — ``tests/test_mcp_note_answer_shape.py``.
+READ = {"body": True, "target_inside": False}
+WRITE = {"body": False, "target_inside": True}
+
+
 def test_as_note_serialization():
+    """פתק קובץ בצורה המלאה: מה שחוזר, ולא יותר — כתוב ביד ולא נגזר מ-``_NOTE_FIELDS``."""
     import datetime as dt
 
     doc = {
         "_id": "OID",
+        "file_id": "f" * 24,
         "content": "a &quot;b&quot;",
         "color": "#FFFFCC",
         "line_start": 3,
@@ -396,89 +405,78 @@ def test_as_note_serialization():
         "updated_at": dt.datetime(2026, 1, 2, tzinfo=dt.timezone.utc),
         "position_x": 120,  # שדה ויזואלי — לא נחשף
     }
-    out = _as_note(doc)
+    out = _as_note(doc, **READ)
     assert out["id"] == "OID"
     assert out["content"] == "a &quot;b&quot;"  # כמו שהוא שמור; עד אוקטובר 2026 פוענח
     assert out["line_start"] == 3
     assert out["created_at"].startswith("2026-01-01")
     assert out["updated_at"].startswith("2026-01-02")
-    assert "position_x" not in out
     assert set(out) == {
         "id",
         "content",
-        # ``color`` הוא ``hex`` מחושב, ולצידו המזהה — ראו
-        # ``test_as_note_gives_the_agent_one_shape_for_a_colour``.
-        "color",
+        # צבע שבפלטה חוזר כמזהה שלו בלבד — ראו ``test_as_note_gives_the_agent_one_shape_for_a_colour``.
         "color_id",
+        # עיגון לקובץ, בפתק קובץ — גם ``anchor_text: null``: השדה רלוונטי לסוג, והערך ריק.
         "line_start",
         "anchor_text",
-        "is_minimized",
-        # פתק לוח חייב לומר איפה הוא יושב. בפתק קובץ שניהם ריקים.
-        "board_id",
-        "mode",
-        # שם הפתק — תווית שמזהה אותו בתוך הלוח
-        "title",
-        # יעד הריפו, משני חצאיו. ``update_note`` מחזיר ``_as_note``, ובלי
-        # שניהם עדכון פתק ריפו מדווח על פתק בלי שום יעד.
-        "repo_name",
-        "repo_path",
-        # יעד הארכיון: פתק בארכיון אינו נושא אף שדה יעד אחר, ובלעדיו הוא היה נראה
-        # כפתק שאינו יושב בשום מקום. ``None`` בכל פתק אחר.
-        "archived_at",
-        # נעיצה לראש עמוד הקבצים — אינה יעד, אבל עוד מקום שבו הפתק נראה. ``None`` בפתק שאינו נעוץ.
-        "files_page_pinned_at",
         "created_at",
         "updated_at",
     }
+    assert out["anchor_text"] is None
+    # בלי מצב ממשק (``is_minimized`` לא נשלח), בלי שם (אין), בלי שדות של לוח או ריפו, ובלי
+    # ארכיון ונעיצה ריקים.
 
 
 def test_as_note_gives_the_agent_one_shape_for_a_colour():
-    """**אותו צבע, אותה תשובה — בלי קשר אם המיגרציה כבר רצה על הפתק.**
+    """**אותו צבע, אותה תשובה — פעם אחת, ובלי קשר אם המיגרציה כבר רצה על הפתק.**
 
-    ``_as_note`` העתיק את ``color`` ישירות מהמסמך, ולכן אחרי המעבר לפלטה
-    סוכן שקרא שני פתקים **באותו צבע בדיוק** קיבל שני ערכים שונים:
-    ``"yellow"`` מפתק שיושר, ו-``"#FFFFCC"`` מפתק שלא. זה גרוע מחוזה
-    שהשתנה — זה חוזה שאינו עקבי עם עצמו, ואין לסוכן דרך לדעת זאת.
-
-    התיקון זהה לחוזה שכבר קיים ב-``webapp/sticky_notes_api._as_note_response``:
-    ``color`` הוא **תמיד ``hex``** — כי זה מה שהיה שם מאז ומתמיד ומה
-    שסוכן קיים מצפה לו — ו-``color_id`` הוא המזהה, או ``""`` לצבע שאינו
-    בפלטה.
-
-    נופלת אם ``color`` יחזור להיות מועתק גולמי מהמסמך.
+    במסד יושב מזהה מהפלטה (``yellow``) או ``hex`` legacy, ושתי הצורות חיות זו לצד זו. עד אוקטובר
+    2026 ``color`` הועתק גולמי, וסוכן שקרא שני פתקים באותו צבע קיבל שני ערכים שונים. אחר כך חזרו
+    שניהם — ``color`` ב-``hex`` ו-``color_id`` — שהם אותה עובדה פעמיים. היום: ``color_id`` כשהצבע
+    בפלטה, ואחרת ``color`` (``hex``); ובתשובות שהתצוגה בתוך Claude קוראת — ``color`` ב-``hex`` תמיד.
     """
-    same_colour_two_ways = [_as_note({"_id": "x", "color": raw}) for raw in ("yellow", "#FFFFCC")]
-    assert [n["color"] for n in same_colour_two_ways] == ["#ffffcc", "#ffffcc"]
-    assert [n["color_id"] for n in same_colour_two_ways] == ["yellow", "yellow"]
+    same_colour_two_ways = [_as_note({"_id": "x", "color": raw}, **READ) for raw in ("yellow", "#FFFFCC")]
+    assert [n.get("color_id") for n in same_colour_two_ways] == ["yellow", "yellow"]
+    assert all("color" not in n for n in same_colour_two_ways), same_colour_two_ways
 
-    # צבע שאינו בפלטה ממשיך להיראות כפי שנראה, ו-``color_id`` ריק —
-    # שאינו כשל אלא התשובה הנכונה ל"הצבע הזה אינו בפלטה".
-    legacy = _as_note({"_id": "x", "color": "#AABBCC"})
-    assert legacy["color"] == "#aabbcc"
-    assert legacy["color_id"] == ""
+    # צבע שאינו בפלטה ממשיך להיראות כפי שנראה — ב-``hex``, ובלי ``color_id`` ריק לצידו.
+    legacy = _as_note({"_id": "x", "color": "#AABBCC"}, **READ)
+    assert legacy["color"] == "#aabbcc" and "color_id" not in legacy
 
-    # ומסמך בלי ``color`` כלל אינו מחזיר ``None`` לשדה שמוצהר כ-``hex``.
-    assert _as_note({"_id": "x"})["color"] == "#ffffcc"
+    # מסמך בלי ``color`` כלל נצבע בגוון ברירת המחדל, ולא ``None`` לשדה שמוצהר כ-``hex``.
+    assert _as_note({"_id": "x"}, **READ)["color"] == "#ffffcc"
 
-
-def test_as_note_reports_where_a_board_note_sits():
-    """``board_id`` ו-``mode`` אינם קישוט — בלעדיהם הפלט לא אומר כלום על מיקום.
-
-    בלי הבדיקה הזו, הרחבת הקבוצה הסגורה למעלה הייתה חותמת גומי: היא הייתה
-    עוברת גם אם השדות תמיד ריקים.
-    """
-    out = _as_note({"_id": "OID", "content": "x", "board_id": "b1", "mode": "screen"})
-
-    assert out["board_id"] == "b1"
-    assert out["mode"] == "screen"
+    # התצוגה בתוך Claude צובעת לפי ``color``: שם ``hex`` גם לצבע שבפלטה, ורק הוא.
+    for_view = _as_note({"_id": "x", "color": "yellow"}, **READ, color_hex=True)
+    assert for_view["color"] == "#ffffcc" and "color_id" not in for_view
 
 
-def test_as_note_leaves_board_fields_empty_for_a_file_note():
-    """מסלול הקובץ לא משתנה — שני השדות ריקים ואינם ממציאים לוח."""
-    out = _as_note({"_id": "OID", "content": "x", "file_id": "f1", "line_start": 5})
+def test_as_note_reports_where_a_board_note_sits_once():
+    """``board_id`` אינו קישוט — בלעדיו תשובת כתיבה לא אומרת כלום על מיקום. אבל הוא חוזר **פעם אחת**:
+    בתשובת כתיבה בתוך ``note``, ובקריאה מחוץ לו (``target`` של ``get_note``, ראש הרשימה)."""
+    doc = {"_id": "OID", "content": "x", "board_id": "b1", "mode": "screen"}
 
-    assert not out["board_id"]
-    assert not out["mode"]
+    assert _as_note(doc, **WRITE)["board_id"] == "b1"
+    assert "board_id" not in _as_note(doc, **READ)
+
+
+def test_ui_state_returns_only_when_the_call_wrote_it():
+    """``mode`` ו-``is_minimized`` הם מצב ממשק: חוזרים רק כשהשדה נשלח בקריאה, כדי שהסוכן יראה שהשינוי
+    נקלט — ולא בכל קריאה."""
+    doc = {"_id": "OID", "content": "x", "board_id": "b1", "mode": "screen", "is_minimized": True}
+
+    quiet = _as_note(doc, **WRITE)
+    assert "mode" not in quiet and "is_minimized" not in quiet and quiet["board_id"] == "b1"
+    loud = _as_note(doc, **WRITE, sent=("mode", "is_minimized"))
+    assert loud["mode"] == "screen" and loud["is_minimized"] is True
+
+
+def test_as_note_carries_no_board_fields_for_a_file_note():
+    """פתק קובץ אינו נושא את השדות של לוח וריפו כלל — לא כ-``null`` ולא ריקים — ונושא את העיגון שלו."""
+    out = _as_note({"_id": "OID", "content": "x", "file_id": "f1", "line_start": 5}, **WRITE)
+
+    assert out["line_start"] == 5
+    assert not {"board_id", "mode", "repo_name", "repo_path"} & set(out), out
 
 
 # ---------- לוחות פתקים ----------
@@ -505,8 +503,10 @@ class _BoardsBackend:
         self.include_content = include_content
         return {"ok": True, "board_id": board_id, "count": 0, "notes": []}
 
-    def create_board_note(self, user_id, *, board_id, content, color, mode, title=""):
+    def create_board_note(self, user_id, *, board_id, content, color, mode, title="", mode_sent=False):
+        # ``mode_sent`` נרשם בצד — הדמה הורחבה ולא עוקפה, וצורת הטאפל שהטסטים מפרקים לא זזה.
         self.calls.append(("create_board_note", user_id, board_id, content, color, mode, title))
+        self.mode_sent = mode_sent
         return {"ok": True, "note": {"id": "n1", "board_id": board_id, "mode": mode}}
 
 
@@ -604,6 +604,11 @@ def test_create_board_note_normalizes_color_and_mode():
     assert content == "שלום"
     assert color == _h.DEFAULT_NOTE_COLOR, "בלי בקשת צבע — ברירת המחדל, כמו ביצירת פתק קובץ"
     assert mode == "surface", "ברירת המחדל בלוח"
+    # הסוכן לא בחר ``mode``, ולכן התשובה לא תחזיר אותו (מצב ממשק חוזר רק כשהקריאה קבעה אותו).
+    assert b.mode_sent is False
+
+    _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="שלום", mode="SCREEN")
+    assert b.calls[-1][5] == "screen" and b.mode_sent is True
 
 
 # ---------- מכונת המצבים של אינדקס השם ב-MCP ----------
@@ -777,19 +782,25 @@ def test_create_board_note_falls_back_to_a_code_check_without_the_index(monkeypa
 
 
 def test_as_note_carries_a_repo_targets_two_halves():
-    """**הרחבת הקבוצה הסגורה אינה חותמת גומי.**
+    """תשובת כתיבה של פתק ריפו נושאת את **שני** חצאי היעד, עם הערכים של הפתק — בלעדיהם עדכון היה
+    מדווח על פתק שאינו יושב בשום מקום. בקריאה הם מחוץ ל-``note``, ליד ``target``.
 
-    האסרשן שמעל בודק רק ששני המפתחות *קיימים* — והוא היה עובר גם אילו הם
-    תמיד ``None``, כלומר גם אילו ``_as_note`` לא היה קורא אותם מהמסמך
-    בכלל. כאן נבדק שהם נושאים את הערך של הפתק.
-
-    נופל אם ``repo_name``/``repo_path`` יוסרו מ-``_NOTE_FIELDS``, וגם אם
-    יוחזרו ריקים.
+    נופל אם ``repo_name``/``repo_path`` יוסרו מ-``_NOTE_FIELDS``, וגם אם יוחזרו ריקים.
     """
-    out = _as_note({"_id": "OID", "repo_name": "CodeBot", "repo_path": "webapp/app.py"})
+    doc = {"_id": "OID", "repo_name": "CodeBot", "repo_path": "webapp/app.py"}
+    out = _as_note(doc, **WRITE)
 
     assert out["repo_name"] == "CodeBot"
     assert out["repo_path"] == "webapp/app.py"
+    assert not {"repo_name", "repo_path"} & set(_as_note(doc, **READ))
+
+
+def test_a_half_repo_target_keeps_its_fields_inside_the_note():
+    """פתק שהיעד שלו אינו חוקי (חצי ריפו — ``target: "unknown"``) מחזיר את שדות היעד שיש בהם ערך בתוך
+    ``note`` גם בקריאה: ``note_target_ref`` שלו אינו נושא שדות, ושער פתקי הריפו נסגר עליו לפיהם."""
+    out = _as_note({"_id": "OID", "repo_name": "CodeBot"}, **READ)
+
+    assert out["repo_name"] == "CodeBot" and "repo_path" not in out
 
 
 # ==========================================================================
@@ -837,10 +848,11 @@ class _RepoNotesBackend:
         self.calls.append(("list", user_id, {"repo_name": repo_name, "repo_path": repo_path}))
         return {"ok": True, "repo_name": repo_name, "repo_path": repo_path, "notes": []}
 
-    def create_repo_note(self, user_id, *, repo_name, repo_path, content, color, mode, title=""):
+    def create_repo_note(self, user_id, *, repo_name, repo_path, content, color, mode, title="",
+                         mode_sent=False):
         self.calls.append(("create", user_id, {
             "repo_name": repo_name, "repo_path": repo_path, "content": content,
-            "color": color, "mode": mode, "title": title,
+            "color": color, "mode": mode, "title": title, "mode_sent": mode_sent,
         }))
         return {"ok": True, "note": {"id": "n1", "repo_name": repo_name, "repo_path": repo_path}}
 
@@ -2327,7 +2339,8 @@ def test_the_read_edit_loop_keeps_entities_exactly_as_typed():
     assert res["ok"] is True and res["replacements"] == 1, res
     assert coll.inserted[0]["content"] == expected      # המצב, לא ערך ההחזרה
     assert res["content_changed"] is False
-    assert res["note"]["content"] == expected
+    # תשובת הכתיבה בלי הגוף: ה-hash מאמת אותה, והגוף נקרא בחזרה למטה.
+    assert "content" not in res["note"]
     assert res["note"]["content_sha256"] == hashlib.sha256(expected.encode("utf-8")).hexdigest()
 
     after = handlers.get_note(b, 7, note_id=_NOTE_OID, is_admin=False)
@@ -2457,8 +2470,10 @@ def test_a_create_answers_from_the_read_back_with_the_hash_of_the_stored_body(mo
     assert res["ok"] is True and res["content_changed"] is False, res
     assert "content_diff" not in res
     assert coll.inserted[0]["content"] == sent
-    assert res["note"]["content"] == sent
+    # בלי הגוף, ועם ה-hash של מה שבאוסף ועם המקום שבו הפתק יושב (``_note_write_answer``).
+    assert "content" not in res["note"]
     assert res["note"]["content_sha256"] == _sha(sent)
+    assert res["note"]["board_id"] == "b1"
     assert res["note"]["id"] == str(coll.inserted[0]["_id"])
     assert coll.read_preferences == [ReadPreference.PRIMARY]
 
@@ -2480,7 +2495,8 @@ def test_a_layer_that_changes_the_body_on_create_is_reported_not_echoed(monkeypa
     stored = coll.inserted[0]["content"]
     assert stored == "a & b"
     assert res["ok"] is True and res["content_changed"] is True, res
-    assert res["note"]["content"] == stored
+    # גם כשמה שנשמר שונה הגוף אינו חוזר: ``content_diff`` אומר איפה, וה-hash הוא של מה שנשמר.
+    assert "content" not in res["note"]
     assert res["note"]["content_sha256"] == _sha(stored)
     diff = res["content_diff"]
     assert (diff["line"], diff["offset_bytes"], diff["intended_bytes"], diff["stored_bytes"]) == (1, 3, 4, 0)
@@ -2551,7 +2567,8 @@ def test_an_update_answers_from_the_document_the_write_returned(monkeypatch):
 
     assert coll.inserted[0]["content"] == "the web app's body"  # הכתיבה המאוחרת נחתה
     assert res["ok"] is True and res["content_changed"] is False, res
-    assert res["note"]["content"] == "new &amp; body"
+    # ה-hash הוא של הגוף שהכתיבה **הזו** השאירה, ולא של הגוף של הוובאפ. הגוף עצמו אינו בתשובה.
+    assert "content" not in res["note"]
     assert res["note"]["content_sha256"] == _sha("new &amp; body")
 
 
@@ -2564,7 +2581,7 @@ def test_a_layer_that_changes_the_body_on_update_is_reported(monkeypatch):
 
     assert coll.inserted[0]["content"] == "x <y>"
     assert res["ok"] is True and res["content_changed"] is True, res
-    assert res["note"]["content"] == "x <y>"
+    assert "content" not in res["note"]
     assert res["note"]["content_sha256"] == _sha("x <y>")
     assert res["content_diff"]["offset_bytes"] == 2
 

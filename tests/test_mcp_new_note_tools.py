@@ -47,10 +47,14 @@ class _Recorder:
             "content_query": content_query, "include_archived": include_archived,
         })
 
-    def get_note(self, user_id, *, note_id, with_version=False):
+    # ``for_note_view`` — הדמה הורחבה ולא עוקפה: הוא נרשם בצד (``views``), כך שצורת הרשומות
+    # שהטסטים הישנים משווים לא זזה, וטסט שבודק את הבחירה של ה-handler קורא אותו משם.
+    def get_note(self, user_id, *, note_id, with_version=False, for_note_view=False):
+        self.views = getattr(self, "views", []) + [("get_note", for_note_view)]
         return self._record("get_note", user_id, {"note_id": note_id, "with_version": with_version})
 
-    def update_note(self, user_id, *, note_id, fields, expected_content=None):
+    def update_note(self, user_id, *, note_id, fields, expected_content=None, for_note_view=False):
+        self.views = getattr(self, "views", []) + [("update_note", for_note_view)]
         return self._record("update_note", user_id, {
             "note_id": note_id, "fields": dict(fields), "expected_content": expected_content,
         })

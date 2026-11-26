@@ -320,9 +320,10 @@ def _build_note_color_doc() -> str:
     names = ", ".join(NOTE_COLOR_ORDER)
     return (
         "Note colour: a palette id (" + names + ") or any CSS hex. A hex that "
-        "matches a palette shade is stored as its id. Notes read back carry "
-        "color (hex) and color_id (palette id, or empty). An invalid value is "
-        "refused with the list of valid ids."
+        "matches a palette shade is stored as its id. A note read back carries "
+        "its colour once: color_id for a palette colour, otherwise color (hex); "
+        "rows without bodies (include_content=false) carry both. An invalid value "
+        "is refused with the list of valid ids."
     )
 
 
@@ -373,8 +374,7 @@ _SHOW_NOTE_QUERY_DOC = (
 _LEAN_NOTE_FIELDS_DOC = ", ".join(LEAN_NOTE_FIELDS)
 
 _INCLUDE_CONTENT_PARAM_DOC = (
-    "true, the default, returns every note with its content — exactly what the "
-    "tool returned before this parameter existed. false returns each note without "
+    "true, the default, returns every note with its content. false returns each note without "
     "its body: only " + _LEAN_NOTE_FIELDS_DOC + ". content_bytes is the size of the "
     "stored body in UTF-8 BYTES (a Hebrew note is about twice its character count), "
     "which is exactly the size of the content codekeeper_get_note returns for it. "
@@ -638,10 +638,12 @@ _WRITE_SHA256_DOC = (
 )
 
 # אותו חוזה בכלי הפתקים (``_note_write_answer`` ב-``backend.py``): משפט אחד לכל כלי
-# שכותב גוף של פתק, ומשפט אחד ל-``codekeeper_get_note``. ה-hash הוא של מה שנשמר:
+# שכותב גוף של פתק, ומשפט אחד ל-``codekeeper_get_note``. התשובה בלי הגוף, כמו ``file`` בקבצים —
+# הגוף נקרא ב-``codekeeper_get_note`` (החריג, ``codekeeper_note_view_save``, אינו נושא את המשפט). ה-hash הוא של מה שנשמר:
 # בעדכון — מהמסמך שהכתיבה עצמה החזירה; ביצירה — מקריאה חוזרת לפי ה-``_id``, ולכן
 # רק שם יש ``null``. ההסבר המלא ב-``docs/mcp-server-state.rst`` (``mcp-content-sha256``).
 _NOTE_WRITE_SHA256_DOC = (
+    " The answer carries the note without its body (codekeeper_get_note reads it)."
     " note.content_sha256 is the SHA-256 hex of the exact UTF-8 bytes of the body as "
     "stored: " + _CONTENT_SHA256_CHECK + ". When the call wrote a body, content_changed "
     "is true if the stored body differs from what this tool meant to save (content_diff "
@@ -3637,8 +3639,8 @@ def build_mcp(
         name="codekeeper_list_notes",
         description=(
             "List the user's sticky notes attached to a file (by file_name): content, "
-            "color (hex) and color_id (palette id, or empty when not in the "
-            "palette), anchored line, timestamps. Same notes shown in the web UI. "
+            "the colour (color_id, or color as hex outside the palette), anchored line "
+            "(line_start, null when the note floats), timestamps. Same notes shown in the web UI. "
             "include_content=false lists them without their bodies (with the size of "
             "each), and codekeeper_get_note reads one note by its id. A full listing "
             "too big for one reply is refused (answer_too_large) with that hint."
@@ -3994,8 +3996,8 @@ def build_mcp(
             "Read ONE sticky note by note_id — the id every note carries in "
             "codekeeper_list_notes, codekeeper_list_board_notes and codekeeper_search_notes. "
             "Use it instead of listing a whole board or file, which can exceed what a client "
-            "shows; one note is bounded. The reply carries the note (content, title, color, "
-            "color_id, timestamps); version — the number of the CURRENT body (null for an "
+            "shows; one note is bounded. The reply carries the note (content, title, its colour "
+            "once — color_id, or color as hex — timestamps); version — the number of the CURRENT body (null for an "
             "empty body), which codekeeper_get_note_version reads back by that number once "
             "the body has been overwritten through this server (a web-app edit is not kept in "
             "history); and where the note sits, in exactly the arguments the matching list "
@@ -4044,8 +4046,8 @@ def build_mcp(
             "body, in a view that hosts supporting MCP Apps render next to your reply. Use it "
             "when the user asks to see or open a note, or to show a note after you changed it. "
             "To read a note for yourself, to edit it, or to see its comment threads, use "
-            "codekeeper_get_note: this tool returns the same note (content, title, color, where "
-            "it sits) without threads or version, so a client that shows no view still gets the "
+            "codekeeper_get_note: this tool returns the same note (content, title, color as hex, "
+            "where it sits) without threads or version, so a client that shows no view still gets the "
             "full text. A note you do not own answers not_found, and so does a note on a "
             "mirrored repository unless you are the admin. When you explain a specific part of a "
             "note, show it again with section= or query=: the earlier view has scrolled away, and "
@@ -4118,7 +4120,8 @@ def build_mcp(
             f"{note_threads.MAX_COMMENTS_PER_THREAD} comments (then thread_full) and a bounded "
             "total size (then thread_too_long): continue in a new thread. Requires write "
             "permission. The answer is read back from the database: comment.body_sha256 is the "
-            "SHA-256 hex of the stored body's UTF-8 bytes (null when it could not be read back). "
+            "SHA-256 hex of the stored body's UTF-8 bytes (null when it could not be read back), "
+            "and author.client is the name you are shown under (null: an unnamed agent). "
             # המשפט המשותף לכל כלי שכותב קובץ או גוף — ההערה מעל ``_WRITE_HASH_SCOPE_DOC``.
             + _WRITE_HASH_SCOPE_DOC
         ),
