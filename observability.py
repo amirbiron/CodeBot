@@ -644,7 +644,11 @@ def _fresh_sentry_isolation_scope() -> ContextManager[Any]:
 
 @contextlib.contextmanager
 def isolated_observability_scope() -> Iterator[None]:
-    """מריץ יחידת עבודה אחת — עדכון של הבוט, ריצה של ג'וב, בקשה לשרת הפנימי — בהקשר משלה, שמתחיל ריק.
+    """מריץ יחידת עבודה אחת — עדכון של הבוט או ריצה של ג'וב — בהקשר משלה, שמתחיל ריק.
+
+    השרת הפנימי לא עובר כאן: הוא עולה בהקשר ריק (``start_site_in_empty_context`` ב-``services/webserver.py``), aiohttp
+    פותח כל בקשה במשימה משלה מתוך ההקשר הזה, ואת ה-scope של בקשה ב-Sentry פותח ``AioHttpIntegration``. scope חדש שהיה
+    נפתח כאן היה מחליף את שלו — יחד עם פרטי ה-HTTP שהוא מצרף לאירוע, ועם האירוע עצמו כשהחריגה לא יוצאת אליו.
 
     שני דברים בתהליך של הבוט הם הקשר משותף בלי שזה נראה: ה-contextvars של structlog (``request_id``, ``user_id``,
     ``chat_id``, ``command``), ותגיות ה-scope של Sentry ש-``bind_request_id``, ``bind_user_context`` ו-``bind_command``

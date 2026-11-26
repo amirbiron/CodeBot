@@ -6148,7 +6148,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     enable_internal_web = str(os.getenv('ENABLE_INTERNAL_SHARE_WEB', 'false')).lower() == 'true'
     if enable_internal_web:
         try:
-            from services.webserver import create_app
+            from services.webserver import create_app, start_site_in_empty_context
             aiohttp_app = create_app()
             async def _start_web_job(context: ContextTypes.DEFAULT_TYPE):
                 # Jobs Monitor trigger support: שמור reference ל-Application בתוך aiohttp app
@@ -6160,7 +6160,8 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 await runner.setup()
                 port = int(os.getenv("PORT", "10000"))
                 site = web.TCPSite(runner, host="0.0.0.0", port=port)
-                await site.start()
+                # בהקשר ריק ולא בהקשר של הג'וב הזה: כל בקשה לשרת יורשת את ההקשר שבו הוא התחיל להאזין.
+                await start_site_in_empty_context(site)
                 logger.info(f"🌐 Internal web server started on :{port}")
                 try:
                     try:

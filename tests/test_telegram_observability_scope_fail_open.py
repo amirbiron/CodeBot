@@ -94,5 +94,10 @@ async def test_with_observability_the_job_and_the_update_run_in_their_own_contex
     # היחידות לא השאירו דבר מעצמן, ולא מחקו דבר ממה שהיה לפניהן.
     assert after == before, (before, after)
     # ומה שהיה לפניהן לא דלף פנימה — לא ה-command של "העדכון הקודם", ולא מה שטסטים קודמים השאירו.
-    leaked = {key: value for key, value in before.items() if job_context.get(key) == value or update_context.get(key) == value}
+    # קודם ``in`` ואז השוואה: מפתח שחסר בפנים אינו דליפה גם כשהערך שלו לפני היה ``None``, ודליפה של ``None`` עדיין נתפסת.
+    leaked = {
+        key: value
+        for key, value in before.items()
+        if any(key in inner and inner[key] == value for inner in (job_context, update_context))
+    }
     assert leaked == {}, leaked

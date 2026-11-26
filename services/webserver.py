@@ -1,6 +1,6 @@
 import asyncio
 import atexit
-import contextlib
+import contextvars
 import logging
 import os
 import secrets
@@ -53,14 +53,12 @@ from services.db_health_service import (
 from services.sentry_utils import first_int
 try:
     # Correlation for web requests
-    from observability import generate_request_id, bind_request_id, isolated_observability_scope  # type: ignore
+    from observability import generate_request_id, bind_request_id  # type: ignore
 except Exception:  # pragma: no cover
     def generate_request_id():  # type: ignore
         return ""
     def bind_request_id(_rid: str) -> None:  # type: ignore
         return None
-    def isolated_observability_scope():  # type: ignore
-        return contextlib.nullcontext()
 try:
     from metrics import (
         metrics_endpoint_bytes,
@@ -552,6 +550,24 @@ def _should_emit_sentry_alert(dedup_key: str) -> bool:
     return True
 
 
+async def start_site_in_empty_context(site: web.BaseSite) -> None:
+    """מעלה את השרת בהקשר ריק, כך שכל בקשה מתחילה בלי הקשר לוגים ובלי scope של Sentry ממי שהעלה אותו.
+
+    aiohttp פותח משימה לכל בקשה (``RequestHandler.start``, aiohttp 3.13.1), והיא יורשת את ההקשר שבו השרת התחיל להאזין:
+    ``loop.create_server`` שבתוך ``site.start()`` רושם את קבלת החיבורים ב-``Handle`` שמעתיק את ההקשר הנוכחי. ב-``main.py``
+    השרת עולה מתוך ג'וב (``_start_web_job``), והג'וב רץ ב-``isolated_observability_scope`` עם ``command=job:_start_web_job``
+    ו-scope משלו ב-Sentry. בלי הקשר ריק כל בקשה הייתה יורשת את שניהם — את ה-``command`` בלוגים, ואת התגיות ב-scope ש-
+    ``AioHttpIntegration`` של Sentry מעתיק לכל בקשה (``isolation_scope()`` ב-``sentry_app_handle``, sentry-sdk 2.42.1; היא
+    נדלקת לבד כש-aiohttp מותקן, ו-``init_sentry`` לא מכבה אינטגרציות כאלה). בהקשר ריק ה-scope של כל בקשה נוצר חדש,
+    ``_request_id_mw`` כורך בו את ה-``request_id``, וחריגה של handler נתפסת ב-``AioHttpIntegration`` בתוך ה-scope הזה,
+    פעם אחת: האינטגרציה משתיקה את הלוג ``aiohttp.server`` (``ignore_logger``), שבו aiohttp רושם את אותה חריגה.
+
+    ``context=`` של ``asyncio.create_task`` — Python 3.11 ומעלה. השרת העצמאי (``web.run_app`` בתחתית הקובץ) רץ בתהליך משלו,
+    ולא צריך את זה.
+    """
+    await asyncio.create_task(site.start(), context=contextvars.Context())
+
+
 def create_app() -> web.Application:
     # הוסף middleware שמייצר ומקשר request_id לכל בקשה נכנסת
     @web.middleware
@@ -700,35 +716,7 @@ def create_app() -> web.Application:
                 )
         return response
 
-    # השרת עולה מתוך ג'וב (``_start_web_job`` ב-``main.py``), ו-aiohttp פותח משימה לכל בקשה בתוך ההקשר שבו השרת עלה —
-    # כלומר בהקשר של אותו ג'וב, ועם ה-scope שלו ב-Sentry. החיצוני מבין ה-middlewares: כל בקשה מתחילה בהקשר משלה, ריק,
-    # ו-``_request_id_mw`` כורך בו את ה-``request_id`` שלה.
-    #
-    # חריגה מה-handler מטופלת כאן, בתוך ה-scope, בדיוק כמו ש-aiohttp מטפל בה אחרי ה-middlewares
-    # (``RequestHandler._handle_request`` ב-aiohttp 3.13.1): ``HTTPException`` היא התשובה עצמה (404, 403...) ועוברת הלאה;
-    # timeout — לוג debug ותשובת 504; כל חריגה אחרת — ``handle_error(request, 500, exc)``, שרושם "Error handling request"
-    # עם traceback ובונה את אותה תשובת 500. בלי זה הרישום הזה קרה אחרי שה-scope נסגר — עם ה-``command`` וה-scope של
-    # הג'וב שהעלה את השרת, ובלי ה-``request_id`` של הבקשה. כשמוחזרת כאן תשובה, aiohttp לא מגיע ל-``handle_error`` שלו,
-    # ולכן החריגה נרשמת, ומגיעה ל-Sentry דרך ``LoggingIntegration``, פעם אחת. ``CancelledError`` אינה ``Exception``, ועוברת.
-    @web.middleware
-    async def _observability_scope_mw(request: web.Request, handler):
-        with isolated_observability_scope():
-            try:
-                return await handler(request)
-            except web.HTTPException:
-                raise
-            except Exception as exc:
-                if request.writer.output_size > 0:
-                    # חלק מהתשובה כבר נשלח, ותשובת שגיאה כבר לא אפשרית: ``handle_error`` זורק אז ``ConnectionError``.
-                    # השאלה הזו נשארת ל-aiohttp, כמו לפני, כדי שהחריגה לא תירשם פעמיים.
-                    raise
-                protocol = request.protocol
-                if isinstance(exc, asyncio.TimeoutError):
-                    protocol.log_debug("Request handler timed out.", exc_info=exc)
-                    return protocol.handle_error(request, 504)
-                return protocol.handle_error(request, 500, exc)
-
-    app = web.Application(middlewares=[_observability_scope_mw, _request_id_mw, db_health_auth_middleware])
+    app = web.Application(middlewares=[_request_id_mw, db_health_auth_middleware])
 
     # --- Query Performance Profiler routes (best-effort) ---
     # NOTE: המנגנון יכול להיות מנוטרל "קשיח" ברמת הקוד בתוך DatabaseManager.ENABLE_PROFILING.
