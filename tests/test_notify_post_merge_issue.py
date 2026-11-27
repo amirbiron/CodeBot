@@ -50,7 +50,12 @@ const github = {
   rest: {
     issues: {
       listForRepo: function listForRepo() {},
-      createComment: async (p) => { calls.push(['createComment', p]); return { data: {} }; },
+      createComment: async (p) => {
+        const failure = input.commentErrors[String(p.issue_number)];
+        calls.push([failure ? 'createCommentFailed' : 'createComment', p]);
+        if (failure) throw httpError(failure);
+        return { data: {} };
+      },
       update: async (p) => {
         const failure = input.updateErrors[String(p.issue_number)];
         calls.push([failure ? 'updateFailed' : 'update', p]);
@@ -111,7 +116,16 @@ def _node() -> str:
 
 
 def _run(
-    tmp_path, script, *, step_env, workflow_run, open_issues=(), merge_bases=None, compare_errors=None, update_errors=None
+    tmp_path,
+    script,
+    *,
+    step_env,
+    workflow_run,
+    open_issues=(),
+    merge_bases=None,
+    compare_errors=None,
+    update_errors=None,
+    comment_errors=None,
 ):
     harness = tmp_path / "harness.js"
     harness.write_text(_HARNESS, encoding="utf-8")
@@ -127,6 +141,8 @@ def _run(
                 "compareErrors": compare_errors or {},
                 # מספר אישו (כמחרוזת) -> {"status", "message"}: הסגירה שלו נכשלת בשגיאת HTTP.
                 "updateErrors": {str(k): v for k, v in (update_errors or {}).items()},
+                # מספר אישו (כמחרוזת) -> {"status", "message"}: התגובה עליו נכשלת בשגיאת HTTP.
+                "commentErrors": {str(k): v for k, v in (comment_errors or {}).items()},
             }
         ),
         encoding="utf-8",
@@ -176,7 +192,9 @@ def _open(tmp_path, sha, open_issues=()):
     )
 
 
-def _close(tmp_path, success_sha, issues, merge_bases=None, compare_errors=None, update_errors=None):
+def _close(
+    tmp_path, success_sha, issues, merge_bases=None, compare_errors=None, update_errors=None, comment_errors=None
+):
     return _run(
         tmp_path,
         _script("close-issue-on-success", "Close matching"),
@@ -186,6 +204,7 @@ def _close(tmp_path, success_sha, issues, merge_bases=None, compare_errors=None,
         merge_bases=merge_bases,
         compare_errors=compare_errors,
         update_errors=update_errors,
+        comment_errors=comment_errors,
     )
 
 
@@ -407,6 +426,7 @@ def test_an_unexpected_comparison_error_fails_the_step_after_the_others_are_clos
 
 
 def test_a_failure_while_closing_one_issue_does_not_stop_the_others(tmp_path):
+    """הסגירה קודמת לתגובה: אישו שהסגירה שלו נכשלה נשאר פתוח בלי תגובה שאומרת שהוא נסגר."""
     outcome = _close(
         tmp_path,
         SUCCESS_SHA,
@@ -420,6 +440,29 @@ def test_a_failure_while_closing_one_issue_does_not_stop_the_others(tmp_path):
     assert not outcome["ok"], outcome
     assert "#3741" in outcome["error"]
     assert _closed_numbers(outcome) == [3740]
+    assert _commented_numbers(outcome) == [3740]
+    assert _calls(outcome, "createCommentFailed") == []
+    [error] = _logs(outcome, "error")
+    assert "#3741" in error and "leaving it open" in error
+
+
+def test_a_failed_closing_comment_leaves_the_issue_closed_and_fails_the_step(tmp_path):
+    outcome = _close(
+        tmp_path,
+        SUCCESS_SHA,
+        _older_and_newer(),
+        merge_bases={
+            f"{FAILED_SHA}...{SUCCESS_SHA}": FAILED_SHA,
+            f"{NEXT_FAILED_SHA}...{SUCCESS_SHA}": NEXT_FAILED_SHA,
+        },
+        comment_errors={3741: {"status": 502, "message": "Bad Gateway"}},
+    )
+    assert not outcome["ok"], outcome
+    assert "#3741" in outcome["error"]
+    assert _closed_numbers(outcome) == [3740, 3741]
+    assert _commented_numbers(outcome) == [3740]
+    [error] = _logs(outcome, "error")
+    assert "#3741" in error and "closing comment failed" in error
 
 
 def test_the_marker_written_by_the_open_step_is_the_one_the_close_step_reads(tmp_path):

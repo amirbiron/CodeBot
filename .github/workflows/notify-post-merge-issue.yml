@@ -305,6 +305,7 @@ jobs:
             // האחרים. שגיאה לא צפויה נרשמת ונאספת, והצעד נכשל בסוף, אחרי שכל השאר נבדקו (ונסגרו אם צריך).
             const failures = [];
             for (const issue of candidates) {
+              let closed = false;
               try {
                 const decision = await decide(issue);
                 if (!decision.close) {
@@ -312,15 +313,19 @@ jobs:
                   if (decision.warn) core.warning(line); else core.info(line);
                   continue;
                 }
+                // קודם סוגרים, ורק אחר כך כותבים את התגובה. בסדר ההפוך, סגירה שנכשלת אחרי תגובה שהצליחה משאירה
+                // אישו פתוח עם תגובה שאומרת שהוא נסגר, וכל ריצה ירוקה אחריה מוסיפה עוד תגובה כזו. בסדר הזה, סגירה
+                // שנכשלת לא כותבת כלום, ותגובה שנכשלת משאירה אישו סגור בלי הסבר, והצעד נכשל בשתיהן.
+                await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+                closed = true;
+                core.info(`Closed failure issue #${issue.number} (failing commit ${decision.failedSha})`);
                 const body = `✅ ${run.name} עבר בהצלחה על main ב-${run.head_sha.slice(0, 7)}, ` +
-                  `שמכיל את הקומיט שנכשל כאן (${decision.failedSha.slice(0, 7)}). סוגר את האישו.\n` +
+                  `שמכיל את הקומיט שנכשל כאן (${decision.failedSha.slice(0, 7)}). האישו נסגר.\n` +
                   `[קישור להרצה](${run.html_url})`;
                 await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body });
-                await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
-                core.info(`Closed failure issue #${issue.number} (failing commit ${decision.failedSha})`);
               } catch (err) {
-                core.error(`Issue #${issue.number}: could not check or close it, leaving it open: ` +
-                  `${(err && err.stack) || err}`);
+                const state = closed ? 'it was closed, but the closing comment failed' : 'leaving it open';
+                core.error(`Issue #${issue.number}: ${state}: ${(err && err.stack) || err}`);
                 failures.push(`#${issue.number} (${(err && err.message) || err})`);
               }
             }
