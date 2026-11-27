@@ -2,7 +2,9 @@
 
 הדמה מימשה קבוצה קטנה של אופרטורים, וכל השאר נפלו למסלול "לא מזוהה ⇐ תואם"
 בשאילתה, או "לא מזוהה ⇐ מתעלמים" בכתיבה. טסט עתידי עם ``$regex`` היה עובר
-בטעות; עם ``$inc`` היה עובר בלי שהמונה זז. עכשיו זה נופל בקול.
+בטעות; עם ``$inc`` היה עובר בלי שהמונה זז. עכשיו אופרטור שאינו ממומש נופל בקול —
+ו-``$inc`` עצמו ממומש מאז נובמבר 2026, בסמנטיקה של המדריך של MongoDB 8.0
+(``test_inc_follows_the_manual``), כי השרשורים של הפתקים (``note_threads``) נשענים עליו.
 """
 
 from __future__ import annotations
@@ -74,7 +76,7 @@ def test_not_over_anything_but_operators_raises(coll, inner):
 @pytest.mark.parametrize(
     "update",
     [
-        {"$inc": {"a": 1}},
+        {"$mul": {"a": 2}},
         {"$addToSet": {"tags": "z"}},
         {"$push": {"tags": {"$each": ["z"], "$position": 0}}},
     ],
@@ -100,6 +102,42 @@ def test_the_operators_the_repo_relies_on_keep_working(coll):
     res = coll.update_one({"a": 7}, {"$set": {"b": 2}, "$push": {"log": {"$each": ["first"]}}}, upsert=True)
     assert res.upserted_id is not None
     assert coll.find_one({"a": 7})["log"] == ["first"]
+
+
+def test_inc_follows_the_manual(coll):
+    """https://www.mongodb.com/docs/v8.0/reference/operator/update/inc/ — מוסיף לערך קיים, יוצר שדה
+    חסר עם הערך ("If the field does not exist, $inc creates the field and sets the field to the
+    specified value"), ועל ``null`` — שגיאה ("generates an error"). ערך שאינו מספר: המדריך שותק,
+    ולכן הדמה נופלת בקול ולא מנחשת."""
+    from pymongo.errors import WriteError
+
+    coll.update_one({"a": 1}, {"$inc": {"a": 4, "n": -2}})
+    assert coll.find_one({"a": 5})["n"] == -2
+
+    coll.insert_one({"a": 9, "z": None, "s": "x"})
+    with pytest.raises(WriteError):
+        coll.update_one({"a": 9}, {"$inc": {"z": 1}})
+    with pytest.raises(NotImplementedError, match="does not implement"):
+        coll.update_one({"a": 9}, {"$inc": {"s": 1}})
+
+
+def test_a_slice_projection_follows_the_manual():
+    """https://www.mongodb.com/docs/v8.0/reference/operator/projection/slice/ — ``$slice`` לבדו הוא
+    היטלת החרגה (כל שאר השדות חוזרים); לצד הכללה חוזרים רק השדות שנכללו ו-``_id``. מספר שלילי —
+    האחרונים, חיובי — הראשונים, וגדול מהמערך — כולו. כך גם ``note_threads.load_comments`` מדד מול
+    ``mongod`` 8.0. הצורה ``[skip, limit]`` אינה ממומשת, ונופלת."""
+    c = FakeCollection()
+    c.insert_one({"t": "x", "n": 3, "comments": [1, 2, 3]})
+
+    assert c.find_one({}, {"comments": {"$slice": -1}}) == {"_id": 1, "t": "x", "n": 3, "comments": [3]}
+    assert c.find_one({}, {"comments": {"$slice": 2}, "n": 1}) == {"_id": 1, "n": 3, "comments": [1, 2]}
+    assert c.find_one({}, {"comments": {"$slice": -10}, "n": 1})["comments"] == [1, 2, 3]
+    assert list(c.find({}, {"comments": {"$slice": -2}}))[0]["comments"] == [2, 3]
+    assert c.find_one({})["comments"] == [1, 2, 3]  # ההיטלה אינה נוגעת במסמך השמור
+    with pytest.raises(NotImplementedError, match="does not implement"):
+        c.find_one({}, {"comments": {"$slice": [1, 1]}})
+    with pytest.raises(NotImplementedError, match="does not implement"):
+        c.find_one({}, {"comments": {"$elemMatch": {"a": 1}}})
 
 
 def test_update_many_applies_the_same_write_semantics(coll):

@@ -271,7 +271,7 @@ class _OneNote:
     def __init__(self, note):
         self.note = note
 
-    def get_note(self, user_id, *, note_id, with_version=False):
+    def get_note(self, user_id, *, note_id, with_version=False, for_note_view=False):
         return {"ok": True, "note": dict(self.note), "target": "board", "board_id": "b" * 24}
 
 
@@ -1545,6 +1545,146 @@ def test_typing_lands_on_the_clicked_line_and_ctrl_s_saves_and_tells_the_model(c
     assert "חדש: שורה רגילה בעברית" in rendered, rendered
     assert len(contexts) == 1 and contexts[0]["content"][0]["text"].endswith("\n" + body), contexts
     assert "content_sha256: " + "0" * 63 + "2" in contexts[0]["content"][0]["text"], contexts
+
+
+#: **מארח שמעביר כל קריאה לשרת האמיתי.** אותו מארח של ``_EDIT_HOST`` (מסך מלא במסגרת קבועה), אבל
+#: ``tools/call`` — וגם תוצאת ``codekeeper_show_note`` שהדף נפתח בה — עוברים ב-``fetch('/tool')`` אל
+#: ``build_mcp`` של הייצור מעל ``ProductionBackend`` (``real_server_host``), והדף מקבל את ה-``CallToolResult``
+#: כמו שהשרת שלח אותו. כך נבדק שהדף מסיים שמירה מול התשובה האמיתית של ``codekeeper_note_view_save``, ולא רק
+#: מול תשובה שנבנתה ביד.
+_REAL_HOST = """<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
+<iframe id="view" src="/view.html" sandbox="allow-scripts"
+        style="width:600px;height:80px;border:0;display:block"></iframe>
+<script>
+const iframe = document.getElementById('view');
+window.toolCalls = []; window.modelContexts = [];
+const call = (name, args) => fetch('/tool', {method: 'POST', body: JSON.stringify({name: name, arguments: args})})
+  .then((r) => r.json());
+window.addEventListener('message', (event) => {
+  if (event.source !== iframe.contentWindow) return;
+  const m = event.data;
+  const view = iframe.contentWindow;
+  const reply = (result) => view.postMessage({jsonrpc: '2.0', id: m.id, result: result}, '*');
+  if (m.method === 'ui/initialize') {
+    reply({protocolVersion: '2026-01-26', hostInfo: {name: 'test-host', version: '1'},
+      hostCapabilities: {serverTools: {}, updateModelContext: {text: {}}},
+      hostContext: {availableDisplayModes: ['inline', 'fullscreen'], displayMode: 'inline',
+                    containerDimensions: {width: 600, maxHeight: 900}}});
+  } else if (m.method === 'ui/notifications/initialized') {
+    call('codekeeper_show_note', {note_id: %(note_id)s}).then((result) =>
+      view.postMessage({jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: result}, '*'));
+  } else if (m.method === 'tools/call') {
+    window.toolCalls.push(m.params);
+    call(m.params.name, m.params.arguments).then(reply);
+  } else if (m.method === 'ui/update-model-context') {
+    window.modelContexts.push(m.params);
+    reply({});
+  } else if (m.method === 'ui/notifications/size-changed') {
+    iframe.style.height = m.params.height + 'px';
+  } else if (m.method === 'ui/request-display-mode') {
+    iframe.style.width = '800px';
+    iframe.style.height = '600px';
+    reply({mode: 'fullscreen'});
+    view.postMessage({jsonrpc: '2.0', method: 'ui/notifications/host-context-changed',
+      params: {displayMode: 'fullscreen', containerDimensions: {width: 800, height: 600}}}, '*');
+  }
+});
+</script></body></html>"""
+
+
+@pytest.fixture
+def real_server_host(monkeypatch):
+    """שרת מקומי: ``/real.html`` המארח שמעביר לשרת האמיתי, ``/view.html`` הדף עם ה-CSP של המפרט, ו-``POST
+    /tool`` שמריץ את הכלי ב-``build_mcp`` של הייצור מעל ``ProductionBackend`` ואוספים מזויפים
+    (``tests/test_mcp_note_answer_shape.py``). מחזיר ``(כתובת, השרת, מזהה הפתק)``."""
+    import asyncio
+
+    from _save_layer_harness import clear_local_cache
+    from test_mcp_note_answer_shape import _Server, build_store
+
+    store = build_store(monkeypatch)
+    mcp_server = _Server(monkeypatch, store)
+    board = asyncio.run(mcp_server.ok("codekeeper_list_boards"))["boards"][0]["id"]
+    note_id = asyncio.run(mcp_server.ok("codekeeper_create_board_note", board_id=board, title="עריכה",
+                                        color="orange_light", content="\n".join(_EDIT_LINES)))["note"]["id"]
+    view = note_view.build_note_view()
+    host = _REAL_HOST % {"note_id": json.dumps(note_id)}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - שם שה-stdlib מחייב
+            if self.path == "/real.html":
+                self._send(host, "text/html; charset=utf-8", {})
+            elif self.path == "/view.html":
+                self._send(view.html, "text/html; charset=utf-8", {"Content-Security-Policy": _SPEC_DEFAULT_CSP})
+            else:
+                self.send_error(404)
+
+        def do_POST(self):  # noqa: N802 - שם שה-stdlib מחייב
+            request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            result = asyncio.run(mcp_server.call_raw(request["name"], request["arguments"]))
+            self._send(json.dumps(result), "application/json", {})
+
+        def _send(self, body, kind, headers):
+            data = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", kind)
+            for key, value in headers.items():
+                self.send_header(key, value)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *_args):  # שקט בפלט הבדיקות
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}", mcp_server, note_id
+    finally:
+        server.shutdown()
+        server.server_close()
+        clear_local_cache()
+
+
+def test_the_page_finishes_saves_against_the_real_server_answer(chromium_executable, real_server_host):
+    """שמירה מהתצוגה מסתיימת ב"נשמר." מול התשובה **האמיתית** של ``codekeeper_note_view_save``: הדף בודק
+    ``note.content`` בתשובה (``readNote``), ותשובה בלי גוף הייתה מוצגת כ"השמירה לא עברה". הפתק נשאר צבוע
+    בצבע שלו (``color`` ב-``hex``), ושמירה שנייה ברצף עוברת בלי התנגשות — כי הדף עדכן את ה-hash שהשמירה
+    הבאה נבנית עליו מהתשובה של הראשונה. מה שנשמר נקרא מהאוסף."""
+    from playwright.sync_api import sync_playwright
+
+    url, mcp_server, note_id = real_server_host
+    saved = "() => !document.querySelector('.ck-editor') && !!document.querySelector('.ck-notice')" \
+            " && document.querySelector('.ck-notice').textContent === 'נשמר.'"
+    with sync_playwright() as pw:
+        browser, page, view = _open(pw, chromium_executable, f"{url}/real.html")
+        try:
+            paper = view.evaluate("() => getComputedStyle(document.querySelector('.ck-paper')).backgroundColor")
+            _open_editor_on(page, view, {"selector": ".sticky-task-line", "text": "שורה רגילה בעברית"})
+            page.keyboard.type("ראשון ")
+            page.keyboard.press("Control+s")
+            poll(view, saved, "the first save went through against the real answer")
+            first = mcp_server.stored(note_id)["content"]
+            _open_editor_on(page, view, {"selector": ".sticky-task-line", "text": "שורה אחרונה"})
+            page.keyboard.type("שני ")
+            page.keyboard.press("Control+s")
+            poll(view, saved, "the second save in a row went through without a conflict")
+            painted = view.evaluate("() => getComputedStyle(document.querySelector('.ck-paper')).backgroundColor")
+            saves = page.evaluate("() => window.toolCalls.filter((c) => c.name === 'codekeeper_note_view_save')")
+            contexts = page.evaluate("() => window.modelContexts")
+        finally:
+            browser.close()
+
+    expected_first = list(_EDIT_LINES)
+    expected_first[1] = "ראשון " + expected_first[1]
+    expected_second = list(expected_first)
+    expected_second[-1] = "שני " + expected_second[-1]
+    assert first == "\n".join(expected_first), first
+    assert mcp_server.stored(note_id)["content"] == "\n".join(expected_second)
+    assert len(saves) == 2 and len(contexts) == 2, (saves, contexts)
+    assert paper == painted == "rgb(255, 237, 219)", (paper, painted)
 
 
 def test_the_editor_fills_the_fixed_fullscreen_frame_and_scrolls_inside(chromium_executable, edit_host):

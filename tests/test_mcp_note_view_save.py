@@ -208,9 +208,10 @@ async def test_a_change_between_the_read_and_the_write_is_a_conflict(server, mon
     note_id, sha256 = await server.note("לפני")
     real_update = server.backend.update_note
 
-    def racing_update(user_id, *, note_id, fields, expected_content=None):
+    def racing_update(user_id, *, note_id, fields, expected_content=None, for_note_view=False):
         server.store.raw["sticky_notes"].update_one({"_id": ObjectId(note_id)}, {"$set": {"content": "באמצע"}})
-        return real_update(user_id, note_id=note_id, fields=fields, expected_content=expected_content)
+        return real_update(user_id, note_id=note_id, fields=fields, expected_content=expected_content,
+                           for_note_view=for_note_view)
 
     monkeypatch.setattr(server.backend, "update_note", racing_update)
 
@@ -295,12 +296,11 @@ class _RepoNoteBackend:
         self.writes = []
         self.content = "x"
 
-    def get_note(self, user_id, *, note_id, with_version=False):
-        return {"ok": True, "note": {"id": note_id, "content": self.content, "content_sha256": _sha(self.content),
-                                     "repo_name": "CodeBot", "repo_path": "a.py"},
+    def get_note(self, user_id, *, note_id, with_version=False, for_note_view=False):
+        return {"ok": True, "note": {"id": note_id, "content": self.content, "content_sha256": _sha(self.content)},
                 "target": "repo", "repo_name": "CodeBot", "repo_path": "a.py"}
 
-    def update_note(self, user_id, *, note_id, fields, expected_content=None):
+    def update_note(self, user_id, *, note_id, fields, expected_content=None, for_note_view=False):
         self.writes.append((note_id, fields, expected_content))
         return {"ok": True, "note": {"id": note_id, "content": fields["content"], "content_sha256": _sha(fields["content"])}}
 

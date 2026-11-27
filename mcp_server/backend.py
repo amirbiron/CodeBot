@@ -156,23 +156,77 @@ _SEMANTIC_FIELDS = (
     "chunkerVersion",
 )
 
-# שדות הפתק שנחשפים ל-MCP — רזה במכוון (בלי מיקום/גודל פיקסלים, שהם עניין ויזואלי)
-#: פתק לוח נושא ``board_id`` ו-``mode``; בלעדיהם הפלט לא אומר איפה הוא
-#: יושב. בפתק קובץ שניהם ריקים, ולכן התוספת אינה משנה את מסלול הקובץ.
-#: ``repo_name``/``repo_path`` נוספו מאותו טעם בדיוק שבגללו ``board_id``
-#: כאן: ``update_note`` מחזיר ``_as_note``, ובלי שני החצאים עדכון של פתק
-#: ריפו היה מדווח על פתק **בלי יעד** — כאילו אינו יושב בשום מקום.
-#: ``archived_at`` מאותו טעם: פתק בארכיון אינו נושא אף שדה יעד אחר, ובלעדיו
-#: הוא היה נראה בפלט כפתק שאינו יושב בשום מקום. אותו שדה בתשובת הוובאפ
-#: (``webapp/sticky_notes_api._as_note_response``).
-#: ``files_page_pinned_at`` (``sticky_notes_target.FILES_PAGE_PIN_FIELD``) — מתי פתק הלוח
-#: ננעץ לראש עמוד הקבצים, או ``None``. אינו יעד, אבל הוא עוד מקום שבו הפתק נראה, וסוכן
-#: שקורא פתק צריך לראות אותו כמו שהדפדפן רואה.
-_NOTE_FIELDS = (
-    "content", "color", "line_start", "anchor_text", "is_minimized",
-    "board_id", "mode", "title", "repo_name", "repo_path", "archived_at",
-    "files_page_pinned_at",
-)
+class _NoteFieldRule(_enum.Enum):
+    """מתי שדה של פתק חוזר בצורה המלאה של פתק (:func:`_as_note`) — ההכרעה על כל שדה.
+
+    **הצורה נבנית כרשימה של מה שחוזר, ולא כ"כל השדות פחות מה שיורד"** — אותו עיקרון של
+    :func:`_as_note_ref` ושל :func:`_as_note_summary`: שדה חדש שנכנס ל-:data:`_NOTE_FIELDS`
+    חייב כלל, ובלי כלל הוא פשוט לא חוזר. ``tests/test_mcp_note_answer_shape.py`` מחזיק את
+    ההכרעות כתובות ביד, ושדה שאין עליו הכרעה שם מפיל אותו.
+
+    **שדה נעדר ו-``null`` הם שני דברים** (``docs/mcp-server.rst``, "אוצר המילים של התשובה"):
+    שדה נעדר פירושו "לא רלוונטי לפתק הזה", ו-``null`` פירושו ערך ריק בשדה רלוונטי. לכן ההכרעה
+    היא לפי **סוג הפתק** (``sticky_notes_target.note_target_kind``) ולפי מה שהקריאה כתבה, ולא
+    לפי "הערך הוא ``null``": ``line_start: null`` בפתק קובץ אומר "צף, לא מעוגן לשורה".
+    """
+
+    #: חוזר תמיד.
+    ALWAYS = "always"
+    #: הגוף — בקריאה ובתשובה שהתצוגה בתוך Claude קוראת, ולא בתשובת כתיבה לסוכן.
+    BODY = "body"
+    #: חוזר רק כשיש בו ערך (לא ``None`` ולא מחרוזת ריקה) — שם, ארכיון, נעיצה.
+    WHEN_SET = "when_set"
+    #: הצבע, פעם אחת — ראו :func:`_note_color_fields`.
+    COLOR = "color"
+    #: עיגון לקובץ — רק בפתק על קובץ, ושם תמיד (``null`` הוא ערך שם).
+    FILE_ANCHOR = "file_anchor"
+    #: שדה יעד של לוח / של ריפו — רק בפתק מהסוג הזה, ורק כשהיעד אינו חוזר מחוץ ל-``note``.
+    BOARD_TARGET = "board"
+    REPO_TARGET = "repo"
+    #: מצב ממשק — רק כשהקריאה עצמה כתבה אותו (השדה נשלח בה).
+    UI_STATE = "ui_state"
+
+
+#: שדות הפתק שנחשפים ל-MCP, ועל כל אחד הכלל שלו — **בסדר שבו הם חוזרים**. רזה במכוון: בלי
+#: מיקום וגודל בפיקסלים, שהם עניין ויזואלי.
+#:
+#: **למה שדות היעד כאן בכלל.** תשובת כתיבה מחזירה את הפתק בלי ``target`` חיצוני, ובלי
+#: ``board_id`` או ``repo_name``/``repo_path`` בתוך ``note`` עדכון היה מדווח על פתק שאינו יושב
+#: בשום מקום. בקריאה (``codekeeper_get_note``, ``codekeeper_show_note``) וברשימות היעד כבר חוזר
+#: מחוץ ל-``note`` — ``target`` עם שדות הזיהוי, או ראש הרשימה — ולכן שם הם אינם חוזרים בתוכו:
+#: היעד מופיע פעם אחת בכל תשובה. ``archived_at``: פתק בארכיון אינו נושא אף שדה יעד אחר, ו-
+#: ``note_target_ref`` של ארכיון אינו נושא שדות, ולכן החותמת חוזרת בתוך ``note``. אותו שדה בתשובת
+#: הוובאפ (``webapp/sticky_notes_api._as_note_response``).
+#:
+#: ``files_page_pinned_at`` (``sticky_notes_target.FILES_PAGE_PIN_FIELD``) — מתי פתק הלוח ננעץ
+#: לראש עמוד הקבצים. אינו יעד, אבל הוא עוד מקום שבו הפתק נראה, וסוכן שקורא פתק צריך לראות אותו
+#: כמו שהדפדפן רואה.
+#:
+#: **``is_minimized`` ו-``mode`` הם מצב ממשק**, שאינו משנה את מה שהסוכן עושה עם הפתק, ולכן הם
+#: חוזרים רק בקריאה שכתבה אותם — שם הסוכן רוצה לראות שהשינוי נקלט.
+_NOTE_FIELDS: dict[str, _NoteFieldRule] = {
+    "title": _NoteFieldRule.WHEN_SET,
+    "color": _NoteFieldRule.COLOR,
+    "board_id": _NoteFieldRule.BOARD_TARGET,
+    "repo_name": _NoteFieldRule.REPO_TARGET,
+    "repo_path": _NoteFieldRule.REPO_TARGET,
+    "line_start": _NoteFieldRule.FILE_ANCHOR,
+    "anchor_text": _NoteFieldRule.FILE_ANCHOR,
+    "archived_at": _NoteFieldRule.WHEN_SET,
+    "files_page_pinned_at": _NoteFieldRule.WHEN_SET,
+    "is_minimized": _NoteFieldRule.UI_STATE,
+    "mode": _NoteFieldRule.UI_STATE,
+    "created_at": _NoteFieldRule.ALWAYS,
+    "updated_at": _NoteFieldRule.ALWAYS,
+    "content": _NoteFieldRule.BODY,
+}
+
+#: הסוג של כל כלל יעד, בשמות של ``sticky_notes_target.note_target_kind``.
+_TARGET_RULE_KIND = {
+    _NoteFieldRule.FILE_ANCHOR: "file",
+    _NoteFieldRule.BOARD_TARGET: "board",
+    _NoteFieldRule.REPO_TARGET: "repo",
+}
 
 class _EnforcedIndex(_enum.Enum):
     """זהות אינדקס אכיפה — במקום שם מחרוזתי שנפתר ב-``getattr``.
@@ -929,54 +983,118 @@ def _strip_heavy(value: Any) -> Any:
     return value
 
 
-def _as_note(doc: dict[str, Any]) -> dict[str, Any]:
-    """Serialize a sticky-note document for MCP output (lean, JSON-safe)."""
-    doc = doc or {}
-    out: dict[str, Any] = {"id": str(doc.get("_id") or "")}
-    for key in _NOTE_FIELDS:
-        out[key] = _json_safe(doc.get(key))
-    # ``content`` חוזר **כמו שהוא שמור**, בלי פענוח. עד אוקטובר 2026 עבר כאן
-    # ``html.unescape``, בשביל פתקים שהוובאפ שמר מקודדים ב-2025; כשהוסר לא
-    # נשאר במסד אף פתק כזה (המדידה ב-``docs/whats-new/2026-10.rst``, 10.10.2026), והוא
-    # הציג כל ``&amp;`` שהוקלד כ-``&``.
-    # **הצבע נגזר ואינו מועתק גולמי — אותו חוזה בדיוק כמו
-    # ``webapp/sticky_notes_api._as_note_response``.**
-    #
-    # מה שיושב במסד הוא מזהה מהפלטה (``yellow``) או ``hex`` legacy, ומאז
-    # שהפלטה נוספה שתי הצורות חיות זו לצד זו: פתק שהמיגרציה יישרה מול פתק
-    # שלא. העתקה ישירה החזירה לסוכן **שתי תשובות שונות לאותו צבע בדיוק**,
-    # בלי שום דרך מצידו לדעת זאת — חוזה שאינו עקבי עם עצמו, שגרוע מחוזה
-    # שהשתנה.
-    #
-    # ``color`` נשאר ``hex`` כי זה מה שהיה כאן מאז ומתמיד וזה מה שסוכן
-    # קיים מצפה לו; ``color_id`` הוא המזהה, או ``""`` לצבע שאינו בפלטה.
-    # שניהם נגזרים מערך אחד במסמך, ולכן אינם יכולים להיסחף זה מזה.
+def _note_color_fields(raw_color: Any, *, as_hex: bool) -> dict[str, Any]:
+    """הצבע של פתק בצורה המלאה — **פעם אחת**: ``color_id`` כשהצבע בפלטה, ואחרת ``color`` (hex).
+
+    שניהם נגזרים מערך אחד במסמך (מזהה פלטה או ``hex`` legacy), באותן פונקציות של
+    ``webapp/sticky_notes_api._as_note_response``, ולכן אינם יכולים להיסחף זה מזה. ``color_id``
+    ו-``color`` של אותו צבע הם אותה עובדה פעמיים, ולכן בצורה המלאה חוזר אחד מהם.
+
+    ``as_hex`` — התשובות שהתצוגה בתוך Claude קוראת (``codekeeper_show_note``,
+    ``codekeeper_note_view_save``): הדף צובע את הפתק לפי ``color``, ולכן שם חוזר תמיד ``hex``
+    ורק הוא. החלופה — טבלת הפלטה בתוך הדף — הייתה עותק שני שלה.
+
+    השורה הרזה (:func:`_as_note_summary`) אינה עוברת כאן, ונושאת את שניהם; פגיעת חיפוש
+    (:func:`_as_note_ref`) אינה נושאת צבע כלל.
+    """
     from sticky_notes_target import note_color_hex, note_color_id
 
-    raw_color = doc.get("color")
-    out["color"] = note_color_hex(raw_color)
-    out["color_id"] = note_color_id(raw_color)
-    out["created_at"] = _json_safe(doc.get("created_at"))
-    out["updated_at"] = _json_safe(doc.get("updated_at"))
+    palette_id = note_color_id(raw_color)
+    if palette_id and not as_hex:
+        return {"color_id": palette_id}
+    return {"color": note_color_hex(raw_color)}
+
+
+def _as_note(
+    doc: dict[str, Any] | None,
+    *,
+    body: bool,
+    target_inside: bool,
+    color_hex: bool = False,
+    sent: Any = (),
+) -> dict[str, Any]:
+    """הצורה המלאה של פתק לתשובת MCP — **ממה שחוזר**, לפי :data:`_NOTE_FIELDS`.
+
+    ``body`` — האם ``content`` חוזר. בקריאה כן; בתשובת כתיבה לסוכן לא: הוא שלח את הגוף בעצמו,
+    ו-``content_sha256`` עם ``content_changed`` כבר אומרים אם מה שנשמר הוא מה ששלח.
+    ``target_inside`` — האם שדות היעד של הלוח והריפו חוזרים בתוך ``note``. ``False`` כשהתשובה
+    כבר נושאת את היעד מחוץ לו (``target`` של ``get_note``, ראש הרשימה), ``True`` בתשובת כתיבה,
+    שאין בה ``target`` חיצוני. ``color_hex`` — :func:`_note_color_fields`. ``sent`` — שמות
+    השדות שהקריאה עצמה כתבה; מצב ממשק חוזר רק כשהוא ביניהם.
+
+    **פתק שהיעד שלו אינו חוקי** (``unknown`` — חצי יעד ריפו, או שני יעדים) מחזיר בתוך ``note``
+    כל שדה יעד ועיגון שיש בו ערך: ``note_target_ref`` שלו אינו נושא שדות, ולכן אין מקום אחר
+    שבו הם חוזרים — ושער פתקי הריפו (``handlers._readable_note``) נסגר על חצי יעד.
+
+    ``content`` חוזר **כמו שהוא שמור**, בלי פענוח. עד אוקטובר 2026 עבר כאן ``html.unescape``,
+    בשביל פתקים שהוובאפ שמר מקודדים ב-2025; כשהוסר לא נשאר במסד אף פתק כזה (המדידה ב-
+    ``docs/whats-new/2026-10.rst``, 10.10.2026), והוא הציג כל ``&amp;`` שהוקלד כ-``&``.
+    """
+    from sticky_notes_target import note_target_kind
+
+    doc = doc or {}
+    kind = note_target_kind(doc)
+    written = frozenset(sent)
+    out: dict[str, Any] = {"id": str(doc.get("_id") or "")}
+    for key, rule in _NOTE_FIELDS.items():
+        value = doc.get(key)
+        if rule is _NoteFieldRule.ALWAYS:
+            show = True
+        elif rule is _NoteFieldRule.BODY:
+            show = body
+        elif rule is _NoteFieldRule.WHEN_SET:
+            show = value is not None and value != ""
+        elif rule is _NoteFieldRule.COLOR:
+            out.update(_note_color_fields(value, as_hex=color_hex))
+            continue
+        elif rule in _TARGET_RULE_KIND:
+            if kind == "unknown":
+                show = value is not None and value != ""
+            else:
+                show = kind == _TARGET_RULE_KIND[rule] and (
+                    target_inside or rule is _NoteFieldRule.FILE_ANCHOR
+                )
+        elif rule is _NoteFieldRule.UI_STATE:
+            show = key in written
+        else:  # pragma: no cover — כלל חדש ב-``_NoteFieldRule`` בלי ענף כאן
+            raise AssertionError(f"no branch for note field rule {rule!r}")
+        if show:
+            out[key] = _json_safe(value)
     return out
 
 
-def _as_note_hashed(doc: dict[str, Any]) -> dict[str, Any]:
+def _as_listed_note(doc: dict[str, Any] | None) -> dict[str, Any]:
+    """שורה של רשימת פתקים עם גופים (``include_content=true``) — הגוף, בלי שדות היעד.
+
+    היעד כבר בראש התשובה של כלי הרשימה (``file_name``, ``board_id``, או ``repo_name`` ו-
+    ``repo_path``), וכל הפתקים ברשימה יושבים עליו, ולכן הוא אינו חוזר בכל שורה.
+    """
+    return _as_note(doc, body=True, target_inside=False)
+
+
+def _as_note_hashed(doc: dict[str, Any] | None, **shape: Any) -> dict[str, Any]:
     """:func:`_as_note` ועוד ``content_sha256`` — לפתק בודד: ``get_note`` ותשובות הכתיבה.
 
     ה-hash הוא :func:`_content_sha256` של הגוף כמו שהוא שמור, אותה פונקציה של
-    ``file.content_sha256`` בקבצים. כלי הרשימה אינם נושאים אותו: הם מחזירים
-    פתקים רבים, ו-hash לכל אחד הוא עבודה שאיש לא ביקש. גוף שאינו מחרוזת אינו
-    מקבל hash.
+    ``file.content_sha256`` בקבצים — **גם כשהגוף עצמו אינו חוזר** (תשובת כתיבה): הוא מה שמאמת
+    את הכתיבה בלי להחזיר את הטקסט. כלי הרשימה אינם נושאים אותו: הם מחזירים פתקים רבים, ו-hash
+    לכל אחד הוא עבודה שאיש לא ביקש. גוף שאינו מחרוזת אינו מקבל hash.
     """
-    note = _as_note(doc)
+    note = _as_note(doc, **shape)
     body = (doc or {}).get("content")
     if isinstance(body, str):
         note["content_sha256"] = _content_sha256(body)
     return note
 
 
-def _note_write_answer(stored: dict[str, Any], *, intended: str | None, op: str) -> dict[str, Any]:
+def _note_write_answer(
+    stored: dict[str, Any],
+    *,
+    intended: str | None,
+    op: str,
+    sent: Any = (),
+    for_note_view: bool = False,
+) -> dict[str, Any]:
     """תשובת כתיבה של פתק — **ממה שנשמר**, לא ממה שביקשו לשמור.
 
     ``stored`` הוא המסמך כפי שהמסד מחזיק אותו אחרי הכתיבה: בעדכון — מה ש-
@@ -985,18 +1103,28 @@ def _note_write_answer(stored: dict[str, Any], *, intended: str | None, op: str)
     לכתוב (``drop_unchanged_edits`` הוציא הכול) — הפתק כמו שנקרא לפני ההחלטה; ביצירה — קריאה
     חוזרת לפי ה-``_id`` שה-insert החזיר (:meth:`ProductionBackend._created_note_answer`).
     ``intended`` הוא הגוף שהכלי התכוון לשמור, או ``None`` כשהכתיבה לא נגעה
-    בגוף (צבע, שורה) — ואז אין מה להשוות.
+    בגוף (צבע, שורה) — ואז אין מה להשוות. ``sent`` — שמות השדות שהקריאה כתבה (:func:`_as_note`).
 
-    אותו חוזה של קבצים (``save_file``): ``note`` הוא :func:`_as_note_hashed` של
-    המסמך ששמור, כלומר עם ``content_sha256``, ו-``content_changed`` (ו-
-    ``content_diff``) באים מ-:func:`_content_verdict`, אותה פונקציה שקבצים
-    עוברים בה. המצב השלישי, ``null``, נבנה אצל הקורא כשאין מסמך שנקרא חזרה.
+    **אותו חוזה של קבצים** (``save_file``, שמחזיר ``_file_meta`` — מטא-דאטה בלי התוכן): ``note``
+    הוא :func:`_as_note_hashed` של המסמך ששמור **בלי הגוף**, עם ``content_sha256`` ושדות היעד,
+    ו-``content_changed`` (ו-``content_diff``) באים מ-:func:`_content_verdict`, אותה פונקציה
+    שקבצים עוברים בה. גם כשמה שנשמר שונה ממה שנשלח הגוף אינו חוזר — ``content_diff`` אומר איפה,
+    ו-``codekeeper_get_note`` קורא את הפתק כולו. המצב השלישי, ``null``, נבנה אצל הקורא כשאין
+    מסמך שנקרא חזרה. **הגוף עדיין נקרא מהמסד ונבדק** — ממנו ה-hash וההכרעה; רק התשובה קטנה.
+
+    ``for_note_view`` — התשובה של ``codekeeper_note_view_save``, שחוזרת לדף של התצוגה בתוך Claude
+    ולא למודל: הדף בודק ``note.content`` ומעדכן ממנו את הגרסה שהוא מחזיק, וצובע לפי ``color``
+    (``readNote`` ב-``mcp_server/apps/note_view.js``). לכן שם הגוף חוזר, והצבע ב-``hex``. רק
+    ``handlers.save_note_from_view`` מדליק אותו — דגל פנימי, לא פרמטר של כלי.
 
     כשהכתיבה **כתבה** גוף והמסמך שחזר ממנה נושא גוף שאינו מחרוזת —
     ``TypeError``: הכתיבה שלנו שמה שם מחרוזת, ו-``content_changed`` היה מכסה על
     חוזה שנשבר.
     """
-    answer: dict[str, Any] = {"ok": True, "note": _as_note_hashed(stored)}
+    note = _as_note_hashed(
+        stored, body=for_note_view, target_inside=True, color_hex=for_note_view, sent=sent
+    )
+    answer: dict[str, Any] = {"ok": True, "note": note}
     if intended is None:
         return answer
     body = stored.get("content")
@@ -2192,14 +2320,15 @@ class ProductionBackend:
 
     @staticmethod
     def _created_note_answer(
-        read_back: Any, user_id: int, note: dict[str, Any], res: Any, *, op: str
+        read_back: Any, user_id: int, note: dict[str, Any], res: Any, *, op: str, sent: Any = ()
     ) -> dict[str, Any]:
         """תשובת יצירה של פתק — **מקריאה חוזרת** לפי ה-``_id`` שה-insert החזיר.
 
         עד כאן היצירה החזירה את ``note`` — המסמך שביקשנו לכתוב — ולכן שכבה
         שהייתה משנה את הגוף בדרך לא הייתה נראית בתשובה. התשובה נבנית ב-
         :func:`_note_write_answer` ממה שנקרא; ``op`` הוא שם הפעולה בשורת הלוג,
-        ו-``read_back`` הוא האוסף מ-:meth:`_primary_reader`.
+        ו-``read_back`` הוא האוסף מ-:meth:`_primary_reader`. ``sent`` — שמות השדות שהסוכן
+        בחר בקריאה, ל-:func:`_as_note` (מצב ממשק חוזר רק כשנבחר).
 
         **למה כאן קריאה נפרדת, ובעדכון לא:** ``insert_one`` מחזיר רק את ה-``_id``,
         ולא את המסמך. זו אותה קריאה חוזרת של ``save_file`` בקבצים: לפי ``_id``
@@ -2232,7 +2361,7 @@ class ProductionBackend:
                 )
         if stored is None:
             return {"ok": True, "note": {"id": str(inserted_id)}, "content_changed": None}
-        return _note_write_answer(stored, intended=note["content"], op=op)
+        return _note_write_answer(stored, intended=note["content"], op=op, sent=sent)
 
     def _related_file_ids(self, user_id: int, file_name: str) -> list[str]:
         """כל מזהי הגרסאות של השם הזה — לפריטת שאילתת הוובאפ (פתקי legacy בלי scope_id)."""
@@ -2321,11 +2450,14 @@ class ProductionBackend:
         אחת על כל המזהים (:meth:`_with_open_threads`) — לא קריאה לכל פתק. השורות שם
         קטנות (בלי גוף, עד :data:`NOTES_LIST_LIMIT`), ולכן העצירה המוקדמת, שנועדה לא
         למשוך גופים שלא יישלחו, אינה חוסכת שם דבר. ``user_id`` נדרש במסלול הזה.
+
+        שורה במסלול המלא היא :func:`_as_listed_note` — בלי שדות היעד, שכבר בראש התשובה.
         """
         coll = self._notes_coll()
+        serialize: Callable[[Any], dict[str, Any]]
         if include_content:
             rows: Any = coll.find(query).sort("created_at", 1).limit(NOTES_LIST_LIMIT)
-            serialize = _as_note
+            serialize = _as_listed_note
         else:
             if user_id is None:
                 raise ValueError("the lean notes listing needs user_id for open_threads")
@@ -2520,8 +2652,12 @@ class ProductionBackend:
         color: str,
         mode: str,
         title: str = "",
+        mode_sent: bool = False,
     ) -> dict[str, Any]:
         """פתק חדש על לוח.
+
+        ``mode_sent`` — האם הסוכן בחר ``mode`` בקריאה (``mode`` עצמו מגיע תמיד, עם ברירת המחדל
+        כשלא נבחר). מצב ממשק חוזר בתשובה רק כשהקריאה קבעה אותו (:data:`_NOTE_FIELDS`).
 
         התקרה נאכפת ב-``check_note_quota``, שדוחה גם כשהספירה **נכשלה**.
         זו סטייה מכוונת מ-``create_note`` של הקובץ, שם כשל ספירה מעביר את
@@ -2587,7 +2723,8 @@ class ProductionBackend:
             # DuplicateKeyError בתוכה — אינה נתפסת כאן בשום שיטה, וגם
             # ההשוואה לשם לא הייתה תופסת אותה.)
             return {"ok": False, "error": "duplicate_title"}
-        return self._created_note_answer(read_back, user_id, note, res, op="create_board_note")
+        return self._created_note_answer(
+            read_back, user_id, note, res, op="create_board_note", sent=("mode",) if mode_sent else ())
 
     # -- פתקי ריפו: היעד השלישי ------------------------------------------
     def list_repo_notes(self, user_id: int, *, repo_name: str, repo_path: str) -> dict[str, Any]:
@@ -2644,8 +2781,11 @@ class ProductionBackend:
         color: str,
         mode: str,
         title: str = "",
+        mode_sent: bool = False,
     ) -> dict[str, Any]:
         """פתק חדש על קובץ בריפו ממורר.
+
+        ``mode_sent`` — כמו ב-:meth:`create_board_note`.
 
         **שני השערים לפני התקרות הם fail-closed:** מניפסט שלא נענה מחזיר
         ``repo_list_unavailable``/``repo_file_unavailable`` ולא "לא קיים".
@@ -2736,7 +2876,8 @@ class ProductionBackend:
             res = coll.insert_one(note)
         except _DuplicateKeyError:
             return {"ok": False, "error": "duplicate_title"}
-        return self._created_note_answer(read_back, user_id, note, res, op="create_repo_note")
+        return self._created_note_answer(
+            read_back, user_id, note, res, op="create_repo_note", sent=("mode",) if mode_sent else ())
 
     #: השדות שמעידים שכתיבה כלשהי נגעה בפתק. **שלושתם יחד**, ומאותו נימוק
     #: שכתוב במסלול הכשל של :meth:`update_note`: תוכן לבדו הוא ABA (כותב
@@ -2772,7 +2913,7 @@ class ProductionBackend:
         return row if isinstance(row, dict) else None
 
     def get_note(
-        self, user_id: int, *, note_id: str, with_version: bool = False
+        self, user_id: int, *, note_id: str, with_version: bool = False, for_note_view: bool = False
     ) -> dict[str, Any]:
         """פתק בודד לפי מזהה, תחום לבעלות — **הקריאה-לפי-מזהה היחידה** של פתק.
 
@@ -2788,7 +2929,8 @@ class ProductionBackend:
           ``target`` ואיתו בדיוק הארגומנטים של כלי הרשימה המתאים, אותה
           מוסכמה של פגיעת חיפוש. פתק קובץ ישן שנושא ``file_id`` בלבד מקבל
           ``file_name`` דרך :meth:`_backfill_file_names`, מאותה סיבה שהחיפוש
-          עושה זאת: פגיעה בלי ``file_name`` היא מבוי סתום.
+          עושה זאת: פגיעה בלי ``file_name`` היא מבוי סתום. **היעד חוזר רק כאן**:
+          ``note`` נבנה עם ``target_inside=False``, ושדות הלוח והריפו אינם חוזרים בתוכו.
         - ``note.content_sha256`` — :func:`_content_sha256` של הגוף ששמור, אותו
           hash שתשובות הכתיבה נושאות (:func:`_note_write_answer`). כך סוכן יכול
           לוודא שהגוף שקרא הוא הגוף שכתב, בלי להשוות את כל הטקסט. עד אוקטובר
@@ -2809,6 +2951,9 @@ class ProductionBackend:
         הדריסה, ולכן בין השניים ההיסטוריה כבר מחזיקה את הגוף הנוכחי בעוד
         הפתק עצמו טרם זז — את זה סוגר :meth:`_version_of_body`, שמזהה את
         המצב הזה לפי התוכן.
+
+        ``for_note_view`` — הקריאה של ``codekeeper_show_note``: הדף של התצוגה צובע לפי ``color``,
+        ולכן הצבע חוזר ב-``hex`` (:func:`_note_color_fields`).
         """
         from bson import ObjectId  # lazy heavy import
         from sticky_notes_target import note_target_ref
@@ -2841,7 +2986,7 @@ class ProductionBackend:
         self._backfill_file_names(int(user_id), [row])
         out: dict[str, Any] = {
             "ok": True,
-            "note": _as_note_hashed(row),
+            "note": _as_note_hashed(row, body=True, target_inside=False, color_hex=for_note_view),
             **_json_safe(note_target_ref(row)),
         }
         if with_version:
@@ -2858,20 +3003,48 @@ class ProductionBackend:
         return self._raw_mongo()[note_threads.NOTE_THREADS_COLLECTION]
 
     @staticmethod
-    def _as_thread_meta(doc: dict[str, Any]) -> dict[str, Any]:
-        """שורת שרשור **בלי התגובות**, בצורה שאפשר לשלוח (תאריכים ב-ISO עם אזור זמן)."""
+    def _as_author(author: Any) -> Any:
+        """הכותב של תגובה, או מי שסגר שרשור (``resolved_by``), לתשובה — **השדות לפי הסוג**.
+
+        סוכן — ``kind``, ``client`` ו-``working_on``, כמו שנשמרו: הם אומרים מי כתב ועל מה עבד.
+        ``client: null`` של סוכן נשאר — הוא "סוכן ששמו לא ידוע" (PostHog לא מוגדר, או לקוח שאינו
+        שולח את ``Mcp-Session-Id``; ``docs/mcp-server-state.rst``, "מי כתב"). משתמש — ``kind`` בלבד:
+        ``client`` ו-``working_on`` שלו תמיד ``null`` (``note_threads.user_author``), ושדה שאינו
+        רלוונטי לסוג הכותב נעדר. ההכרעה לפי ``kind`` ולא לפי הערך, כדי שה-``null`` של סוכן לא ייעלם.
+
+        הערך מגיע מהמסד: מה שאינו מילון, או מילון עם ``kind`` שאינו מוכר, חוזר כמו שהוא.
+        """
+        if not isinstance(author, dict):
+            return _json_safe(author)
+        if author.get("kind") == note_threads.AUTHOR_USER:
+            return {"kind": note_threads.AUTHOR_USER}
+        return _json_safe(author)
+
+    @classmethod
+    def _as_thread_meta(cls, doc: dict[str, Any]) -> dict[str, Any]:
+        """שורת שרשור **בלי התגובות**, בצורה שאפשר לשלוח (תאריכים ב-ISO עם אזור זמן).
+
+        ``resolved_by`` עובר ב-:meth:`_as_author`. זו המטא-דאטה שממנה נבנית שורת השרשור בקריאה
+        (``handlers._thread_row``) ותשובת הכתיבה (:meth:`_public_thread`); כל אחת בוחרת ממנה.
+        """
         out: dict[str, Any] = {"id": str(doc.get("_id") or "")}
         for key in ("number", "status", "comment_count", "body_bytes", "last_author_kind",
                     "last_at", "created_at", "resolved_by", "resolved_at"):
             if key in doc:
-                out[key] = _json_safe(doc.get(key))
+                out[key] = cls._as_author(doc[key]) if key == "resolved_by" else _json_safe(doc[key])
         return out
 
-    @staticmethod
-    def _as_comment(comment: Any) -> dict[str, Any]:
-        """תגובה כפי שהיא נשמרה — מזהה, כותב, גוף ומועד. הגוף חוזר בדיוק כפי שנשמר."""
+    @classmethod
+    def _as_comment(cls, comment: Any) -> dict[str, Any]:
+        """תגובה כפי שהיא נשמרה — מזהה, כותב (:meth:`_as_author`), גוף ומועד. הגוף חוזר בדיוק
+        כפי שנשמר."""
         comment = comment if isinstance(comment, dict) else {}
-        return {key: _json_safe(comment.get(key)) for key in ("id", "author", "body", "created_at")}
+        return {
+            "id": _json_safe(comment.get("id")),
+            "author": cls._as_author(comment.get("author")),
+            "body": _json_safe(comment.get("body")),
+            "created_at": _json_safe(comment.get("created_at")),
+        }
 
     def note_threads(self, user_id: int, *, note_id: str) -> list[dict[str, Any]] | None:
         """השרשורים של פתק, **בלי התגובות**, בסדר התצוגה — או ``None`` כשהמסד לא ענה.
@@ -2943,6 +3116,13 @@ class ProductionBackend:
         את ``body_sha256`` של הגוף **השמור** (אותה הגדרה של ``content_sha256``), ו-``null``
         כשאי אפשר היה לקרוא אותו בחזרה.
 
+        **התשובה אינה מהדהדת את מה שהסוכן שלח, או יודע בלי לשאול**: לא ``note_id`` ולא ``action``
+        (שניהם נגזרים מהארגומנטים), לא ``kind`` של הכותב (תמיד ``agent``) ולא ``working_on`` שנשלח
+        באותה קריאה, ולא את אותו זמן פעמיים (הזמן הוא ``comment.created_at``, ובסגירה
+        ``thread.resolved_at``). מהכותב נשאר ``client`` בלבד — השדה היחיד שהסוכן לא
+        שלח (הוא נקבע מהחיבור), וכשהוא ``null`` התגובה מוצגת בוובאפ "סוכן" — ב-``comment.author``,
+        ובסגירה בלי תגובה ב-``thread.resolved_by``. מה השרשור מחזיר — :meth:`_public_thread`.
+
         **אירוע התראה נרשם רק אחרי כתיבה מוצלחת, ורק כשנכתבה תגובה של סוכן** — סגירה בלי
         סיכום אינה תגובה. כשל ברישום אינו מפיל את התגובה (:meth:`_insert_push_event`).
         """
@@ -2968,9 +3148,9 @@ class ProductionBackend:
         thread = result.get("thread")
         out: dict[str, Any] = {
             "ok": True,
-            "action": result.get("action"),
-            "note_id": note_id,
-            "thread": (self._public_thread(thread) if isinstance(thread, dict)
+            "thread": (self._public_thread(thread, action=str(result.get("action")),
+                                           comment_written=comment_id is not None)
+                       if isinstance(thread, dict)
                        else {"id": str(result.get("thread_id"))}),
         }
         if comment_id is None:
@@ -2981,21 +3161,57 @@ class ProductionBackend:
             body_text = stored.get("body")
             out["comment"] = {
                 "id": str(stored.get("id")),
-                "author": _json_safe(stored.get("author")),
+                "author": self._own_author(stored.get("author")),
                 "created_at": _json_safe(stored.get("created_at")),
                 "body_sha256": _content_sha256(body_text) if isinstance(body_text, str) else None,
             }
+            if result.get("action") == "resolved":
+                # משפט סיכום נכתב באותה פעולה של הסגירה ובאותו רגע (``note_threads.resolve_thread``),
+                # והזמן של סגירה הוא ``thread.resolved_at`` — לא אותו זמן פעמיים.
+                del out["comment"]["created_at"]
         return out
 
+    @staticmethod
+    def _own_author(author: Any) -> Any:
+        """הכותב של מה שהקריאה הזו כתבה, לתשובת הכתיבה — ``client`` בלבד.
+
+        ``kind`` הוא תמיד ``agent`` ו-``working_on`` הוא מה שהסוכן שלח באותה קריאה, ולכן שניהם הד.
+        ``client`` נקבע מהחיבור ולא נשלח, וזו הדרך היחידה של הסוכן לדעת איך התגובה שלו מזוהה —
+        ולכן הוא נשאר גם כשהוא ``null``. הערך מגיע מהמסד: מה שאינו מילון חוזר כמו שהוא.
+        """
+        if not isinstance(author, dict):
+            return _json_safe(author)
+        return {"client": _json_safe(author.get("client"))}
+
     @classmethod
-    def _public_thread(cls, doc: dict[str, Any]) -> dict[str, Any]:
-        """מצב השרשור אחרי כתיבה, לתשובת הכלי — בלי התגובות ובלי המונה הפנימי ``body_bytes``."""
+    def _public_thread(cls, doc: dict[str, Any], *, action: str, comment_written: bool) -> dict[str, Any]:
+        """מצב השרשור אחרי כתיבה, לתשובת הכלי — **רק מה שהסוכן אינו יודע**, ממה שהמסד החזיר.
+
+        - ``id`` תמיד: בלעדיו אי אפשר להגיב בשרשור חדש.
+        - **שרשור חדש** (``created``) — רק ``id``: הוא תמיד פתוח, עם תגובה אחת, והזמן שלו הוא הזמן
+          של התגובה. ``number`` אינו כאן כלל: הוא אינו נשמר במסד אלא נגזר בקריאה, מסדר היצירה של
+          כל השרשורים של הפתק (``note_threads._numbered``), ותשובת כתיבה רואה שרשור אחד.
+        - **תשובה וסגירה** — ``status`` (האם השרשור נפתח מחדש או נשאר סגור) ו-``comment_count``
+          (גבוה ממה שהסוכן קרא — מישהו הגיב בינתיים). ``last_author_kind`` ו-``last_at`` אינם
+          חוזרים: אחרי תגובה הם הד שלה, ובסגירה בלי תגובה ``comment_count`` כבר אומר אם מישהו
+          הגיב.
+        - **שרשור שנשאר סגור** — ``resolved_at``, ומי סגר: בתשובה עם ``reopen=false`` זה מי שסגר
+          קודם (:meth:`_as_author`); בסגירה שהקריאה הזו עשתה — ``client`` בלבד (:meth:`_own_author`),
+          ורק כשלא נכתבה תגובה, כי אחרת ``comment.author`` כבר נושא אותו.
+        """
         meta = cls._as_thread_meta(doc)
-        meta.pop("body_bytes", None)
-        if meta.get("status") != note_threads.STATUS_RESOLVED:
-            meta.pop("resolved_by", None)
-            meta.pop("resolved_at", None)
-        return meta
+        out: dict[str, Any] = {"id": meta.get("id")}
+        if action == "created":
+            return out
+        out["status"] = meta.get("status")
+        out["comment_count"] = meta.get("comment_count")
+        if meta.get("status") == note_threads.STATUS_RESOLVED:
+            out["resolved_at"] = meta.get("resolved_at")
+            if action != "resolved":
+                out["resolved_by"] = meta.get("resolved_by")
+            elif not comment_written:
+                out["resolved_by"] = cls._own_author(doc.get("resolved_by"))
+        return out
 
     def pending_note_threads(
         self, user_id: int, *, limit: int, include_repo_notes: bool, preview_chars: int
@@ -3536,6 +3752,7 @@ class ProductionBackend:
         note_id: str,
         fields: dict[str, Any],
         expected_content: str | None = None,
+        for_note_view: bool = False,
     ) -> dict[str, Any]:
         """Partial in-place update by ObjectId, ownership enforced in the filter.
 
@@ -3548,9 +3765,10 @@ class ProductionBackend:
         (עדכון-שדות, לא read-modify-write) אינו משתמש בו בכוונה.
 
         **התשובה מתארת את מה שנשמר** (:func:`_note_write_answer`): ``note`` נבנה
-        מהמסמך שהכתיבה עצמה החזירה, עם ``note.content_sha256``. וכשהעדכון כתב
+        מהמסמך שהכתיבה עצמה החזירה, עם ``note.content_sha256`` ובלי הגוף. וכשהעדכון כתב
         גוף, גם ``content_changed`` — השוואה בין הגוף ששמור לבין
-        ``fields["content"]``.
+        ``fields["content"]``. השדות שב-``fields`` הם מה שהקריאה כתבה, ולכן מצב ממשק שנשלח
+        (``is_minimized``) חוזר. ``for_note_view`` — :func:`_note_write_answer`.
 
         **``updated_at`` זז רק כשהגוף משתנה** (``sticky_notes_target.drop_unchanged_edits``): גוף
         ששווה למה ששמור יוצא מהעדכון, ושינוי צבע, שורה או מזעור אינו עריכה. כשלא נשאר מה לכתוב —
@@ -3630,6 +3848,8 @@ class ProductionBackend:
                 note,
                 intended=fields["content"] if "content" in fields else None,
                 op="update_note",
+                sent=fields,
+                for_note_view=for_note_view,
             )
         # **אסימון כתיבה ייחודי, ולא חותמת זמן.** ``updated_at`` נראה כמו
         # אסימון פעולה אבל אינו כזה: מונגו קוטם ל-מילישניות — נמדד, שתי
@@ -3703,4 +3923,6 @@ class ProductionBackend:
             stored,
             intended=fields["content"] if "content" in fields else None,
             op="update_note",
+            sent=fields,
+            for_note_view=for_note_view,
         )
