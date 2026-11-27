@@ -17,6 +17,8 @@
 {% block extra_head %}
 {# תגיות התצוגה המקדימה של קישור (https://ogp.me). וואטסאפ דורש כתובת מלאה ב-og:image, תמונה מתחת ל-600KB ותגיות בתוך 300KB הראשונים של ה-HTML (https://developers.facebook.com/documentation/business-messaging/whatsapp/link-previews/). התמונה היא JPEG של הצילום הראשון, ב-``SHARE_SIZE`` (``share_image`` ב-``webapp/gallery.py``, ``--share`` ב-``scripts/build_gallery_image.py``). #}
 <meta name="description" content="{{ gallery_description }}">
+{# הכתובת הקנונית, כמו ב-``index.html`` (ההערה שם) #}
+<link rel="canonical" href="{{ base_url }}{{ url_for('gallery') }}">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="CodeKeeper">
 <meta property="og:locale" content="he_IL">

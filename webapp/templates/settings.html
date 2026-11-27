@@ -379,6 +379,8 @@
       <div id="pushStatus" style="opacity: 0.8; margin-top: 0.75rem; font-size: 0.95rem">
         מצב לא ידוע
       </div>
+      {# נפרד מ-``pushStatus``, ש-``refreshUi`` דורס מיד אחרי ההפעלה: ממלא אותו ``showLegacyNote`` ב-``push-settings.js`` #}
+      <div id="pushLegacyNote" hidden style="opacity: 0.8; margin-top: 0.5rem; font-size: 0.95rem"></div>
     </div>
   </div>
 {% endif %}

@@ -1882,6 +1882,25 @@ class ConfigService:
             category="webserver",
             required=True,
         ),
+        "WEBAPP_LEGACY_HOSTS": ConfigDefinition(
+            key="WEBAPP_LEGACY_HOSTS",
+            default="",
+            description=(
+                "כתובות קודמות של ה-WebApp (מארח בלבד, מופרדות בפסיקים). דף שנפתח בהן ב-GET או HEAD מופנה לאותו נתיב "
+                "ב-WEBAPP_URL; נתיבי /api/, ‏/sw.js ובדיקות התקינות לא מופנים (webapp/legacy_host_redirect.py). ריק = אין "
+                "הפניה; פגום = אין הפניה, ERROR בעלייה וסימון ב-/health."
+            ),
+            category="webserver",
+        ),
+        "WEBAPP_LEGACY_REDIRECT_PERMANENT": ConfigDefinition(
+            key="WEBAPP_LEGACY_REDIRECT_PERMANENT",
+            default="false",
+            description=(
+                "קוד ההפניה מ-WEBAPP_LEGACY_HOSTS: true מחזיר 301, ריק או false מחזיר 302. ערך אחר מכבה את ההפניה. "
+                "מתחילים ב-302 ועוברים ל-301 אחרי שהמעבר אומת."
+            ),
+            category="webserver",
+        ),
 
         # --- MCP Server (Claude integration) ---
         "MCP_SERVER_URL": ConfigDefinition(

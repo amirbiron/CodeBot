@@ -177,6 +177,23 @@ Docker ל-``push_worker``. אפשר להעלות אותו כ-Blueprint, או ל�
    איתו**, ומשביתה בשקט את כל המנויים הקיימים. אחרי כל החלפת מפתחות יש למחוק
    את המנויים הישנים ולהירשם מחדש.
 
+.. _push-legacy-origin:
+
+מנוי שנרשם בכתובת קודמת של ה-WebApp
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+מנוי push שייך לכתובת שבה הוא נרשם. אחרי המעבר לדומיין ``codekeeper.dev`` (:doc:`/whats-new/2026-11`, 27.11.2026) משתמש שמפעיל התראות שוב, באותו מכשיר, מחזיק שני מנויים — וכל התראה הייתה מגיעה פעמיים. הכלל שמונע את זה, וההנמקה שלו, כתובים בקוד:
+
+.. literalinclude:: ../../webapp/push_api.py
+   :language: python
+   :start-after: # docs:push-legacy-origin:start
+   :end-before: # docs:push-legacy-origin:end
+   :caption: webapp/push_api.py – מנויים מכתובת קודמת
+
+מה המשתמש רואה: אחרי הפעלה בכתובת הנוכחית, ``POST /api/push/subscribe`` מחזיר ``legacy_retired`` (כמה מנויים מאותו דפדפן הוחלפו) ו-``legacy_remaining`` (כמה מנויים מכתובת אחרת נשארו). כש-``legacy_remaining`` גדול מאפס, עמוד ההגדרות מציג מתחת לשורת המצב הודעה שבמכשירים האחרים צריך להפעיל מחדש (``showLegacyNote`` ב-``webapp/static/js/push-settings.js``). מחיקה נרשמת באירוע ``push_legacy_subscriptions_retired`` (:doc:`/observability/events_catalog`).
+
+**ה-Service Worker של הכתובת הקודמת ממשיך לעבוד שם.** ``/sw.js`` ונתיבי ``/api/`` לא מופנים מהכתובת הקודמת (``webapp/legacy_host_redirect.py``), ולכן מנוי שעוד לא הוחלף ממשיך לקבל התראות, ו"דחה" ו"אישור" נשלחים לכתובת הקודמת, עם ה-session שלה. לחיצה על התראה פותחת דף בכתובת הקודמת, והדף מופנה לכתובת הנוכחית — שם המשתמש צריך להיות מחובר.
+
 מי שולח את התזכורות, ומתי
 --------------------------
 

@@ -290,6 +290,11 @@ from webapp import html_preview_frame  # noqa: E402
 # והרישום של בחירת ערכה "רק במכשיר הזה".
 from webapp import first_steps  # noqa: E402
 from webapp.gallery import GALLERY_SLIDES, share_image as gallery_share_image  # noqa: E402
+from webapp.legacy_host_redirect import (  # noqa: E402
+    legacy_redirect_config,
+    legacy_redirect_for,
+    log_legacy_redirect_status,
+)
 from webapp.markdown_editor import THEME_ID as MARKDOWN_EDITOR_THEME_ID, demo_text as markdown_editor_demo_text  # noqa: E402
 from webapp.markdown_editor import (  # noqa: E402
     EXPORT_THEME_IDS as MARKDOWN_EDITOR_EXPORT_THEME_IDS,
@@ -874,6 +879,20 @@ app.config['COMPRESS_BR_LEVEL'] = 5
 Compress(app)
 
 
+# ראשון מבין ה-``before_request``, ולכן רשום כאן, מיד אחרי יצירת האפליקציה: בקשה שמופנית לא מגיעה להתחברות
+# האוטומטית מ-``remember_me`` (שאילתה למסד), למגבלת הקצב או ל-handler — למשל ``GET`` של פעולת אדמין לא רץ בכתובת
+# הישנה. Flask מריץ את ה-``before_request`` של האפליקציה לפי סדר הרישום, ותשובה שאחד מהם מחזיר עוצרת את השאר
+# (``Flask.preprocess_request``). ``tests/test_legacy_host_redirect.py`` בודק שהוא ראשון.
+@app.before_request
+def _redirect_legacy_host():
+    """מפנה דף שנפתח בכתובת ישנה של ה-WebApp לאותו נתיב ב-``WEBAPP_URL``. מה מופנה ומה לא — ב-``webapp/legacy_host_redirect.py``."""
+    decision = legacy_redirect_for(request)
+    if decision is None:
+        return None
+    location, status_code = decision
+    return redirect(location, code=status_code)
+
+
 @app.get("/favicon.ico")
 def favicon():
     """favicon ברירת מחדל (לכל האתר). דפים ספציפיים יכולים להגדיר icon אחר ב-HTML."""
@@ -1174,6 +1193,7 @@ def _is_webapp_runtime() -> bool:
 # ``webapp.app`` (חימום הקאש), והוא כותב את השורה שלו בעצמו (``main()``). מוצג גם ב-``/health``.
 if _is_webapp_runtime():
     log_webapp_url_status(logger, service="webapp")
+    log_legacy_redirect_status(logger)
 
 try:
     if str(os.getenv("DISABLE_BACKUP_SCHEDULER", "")).lower() not in {"1", "true", "yes"}:
@@ -20782,7 +20802,15 @@ def health():
     }
     if _webapp_url_status.problem:
         health_data['config']['WEBAPP_URL_PROBLEM'] = _webapp_url_status.problem
-    
+    # ההפניה מכתובת ישנה (``webapp/legacy_host_redirect.py``): ``off`` / ``on`` / ``invalid``, הקוד כשהיא פעילה, והבעיה
+    # כשהתצורה פגומה — אז שום דבר לא מופנה. המעבר מ-302 ל-301 נבדק כאן.
+    _legacy_redirect = legacy_redirect_config()
+    health_data['config']['WEBAPP_LEGACY_REDIRECT'] = _legacy_redirect.state
+    if _legacy_redirect.status_code:
+        health_data['config']['WEBAPP_LEGACY_REDIRECT_CODE'] = _legacy_redirect.status_code
+    if _legacy_redirect.problem:
+        health_data['config']['WEBAPP_LEGACY_REDIRECT_PROBLEM'] = _legacy_redirect.problem
+
     # בדיקת חיבור למסד נתונים
     try:
         if not MONGODB_URL:
@@ -23182,6 +23210,7 @@ def run_dev_server() -> None:
     logger.info("BOT_USERNAME: %s", BOT_USERNAME)
     logger.info("DATABASE_NAME: %s", DATABASE_NAME)
     log_webapp_url_status(logger, service="webapp")
+    log_legacy_redirect_status(logger)
 
     if check_configuration():
         logger.info("Configuration check passed")

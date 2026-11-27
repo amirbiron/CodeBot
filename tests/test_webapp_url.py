@@ -22,6 +22,7 @@ from webapp_url import (
     STATE_INVALID,
     STATE_MISSING,
     log_webapp_url_status,
+    normalize_host,
     webapp_base_url,
     webapp_base_url_for_request,
     webapp_link,
@@ -401,3 +402,25 @@ def test_mcp_healthz_shows_the_url_state_without_the_value(monkeypatch, value, s
         monkeypatch.setenv("WEBAPP_URL", value)
     body = json.loads(asyncio.run(_healthz(None)).body)
     assert body == {"status": "ok", "service": "codekeeper-mcp", "webapp_url": state}
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        ("webapp.test", "webapp.test"),
+        ("WebApp.Test", "webapp.test"),
+        ("webapp.test:443", "webapp.test"),  # ברירת המחדל של https מושמטת (RFC 9110, 4.2.3)
+        ("webapp.test:0443", "webapp.test"),  # אותו פורט, כמו ש-``urlsplit`` קורא אותו
+        ("webapp.test:8443", "webapp.test:8443"),  # פורט אחר — מארח אחר
+        ("webapp.test:80", "webapp.test:80"),  # 80 אינו ברירת המחדל של https
+    ],
+)
+def test_normalize_host_is_one_form_for_comparison(value, expected):
+    assert normalize_host(value) == expected
+
+
+def test_webapp_host_drops_the_default_port(monkeypatch):
+    from webapp_url import webapp_host
+
+    monkeypatch.setenv("WEBAPP_URL", "https://WebApp.Test:443")
+    assert webapp_host() == "webapp.test"

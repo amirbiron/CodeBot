@@ -257,6 +257,18 @@
      - -
      - ``https://my.app``
      - Bot/WebApp/MCP
+   * - ``WEBAPP_LEGACY_HOSTS``
+     - כתובות קודמות של ה-WebApp, מופרדות בפסיקים: מארח בלבד, בלי ``https://`` ובלי נתיב. בקשת ``GET`` או ``HEAD`` לדף בכתובת כזו מופנית לאותו נתיב ולאותם פרמטרים ב-``WEBAPP_URL``. מה מופנה ומה לא — נתיבי ``/api/``, ``/sw.js``, בדיקות התקינות ושאר החריגים, וכל מתודה אחרת — ב-docstring של ``webapp/legacy_host_redirect.py``, הקורא היחיד. ההשוואה לכותרת ``Host`` היא בלי תלות ברישיות ובלי ``:443`` (``normalize_host`` ב-``webapp_url.py``). ריק = אין הפניה. ערך פגום, ``WEBAPP_URL`` שאינו תקין, או כתובת ששווה ל-``WEBAPP_URL`` — אין הפניה, ושורת ERROR בעלייה. המצב מוצג ב-``/health`` (``WEBAPP_LEGACY_REDIRECT``).
+     - לא
+     - -
+     - ``codekeeper-webapp.onrender.com``
+     - WebApp
+   * - ``WEBAPP_LEGACY_REDIRECT_PERMANENT``
+     - קוד ההפניה מ-``WEBAPP_LEGACY_HOSTS``: ``true`` מחזיר 301, וריק או ``false`` מחזיר 302. הערכים המוכרים לכל צד — ``_TRUE_VALUES`` ו-``_FALSE_VALUES`` ב-``webapp/legacy_host_redirect.py``. ערך אחר הוא פגום ומכבה את ההפניה. מתחילים ב-302, כי דפדפנים שומרים 301 לזמן ארוך, ועוברים ל-301 אחרי שהמעבר אומת.
+     - לא
+     - ``false`` (302)
+     - ``true``
+     - WebApp
    * - ``BOT_JOBS_API_BASE_URL``
      - בסיס URL ל-API הפנימי של הבוט (aiohttp) עבור Trigger של Jobs ממסך המוניטור (``POST /api/jobs/<job_id>/trigger``). אם לא מוגדר, כפתור ההפעלה ידנית במוניטור יהיה לא זמין.
      - לא
