@@ -180,6 +180,31 @@ def test_the_host_comparison_ignores_case(configured):
     assert lhr.legacy_redirect_for(_fake_request(host=OLD_HOST.upper())) == (f"{NEW}/files", 302)
 
 
+@pytest.mark.parametrize(
+    ("listed", "request_host"),
+    [
+        (f"{OLD_HOST}:443", OLD_HOST),  # הפורט ברשימה, לא בכותרת
+        (OLD_HOST, f"{OLD_HOST}:443"),  # הפורט בכותרת, לא ברשימה
+    ],
+)
+def test_the_default_https_port_is_the_same_host(configured, monkeypatch, listed, request_host):
+    # RFC 9110, 4.2.3: פורט ששווה לברירת המחדל של ה-scheme מושמט בצורה הנורמלית
+    monkeypatch.setenv("WEBAPP_LEGACY_HOSTS", listed)
+
+    assert lhr.legacy_redirect_for(_fake_request(host=request_host)) == (f"{NEW}/files", 302)
+
+
+def test_the_loop_guard_sees_through_the_default_port(monkeypatch):
+    # ``WEBAPP_URL`` עם :443 והכתובת הקנונית בלעדיו ברשימה — אותו מארח, כלומר לולאה
+    monkeypatch.setenv("WEBAPP_URL", f"{NEW}:443")
+    monkeypatch.setenv("WEBAPP_LEGACY_HOSTS", "codekeeper.dev")
+
+    config = lhr.legacy_redirect_config()
+
+    assert config.state == lhr.STATE_INVALID
+    assert config.problem == "legacy_is_canonical"
+
+
 def test_a_path_that_looks_like_another_host_stays_on_the_new_host(configured):
     # שורת בקשה ``GET //evil.example/x`` מגיעה עם ``PATH_INFO`` כזה. ה-test client של Werkzeug מפרש את המחרוזת הזו
     # כמארח ונתיב, ולכן הבדיקה כאן על בקשה מדומה.

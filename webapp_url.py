@@ -26,6 +26,7 @@ __all__ = [
     "webapp_url_status",
     "webapp_base_url",
     "webapp_host",
+    "normalize_host",
     "is_valid_host",
     "webapp_link",
     "approval_notice",
@@ -109,13 +110,28 @@ def webapp_base_url() -> Optional[str]:
     return webapp_url_status().url
 
 
-def webapp_host() -> Optional[str]:
-    """המארח של ``WEBAPP_URL`` (והפורט, אם נכתב), באותיות קטנות — או ``None`` כשאין כתובת תקינה.
+def normalize_host(value: str) -> str:
+    """מארח בצורה אחת להשוואה: אותיות קטנות, ובלי ``:443`` — הפורט ש-https משתמש בו כשהכתובת לא מציינת פורט. זו
+    הצורה הנורמלית של RFC 9110: סעיף 4.2.2 קובע את 443 כברירת המחדל, וסעיף 4.2.3 — שפורט ששווה לברירת המחדל מושמט,
+    ושהמארח אינו תלוי רישיות (נקרא ב-rfc-editor.org, נובמבר 2026). כך ``host``, ‏``HOST`` ו-``host:443`` הם אותו מארח,
+    ו-``host:8443`` מארח אחר.
 
-    להשוואה מול ``request.host``: שמות מארח אינם תלויי רישיות, ו-``request.host`` מחזיר את הכותרת כמו שנשלחה.
+    ההשוואות של המארח — ההפניה מכתובת ישנה (``webapp/legacy_host_redirect.py``) וכלל הכפילות של מנויי push
+    (``webapp/push_api.py``) — מנרמלות את שני הצדדים כאן: ``request.host`` של Werkzeug משמיט את הפורט רק כשהוא תואם
+    ל-scheme של הבקשה, ו-``WEBAPP_URL`` מקבל ``https://host:443`` כתקין.
     """
+    lowered = value.lower()
+    host, sep, port = lowered.rpartition(":")
+    if sep and port.isdigit() and int(port) == 443:
+        return host
+    return lowered
+
+
+def webapp_host() -> Optional[str]:
+    """המארח של ``WEBAPP_URL``, מנורמל ב-:func:`normalize_host` — או ``None`` כשאין כתובת תקינה. להשוואה מול
+    ``request.host``, אחרי אותה נרמול."""
     url = webapp_base_url()
-    return url[len(_SCHEME_PREFIX):].lower() if url else None
+    return normalize_host(url[len(_SCHEME_PREFIX):]) if url else None
 
 
 def is_valid_host(value: Any) -> bool:

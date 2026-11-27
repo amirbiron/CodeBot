@@ -21,7 +21,7 @@ import note_threads as nt
 from mcp_server.redaction import redact_secrets
 from sticky_notes_target import NOTE_LABEL_FIELDS, note_label
 # המארח של הכתובת הקנונית — לכלל הכפילות של מנויים מכתובת ישנה (``_retire_legacy_duplicates``).
-from webapp_url import webapp_host
+from webapp_url import normalize_host, webapp_host
 
 # כשל מסד בהכנת בונה של סוג אירוע — הסיכון היחיד שמסלול "נשאר לסבב הבא" הוצהר בשבילו.
 # ייבוא עמיד, כמו ב-``sticky_notes_api``: בסביבות stub אין pymongo, ומחלקה מקומית שלא
@@ -269,16 +269,18 @@ def _hash_endpoint(ep: str) -> str:
 # דרך הכתובת הישנה. user agent שהשתנה בינתיים (עדכון דפדפן) משאיר כפילות — זה המחיר של כלל שלא מוחק מכשיר שלא עבר.
 #
 # מנוי שנרשם לפני שהשדות האלה נוספו לא נושא אותם. מה שמשלים אותם הוא הדיווח של ה-Service Worker (``sw_report``): הוא
-# יוצא מהכתובת שבה המנוי נרשם, עם ה-user agent של הדפדפן, עם ה-session של אותה כתובת ועם ``endpoint_hash`` של המנוי —
-# ו-:func:`_record_reporting_device` כותב לפיהם את השדות, ומריץ את אותו כלל. כך כפילות נפתרת בכל צד שמגיע ראשון:
-# בהפעלה בכתובת החדשה, או בהתראה הבאה שהמנוי הישן מקבל.
+# יוצא מהכתובת שבה המנוי נרשם, עם ה-user agent של הדפדפן ועם ``endpoint_hash`` של המנוי —
+# ו-:func:`_record_reporting_device` כותב לפיהם את השדות, ומריץ את אותו כלל. גם כשה-session של הכתובת הישנה כבר פג
+# (מכשיר שלא קיבל התראה חודש): אז רק שדות חסרים נכתבים, ורק למנוי שנרשם לפני השינוי. כך כפילות נפתרת בכל צד שמגיע
+# ראשון: בהפעלה בכתובת החדשה, או בהתראה הבאה שהמנוי הישן מקבל.
 _LEGACY_RETIRED_EVENT = "push_legacy_subscriptions_retired"
 # docs:push-legacy-origin:end
 
 
 def _request_origin_host() -> str:
-    """המארח שהבקשה הגיעה אליו, באותיות קטנות — הכתובת שבה הדפדפן מחזיק את המנוי (שמות מארח אינם תלויי רישיות)."""
-    return str(request.host or "").lower()
+    """המארח שהבקשה הגיעה אליו — הכתובת שבה הדפדפן מחזיק את המנוי — מנורמל כמו ``webapp_host()``
+    (``normalize_host``: אותיות קטנות, ובלי ``:443``), כדי שההשוואה ביניהם לא תיכשל על צורת הכתיבה."""
+    return normalize_host(str(request.host or ""))
 
 
 def _request_user_agent() -> str:
@@ -322,16 +324,37 @@ def _emit_legacy_retired(user_id: Any, retired: int, *, trigger: str) -> None:
 def _record_reporting_device(db, user_id: Any, endpoint_hash: str, *, user_agent: str, origin_host: str) -> int:
     """משלים ``user_agent`` ו-``origin_host`` למנוי שה-Service Worker שלו דיווח, ומריץ עליו את כלל הכפילות. מחזיר כמה מנויים נמחקו.
 
-    המנוי מזוהה לפי ``endpoint_hash`` מתוך המנויים של המשתמש שב-session — הדיווח לא נושא את ה-endpoint עצמו. בלי התאמה
-    יחידה לא נכתב כלום. ``origin_host`` נכתב רק כשהוא חסר: המנוי שייך לכתובת שבה נרשם, וה-Service Worker מדווח ממנה.
-    ``user_agent`` מתעדכן כשהוא שונה, כדי שעדכון דפדפן לא ישאיר את ההשוואה על ערך ישן.
+    המנוי מזוהה לפי ``endpoint_hash`` — הדיווח לא נושא את ה-endpoint עצמו — ובלי התאמה יחידה לא נכתב כלום.
+    ``origin_host`` נכתב רק כשהוא חסר: המנוי שייך לכתובת שבה נרשם, וה-Service Worker מדווח ממנה.
+
+    **עם session** (``user_id``): המנוי נבחר מתוך המנויים של המשתמש, ו-``user_agent`` מתעדכן גם כשהוא שונה, כדי שעדכון
+    דפדפן לא ישאיר את ההשוואה על ערך ישן.
+
+    **בלי session** (``user_id`` הוא ``None``): ה-session של הכתובת הישנה קבוע ל-30 יום ומתחדש רק בבקשה, וההתחברות
+    הקבועה (``remember_me``) היא בחירה של המשתמש. מכשיר שלא קיבל התראה חודש מדווח בלי משתמש — ובלי המסלול הזה, מנוי
+    שנרשם לפני שהשדות נוספו היה נשאר כפילות לתמיד, גם אחרי שאותו דפדפן נרשם בכתובת הקנונית. לכן המנוי נבחר מתוך
+    המנויים שאין להם ``user_agent`` בלבד — אלה שנרשמו לפני השינוי — ורק כשהדיווח הגיע מכתובת שאינה הקנונית, כי מנוי
+    כזה נרשם בהכרח בכתובת קודמת. נכתבים רק שדות חסרים, ושום ערך קיים לא נדרס; הבעלים נלקח מהמנוי עצמו. השער הוא
+    ה-``endpoint_hash``: 48 ביט מ-SHA-256 של ה-endpoint, שנרשמים בלוגים ובאוסף הדיווחים ואינם מוצגים למשתמש אחר
+    (``list_sw_reports`` מחזיר למשתמש את הדיווחים שלו, או לפי hash שהוא כבר מחזיק). דיווח מזויף, גם עם hash נכון, יכול
+    לכל היותר לקבוע פעם אחת user agent למנוי ישן — כלומר להשאיר כפילות, או למחוק אותו אם הערך זהה ל-user agent של
+    מנוי של אותו משתמש בכתובת הקנונית. הסריקה בלי session עוברת רק על המנויים שעוד חסר להם ``user_agent``, וקבוצה
+    זו רק קטנה: מנוי שנרשם מעכשיו נושא את השדה.
     """
-    variants = _user_id_variants(user_id)
-    subs = list(db.push_subscriptions.find({"user_id": {"$in": variants}}, {"endpoint": 1, "user_agent": 1, "origin_host": 1}))
-    matches = [s for s in subs if _hash_endpoint(str(s.get("endpoint") or "")) == endpoint_hash]
+    canonical = webapp_host()
+    projection = {"endpoint": 1, "user_agent": 1, "origin_host": 1, "user_id": 1}
+    if user_id is not None:
+        candidates = db.push_subscriptions.find({"user_id": {"$in": _user_id_variants(user_id)}}, projection)
+    elif canonical and origin_host and origin_host != canonical:
+        candidates = db.push_subscriptions.find({"user_agent": {"$exists": False}}, projection)
+    else:
+        return 0
+    matches = [s for s in candidates if _hash_endpoint(str(s.get("endpoint") or "")) == endpoint_hash]
     if len(matches) != 1:
         return 0
     sub = matches[0]
+    owner = user_id if user_id is not None else sub.get("user_id")
+    variants = _user_id_variants(owner)
     updates: Dict[str, Any] = {}
     if user_agent and sub.get("user_agent") != user_agent:
         updates["user_agent"] = user_agent
@@ -341,7 +364,6 @@ def _record_reporting_device(db, user_id: Any, endpoint_hash: str, *, user_agent
         db.push_subscriptions.update_one({"_id": sub["_id"]}, {"$set": updates})
     sub_origin = updates.get("origin_host") or sub.get("origin_host")
     sub_agent = updates.get("user_agent") or sub.get("user_agent")
-    canonical = webapp_host()
     if not canonical or not sub_origin or sub_origin == canonical or not sub_agent:
         return 0
     # המנוי שדיווח הוא מכתובת ישנה. אם לאותו משתמש יש מנוי בכתובת הקנונית מאותו דפדפן, המנוי הזה הוא הכפילות.
@@ -351,7 +373,10 @@ def _record_reporting_device(db, user_id: Any, endpoint_hash: str, *, user_agent
     if not has_canonical_twin:
         return 0
     result = db.push_subscriptions.delete_one({"_id": sub["_id"]})
-    return int(getattr(result, "deleted_count", 0) or 0)
+    retired = int(getattr(result, "deleted_count", 0) or 0)
+    # האירוע נרשם כאן ולא אצל הקורא: בלי session רק המנוי עצמו יודע מי הבעלים
+    _emit_legacy_retired(owner, retired, trigger="sw_report")
+    return retired
 
 
 _URL_IN_ERROR_RE = re.compile(r"https?://\S+")
@@ -2379,12 +2404,13 @@ def sw_report():
             pass
 
         # הדיווח יוצא מהכתובת שבה המנוי נרשם, עם ה-user agent של הדפדפן: משלים את השדות למנוי שנרשם לפני שהם נוספו,
-        # ופותר כפילות מכתובת ישנה (ההערה שמעל ``_LEGACY_RETIRED_EVENT``). בלי session או בלי hash אין למי לשייך.
-        if uid not in (None, "") and endpoint_hash:
+        # ופותר כפילות מכתובת ישנה (ההערה שמעל ``_LEGACY_RETIRED_EVENT``). בלי hash אין מנוי לשייך; בלי session —
+        # רק מנוי שנרשם לפני שהשדות נוספו, ורק מכתובת קודמת (המסלול השני ב-docstring של ``_record_reporting_device``).
+        if endpoint_hash:
             try:
-                retired = _record_reporting_device(
+                _record_reporting_device(
                     get_db(),
-                    uid,
+                    uid if uid not in (None, "") else None,
                     endpoint_hash,
                     user_agent=_request_user_agent(),
                     origin_host=_request_origin_host(),
@@ -2396,8 +2422,6 @@ def sw_report():
                     "push_api.sw_report: recording the reporting device failed",
                     extra={"endpoint_hash": endpoint_hash},
                 )
-            else:
-                _emit_legacy_retired(uid, retired, trigger="sw_report")
 
         # Log with structlog if available, else standard logging
         try:

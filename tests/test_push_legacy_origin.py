@@ -206,16 +206,80 @@ def test_a_report_from_the_new_host_never_retires_its_own_subscription(client, d
     assert _endpoints(db) == ["https://push.example/new-tablet"]
 
 
-def test_a_report_without_a_session_writes_nothing(db):
+def _anonymous_client():
+    """בלי session — ה-session של הכתובת הישנה פג: מכשיר שלא קיבל התראה חודש, בלי התחברות קבועה."""
     app = Flask(__name__)
     app.secret_key = "test-secret"
     app.register_blueprint(push_mod.push_bp)
+    return app.test_client()
+
+
+def test_a_report_without_a_session_completes_and_retires_a_pre_change_subscription(db, events):
+    """התרחיש מהריוויו: המנוי הישן נרשם לפני השינוי, ה-session שלו פג, ואותו דפדפן כבר נרשם בכתובת הקנונית."""
+    _sub(db, "https://push.example/new-tablet", origin_host=NEW_HOST, user_agent=UA_TABLET)
     _sub(db, "https://push.example/old-tablet")
 
-    resp = _report(app.test_client(), "https://push.example/old-tablet")
+    resp = _report(_anonymous_client(), "https://push.example/old-tablet")
 
     assert resp.status_code == 200
+    assert _endpoints(db) == ["https://push.example/new-tablet"]
+    assert ("push_legacy_subscriptions_retired", {"severity": "info", "user_id": str(USER), "retired": 1, "trigger": "sw_report"}) in events
+
+
+def test_a_report_without_a_session_only_fills_missing_fields(db):
+    _sub(db, "https://push.example/old-phone")  # אין מנוי קנוני מאותו דפדפן — רק משלימים
+
+    _report(_anonymous_client(), "https://push.example/old-phone", ua=UA_PHONE)
+
+    (doc,) = db.push_subscriptions.docs
+    assert doc["origin_host"] == OLD_HOST
+    assert doc["user_agent"] == UA_PHONE
+
+
+def test_a_report_without_a_session_never_overwrites_a_user_agent(db):
+    # מנוי שכבר נושא user agent אינו מנוי מלפני השינוי, ובלי session לא נוגעים בו
+    _sub(db, "https://push.example/new-tablet", origin_host=NEW_HOST, user_agent=UA_TABLET)
+    _sub(db, "https://push.example/old-tablet", origin_host=OLD_HOST, user_agent="Chrome/130")
+
+    _report(_anonymous_client(), "https://push.example/old-tablet")
+
+    assert {d["endpoint"]: d["user_agent"] for d in db.push_subscriptions.docs} == {
+        "https://push.example/new-tablet": UA_TABLET,
+        "https://push.example/old-tablet": "Chrome/130",
+    }
+
+
+def test_a_report_without_a_session_to_the_canonical_host_writes_nothing(db):
+    # מנוי מלפני השינוי נרשם בהכרח בכתובת קודמת; דיווח בלי session שמגיע לכתובת הקנונית אינו שלו
+    _sub(db, "https://push.example/old-tablet")
+
+    _report(_anonymous_client(), "https://push.example/old-tablet", host=NEW_HOST)
+
     assert "user_agent" not in db.push_subscriptions.docs[0]
+    assert "origin_host" not in db.push_subscriptions.docs[0]
+
+
+def test_another_device_with_the_same_user_agent_is_treated_as_the_same_device(client, db):
+    """ההחלטה של בעל הפרויקט ב-PR: user agent זהה נחשב לאותו דפדפן באותו מכשיר. שני מכשירים זהים — אותו דגם ואותה
+    גרסת דפדפן — הם המחיר: המנוי הישן של השני נמחק כשהראשון נרשם בכתובת הקנונית, ומפעילים בו מחדש. הטסט מקבע את
+    ההחלטה, כדי ששינוי שלה יהיה מכוון."""
+    _sub(db, "https://push.example/old-second-tablet", origin_host=OLD_HOST, user_agent=UA_TABLET)
+
+    _subscribe(client, "https://push.example/new-first-tablet", host=NEW_HOST, ua=UA_TABLET)
+
+    assert _endpoints(db) == ["https://push.example/new-first-tablet"]
+
+
+def test_webapp_url_with_the_default_port_is_the_same_canonical_host(client, db, monkeypatch):
+    # ``https://host:443`` תקין ב-``WEBAPP_URL``, ו-Werkzeug משמיט את 443 מ-``request.host`` (RFC 9110, 4.2.3)
+    monkeypatch.setenv("WEBAPP_URL", f"https://{NEW_HOST}:443")
+    _sub(db, "https://push.example/old-tablet", origin_host=OLD_HOST, user_agent=UA_TABLET)
+
+    resp = _subscribe(client, "https://push.example/new", host=NEW_HOST, ua=UA_TABLET)
+
+    assert resp.get_json()["legacy_retired"] == 1
+    assert _endpoints(db) == ["https://push.example/new"]
+    assert db.push_subscriptions.docs[0]["origin_host"] == NEW_HOST
 
 
 def test_a_report_whose_hash_matches_nothing_writes_nothing(client, db):

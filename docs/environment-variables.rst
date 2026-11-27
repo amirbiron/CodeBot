@@ -258,7 +258,7 @@
      - ``https://my.app``
      - Bot/WebApp/MCP
    * - ``WEBAPP_LEGACY_HOSTS``
-     - כתובות קודמות של ה-WebApp, מופרדות בפסיקים: מארח בלבד, בלי ``https://`` ובלי נתיב. בקשת ``GET`` או ``HEAD`` לדף בכתובת כזו מופנית לאותו נתיב ולאותם פרמטרים ב-``WEBAPP_URL``. מה מופנה ומה לא — נתיבי ``/api/``, ``/sw.js``, בדיקות התקינות ושאר החריגים, וכל מתודה אחרת — ב-docstring של ``webapp/legacy_host_redirect.py``, הקורא היחיד. ריק = אין הפניה. ערך פגום, ``WEBAPP_URL`` שאינו תקין, או כתובת ששווה ל-``WEBAPP_URL`` — אין הפניה, ושורת ERROR בעלייה. המצב מוצג ב-``/health`` (``WEBAPP_LEGACY_REDIRECT``).
+     - כתובות קודמות של ה-WebApp, מופרדות בפסיקים: מארח בלבד, בלי ``https://`` ובלי נתיב. בקשת ``GET`` או ``HEAD`` לדף בכתובת כזו מופנית לאותו נתיב ולאותם פרמטרים ב-``WEBAPP_URL``. מה מופנה ומה לא — נתיבי ``/api/``, ``/sw.js``, בדיקות התקינות ושאר החריגים, וכל מתודה אחרת — ב-docstring של ``webapp/legacy_host_redirect.py``, הקורא היחיד. ההשוואה לכותרת ``Host`` היא בלי תלות ברישיות ובלי ``:443`` (``normalize_host`` ב-``webapp_url.py``). ריק = אין הפניה. ערך פגום, ``WEBAPP_URL`` שאינו תקין, או כתובת ששווה ל-``WEBAPP_URL`` — אין הפניה, ושורת ERROR בעלייה. המצב מוצג ב-``/health`` (``WEBAPP_LEGACY_REDIRECT``).
      - לא
      - -
      - ``codekeeper-webapp.onrender.com``

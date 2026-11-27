@@ -14,7 +14,7 @@
 
 **בלי תצורה תקינה אין הפניה בכלל**, אבל לא בשקט: :func:`log_legacy_redirect_status` כותבת שורת ERROR בעלייה, ו-``/health`` מציג את המצב (``WEBAPP_LEGACY_REDIRECT``). פגום הוא מארח שאינו בדקדוק של ``WEBAPP_URL`` (:func:`webapp_url.is_valid_host`), ``WEBAPP_URL`` שאינו תקין (אין לאן להפנות), כתובת ישנה ששווה לכתובת הקנונית (לולאה), או ערך של הדגל שאינו אחד מהערכים המוכרים.
 
-**ההשוואה היא על המארח כולו** — באותיות קטנות, בשוויון מלא, ולא ``startswith``/``endswith``: הכתובת הישנה ואחריה ``.evil.net`` היא מארח אחר (K16 ב-amir-bug-patterns).
+**ההשוואה היא על המארח כולו** — בשוויון מלא, ולא ``startswith``/``endswith``: הכתובת הישנה ואחריה ``.evil.net`` היא מארח אחר (K16 ב-amir-bug-patterns). שני הצדדים — הרשימה, ``WEBAPP_URL`` ו-``request.host`` — עוברים את :func:`webapp_url.normalize_host` (אותיות קטנות, ובלי ``:443``), כך ש-``https://host:443`` ב-``WEBAPP_URL`` והכותרת ``host`` הם אותו מארח, גם בשומר הלולאה.
 
 המודול טהור: בלי Flask, בלי ייבוא של שירות ובלי פעולה בזמן ייבוא. הערכים נקראים מהסביבה בכל קריאה, כמו ב-``webapp_url.py``, ולכן טסט שמגדיר או מוחק משתנה רואה את השינוי מיד. הרישום ב-Flask — ``_redirect_legacy_host`` ב-``webapp/app.py``, ראשון מבין ה-``before_request``.
 """
@@ -27,7 +27,14 @@ from dataclasses import dataclass, field
 from typing import Any, FrozenSet, Optional, Tuple
 from urllib.parse import quote
 
-from webapp_url import STATE_CONFIGURED, is_valid_host, webapp_base_url, webapp_host, webapp_url_status
+from webapp_url import (
+    STATE_CONFIGURED,
+    is_valid_host,
+    normalize_host,
+    webapp_base_url,
+    webapp_host,
+    webapp_url_status,
+)
 
 __all__ = [
     "STATE_OFF",
@@ -97,9 +104,10 @@ def legacy_redirect_config() -> LegacyRedirectConfig:
         return LegacyRedirectConfig(state=STATE_OFF)
     # רשימה מופרדת בפסיקים. פריט ריק ("a,,b", פסיק בסוף) הוא פגום ולא מדולג — כמו ב-``WEBAPP_URL``, ערך שאינו
     # בדיוק בצורה הנכונה לא מתוקן בניחוש.
-    hosts = [part.strip().lower() for part in hosts_value.split(",")]
-    if not all(is_valid_host(host) for host in hosts):
+    entries = [part.strip() for part in hosts_value.split(",")]
+    if not all(is_valid_host(entry) for entry in entries):
         return _invalid("bad_host")
+    hosts = [normalize_host(entry) for entry in entries]
     if webapp_url_status().state != STATE_CONFIGURED:
         return _invalid("no_webapp_url")
     if webapp_host() in hosts:
@@ -135,16 +143,19 @@ def legacy_redirect_for(request: Any) -> Optional[Tuple[str, int]]:
     if request.method not in ("GET", "HEAD"):
         return None
     config = legacy_redirect_config()
-    if config.state != STATE_ON:
+    # ``target`` ו-``status_code`` קיימים תמיד ב-``STATE_ON`` (``legacy_redirect_config``); הבדיקה המפורשת מצמצמת את
+    # הטיפוס מ-``Optional`` בלי ``assert``, שנעלם תחת ``python -O``.
+    target, status_code = config.target, config.status_code
+    if config.state != STATE_ON or target is None or status_code is None:
         return None
-    if (request.host or "").lower() not in config.hosts:
+    if normalize_host(request.host or "") not in config.hosts:
         return None
     if _is_api_path(request.path) or request.endpoint in EXEMPT_ENDPOINTS:
         return None
-    location = config.target + quote(request.path, safe=_PATH_SAFE)
+    location = target + quote(request.path, safe=_PATH_SAFE)
     if request.query_string:
         location += "?" + quote(request.query_string, safe=_QUERY_SAFE)
-    return location, config.status_code
+    return location, status_code
 
 
 def log_legacy_redirect_status(log: logging.Logger) -> LegacyRedirectConfig:
