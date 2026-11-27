@@ -46,6 +46,12 @@ const FILE_NAME_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'uti
 // היעדר-היכולת במקום את הכלל.
 const TEXT_HIGHLIGHT_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'utils', 'text-highlight.js');
 
+// **תקרת התוכן של השרת — מהמקור, ולא מוקלדת כאן.** בייצור התבנית מזריקה אותה ל-``window.STICKY_NOTE_MAX_CHARS``
+// מ-``sticky_notes_target.MAX_NOTE_CHARS``, ולכן כאן היא נקראת מאותה שורה. עד נובמבר 2026 טסטי האורך הקלידו
+// מספר משלהם — עותק שני של התקרה, שהיה נשאר מאחור בכל הגדלה שלה.
+const SERVER_MAX_NOTE_CHARS = Number(/^MAX_NOTE_CHARS\s*=\s*([\d_]+)/m
+  .exec(fs.readFileSync(path.join(__dirname, '..', 'sticky_notes_target.py'), 'utf8'))[1].replace(/_/g, ''));
+
 /** DOM מינימלי — רק מה ש-``_init`` נוגע בו לפני שהוא נכשל בשקט. */
 //: הכתובת שממנה העמוד "טען" את המודול בסנדבוקס — כמו בייצור, עם ``?v=`` של הגרסה. ממנה המודול גוזר
 //: כתובות של קבצים סטטיים (``staticAssetUrl``), ובלעדיה כל אייקון מקובץ היה נעדר בבדיקות.
@@ -97,6 +103,10 @@ function makeSandbox(opts = {}) {
     },
     // ``URL`` אינו חלק מ-ECMAScript, ולכן אינו קיים בהקשר של ``vm`` בלי שמעבירים אותו.
     URL,
+    // **וגם ``TextEncoder`` — מאותה סיבה.** ``sendSaveRequest`` מודד בו את גוף השמירה כדי להחליט על ``keepalive``,
+    // ובלעדיו כל שמירה בסנדבוקס הייתה יוצאת רגילה — מסלול שבדפדפן קורה רק לגוף שאינו נכנס במכסה. של node, לפי
+    // אותו מפרט (WHATWG Encoding).
+    TextEncoder,
     window: {
       ...tracking(),
       innerWidth: 1024,
@@ -505,29 +515,31 @@ check('אורך: התקרה מגיעה מהשרת, לא מוקלדת בלקוח'
 });
 
 check('אורך: בדיוק בגבול מתקבל, ומעליו מוצג חיווי', () => {
-  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  const cap = SERVER_MAX_NOTE_CHARS;
+  sandbox.window.STICKY_NOTE_MAX_CHARS = cap;
   const { el } = makeNote('קצר');
 
   eq(fileMgr._checkContentLength(el, 'קצר'), false, 'תוכן קצר');
   eq(el.querySelector('.sticky-note-warn'), null, 'אין חיווי');
 
   // הגבול עצמו חוקי — off-by-one כאן פוסל תוכן תקין
-  eq(fileMgr._checkContentLength(el, 'א'.repeat(20000)), false, 'בדיוק בגבול');
+  eq(fileMgr._checkContentLength(el, 'א'.repeat(cap)), false, 'בדיוק בגבול');
   eq(el.querySelector('.sticky-note-warn'), null, 'אין חיווי בגבול');
 
-  eq(fileMgr._checkContentLength(el, 'א'.repeat(20001)), true, 'תו אחד מעל');
+  eq(fileMgr._checkContentLength(el, 'א'.repeat(cap + 1)), true, 'תו אחד מעל');
   const warn = el.querySelector('.sticky-note-warn');
   eq(warn !== null, true, 'יש חיווי');
-  eq(warn.textContent.includes('20001'), true, 'החיווי מציין את האורך בפועל');
-  eq(warn.textContent.includes('20000'), true, 'והתקרה שהשרת נתן');
+  eq(warn.textContent.includes(String(cap + 1)), true, 'החיווי מציין את האורך בפועל');
+  eq(warn.textContent.includes(String(cap)), true, 'והתקרה שהשרת נתן');
 });
 
 check('אורך: החיווי מתנקה כשחוזרים מתחת לתקרה', () => {
   // כשל שנשאר על המסך אחרי שתוקן משקר בדיוק כמו כשל שלא הוצג
-  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  const cap = SERVER_MAX_NOTE_CHARS;
+  sandbox.window.STICKY_NOTE_MAX_CHARS = cap;
   const { el } = makeNote('קצר');
 
-  fileMgr._checkContentLength(el, 'א'.repeat(20001));
+  fileMgr._checkContentLength(el, 'א'.repeat(cap + 1));
   eq(el.querySelector('.sticky-note-warn') !== null, true, 'החיווי הופיע');
   eq(el.classList.contains('has-length-error'), true, 'קלאס השגיאה נוסף');
 
@@ -538,24 +550,28 @@ check('אורך: החיווי מתנקה כשחוזרים מתחת לתקרה', 
 
 check('אורך: אימוג\'י נספר כמו בפייתון, לא כיחידות UTF-16', () => {
   // ``String.length`` סופר יחידות UTF-16 והשרת סופר תווי Unicode. בלי
-  // ההתאמה, 10,001 אימוג\'ים קיבלו אזהרה על תוכן שהשרת מקבל — פי שניים.
-  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  // ההתאמה, אימוג'ים בחצי מהתקרה ועוד אחד קיבלו אזהרה על תוכן שהשרת מקבל — פי שניים.
+  const cap = SERVER_MAX_NOTE_CHARS;
+  sandbox.window.STICKY_NOTE_MAX_CHARS = cap;
   const { el } = makeNote('קצר');
-  const emoji = '🙂'.repeat(10001);          // 20,002 יחידות, 10,001 תווים
+  const half = Math.floor(cap / 2) + 1;
+  const emoji = '🙂'.repeat(half);          // יותר יחידות UTF-16 מהתקרה, ופחות תווים ממנה
+  eq(emoji.length > cap && half <= cap, true, 'בקרת שפיות: הקלט מבדיל בין שתי הספירות');
 
   eq(fileMgr._checkContentLength(el, emoji), false, 'השרת היה מקבל, ולכן אין אזהרה');
   eq(el.querySelector('.sticky-note-warn'), null, 'אין חיווי');
 
   // ומעל התקרה האמיתית — כן מזהירים, עם המספר של פייתון
-  eq(fileMgr._checkContentLength(el, '🙂'.repeat(20001)), true, 'מעל התקרה');
-  eq(el.querySelector('.sticky-note-warn').textContent.includes('20001'), true, 'ספירת קוד-פוינטים');
+  eq(fileMgr._checkContentLength(el, '🙂'.repeat(cap + 1)), true, 'מעל התקרה');
+  eq(el.querySelector('.sticky-note-warn').textContent.includes(String(cap + 1)), true, 'ספירת קוד-פוינטים');
 });
 
 check('אורך: הניסוח תואם לחוזה השרת — העדכון כולו נדחה', () => {
   // "מה שמעבר לא יישמר" שיקר: השרת דוחה את כל העדכון, לא חותך זנב
-  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  const cap = SERVER_MAX_NOTE_CHARS;
+  sandbox.window.STICKY_NOTE_MAX_CHARS = cap;
   const { el } = makeNote('קצר');
-  fileMgr._checkContentLength(el, 'א'.repeat(20001));
+  fileMgr._checkContentLength(el, 'א'.repeat(cap + 1));
   const text = el.querySelector('.sticky-note-warn').textContent;
   eq(text.includes('מה שמעבר'), false, 'לא מבטיח שמירה חלקית');
   eq(text.includes('לקצר'), true, 'אומר מה לעשות');
@@ -1270,8 +1286,7 @@ check('אינליין: הסריקה לינארית בשורה באורך תקר�
   // קטעים (``[`א` `` שחוזר על עצמו) נמדדה עד פי 13.2 על הקוד של היום, בשורה
   // פי ארבעה מהתקרה — ופי 4.9–5.8 כשהזיכרון הצעיר של המנוע הוגדל
   // (``--max-semi-space-size=128``). כלומר איסוף הזבל, ולא הסריקה.
-  const cap = Number(/^MAX_NOTE_CHARS\s*=\s*([\d_]+)/m
-    .exec(fs.readFileSync(path.join(__dirname, '..', 'sticky_notes_target.py'), 'utf8'))[1].replace(/_/g, ''));
+  const cap = SERVER_MAX_NOTE_CHARS;
   const cpuMs = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
   const lines = {
     'סוגריים פותחים': (n) => '['.repeat(n - 1) + ']',
@@ -6381,6 +6396,233 @@ check('סגירת לשונית: פתק שנבדק בו 409 עם שינוי בת�
     if (mgr._saveDebounced && mgr._saveDebounced.cancel) mgr._saveDebounced.cancel();
     if (mgr._autoFlushTimer) { clearInterval(mgr._autoFlushTimer); mgr._autoFlushTimer = null; }
   }
+});
+
+// ---------- שמירה ו-keepalive: מכסה משותפת של 64KiB (``sendSaveRequest``) ----------
+//
+// בקשת keepalive נכשלת כשסכום הגופים של בקשות ה-keepalive שבאוויר, יחד עם שלה, עובר 64KiB (Fetch Standard, 4.6
+// צעד 10; נמדד בכרומיום 158). עד נובמבר 2026 כל שמירה יצאה עם keepalive, וגוף גדול לא יצא מהעמוד בכלל.
+//
+// **כל בדיקה כאן בסנדבוקס משלה** (``keepaliveSandbox``): הבדיקות מחזיקות בקשות באוויר לאורך כמה סבבים, והבדיקות
+// האסינכרוניות בקובץ רצות במקביל. ``withFetch`` מחליף את ה-``fetch`` של הסנדבוקס המשותף, ובקשה של בדיקה אחרת
+// הייתה נופלת לידיים של הבדיקה הזו — וגם המונה של המכסה הוא ברמת המודול, כלומר אחד לכל סנדבוקס.
+
+/**
+ * ``fetch`` מבוקר: כל ``PUT``/``POST`` נרשם עם האפשרויות שלו, והתשובה מחכה — ``respond`` מחזיר את הכותרות,
+ * ו-``finishBody`` משחרר את הגוף (``json``). כך אפשר להחזיק כמה שמירות באוויר יחד, ולבדוק מה קורה בין הכותרות
+ * לגוף. כל קריאה אחרת — טעינת הרשימה בבניית המנהל — **אינה חוזרת**: רשימה שהייתה חוזרת הייתה מחליפה את הפתקים
+ * שהבדיקה רשמה ביד, ושמירה של פתק שאינו במנהל אינה יוצאת (``_withToken``).
+ */
+function heldFetch() {
+  const calls = [];
+  const handler = (url, opts) => {
+    const method = opts && opts.method;
+    if (method !== 'PUT' && method !== 'POST') return new Promise(() => {});
+    return new Promise((resolve) => {
+      let finish;
+      const body = new Promise((r) => { finish = r; });
+      const call = { url, opts, bodyRead: false };
+      call.respond = (status = 200, json = { ok: true, updated_at: 'T9' }) => resolve({
+        ok: status >= 200 && status < 300, status,
+        json: () => body.then(() => { call.bodyRead = true; return json; }),
+      });
+      call.finishBody = () => finish();
+      call.release = (status, json) => { call.respond(status, json); call.finishBody(); };
+      calls.push(call);
+    });
+  };
+  return { calls, handler };
+}
+
+/** סנדבוקס משלה, עם ``heldFetch``, ומנהל אחד בה. ``storage`` — אחסון בזיכרון במקום ``localStorage`` שאינו שומר. */
+function keepaliveSandbox(name) {
+  const sb = makeSandbox();
+  const { calls, handler } = heldFetch();
+  sb.fetch = handler;
+  const map = new Map();
+  sb.localStorage = {
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => { map.set(k, String(v)); },
+    removeItem: (k) => { map.delete(k); },
+    key: (i) => Array.from(map.keys())[i] || null,
+    get length() { return map.size; },
+  };
+  const mgr = new sb.window.StickyNotesManager(name);
+  return { mgr, calls, storage: map };
+}
+const utf8Bytes = (s) => new TextEncoder().encode(s).length;
+//: גוף שנכנס לבדו במכסה, ושניים כמוהו לא — 40,000 תווי ASCII, כמו המדידה בכרומיום.
+const FORTY_K = 'a'.repeat(40000);
+
+/** פתק רשום עם בסיס מהשרת ב-``mgr`` — כמו ``liveNote``, למנהל משלה. */
+function liveNoteOn(mgr, id, content, token) {
+  const n = registerNote(mgr, id, content);
+  n.el.dataset.updatedAt = token;
+  n.entry.base = { content, title: '', updated_at: token };
+  n.entry.unconfirmed = [];
+  return n;
+}
+function cleanupMgr(mgr) {
+  mgr._pending.clear();
+  mgr._inFlight.clear();
+  mgr.notes.clear();
+  if (mgr._saveDebounced && mgr._saveDebounced.cancel) mgr._saveDebounced.cancel();
+  if (mgr._autoFlushTimer) { clearInterval(mgr._autoFlushTimer); mgr._autoFlushTimer = null; }
+}
+
+check('keepalive: שמירה קטנה יוצאת עם keepalive, וגוף מעל 64KiB יוצא כבקשה רגילה — ולא נעלם', async () => {
+  const { mgr, calls } = keepaliveSandbox('ka1-file');
+  liveNoteOn(mgr, 'ka-small', 'x', 'T0');
+  liveNoteOn(mgr, 'ka-big', 'x', 'T0');
+  try {
+    const small = mgr._sendUpdate('ka-small', { content: 'קצר' }, 0);
+    const big = mgr._sendUpdate('ka-big', { content: 'a'.repeat(70000) }, 0);
+    eq(calls.length, 2, 'שתי הבקשות יצאו');
+    eq(calls[0].opts.keepalive, true, 'הקטנה — keepalive');
+    eq(utf8Bytes(calls[1].opts.body) > 64 * 1024, true, 'בקרת שפיות: הגוף של הגדולה מעל המכסה');
+    eq(calls[1].opts.keepalive, false, 'הגדולה — בקשה רגילה, ולא keepalive שהדפדפן היה דוחה');
+    eq(mgr._inFlightWithoutKeepalive('ka-big'), true, 'השמירה שבאוויר יודעת שלא תשרוד סגירה');
+    eq(mgr._inFlightWithoutKeepalive('ka-small'), false, 'והקטנה — כן');
+    calls.forEach((c) => c.release());
+    eq(await small, true, 'הקטנה נשמרה');
+    eq(await big, true, 'הגדולה נשמרה');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('keepalive: המכסה משותפת לכל השמירות שבאוויר, ומשתחררת רק אחרי שגוף התשובה נקרא', async () => {
+  // הדפדפן סופר בקשה עד שגוף התשובה שלה נגמר (נמדד: תשובה שלא נקראה ממשיכה לתפוס את המכסה). שחרור כשהכותרות
+  // מגיעות היה שולח את הבקשה הבאה ל-keepalive שהדפדפן ידחה.
+  const { mgr, calls } = keepaliveSandbox('ka2-file');
+  for (const id of ['ka-a', 'ka-b', 'ka-c', 'ka-d']) liveNoteOn(mgr, id, 'x', 'T0');
+  try {
+    const a = mgr._sendUpdate('ka-a', { content: FORTY_K }, 0);
+    const b = mgr._sendUpdate('ka-b', { content: FORTY_K }, 0);
+    eq(calls[0].opts.keepalive, true, 'הראשונה נכנסת במכסה');
+    eq(calls[1].opts.keepalive, false, 'השנייה, באוויר יחד איתה, כבר לא — הסכום מעל 64KiB');
+    calls[0].respond();
+    await tick();
+    const c = mgr._sendUpdate('ka-c', { content: FORTY_K }, 0);
+    eq(calls[2].opts.keepalive, false, 'הכותרות של הראשונה הגיעו, הגוף עוד לא נקרא — היא עדיין תופסת את המכסה');
+    calls[0].finishBody();
+    await a;
+    const d = mgr._sendUpdate('ka-d', { content: FORTY_K }, 0);
+    eq(calls[3].opts.keepalive, true, 'אחרי שהגוף נקרא — המכסה פנויה שוב');
+    calls.slice(1).forEach((x) => x.release());
+    await Promise.all([b, c, d]);
+  } finally { cleanupMgr(mgr); }
+});
+
+check('keepalive: השמירה המרוכזת מחליטה לפי הגוף כולו, וקוראת את התשובה גם כשהיא אינה 200', async () => {
+  const { mgr, calls } = keepaliveSandbox('ka3-file');
+  liveNoteOn(mgr, 'kb-1', 'x', 'T0');
+  liveNoteOn(mgr, 'kb-2', 'x', 'T0');
+  try {
+    mgr._pending.set('kb-1', { content: FORTY_K });
+    mgr._pending.set('kb-2', { content: FORTY_K });
+    const run = mgr._performSaveBatch();
+    eq(calls.length, 1, 'בקשה מרוכזת אחת');
+    eq(calls[0].url, '/api/sticky-notes/batch');
+    eq(calls[0].opts.keepalive, false, 'שני גופים שכל אחד נכנס, ויחד לא — הבקשה כולה יוצאת רגילה');
+    eq(mgr._inFlightWithoutKeepalive('kb-1') && mgr._inFlightWithoutKeepalive('kb-2'), true,
+      'וכל פתק בה יודע שהשמירה שלו לא תשרוד סגירה');
+    // 500 — המסלול הבודד שמתחת שולח כל פתק לחוד, **אחד אחרי השני** (``await`` בלולאה), ולכן כל בקשה חדשה
+    // משוחררת כשהיא מופיעה. הגוף של ה-500 נקרא בכל זאת: אחרת הוא היה תופס את המכסה.
+    calls[0].release(500, { ok: false });
+    let settled = false;
+    run.then(() => { settled = true; });
+    for (let released = 1, i = 0; !settled && i < 200; i++) {
+      while (released < calls.length) calls[released++].release();
+      await tick();
+    }
+    eq(settled, true, 'השמירה המרוכזת והמסלול הבודד נגמרו');
+    eq(calls[0].bodyRead, true, 'גוף התשובה של ה-500 נקרא');
+    eq(calls.length, 3, 'ושני הפתקים נשלחו לחוד');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('סגירת לשונית: שמירה באוויר שאינה keepalive — הדפדפן שואל לפני סגירה', () => {
+  const { mgr } = keepaliveSandbox('ka4-file');
+  liveNoteOn(mgr, 'kh-1', 'x', 'T0');
+  try {
+    mgr._inFlight.set('kh-1', { data: {}, promise: new Promise(() => {}), flight: { keepalive: true } });
+    eq(mgr._hasHeldLocalEdits(), false, 'keepalive — ממשיכה אחרי סגירה, אין מה לאבד');
+    mgr._inFlight.set('kh-1', { data: {}, promise: new Promise(() => {}), flight: { keepalive: false } });
+    eq(mgr._hasHeldLocalEdits(), true, 'בקשה רגילה — נקטעת עם העמוד');
+  } finally { cleanupMgr(mgr); }
+});
+
+const DRAFT_ID = 'abcdefabcdefabcdefabcdef';
+const draftsOf = (map) => Array.from(map.entries()).filter(([k]) => k.startsWith('sticky-notes:held-draft:'))
+  .map(([k, v]) => ({ key: k, draft: JSON.parse(v) }));
+
+check('סגירת לשונית: טקסט ששמירתו לא תשרוד סגירה נשמר כטיוטה, וטקסט שבדרך ב-keepalive — לא', () => {
+  // הטאבלט אינו מציג את שאלת beforeunload בסגירת לשונית, ולכן זו ההגנה היחידה שם.
+  const { mgr, storage } = keepaliveSandbox('ka5-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.ta.value = 'בסיס + מה שהוקלד';
+    mgr._inFlight.set(DRAFT_ID, { data: {}, promise: new Promise(() => {}), flight: { keepalive: true } });
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 0, 'השמירה שבאוויר היא keepalive ונושאת את הטקסט — אין טיוטה');
+
+    mgr._inFlight.set(DRAFT_ID, { data: {}, promise: new Promise(() => {}), flight: { keepalive: false } });
+    mgr._persistDraftsThatWontSurviveClose();
+    const drafts = draftsOf(storage);
+    eq(drafts.length, 1, 'בקשה רגילה — הטקסט נשמר כטיוטה');
+    eq(drafts[0].draft.local.content, 'בסיס + מה שהוקלד', 'מה שבמסך');
+    eq(drafts[0].draft.base.content, 'בסיס', 'והבסיס שהוא נשען עליו');
+    eq(drafts[0].draft.base.updated_at, 'T0', 'עם האסימון');
+    eq(n.entry.closeDraft, true, 'מסומנת כטיוטת סגירה');
+
+    // מטען שמחכה מאחורי שמירה שבאוויר — גם אם היא keepalive, הוא לא יוצא אם העמוד נסגר.
+    mgr._removeHeldDraft(n.entry);
+    mgr._inFlight.set(DRAFT_ID, { data: {}, promise: new Promise(() => {}), flight: { keepalive: true } });
+    mgr._pending.set(DRAFT_ID, { content: n.ta.value });
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 1, 'מטען מאחורי שמירה שבאוויר — טיוטה');
+
+    // שמירה שנדחתה (400) או נכשלה סופית: אין מטען בתור ואין שמירה באוויר, והטקסט רק במסך.
+    mgr._removeHeldDraft(n.entry);
+    mgr._pending.delete(DRAFT_ID);
+    mgr._inFlight.delete(DRAFT_ID);
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 1, 'טקסט ששמירתו נדחתה — טיוטה');
+
+    // ופתק שאין בו טקסט שלא אושר — אין מה לשמור.
+    mgr._removeHeldDraft(n.entry);
+    n.ta.value = 'בסיס';
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 0, 'פתק נקי — אין טיוטה');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('סגירת לשונית: טיוטת הסגירה מתעדכנת כשהשמירה מאושרת, ויוצאת כשהטקסט כולו נשמר', () => {
+  // טיוטה שנשארת אחרי שהטקסט נשמר הייתה מוצגת בטעינה הבאה מול גרסה חדשה יותר — למשל של סוכן — ומחזירה טקסט ישן.
+  const { mgr, storage } = keepaliveSandbox('ka6-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.ta.value = 'בסיס + אחת + שתיים';
+    mgr._inFlight.set(DRAFT_ID, { data: {}, promise: new Promise(() => {}), flight: { keepalive: false } });
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 1, 'נכתבה');
+
+    mgr._inFlight.delete(DRAFT_ID);
+    mgr._onSaveConfirmed(DRAFT_ID, { content: 'בסיס + אחת' }, 'T1', null);
+    let drafts = draftsOf(storage);
+    eq(drafts.length, 1, 'נשאר טקסט שלא אושר — הטיוטה נשארת');
+    eq(drafts[0].draft.base.content, 'בסיס + אחת', 'על הבסיס החדש');
+    eq(drafts[0].draft.base.updated_at, 'T1', 'ועם האסימון החדש');
+    eq(drafts[0].draft.local.content, 'בסיס + אחת + שתיים', 'עם הטקסט שבמסך');
+
+    mgr._onSaveConfirmed(DRAFT_ID, { content: 'בסיס + אחת + שתיים' }, 'T2', null);
+    eq(draftsOf(storage).length, 0, 'הטקסט כולו נשמר — הטיוטה יצאה');
+    eq(n.entry.closeDraft, false, 'והסימון איתה');
+
+    // ושמירה מאושרת של פתק בלי טיוטת סגירה אינה כותבת טיוטה.
+    n.ta.value = 'עוד';
+    mgr._onSaveConfirmed(DRAFT_ID, { position: { x: 1, y: 1 } }, 'T3', null);
+    eq(draftsOf(storage).length, 0, 'אין טיוטה בלי שנכתבה בסגירה');
+  } finally { cleanupMgr(mgr); }
 });
 
 check('ההתראה מבטיחה ↶ רק לטקסט — שם שהשתנה אינו חוזר בביטול', () => {

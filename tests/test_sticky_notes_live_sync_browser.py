@@ -1651,3 +1651,114 @@ def test_drafts_written_in_the_same_millisecond_are_ordered_reliably(board):
         board.wait_note(N1)
         board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
         assert board.textarea(N1) == "החדשה", (newer, older, board.textarea(N1))
+
+
+# ---------------------------------------------------------------------------
+# פתק גדול: keepalive רק כשהגוף נכנס במכסה, וטקסט שלא ישרוד סגירה נשמר כטיוטה
+# ---------------------------------------------------------------------------
+#
+# לבקשות keepalive יש מכסה משותפת של 64KiB לכל מה שבאוויר (Fetch Standard, 4.6 צעד 10). עד נובמבר 2026 כל שמירה
+# יצאה עם keepalive, וגוף מעל המכסה **לא יצא מהעמוד בכלל** — ``Failed to fetch``, והשרת לא ראה כלום. כרומיום אוכף
+# את המכסה לפני שהבקשה מגיעה ל-``page.route``, ולכן הבדיקות כאן רואות בדיוק מה שהמשתמש ראה.
+
+def _paste(lp, nid, text):
+    """הדבקה: בחירת הכול ו-``insert_text`` — אירוע ``input`` אחד, כמו הדבקה אמיתית ולא הקלדה של תו אחרי תו."""
+    lp.page.click(lp.sel(nid, ".sticky-note-content"))
+    lp.page.wait_for_timeout(400)
+    lp.page.keyboard.press("Control+A")
+    lp.page.keyboard.insert_text(text)
+
+
+def _save_failures(lp):
+    return [text for kind, text in lp.console if "save note failed" in text]
+
+
+def _set_visibility(lp, state):
+    lp.page.evaluate("""(state) => {
+        Object.defineProperty(document, 'visibilityState', { get: () => state, configurable: true });
+        document.dispatchEvent(new Event('visibilitychange')); }""", state)
+
+
+def test_a_full_note_of_the_heaviest_character_is_saved_through_the_page(board):
+    """**הצרכן האמיתי, מקצה לקצה.** ``MAX_NOTE_CHARS`` אימוג'י (ארבעה בתים לתו) הם הגוף הגדול ביותר שפתק חוקי יכול
+    לשלוח. הדף שולח אותו, והשרת — הראוט האמיתי — מפענח ושומר אותו בדיוק. עד נובמבר 2026 הבקשה לא יצאה מהדף
+    (keepalive מעל המכסה), וגם אילו יצאה — השרת היה דוחה אותה כ-``invalid_content_b64``."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    text = "😀" * MAX_NOTE_CHARS
+    _paste(board, N1, text)
+    board.page.locator(board.sel(N1, ".sticky-note-content")).blur()
+    board.wait_saved(N1, text, timeout_s=15.0)
+    assert len(board.doc(N1)["content"]) == MAX_NOTE_CHARS
+    assert not _save_failures(board), _save_failures(board)
+
+
+def test_two_large_saves_in_flight_together_both_arrive_without_a_failed_attempt(browser, client):
+    """**המכסה משותפת.** שני פתקים, שכל אחד מהם נכנס לבדו במכסה ושניהם יחד לא, נשמרים בזמן שהראשון עדיין באוויר.
+    השני יוצא כבקשה רגילה — ולא כ-keepalive שהדפדפן היה מפיל לפני שהוא יוצא, עם ``save note failed`` וניסיון חוזר."""
+    client.db.sticky_notes.docs.append(_doc(N1, "ראשון"))
+    client.db.sticky_notes.docs.append(_doc(N2, "שני", position_x=440))
+    lp = LivePage(browser, client, BOARD_MANAGER, viewport=(1280, 800))
+    lp.wait_note(N1)
+    lp.wait_note(N2)
+    big = "א" * 24_000  # 64,000 תווי base64: לבד — מתחת למכסה; שניים — מעליה
+    lp.hold_saves = True
+    _paste(lp, N1, big)
+    lp.page.locator(lp.sel(N1, ".sticky-note-content")).blur()
+    _wait_until(lp, lambda: len(lp.held_saves) >= 1, what="השמירה של הראשון יצאה")
+    _paste(lp, N2, big + "ב")
+    lp.page.locator(lp.sel(N2, ".sticky-note-content")).blur()
+    _wait_until(lp, lambda: len(lp.held_saves) >= 2, what="השמירה של השני יצאה בזמן שהראשון באוויר")
+    lp.release_saves()
+    lp.wait_saved(N1, big)
+    lp.wait_saved(N2, big + "ב")
+    assert not _save_failures(lp), _save_failures(lp)
+    assert not lp.errors, lp.errors
+    lp.close()
+
+
+def test_closing_the_tab_while_a_large_save_is_in_flight_asks_first(board):
+    """שמירה שאינה keepalive נקטעת עם העמוד, ולכן הדפדפן שואל לפני סגירה — כמו על עריכה שמחכה מאחורי שמירה.
+
+    **במסלול של יציאה מעריכה** (``_flushFor`` ← ``_sendUpdate``), שמוציא את המטען מהתור לפני השליחה. במסלול
+    המרוכז המטען נשאר בתור עד התשובה, ושם השאלה הייתה מופיעה גם בלי הבדיקה של השמירה שבאוויר — כלומר בדיקה עליו
+    הייתה עוברת גם כשהבדיקה הזו חסרה (נמדד במוטציה)."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    board.hold_saves = True
+    _paste(board, N1, "א" * MAX_NOTE_CHARS)
+    board.page.locator(board.sel(N1, ".sticky-note-content")).blur()
+    _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה יצאה")
+    assert board.held_saves[0].request.method == "PUT", "השמירה יצאה במסלול המרוכז ולא ביציאה מעריכה"
+    assert board.page.evaluate("(id) => !window.__mgr._pending.has(id) && window.__mgr._inFlightWithoutKeepalive(id)", N1), \
+        "המצב שהבדיקה מתיימרת לבדוק: אין מטען בתור, והשמירה שבאוויר אינה keepalive"
+    assert _try_to_close(board) == ["beforeunload"]
+    assert not board.page.is_closed(), "בחירה להישאר משאירה את העמוד"
+
+
+def test_a_tablet_tab_closed_while_a_large_save_is_in_flight_keeps_the_text_and_saves_it_on_return(board):
+    """**הטאבלט:** סגירת לשונית אינה מציגה את שאלת ``beforeunload``. השמירה באוויר בבקשה רגילה, הלשונית מוסתרת
+    ונסגרת לפני שהיא נוחתת — והטקסט נשמר כטיוטה בדפדפן. בפתיחה מחדש הוא חוזר למסך ונשמר."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    text = "א" * MAX_NOTE_CHARS
+    board.hold_saves = True
+    _paste(board, N1, text)
+    _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה יצאה")
+    _set_visibility(board, "hidden")
+    drafts = board.page.evaluate(
+        "(id) => { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i);"
+        " if (k.startsWith('sticky-notes:held-draft:' + id)) out.push(JSON.parse(localStorage.getItem(k)).local.content); }"
+        " return out; }", N1)
+    assert drafts == [text], f"אין טיוטה של הטקסט שבדרך ({len(drafts)} טיוטות)"
+    # השמירה שבאוויר לא תגיע: הלשונית נסגרת לפני שהשרת עונה, והשרת לא רואה אותה.
+    board.hold_saves = False
+    board.held_saves = []
+    assert board.doc(N1)["content"] == "גרסה ישנה"
+    board.reopen()
+    board.wait_note(N1)
+    board.page.wait_for_function("(sel) => document.querySelector(sel).value.length > 100",
+                                 arg=board.sel(N1, ".sticky-note-content"), timeout=10_000)
+    assert board.textarea(N1) == text, "הטקסט לא חזר מהטיוטה"
+    board.wait_saved(N1, text, timeout_s=15.0)
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None, "התראה על הטקסט של המשתמש עצמו"

@@ -804,29 +804,60 @@ def notes_rate_limit(key: str, max_per_minute: int):
     return _decorator
 
 
-def _decode_content_b64(value: Any, *, max_b64_len: int = 120000) -> str:
+#: כמה בתים תופס תו אחד ב-UTF-8, לכל היותר (RFC 3629, סעיף 3).
+_UTF8_MAX_BYTES_PER_CHAR = 4
+
+#: תקרת האורך של ``content_b64``, **בתווי base64**, אחרי הסרת הרווחים — נגזרת
+#: מ-:data:`MAX_NOTE_CHARS` ולא מוקלדת.
+#:
+#: שלוש יחידות, בשלושה שלבים: :data:`MAX_NOTE_CHARS` סופרת **תווים** (``len`` של
+#: פייתון, כלומר קוד-פוינטים); כל תו הוא לכל היותר :data:`_UTF8_MAX_BYTES_PER_CHAR`
+#: **בתים** ב-UTF-8; ו-base64 עם ריפוד הופך כל שלושה בתים לארבעה **תווי base64**,
+#: מעוגל כלפי מעלה (RFC 4648, סעיף 4). התוצאה היא אורך ההעברה של פתק מלא בתו
+#: הכבד ביותר, בדיוק.
+#:
+#: **בלי שוליים, בכוונה.** פתק חוקי אינו יכול להיות ארוך ממנה, ולכן מחרוזת ארוכה
+#: ממנה מוכיחה לבדה שהתוכן ארוך מ-:data:`MAX_NOTE_CHARS` — ובזכות זה התשובה עליה
+#: היא ``content_too_long`` ולא ``invalid_content_b64``. שוליים היו שוברים את
+#: ההוכחה הזו. ``tests/test_note_boards_api.py`` בודק את שני הכיוונים: פתק מלא בתו
+#: הכבד ביותר נוחת בדיוק על התקרה ונשמר, ותו base64 אחד מעליה נדחה.
+#:
+#: עד נובמבר 2026 התקרה הייתה מוקלדת כאן (``max_b64_len=120000``), ונבדקה לפני
+#: הסרת הרווחים. מחרוזת ארוכה ממנה נדחתה כ-base64 פגום (``invalid_content_b64``).
+MAX_CONTENT_B64_CHARS = 4 * -(-(_UTF8_MAX_BYTES_PER_CHAR * MAX_NOTE_CHARS) // 3)
+
+
+def _decode_content_b64(value: Any) -> str:
     """Decode Base64 UTF-8 content — **והטקסט שיוצא הוא בדיוק מה שקודד**.
 
     מיועד ל-`content_b64` כדי למנוע חסימות/פילטרים על מילים "חשודות" בזמן העברה.
     הפענוח הוא של ההעברה בלבד: ה-base64 מוסר, והתוכן עצמו אינו משתנה בשום
     צורה — ראו :func:`_note_content_from_request`.
+
+    :raises _ContentTooLong: אחרי הסרת הרווחים המחרוזת ארוכה מ-:data:`MAX_CONTENT_B64_CHARS`,
+        ולכן התוכן ארוך מ-:data:`MAX_NOTE_CHARS` — גם בלי לפענח אותה.
+    :raises ValueError: ``content_b64`` שאינו מחרוזת, base64 פגום, או בתים שאינם UTF-8.
     """
     if value is None:
         return ""
     if not isinstance(value, str):
         raise ValueError("content_b64 must be a string")
-    s = value.strip()
+    # הסרת הרווחים — של מחרוזת ה-base64, לא של התוכן — **לפני** המדידה: רווח אינו
+    # תוכן, ושכבות העברה שוברות base64 לשורות. ``split`` בלי מפריד מסיר כל רווח
+    # (``str.isspace``), וכל חלק שהוא מחזיר מכיל לפחות תו אחד שאינו רווח.
+    #
+    # **התקרה על מספר הפיצולים חוסמת את העבודה.** בלעדיה ``split`` בונה אובייקט לכל
+    # חלק, על מחרוזת שאין לה גבול (לוובאפ אין תקרה כללית על גוף הבקשה), והזיכרון
+    # גדל פי כמה וכמה מהקלט — המדידה, עם התאריך, ב-``test_whitespace_padding_cannot_multiply_the_memory_of_the_check``.
+    # אם כל הפיצולים נוצלו, יש יותר מ-:data:`MAX_CONTENT_B64_CHARS` תווים שאינם רווח
+    # (כל חלק, וגם השארית, מכילים לפחות אחד), והמחרוזת שמתקבלת ארוכה מהתקרה. אחרת
+    # כל הרווחים הוסרו, והאורך מדויק.
+    s = "".join(value.split(None, MAX_CONTENT_B64_CHARS))
     if not s:
         return ""
-    # Best-effort safety: avoid decoding extremely large blobs.
-    # Note: Base64 is ~4/3 expansion. UTF-8 can be up to 4 bytes per char.
-    # The limit stays above a full ``MAX_NOTE_CHARS`` note of emoji — the
-    # arithmetic is in its docstring in ``sticky_notes_target``.
-    if max_b64_len and len(s) > int(max_b64_len):
-        raise ValueError("content_b64 too large")
-    # Remove whitespace and normalize urlsafe variants — של מחרוזת ה-base64,
-    # לא של התוכן.
-    s = "".join(s.split())
+    if len(s) > MAX_CONTENT_B64_CHARS:
+        raise _ContentTooLong()
+    # Normalize urlsafe variants — של מחרוזת ה-base64, לא של התוכן.
     s = s.replace("-", "+").replace("_", "/")
     # Fix missing padding (common in transport layers)
     pad = (-len(s)) % 4
@@ -927,13 +958,19 @@ def _note_content_from_request(data: Dict[str, Any]) -> str:
     ל-HTTP הוא דלף ממתין: ``raise`` עתידי שמשרשר נתיב או שאילתה מוצא אותם
     ללקוח, ו-CodeQL מסמן בדיוק את הזרימה הזו. מי שתופס כאן מחזיר ליטרל.
 
-    :raises _ContentTooLong: התוכן ארוך מ-:data:`MAX_NOTE_CHARS`.
+    :raises _ContentTooLong: התוכן ארוך מ-:data:`MAX_NOTE_CHARS` — או ש-``content_b64``
+        ארוך מ-:data:`MAX_CONTENT_B64_CHARS`, ואז בלי נפילה ל-``content`` גם כשהוא נשלח לצידו.
     :raises _InvalidContentB64: ``content_b64`` פגום ואין ``content``.
     :raises _InvalidContent: ``content`` שאינו מחרוזת.
     """
     if 'content_b64' in data:
         try:
             text = _decode_content_b64(data.get('content_b64'))
+        except _ContentTooLong:
+            # **לפני** ``except ValueError``, כי ``_ContentTooLong`` יורש ממנו: בלי השורה הזו
+            # הסירוב על גודל היה נבלע כ-base64 פגום. ואין נפילה ל-``content``: ההעברה
+            # תקינה, והתוכן שבה ארוך מדי — ``content`` הוא חלופה ל-base64 פגום בלבד.
+            raise
         except ValueError:
             # תאימות לאחור: ``content`` רגיל, אם נשלח לצד ה-b64
             if 'content' not in data:

@@ -767,18 +767,78 @@ def test_the_limit_has_a_single_source(client):
     assert handlers.MAX_NOTE_CONTENT == MAX_NOTE_CHARS
 
 
+#: המקומות שבהם הפרוזה **חייבת** להציג את התקרה כמספר — עמוד למשתמש, README, טבלת סכימה — ולכן היא
+#: עותק שני של ``MAX_NOTE_CHARS`` (``prose-restates-code-fact``). כל ביטוי תופס את המספר מתוך המשפט שלו.
+#: הסעיף ``mcp-answer-size`` ב-``docs/mcp-server.rst`` נבדק בנפרד, יחד עם שאר החשבון שלו
+#: (``test_the_numbers_in_the_answer_size_section_are_the_code_numbers``).
+_PROSE_NOTE_CAP = [
+    ("README.md", r"מקום לעד ([\d,]+) תווים"),
+    ("FEATURES_SUMMARY.md", r"([\d,]+) תווים לפתק"),
+    ("docs/user/sticky_notes.rst", r"התוכן מוגבל ל‑([\d,]+) תווים"),
+    ("docs/user/sticky_notes.rst", r"אורך פתק: עד ([\d,]+) תווים"),
+    ("docs/database/detailed-schema.rst",
+     r"עד ([\d,]+) תווים\. התקרה מוגדרת פעם אחת ב-``sticky_notes_target\.MAX_NOTE_CHARS``"),
+]
+
+
+@pytest.mark.parametrize(("path", "pattern"), _PROSE_NOTE_CAP,
+                         ids=[f"{p}:{i}" for i, (p, _) in enumerate(_PROSE_NOTE_CAP)])
+def test_the_note_cap_in_the_prose_is_the_code_number(path, pattern):
+    """**כשהתקרה משתנה, ה-CI מצביע על כל משפט שצריך לעדכן.** עד נובמבר 2026 שום דבר לא קשר את המספרים האלה
+    לקבוע, וההגדלה ל-30,000 דרשה לאתר אותם בחיפוש. משפט שנוסח מחדש מפיל את הטסט עם ההודעה לעדכן את הביטוי כאן."""
+    import re
+    from pathlib import Path
+
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    text = (Path(__file__).resolve().parent.parent / path).read_text(encoding="utf-8")
+    found = re.findall(pattern, text)
+    assert len(found) == 1, (
+        f"{path}: הביטוי {pattern!r} נמצא {len(found)} פעמים — המשפט נוסח מחדש? לעדכן את _PROSE_NOTE_CAP")
+    assert int(found[0].replace(",", "")) == MAX_NOTE_CHARS, f"{path}: כתוב {found[0]}, והתקרה בקוד {MAX_NOTE_CHARS:,}"
+
+
 def test_the_javascript_holds_no_hardcoded_limit():
     """הלקוח מקבל את התקרה מהשרת.
 
     מספר בצד הלקוח היה מקור אמת שני, ופער בינו לבין השרת נראה למשתמש
     כחיתוך בלי הסבר. הבדיקה נופלת אם מישהו יחזיר ליטרל.
     """
+    import re
     from pathlib import Path
+
+    from sticky_notes_target import MAX_NOTE_CHARS
 
     js = (Path(__file__).resolve().parent.parent / "webapp/static/js/sticky-notes.js").read_text(encoding="utf-8")
     assert "window.STICKY_NOTE_MAX_CHARS" in js, "הלקוח אינו קורא את הערך מהשרת"
-    assert "MAX_NOTE_CHARS = 5000" not in js
-    assert "MAX_NOTE_CHARS = 20000" not in js
+    # כל מספר, ולא רשימה של הערכים שהיו: עד נובמבר 2026 נבדקו כאן רק 5000 ו-20000, ולכן ליטרל
+    # של התקרה הנוכחית היה עובר.
+    assert not re.search(r"MAX_NOTE_CHARS\s*=\s*[\d_]", js)
+    for spelled in (f"{MAX_NOTE_CHARS}", f"{MAX_NOTE_CHARS:,}", f"{MAX_NOTE_CHARS:_}"):
+        assert not re.search(rf"(?<![\d,_]){re.escape(spelled)}(?![\d,_])", js), f"התקרה מופיעה בלקוח כמספר: {spelled}"
+
+
+def test_the_note_saves_are_the_only_keepalive_requests_of_the_pages():
+    """**ההנחה ש-``sendSaveRequest`` נשען עליה, כבדיקה.** מכסת ה-keepalive של 64KiB משותפת לכל בקשות ה-keepalive של
+    העמוד (Fetch Standard, 4.6 צעד 10), ו-``fetch`` אינו חושף את הספירה של הדפדפן — ולכן ``sticky-notes.js`` סופר
+    בעצמו רק את שלו. בקשת keepalive נוספת באחד הדפים הייתה תופסת מהמכסה בלי שהספירה יודעת, ושמירה שהספירה אישרה
+    הייתה נדחית בדפדפן. מי שמוסיף כזו מעביר אותה דרך הספירה, או משנה את ההנחה.
+
+    ``sw.js`` אינו בדף: ה-Service Worker הוא client משלו, ולכן גם ה-fetch group שלו נפרד (צעד 10.2 שם)."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    pattern = re.compile(r"keepalive\s*:|sendBeacon\s*\(")
+    found = []
+    for base, glob in (("webapp/static", "**/*.js"), ("webapp/templates", "**/*.html")):
+        for path in (root / base).glob(glob):
+            rel = path.relative_to(root).as_posix()
+            if rel in ("webapp/static/js/sticky-notes.js", "webapp/static/sw.js"):
+                continue
+            if pattern.search(path.read_text(encoding="utf-8", errors="replace")):
+                found.append(rel)
+    assert not found, f"בקשות keepalive מחוץ לשמירת הפתקים: {found}"
 
 
 def test_content_at_the_limit_is_accepted(client):
@@ -838,6 +898,166 @@ def test_batch_rejects_the_item_without_touching_the_note(client):
     assert result["status"] == 400
     assert result["error"] == "content_too_long"
     assert doc["content"] == "המקורי"
+
+
+# -- תקרת ההעברה: ``content_b64`` נמדד מול תקרה שנגזרת מ-``MAX_NOTE_CHARS`` --
+#
+# הדפדפן שולח רק ``content_b64`` (``withContentB64`` ב-``sticky-notes.js`` מוחק את ``content``). עד נובמבר
+# 2026 התקרה על המחרוזת הארוזה הייתה מוקלדת (120,000), ומחרוזת ארוכה ממנה נדחתה כ-``invalid_content_b64``
+# — "תוכן פגום" על פתק שכל חטאו אורך. פתק מלא באימוג'י, ארבעה בתים לתו, הוא המקרה שבו זה נראה.
+
+#: התו הכבד ביותר ב-UTF-8 — ארבעה בתים (מחוץ למישור הבסיסי). ``א`` הוא שניים, ולכן אינו בודק את התקרה.
+_HEAVIEST = "😀"
+
+
+def test_a_full_note_of_the_heaviest_character_lands_exactly_on_the_transport_ceiling():
+    """**שוויון, משני הכיוונים.** פתק של ``MAX_NOTE_CHARS`` תווים כבדים נארז בדיוק ל-``MAX_CONTENT_B64_CHARS``:
+    התקרה מספיקה לפתק החוקי הארוך ביותר, ואינה רחבה ממנו — ולכן מחרוזת ארוכה ממנה מוכיחה לבדה שהתוכן ארוך מדי."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+    from webapp.sticky_notes_api import MAX_CONTENT_B64_CHARS
+
+    assert len(_HEAVIEST.encode("utf-8")) == 4, "בקרת שפיות: התו אכן הכבד ביותר"
+    assert len(_b64(_HEAVIEST * MAX_NOTE_CHARS)) == MAX_CONTENT_B64_CHARS
+
+
+@pytest.mark.parametrize("method", ["create", "update"])
+def test_a_full_note_of_the_heaviest_character_is_saved(client, method):
+    """**זה הבאג שהמשתמש ראה.** פתק מלא באימוג'י נדחה כ-``invalid_content_b64`` לפני שמישהו ספר את התווים שבו."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    text = _HEAVIEST * MAX_NOTE_CHARS
+    if method == "create":
+        client.db.note_boards.docs.append({"_id": 1, "user_id": 7, "name": "לוח", "is_default": True})
+        res = client.post("/api/sticky-notes/board/1", json={"content_b64": _b64(text)})
+        assert res.status_code == 201, res.get_json()
+        stored = client.db.sticky_notes.docs[-1]["content"]
+    else:
+        doc = {"_id": 1, "user_id": 7, "board_id": "b1", "content": "המקורי", "mode": "surface"}
+        client.db.sticky_notes.docs.append(doc)
+        res = client.put("/api/sticky-notes/note/1", json={"content_b64": _b64(text)})
+        assert res.status_code == 200, res.get_json()
+        stored = doc["content"]
+    assert stored == text and len(stored) == MAX_NOTE_CHARS
+
+
+def _send(client, route, payload):
+    """אותו מטען בשלושת הראוטים של פתק הלוח — יצירה, עדכון ובאץ' — וה-JSON של הסירוב. ``before`` הוא המצב שלא אמור
+    להשתנות."""
+    client.db.note_boards.docs.append({"_id": 1, "user_id": 7, "name": "לוח", "is_default": True})
+    doc = {"_id": 1, "user_id": 7, "board_id": "b1", "content": "המקורי", "mode": "surface"}
+    client.db.sticky_notes.docs.append(doc)
+    before = (len(client.db.sticky_notes.docs), doc["content"])
+    if route == "create":
+        res = client.post("/api/sticky-notes/board/1", json=payload)
+        status, body = res.status_code, res.get_json()
+    elif route == "update":
+        res = client.put("/api/sticky-notes/note/1", json=payload)
+        status, body = res.status_code, res.get_json()
+    else:
+        res = client.post("/api/sticky-notes/batch", json={"updates": [{"id": "1", **payload}]})
+        body = res.get_json()["results"][0]
+        status = body["status"]
+    assert (len(client.db.sticky_notes.docs), doc["content"]) == before, "שום דבר לא נכתב"
+    return status, body
+
+
+_ROUTES = ["create", "update", "batch"]
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_one_base64_character_over_the_ceiling_is_content_too_long(client, route):
+    """הסירוב על גודל נוקב בסיבתו (U3 §10(ב)) ומחזיר את התקרה בתווים — ``max`` הוא ``MAX_NOTE_CHARS``, כמו בכל
+    ``content_too_long``, ולא תקרת ההעברה, שהלקוח אינו מכיר."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    over = _b64(_HEAVIEST * MAX_NOTE_CHARS) + "Q"
+    status, body = _send(client, route, {"content_b64": over})
+    assert status == 400
+    assert body["error"] == "content_too_long" and body["max"] == MAX_NOTE_CHARS, body
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_over_the_ceiling_and_malformed_is_content_too_long(client, route):
+    """**קצה שהשתנה:** מחרוזת שגם ארוכה מהתקרה וגם אינה base64 תקין קיבלה עד נובמבר 2026 ``invalid_content_b64``,
+    ועכשיו ``content_too_long``. האורך נבדק לפני הפענוח, ולכן הוא מכריע."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+    from webapp.sticky_notes_api import MAX_CONTENT_B64_CHARS
+
+    status, body = _send(client, route, {"content_b64": "!" * (MAX_CONTENT_B64_CHARS + 1)})
+    assert status == 400
+    assert body["error"] == "content_too_long" and body["max"] == MAX_NOTE_CHARS, body
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_over_the_ceiling_does_not_fall_back_to_content(client, route):
+    """**קצה שהשתנה:** ``content`` הוא חלופה ל-``content_b64`` פגום בלבד. עד נובמבר 2026 מחרוזת ארוזה ארוכה מהתקרה
+    נדחתה כפגומה, ואז נשמר ה-``content`` שלצידה — טקסט אחר מזה שבהעברה. עכשיו ההעברה תקינה והתוכן שבה ארוך, ולכן
+    שום דבר לא נשמר."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    over = _b64(_HEAVIEST * MAX_NOTE_CHARS) + "QQQQ"
+    status, body = _send(client, route, {"content_b64": over, "content": "קצר"})
+    assert status == 400
+    assert body["error"] == "content_too_long" and body["max"] == MAX_NOTE_CHARS, body
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_malformed_base64_within_the_ceiling_is_still_invalid_content_b64(client, route):
+    """הצד שלא השתנה: base64 פגום שאינו ארוך מהתקרה נשאר ``invalid_content_b64``."""
+    status, body = _send(client, route, {"content_b64": "!!!not-base64!!!"})
+    assert status == 400
+    assert body["error"] == "invalid_content_b64", body
+
+
+def test_a_full_note_wrapped_in_lines_is_measured_without_the_whitespace(client):
+    """**קצה שהשתנה:** הרווחים מוסרים לפני המדידה. base64 שבור לשורות של 76 תווים — הצורה של MIME — ארוך מהתקרה
+    כמחרוזת, אבל התוכן שבו בדיוק בתקרה. עד נובמבר 2026 המדידה הייתה לפני ההסרה, ומחרוזת כזו נדחתה."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+    from webapp.sticky_notes_api import MAX_CONTENT_B64_CHARS
+
+    text = _HEAVIEST * MAX_NOTE_CHARS
+    packed = _b64(text)
+    wrapped = "\r\n".join(packed[i:i + 76] for i in range(0, len(packed), 76))
+    assert len(wrapped) > MAX_CONTENT_B64_CHARS, "בקרת שפיות: המחרוזת עצמה ארוכה מהתקרה"
+
+    client.db.note_boards.docs.append({"_id": 1, "user_id": 7, "name": "לוח", "is_default": True})
+    res = client.post("/api/sticky-notes/board/1", json={"content_b64": wrapped})
+
+    assert res.status_code == 201, res.get_json()
+    assert client.db.sticky_notes.docs[-1]["content"] == text
+
+
+def test_whitespace_padding_cannot_multiply_the_memory_of_the_check():
+    """**הבדיקה שאחרי הסרת הרווחים אינה פותחת הגברה.** לוובאפ אין תקרה כללית על גוף הבקשה, ו-``split`` בלי תקרה
+    בונה אובייקט לכל חלק. על ``"QQ\\n"`` כפול 3.5 מיליון (10.5 מיליון תווים) נמדד ב-27.11.2026, ב-Python 3.13:
+    ``"".join(s.split())`` — שיא של 188MB; ``split`` עם תקרת פיצולים — 28.5MB.
+
+    התקרה, פי 4 מגודל המחרוזת, נבדקת משני הצדדים: הפונקציה מתחתיה, והגרסה בלי תקרת פיצולים מעליה — כך הטסט מראה
+    שהוא מסוגל להיכשל, ואם CPython ישתנה כך שהגרסה ההיא כבר לא יקרה, הוא ייכשל ויאמר שהתקרה איבדה את משמעותה."""
+    import sys
+    import tracemalloc
+
+    from webapp.sticky_notes_api import _ContentTooLong, _decode_content_b64
+
+    padded = "QQ\n" * 3_500_000
+    ceiling = 4 * sys.getsizeof(padded)
+
+    def peak(fn):
+        tracemalloc.start()
+        try:
+            before, _ = tracemalloc.get_traced_memory()
+            fn()
+            _, top = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        return top - before
+
+    def decode():
+        with pytest.raises(_ContentTooLong):
+            _decode_content_b64(padded)
+
+    assert peak(decode) < ceiling
+    assert peak(lambda: "".join(padded.split())) > ceiling, "האורקל כבר אינו יקר — התקרה איבדה את משמעותה"
 
 
 # -- התוכן נשמר כמו שהוקלד: יצירה בלוח, batch, ורשימת הלוח --

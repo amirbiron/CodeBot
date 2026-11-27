@@ -838,6 +838,78 @@
     return undefined;
   }
 
+  // ── שמירה ו-keepalive: מכסה משותפת של 64KiB ─────────────────────────
+  //
+  // שמירה יוצאת עם ``keepalive`` כדי שתמשיך גם אחרי שהעמוד נסגר. אבל לבקשות כאלה יש מכסה: **סכום הגופים של
+  // כל בקשות ה-keepalive שבאוויר**, יחד עם הגוף החדש, לא יעבור 64KiB — אחרת הבקשה נכשלת ב-network error
+  // (Fetch Standard, ה-Living Standard שעודכן ב-20.11.2026, סעיף 4.6 "HTTP-network-or-cache fetch", צעד 10; הספירה
+  // היא של ה-fetch group של ה-client — הדף, ולא Service Worker). בקשה נחשבת "באוויר" עד שגוף התשובה שלה
+  // נגמר (ה-done flag נדלק ב-"fetch response handover"). נמדד בכרומיום 158 ב-27.11.2026: גוף בודד של 65,536
+  // בתים עובר ו-65,537 נכשל; 40,000 ועוד 25,536 שיוצאים יחד עוברים, ו-25,537 לא; ותשובה שלא נקראה ממשיכה לתפוס
+  // את המכסה.
+  //
+  // **עד נובמבר 2026 כל שמירה יצאה עם ``keepalive``**, וגוף מעל המכסה לא יצא מהעמוד בכלל: ``Failed to fetch``,
+  // "השמירה נכשלה", וניסיון חוזר לנצח. נמדד בדף הלוח באותו יום: פתק של 24,400 אותיות עבריות נשמר, ושל 24,600
+  // לא — וגם לא 15,000 אימוג'י, מתחת לתקרה של אז. עכשיו
+  // ``keepalive`` רק כשהגוף נכנס במה שנשאר מהמכסה, ושמירה אחרת יוצאת כבקשה רגילה. מה שבקשה כזו מאבדת הוא רק
+  // ההמשך אחרי סגירת העמוד, ושם שני דברים מכסים אותה: הדפדפן שואל לפני סגירה (``_hasHeldLocalEdits``), והטקסט
+  // נשמר כטיוטה בדפדפן כשהלשונית מוסתרת או נסגרת (``_persistDraftsThatWontSurviveClose``) — לטאבלט, שבו סגירת
+  // לשונית אינה מציגה את השאלה.
+
+  //: המכסה, בבתים — ראו למעלה.
+  const KEEPALIVE_QUOTA_BYTES = 64 * 1024;
+  //: הבתים של שמירות ה-keepalive **שלנו** שבאוויר. ``fetch`` אינו חושף את הספירה של הדפדפן, ולכן היא נספרת
+  //: כאן — ברמת המודול, כי המכסה היא של העמוד ולא של מנהל אחד. בעמוד אין בקשות keepalive אחרות.
+  let keepaliveBytesInFlight = 0;
+
+  /** כמה בתים הגוף תופס ב-UTF-8, כמו ש-``fetch`` שולח אותו; ``null`` כשאין ``TextEncoder``. */
+  function utf8Length(text){
+    if (typeof TextEncoder === 'undefined') return null;
+    return new TextEncoder().encode(text).length;
+  }
+
+  /**
+   * **בקשת שמירה — המקום היחיד שמחליט על ``keepalive``** (``_sendUpdate`` ו-``_performSaveBatch``).
+   *
+   * ``keepalive`` רק כשהגוף נכנס במה שנשאר מ-``KEEPALIVE_QUOTA_BYTES``. בלי ``TextEncoder`` אי אפשר למדוד,
+   * והבקשה יוצאת רגילה — היא נשמרת כל עוד העמוד פתוח, ו-``keepalive`` על גוף שאינו נכנס לא היה יוצא בכלל.
+   * ``flight`` (אופציונלי) מקבל ``keepalive`` עם ההחלטה, לפני שהבקשה יוצאת — ממנו ``_hasHeldLocalEdits``
+   * יודע אם השמירה תמשיך אחרי סגירה.
+   *
+   * **גוף התשובה נקרא תמיד, ורק אחריו המכסה משתחררת**: תשובה שלא נקראה ממשיכה לתפוס את המכסה בדפדפן,
+   * ושחרור לפניה היה שולח את הבקשה הבאה ל-``keepalive`` שהדפדפן ידחה. **וההמתנה כולה חסומה בזמן**, גם לגוף:
+   * ``saveRequestSignal`` חל גם על ``resp.json()`` (נמדד בכרומיום 158: סיגנל שפג אחרי שהכותרות הגיעו דוחה את
+   * קריאת הגוף ב-``TimeoutError``), ולכן ה-``finally`` משחרר את ההזמנה לכל המאוחר בתום תקרת הזמן — שרת ששותק
+   * באמצע הגוף אינו תופס את המכסה לתמיד.
+   *
+   * @returns {Promise<{resp: Response, json: any}>} ``json`` הוא ``null`` כשהגוף אינו JSON.
+   */
+  async function sendSaveRequest(url, method, payload, flight){
+    const body = JSON.stringify(payload);
+    const bytes = utf8Length(body);
+    const keepalive = bytes !== null && keepaliveBytesInFlight + bytes <= KEEPALIVE_QUOTA_BYTES;
+    if (flight) flight.keepalive = keepalive;
+    if (keepalive) keepaliveBytesInFlight += bytes;
+    try {
+      const resp = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive,
+        signal: saveRequestSignal(),
+      });
+      let json = null;
+      try {
+        json = await resp.json();
+      } catch(_) {
+        // גוף שאינו JSON (למשל דף שגיאה של שרת ביניים) — הקורא מכריע לפי הסטטוס, ו-``json`` נשאר ``null``.
+      }
+      return { resp, json };
+    } finally {
+      if (keepalive) keepaliveBytesInFlight -= bytes;
+    }
+  }
+
   class StickyNotesManager {
     // מקבל או מזהה קובץ (הצורה ההיסטורית, שנשארת עובדת ביט-זהה), או אובייקט
     // תצורה עבור לוח:
@@ -1263,6 +1335,12 @@
           this._flushDebounceTimer();
         } catch(err) {
           console.warn('sticky note: lifecycle debounce flush failed', err);
+        }
+        // **אחרי השליחה**, כי רק אז ידוע מה יצא עם ``keepalive`` — ראו ``_persistDraftsThatWontSurviveClose``.
+        try {
+          this._persistDraftsThatWontSurviveClose();
+        } catch(err) {
+          console.warn('sticky note: keeping the drafts that would not survive the close failed', err);
         }
       };
       // דרך ``_on`` כדי ש-``destroy`` יסיר גם אותם — מנהל שמתפרק בכל
@@ -1939,6 +2017,8 @@
       if (!entry || !entry.draftKey) return;
       const key = entry.draftKey;
       entry.draftKey = null;
+      // הסימון של טיוטת סגירה הולך עם המפתח — ראו ``_onSaveConfirmed``.
+      entry.closeDraft = false;
       const storage = draftStorage();
       if (!storage) return;
       try {
@@ -6031,8 +6111,8 @@
       // הפתק נמחק. בלי מנגנון כזה אין שום דרך חזרה.
       //
       // **טווח מכוון: הסשן הנוכחי.** המחסנית חיה בזיכרון ולא שורדת רענון.
-      // התרחיש שהיא מכסה מתגלה מיד, ואחסון מקומי של עשרות גרסאות בנות
-      // 20,000 תווים היה אוכל את מכסת הדפדפן.
+      // התרחיש שהיא מכסה מתגלה מיד, ואחסון מקומי של עשרות גרסאות באורך
+      // התקרה (``MAX_NOTE_CHARS``, ראו ``maxNoteChars``) היה אוכל את מכסת הדפדפן.
 
       _undoState(el){
         const entry = this._getEntry(el);
@@ -6564,6 +6644,15 @@
           base.title = canonicalTitleText(String(payload.title == null ? '' : payload.title));
         }
         if (token) this._setNoteUpdatedAt(String(id), String(token));
+        // **טיוטה שנכתבה בהסתרת הלשונית** (``_persistDraftsThatWontSurviveClose``) נשענת על הבסיס שזז עכשיו. עדיין
+        // יש טקסט שלא אושר — היא נכתבת מחדש על הבסיס החדש; אין — היא יוצאת. טיוטה שנשארת אחרי שהטקסט נשמר הייתה
+        // מוצגת בטעינה הבאה מול גרסה חדשה יותר, למשל של סוכן, ומחזירה טקסט ישן. פתק מוחזק — הטיוטה שלו של
+        // ``_syncHeldDraft``, ולא נוגעים בה כאן.
+        if (entry.closeDraft && !entry.remote && !entry.draftAwaitingServer) {
+          const dirty = this._dirtyFields(entry);
+          if (dirty.content || dirty.title) this._writeHeldDraft(entry);
+          else this._removeHeldDraft(entry);
+        }
       }
 
       /** האם השמירות של הפתק מוחזקות — עדכון מהשרת מחכה להחלטה, או שבודקים עכשיו 409. */
@@ -7013,14 +7102,17 @@
       }
 
       /**
-       * **האם סגירה עכשיו הייתה מאבדת שינוי** — השמירה בסגירה (``_flushPendingKeepalive``) אינה שולחת אותו:
+       * **האם סגירה עכשיו הייתה מאבדת שינוי** — השמירה בסגירה (``_flushPendingKeepalive``) אינה שולחת אותו,
+       * או ששולחת אותו בבקשה שלא תמשיך אחרי שהעמוד נסגר:
        *
        * - פתק מוחזק (``_isSaveHeld``: עדכון שמחכה להחלטה, **או 409 שנבדק עכשיו**) עם שינוי מקומי — שדה עריכה
        *   ששונה מהבסיס, או כל מטען בתור (גם הזזה או צבע, שאינם שדות עריכה);
        * - פתק שיש לו מטען בתור **מאחורי שמירה שבאוויר** — שמירה אחת בכל רגע לכל פתק, ולכן המטען מחכה לתשובה
-       *   שהעמוד הנסגר לא יקבל. השאלה של הדפדפן משאירה את העמוד חי, והתשובה מגיעה בזמן שהיא פתוחה.
+       *   שהעמוד הנסגר לא יקבל. השאלה של הדפדפן משאירה את העמוד חי, והתשובה מגיעה בזמן שהיא פתוחה;
+       * - פתק ש**השמירה שבאוויר שלו אינה ``keepalive``** (``_inFlightWithoutKeepalive``) — הגוף לא נכנס במכסה
+       *   (``sendSaveRequest``), והבקשה נקטעת עם העמוד. מאותה סיבה: השאלה משאירה את העמוד חי עד שהיא נחתת.
        *
-       * פתק שהשמירה שלו יצאה בסגירה עצמה אינו כאן: היא ``keepalive``, וממשיכה גם אחרי שהעמוד נסגר.
+       * פתק שהשמירה שלו יצאה בסגירה עצמה עם ``keepalive`` אינו כאן: היא ממשיכה גם אחרי שהעמוד נסגר.
        */
       _hasHeldLocalEdits(){
         for (const [id, entry] of this.notes.entries()) {
@@ -7032,9 +7124,45 @@
             if (dirty.content || dirty.title) return true;
           } else if (this._pending.has(key) && this._inFlight.has(key)) {
             return true;
+          } else if (this._inFlightWithoutKeepalive(key)) {
+            return true;
           }
         }
         return false;
+      }
+
+      /** האם לפתק יש שמירה באוויר בבקשה שאינה ``keepalive`` — כלומר שתיקטע אם העמוד ייסגר. ראו ``sendSaveRequest``. */
+      _inFlightWithoutKeepalive(id){
+        const record = this._inFlight && this._inFlight.get(String(id));
+        return !!(record && record.flight && record.flight.keepalive === false);
+      }
+
+      /**
+       * **הטקסט שלא ישרוד את סגירת העמוד נשמר כטיוטה בדפדפן** — כשהלשונית מוסתרת או נסגרת
+       * (``_setupLifecycleGuards``), אחרי שמה שבתור כבר נשלח. זה החצי של הטאבלט: שם סגירת לשונית אינה מציגה את
+       * שאלת ``beforeunload`` (``_hasHeldLocalEdits``), וזו ההגנה היחידה.
+       *
+       * **מה נכתב:** כל פתק שבמסך שלו טקסט שהשרת לא אישר (``_dirtyFields``), חוץ מפתק שהטקסט שלו כבר בדרך
+       * בבקשת ``keepalive`` — בלי מטען בתור, ושמירה באוויר עם ``keepalive``. כלומר: שמירה שבאוויר בבקשה רגילה
+       * (גוף שלא נכנס במכסה), מטען שמחכה מאחורי שמירה שבאוויר, ושמירה שנכשלה או נדחתה. פתק מוחזק אינו כאן:
+       * ``_syncHeldDraft`` כבר כתב את הטיוטה שלו.
+       *
+       * **הטיוטה אולי כבר מיותרת בטעינה הבאה** — אם השמירה נחתה לפני שהעמוד נסגר. זה מטופל במקום שכבר מטפל
+       * בזה: השחזור רושם את הטיוטה כשמירה שלנו שעוד לא אושרה (``_restoreHeldDraft``), והפיוס מיישר אליה את הבסיס
+       * בלי שאלה. ובעמוד שנשאר חי, הטיוטה מתעדכנת או יוצאת כשהשמירה מאושרת (``_onSaveConfirmed``) — טיוטה שנשארת
+       * אחרי שהטקסט נשמר הייתה מוצגת בטעינה הבאה מול גרסה חדשה יותר, ומחזירה טקסט ישן.
+       */
+      _persistDraftsThatWontSurviveClose(){
+        for (const [id, entry] of this.notes.entries()) {
+          if (!entry || !entry.el || entry.serverGone || !isSavedNoteId(id)) continue;
+          if (entry.remote || entry.draftAwaitingServer) continue;
+          const key = String(id);
+          const carried = !this._pending.has(key) && this._inFlight.has(key) && !this._inFlightWithoutKeepalive(key);
+          if (carried) continue;
+          const dirty = this._dirtyFields(entry);
+          if (!dirty.content && !dirty.title) continue;
+          if (this._writeHeldDraft(entry)) entry.closeDraft = true;
+        }
       }
 
       /**
@@ -7918,8 +8046,9 @@
 
     /**
      * **השמירה כשהלשונית מוסתרת או נסגרת** — כל פתק שיש לו שמירה בתור יוצא **פעם אחת**, דרך המסלול הרגיל
-     * (``_sendUpdate``): נרשם כשמירה באוויר, נזכר כשלא אושר, וה-``fetch`` שלו הוא ``keepalive`` — הוא
-     * ממשיך גם אחרי שהעמוד נסגר.
+     * (``_sendUpdate``): נרשם כשמירה באוויר, נזכר כשלא אושר, וה-``fetch`` שלו הוא ``keepalive`` כשהגוף נכנס
+     * במכסה (``sendSaveRequest``) — אז הוא ממשיך גם אחרי שהעמוד נסגר. גוף שאינו נכנס יוצא בבקשה רגילה, והטקסט
+     * שלו נשמר גם כטיוטה בדפדפן (``_persistDraftsThatWontSurviveClose``, מיד אחרי השליחה כאן).
      *
      * **עד נובמבר 2026 אותו מטען יצא כאן פעמיים:** ``PUT`` עם ``keepalive`` מכאן, ו-``_performSaveBatch``
      * מיד אחריו (``_flushDebounceTimer``), שניהם עם אותו אסימון. אחד מהם קיבל 409, והפיוס ראה בשרת את
@@ -7927,8 +8056,8 @@
      * שחזר ללשונית "יש עדכון חדש" על הטקסט שלו עצמו. ושמירה שכבר באוויר נשלחה כאן שוב.
      *
      * לא יוצאים כאן: פתק מוחזק (``_isSaveHeld``) — האזהרה בסגירה מגינה עליו, ושליחה הייתה נדחית ממילא
-     * ב-409; ופתק שיש לו שמירה באוויר — היא כבר ``keepalive``, ומה שהוקלד אחריה יוצא כשהיא נגמרת.
-     * המחיר: אם העמוד נסגר בתוך זמן הסבב של השמירה ההיא, מה שהוקלד אחריה אינו נשלח.
+     * ב-409; ופתק שיש לו שמירה באוויר — היא כבר יצאה, ומה שהוקלד אחריה יוצא כשהיא נגמרת. אם העמוד נסגר בתוך
+     * זמן הסבב של השמירה ההיא, מה שהוקלד אחריה אינו נשלח — ונשאר כטיוטה בדפדפן (``_persistDraftsThatWontSurviveClose``).
      */
     _flushPendingKeepalive(){
       if (!this._pending || !this._pending.size) return;
@@ -7967,14 +8096,18 @@
       }
     }
 
-    _registerInFlight(id, data, promise){
+    /**
+     * ``flight`` — ``{keepalive}`` של הבקשה שנושאת את השמירה (``sendSaveRequest``): ``false`` אומר שהיא לא
+     * תמשיך אחרי סגירת העמוד, ו-``_hasHeldLocalEdits`` ו-``_persistDraftsThatWontSurviveClose`` שואלים אותו.
+     */
+    _registerInFlight(id, data, promise, flight){
       let snapshot = null;
       try {
         snapshot = this._clonePayload(data);
       } catch(_) {
         snapshot = data;
       }
-      this._inFlight.set(id, { data: snapshot, promise });
+      this._inFlight.set(id, { data: snapshot, promise, flight: flight || null });
       if (promise && typeof promise.finally === 'function') {
         promise.finally(() => {
           const current = this._inFlight.get(id);
@@ -8114,18 +8247,9 @@
       const original = this._clonePayload(data) || {};
       delete original.prev_updated_at;
       const url = `/api/sticky-notes/note/${encodeURIComponent(id)}`;
-      const send = async (payloadObj) => {
-        const resp = await fetch(url, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payloadObj),
-          keepalive: true,
-          signal: saveRequestSignal(),
-        });
-        let json = null;
-        try { json = await resp.json(); } catch(_) {}
-        return { resp, json };
-      };
+      // ההחלטה על ``keepalive`` נרשמת כאן, ונשמרת עם השמירה שבאוויר (``_registerInFlight``) — ראו ``sendSaveRequest``.
+      const flight = { keepalive: null };
+      const send = (payloadObj) => sendSaveRequest(url, 'PUT', payloadObj, flight);
 
       const attempt = async () => {
         const withToken = this._withToken(id, original);
@@ -8185,7 +8309,7 @@
       };
 
       const promise = attempt();
-      this._registerInFlight(id, original, promise);
+      this._registerInFlight(id, original, promise, flight);
       return promise;
     }
 
@@ -8229,18 +8353,13 @@
       const url = `/api/sticky-notes/batch`;
       // הבקשה המרוכזת **נרשמת כשמירה באוויר לכל פתק שבה**, בדיוק כמו ``_sendUpdate`` — אחרת ``_flushFor``
       // (יציאה מעריכה, סימון משימה, העברה לארכיון) היה שולח את אותו פתק שוב במקביל לה.
+      // ההחלטה על ``keepalive`` אחת לבקשה כולה, ונרשמת לכל פתק שבה — ראו ``sendSaveRequest``.
+      const flight = { keepalive: null };
       const run = async () => {
         let usedBatch = false;
         try {
-          const resp = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ updates: batchPayload }),
-            keepalive: true,
-            signal: saveRequestSignal(),
-          });
+          const { resp, json } = await sendSaveRequest(url, 'POST', { updates: batchPayload }, flight);
           if (resp.ok) {
-            const json = await resp.json().catch(() => null);
             if (json && json.ok && Array.isArray(json.results)) {
               usedBatch = true;
               for (const result of json.results) {
@@ -8307,7 +8426,7 @@
         }
       };
       const promise = run();
-      for (const s of snapshots) this._registerInFlight(s.id, s.payload, promise);
+      for (const s of snapshots) this._registerInFlight(s.id, s.payload, promise, flight);
       await promise;
       if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
         this._stopBackgroundAutoFlush();
