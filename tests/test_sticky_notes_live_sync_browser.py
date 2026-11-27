@@ -1828,12 +1828,23 @@ def _failed_saves(lp):
     return sum(1 for _method, _path, status in lp.answers if status == 503)
 
 
+#: **מסתיר את הלשונית ברגע שהמצב מוכן, באותה משימה של הדפדפן**: אין שחזור שממתין לשרת, אין שמירה באוויר, ויש מטען
+#: בתור — ואז ``visibilitychange``, בלי שום ``await`` ביניהם. בדיקה ואחריה הסתרה בשתי קריאות נפרדות השאירו חלון שבו
+#: טיימר השמירה (ה-debounce או הניסיון החוזר ברקע) שלח ``POST /batch``, והפתק היה נשאר בתור. מחזיר ``true`` רק כשהסתיר.
+HIDE_WHEN_QUEUED_JS = """(id) => {
+    const m = window.__mgr; const e = m && m.notes.get(id);
+    if (!e || e.draftAwaitingServer || m._inFlight.has(id) || !m._pending.has(id)) return false;
+    Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    return true; }"""
+
+
 def _hidden_with_the_text_leaving_in_keepalive(lp, nid):
     """הלשונית מוסתרת, והשמירה שיוצאת בהסתרה נעצרת לפני השרת. **המצב שהבדיקות כאן בודקות**: אין מטען בתור, והשמירה
     שבאוויר היא ``PUT`` עם ``keepalive`` — הטקסט "בדרך". שמירה מרוכזת שהייתה יוצאת במקום (הניסיון החוזר ברקע) הייתה
     משאירה את הפתק בתור, ואז טיוטה נכתבת ממילא, והבדיקה הייתה עוברת בלי קשר לתיקון."""
     lp.hold_saves = True
-    _set_visibility(lp, "hidden")
+    lp.page.wait_for_function(HIDE_WHEN_QUEUED_JS, arg=nid, timeout=8000)
     # השמירה נולדת בהסתרה עצמה, ו-``fetch`` מגיע ל-``page.route`` רק אחרי שהאירוע כבר טופל.
     _wait_until(lp, lambda: len(lp.held_saves) >= 1, what="השמירה של ההסתרה יצאה")
     lp.page.wait_for_timeout(300)
@@ -1910,3 +1921,40 @@ def test_a_tablet_tab_closed_offline_keeps_the_text_of_a_short_note_and_saves_it
     board.wait_saved(N1, "גרסה ישנה בלי רשת", timeout_s=15.0)
     assert board.textarea(N1) == "גרסה ישנה בלי רשת"
     assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None
+
+
+@pytest.mark.parametrize("save_path", ["PUT", "POST"])
+def test_a_restored_draft_survives_until_its_save_is_confirmed_even_when_the_save_fails_after_the_close(board, save_path):
+    """**טיוטה ששוחזרה נשארת עד שהשמירה של הטקסט שלה מאושרת.** השרת לא השתנה מאז הטיוטה, ולכן אין על מה להחליט:
+    הטקסט ששוחזר נשלח לשמירה — ``PUT`` עם ``keepalive`` כשהלשונית מוסתרת מיד (``_flushPendingKeepalive``), או
+    ``POST /batch`` כשה-debounce הספיק לשלוח אותו. הלשונית נסגרת לפני שהשמירה מגיעה לשרת. עד התיקון הטיוטה נמחקה
+    ברגע השחזור, ובמסלול של ``PUT`` הטקסט ששוחזר אבד: הוא נחשב "בדרך", ולא נכתב שוב."""
+    restored = "גרסה ישנה + מהטיוטה"
+    draft = {"v": 1, "ts": 0, "base": {"content": "גרסה ישנה", "title": "", "updated_at": T0.isoformat()},
+             "local": {"content": restored, "title": ""}, "unconfirmed": []}
+    board.page.evaluate("""([id, raw]) => { const d = JSON.parse(raw); d.ts = Date.now(); d.at = d.ts;
+        localStorage.setItem('sticky-notes:held-draft:' + id + ':earlier-tab', JSON.stringify(d)); }""",
+                        [N1, json.dumps(draft, ensure_ascii=False)])
+    board.hold_saves = True
+    board.reopen()
+    board.wait_note(N1)
+    if save_path == "PUT":
+        _hidden_with_the_text_leaving_in_keepalive(board, N1)
+    else:
+        _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה המרוכזת יצאה")
+        assert board.held_saves[0].request.method == "POST", "בקרת שפיות: המסלול המרוכז"
+        _set_visibility(board, "hidden")
+        board.page.wait_for_timeout(300)
+    assert board.textarea(N1) == restored, "בקרת שפיות: הטקסט ששוחזר במסך"
+    assert _drafts_of(board, N1) == [restored], "אין טיוטה של הטקסט ששוחזר בזמן שהשמירה שלו באוויר"
+    # השמירה לא מגיעה לשרת: הלשונית נסגרת לפני כן.
+    board.hold_saves = False
+    board.held_saves = []
+    assert board.doc(N1)["content"] == "גרסה ישנה"
+    board.reopen()
+    board.wait_note(N1)
+    board.wait_saved(N1, restored, timeout_s=15.0)
+    assert board.textarea(N1) == restored
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None
+    board.page.wait_for_timeout(500)
+    assert _drafts_of(board, N1) == [], "השמירה אושרה — הטיוטה יצאה"

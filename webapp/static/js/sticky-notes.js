@@ -2026,6 +2026,9 @@
       };
       try {
         storage.setItem(entry.draftKey, JSON.stringify(draft));
+        // **מה שהשחזור של הטיוטה הזו ירשום כשמירות שלנו** — אותו חישוב של ``_restoreHeldDraft``: השמירות שבאוויר ועוד
+        // הטקסט שבה. ממנו ``_draftKnowsSave`` יודע אם הטיוטה, כפי שהיא שמורה, תזהה שמירה שאושרה אחר כך.
+        entry.draftKnows = unconfirmedSnapshots(draft.unconfirmed.concat([{ content: draft.local.content, title: draft.local.title }]));
         return true;
       } catch(err) {
         // אחסון מלא — הטיוטה לא נשמרה, ומה שהוקלד אובד אם העמוד ייסגר. נרשם, כי זה בדיוק מה שהמנגנון נועד למנוע.
@@ -2039,8 +2042,9 @@
       if (!entry || !entry.draftKey) return;
       const key = entry.draftKey;
       entry.draftKey = null;
-      // הסימון של טיוטת סגירה הולך עם המפתח — ראו ``_onSaveConfirmed``.
+      // הסימון של טיוטת סגירה, ומה שהטיוטה מכירה, הולכים עם המפתח — ראו ``_onSaveConfirmed``.
       entry.closeDraft = false;
+      entry.draftKnows = null;
       const storage = draftStorage();
       if (!storage) return;
       try {
@@ -2176,7 +2180,17 @@
     /**
      * **סוף השחזור** — הקריאה הטרייה הראשונה מהשרת עברה את הפיוס מול הבסיס של הטיוטה. נפתחה התראה — הטיוטה נשארת
      * (``_showRemoteNotice`` כתב אותה שוב); לא נפתחה — אין על מה להחליט: מה שבמסך, כולל מה שהוקלד בזמן ההמתנה,
-     * נשלח כרגיל עם האסימון של הבסיס, והטיוטה יוצאת מהמאגר.
+     * נשלח כרגיל עם האסימון של הבסיס.
+     *
+     * **והטיוטה נשארת עד שהשמירה הזו מאושרת** — היא נכתבת מחדש על הבסיס שהפיוס יישר, ומסומנת כטיוטת סגירה
+     * (``entry.closeDraft``), ולכן ``_onSaveConfirmed`` מוחק אותה כשהטקסט נשמר, והסתרה כותבת אותה שוב. עד נובמבר 2026
+     * היא נמחקה כאן, לפני השליחה: בהסתרה מיד אחרי השחזור הטקסט יצא ב-``keepalive``, נחשב "בדרך" ולא נכתב שוב — ואם
+     * הבקשה נכשלה אחרי שהעמוד נסגר, הטקסט ששוחזר אבד. כתיבה שנכשלת כאן משאירה את הטיוטה כמו שנמצאה, תחת אותו מפתח:
+     * היא עדיין מכירה את הטקסט שבמסך כשמירה שלנו.
+     *
+     * **אין מה לשמור** — הטיוטה יוצאת, וגם השמירות שהיא זכרה (``entry.unconfirmed``): השרת נצפה עכשיו מחזיק את מה
+     * שבמסך, ולכן שמירה ישנה שונה כבר אינה מצב אפשרי שלו. בלי הניקוי, כל הסתרה הייתה כותבת טיוטה מחדש בגללה
+     * (``_unconfirmedDiffersFromScreen``).
      */
     _afterDraftRestored(entry, outcome){
       if (outcome === 'notified') return;
@@ -2187,10 +2201,15 @@
       const fragment = {};
       if (dirty.content) fragment.content = local.content;
       if (dirty.title) fragment.title = titleInput ? String(titleInput.value == null ? '' : titleInput.value) : local.title;
-      this._removeHeldDraft(entry);
       if (Object.keys(fragment).length) {
+        this._writeHeldDraft(entry);
+        entry.closeDraft = true;
         this._queueSave(el, fragment);
-      } else if (this._pending.has(String(el.dataset.noteId))) {
+        return;
+      }
+      entry.unconfirmed = [];
+      this._removeHeldDraft(entry);
+      if (this._pending.has(String(el.dataset.noteId))) {
         this._saveDebounced();
         this._ensureBackgroundAutoFlush();
       }
@@ -6676,14 +6695,32 @@
         // מוצגת בטעינה הבאה מול גרסה חדשה יותר, למשל של סוכן, ומחזירה טקסט ישן. פתק מוחזק — הטיוטה שלו של
         // ``_syncHeldDraft``, ולא נוגעים בה כאן.
         //
-        // **וכשהכתיבה מחדש נכשלת** (אחסון מלא — ``_writeHeldDraft`` מחזיר ``false`` ורושם שגיאה) הטיוטה הישנה יוצאת
-        // גם היא. היא לא מכירה את השמירה שאושרה עכשיו, ולכן בטעינה הבאה הייתה מציגה טקסט ישן מולה — "יש עדכון
-        // חדש" על הטקסט של המשתמש עצמו, ו"התעלם" היה שומר את הישן מעליו. מה שבמסך עוד לא אבד: הוא נשלח בשמירה
-        // הבאה, והסתרה נוספת תנסה לכתוב אותו שוב.
+        // **וכשהכתיבה מחדש נכשלת** (אחסון מלא — ``_writeHeldDraft`` מחזיר ``false`` ורושם שגיאה), ההכרעה היא לפי
+        // מה שהטיוטה הישנה מכירה (``_draftKnowsSave``). מכירה את השמירה שאושרה — היא נשארת: השחזור שלה יזהה את מה
+        // שבשרת כשמירה שלנו, והטקסט שבה, שנכתב אחרי שהשמירה יצאה, עוד לא בשרת — היא העותק היחיד שלו מחוץ לזיכרון.
+        // לא מכירה — היא יוצאת: בטעינה הבאה היא הייתה מציגה טקסט ישן מול השמירה הזו — "יש עדכון חדש" על הטקסט של
+        // המשתמש עצמו, ו"התעלם" היה שומר את הישן מעליו. מה שבמסך עוד לא אבד: הוא נשלח בשמירה הבאה, והסתרה נוספת
+        // תנסה לכתוב אותו שוב.
         if (entry.closeDraft && !entry.remote && !entry.draftAwaitingServer) {
           const dirty = this._dirtyFields(entry);
-          if (!(dirty.content || dirty.title) || !this._writeHeldDraft(entry)) this._removeHeldDraft(entry);
+          if (!(dirty.content || dirty.title)) this._removeHeldDraft(entry);
+          else if (!this._writeHeldDraft(entry) && !this._draftKnowsSave(entry, payload)) this._removeHeldDraft(entry);
         }
+      }
+
+      /**
+       * **האם טיוטת הסגירה, כפי שהיא שמורה, מכירה את השמירה שאושרה** — כלומר שהשחזור שלה בטעינה הבאה יזהה את מה שהשרת
+       * מחזיק עכשיו כשמירה שלנו. אותה השוואה של ``_reconcileFields``: לכל שדה עריכה שבשמירה, הערך שווה לשדה הזה באחת
+       * השמירות שהשחזור ירשום (``entry.draftKnows``, מ-``_writeHeldDraft``). שמירה בלי שדה עריכה (מיקום, גודל) לא
+       * שינתה טקסט, והטיוטה נשארת נכונה מולה.
+       */
+      _draftKnowsSave(entry, payload){
+        const known = (entry && entry.draftKnows) || [];
+        const sent = (field) => !!payload && Object.prototype.hasOwnProperty.call(payload, field);
+        const knows = (field, value) => known.some((s) => Object.prototype.hasOwnProperty.call(s, field) && s[field] === value);
+        if (sent('content') && !knows('content', String(payload.content == null ? '' : payload.content))) return false;
+        if (sent('title') && !knows('title', canonicalTitleText(String(payload.title == null ? '' : payload.title)))) return false;
+        return true;
       }
 
       /** האם השמירות של הפתק מוחזקות — עדכון מהשרת מחכה להחלטה, או שבודקים עכשיו 409. */
@@ -7190,6 +7227,20 @@
       }
 
       /**
+       * **האם שמירה שלנו שעוד לא אושרה שונה ממה שבמסך** (``entry.unconfirmed``). שמירה כזו אולי נחתה בשרת, או עוד
+       * תנחת, ואז השרת מחזיק אותה ולא את מה שבמסך — למשל שמירה שנכשלה ברשת (אולי השרת כתב לפני שהחיבור נפל), ואחריה
+       * המשתמש החזיר את הטקסט למה שהיה. ההשוואה כמו ב-``_inFlightCarriesLocalText``.
+       */
+      _unconfirmedDiffersFromScreen(entry){
+        const own = (entry && entry.unconfirmed) || [];
+        if (!own.length) return false;
+        const local = this._localFields(entry);
+        const has = (s, field) => Object.prototype.hasOwnProperty.call(s, field);
+        return own.some((s) => (has(s, 'content') && asTextareaValue(String(s.content == null ? '' : s.content)) !== asTextareaValue(local.content))
+          || (has(s, 'title') && canonicalTitleText(String(s.title == null ? '' : s.title)) !== local.title));
+      }
+
+      /**
        * **הטקסט שלא ישרוד את סגירת העמוד נשמר כטיוטה בדפדפן** — כשהלשונית מוסתרת או נסגרת
        * (``_setupLifecycleGuards``), אחרי שמה שבתור כבר נשלח. זה החצי של הטאבלט: שם סגירת לשונית אינה מציגה את
        * שאלת ``beforeunload`` (``_hasHeldLocalEdits``), וזו ההגנה היחידה.
@@ -7213,7 +7264,10 @@
        *   ``keepalive`` תיכשל אחרי שהעמוד נסגר, ובלי טיוטה הטקסט לא נמצא בשום מקום.
        *
        * **ופתק שאין במסך שלו כלום שהשרת לא אישר, ויש לו טיוטת סגירה מהסתרה קודמת — הטיוטה יוצאת.** היא מחזיקה טקסט
-       * שהמשתמש כבר שינה, למשל מחק, והשחזור בטעינה הבאה היה מחזיר אותו ושולח אותו לשמירה, בלי שאלה (נמדד).
+       * שהמשתמש כבר שינה, למשל מחק, והשחזור בטעינה הבאה היה מחזיר אותו ושולח אותו לשמירה, בלי שאלה (נמדד). **החריג:**
+       * שמירה קודמת שלו שעוד לא אושרה ושונה ממה שבמסך (``_unconfirmedDiffersFromScreen``) — למשל שמירה שנכשלה ברשת
+       * לפני שהמשתמש מחק. היא אולי נחתה בשרת, ולכן נכתבת טיוטה עם מה שבמסך, גם בלי טיוטה קודמת: השחזור יזהה את השמירה
+       * ההיא כשלנו, ויחזיר את מה שבמסך מעליה.
        *
        * **הטיוטה אולי כבר מיותרת בטעינה הבאה** — אם השמירה נחתה לפני שהעמוד נסגר. זה מטופל במקום שכבר מטפל
        * בזה: השחזור רושם את הטיוטה כשמירה שלנו שעוד לא אושרה (``_restoreHeldDraft``), והפיוס מיישר אליה את הבסיס
@@ -7230,7 +7284,8 @@
           const key = String(id);
           if (!this._pending.has(key)) {
             const dirty = this._dirtyFields(entry);
-            if (!dirty.content && !dirty.title) {
+            const earlier = this._unconfirmedDiffersFromScreen(entry);
+            if (!dirty.content && !dirty.title && !earlier) {
               if (entry.closeDraft) this._removeHeldDraft(entry);
               continue;
             }
