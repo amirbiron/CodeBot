@@ -1839,10 +1839,31 @@ HIDE_WHEN_QUEUED_JS = """(id) => {
     return true; }"""
 
 
+#: **טיימרי השמירה של העמוד נעצרים** — ה-debounce והניסיון החוזר ברקע — כמו בלשונית שנסגרת, שאינה מגיעה אליהם. מטען
+#: שהשחזור מוסיף לתור, או שחוזר אליו אחרי כשל, נשאר בתור עד ההסתרה, ויוצא רק בה (``_flushPendingKeepalive``). ההסתרה
+#: עצמה אינה משתנה: ``flush`` של debounce שאין לו טיימר מחזיר ``undefined`` גם בקוד האמיתי, ואז ``_flushDebounceTimer``
+#: שולח את מה שנשאר בתור. בלי העצירה, ה-debounce (``AUTO_SAVE_DEBOUNCE_MS``) יכול לשלוח ``POST /batch`` לפני שהבדיקה
+#: מתחילה לחכות למצב — והיא נכשלת בתום הזמן, לפי מהירות המכונה. מסמן את העמוד (``__saveTimersFrozen``).
+FREEZE_SAVE_TIMERS_JS = """() => { const m = window.__mgr;
+    m._saveDebounced.cancel();
+    m._saveDebounced = Object.assign(() => {}, { cancel() {}, flush() {} });
+    if (m._autoFlushTimer) { clearInterval(m._autoFlushTimer); m._autoFlushTimer = null; }
+    m._ensureBackgroundAutoFlush = () => {};
+    window.__saveTimersFrozen = true; }"""
+
+
+def _freeze_save_timers(lp):
+    lp.page.evaluate(FREEZE_SAVE_TIMERS_JS)
+
+
 def _hidden_with_the_text_leaving_in_keepalive(lp, nid):
     """הלשונית מוסתרת, והשמירה שיוצאת בהסתרה נעצרת לפני השרת. **המצב שהבדיקות כאן בודקות**: אין מטען בתור, והשמירה
     שבאוויר היא ``PUT`` עם ``keepalive`` — הטקסט "בדרך". שמירה מרוכזת שהייתה יוצאת במקום (הניסיון החוזר ברקע) הייתה
-    משאירה את הפתק בתור, ואז טיוטה נכתבת ממילא, והבדיקה הייתה עוברת בלי קשר לתיקון."""
+    משאירה את הפתק בתור, ואז טיוטה נכתבת ממילא, והבדיקה הייתה עוברת בלי קשר לתיקון.
+
+    **הקורא עוצר את טיימרי השמירה לפני שהמטען נכנס לתור** (``_freeze_save_timers``) — לפני הטעינה שבה השחזור מוסיף
+    אותו, או לפני הכשל שמחזיר אותו לתור. עצירה כאן הייתה מאוחרת מדי: הטיימר כבר דרוך, ואולי כבר שלח."""
+    assert lp.page.evaluate("() => window.__saveTimersFrozen === true"), "טיימרי השמירה לא נעצרו לפני שהמטען נכנס לתור"
     lp.hold_saves = True
     lp.page.wait_for_function(HIDE_WHEN_QUEUED_JS, arg=nid, timeout=8000)
     # השמירה נולדת בהסתרה עצמה, ו-``fetch`` מגיע ל-``page.route`` רק אחרי שהאירוע כבר טופל.
@@ -1883,6 +1904,9 @@ def test_a_tablet_tab_closed_again_after_failed_saves_comes_back_with_the_newest
     board.page.keyboard.type(" ג")
     _wait_until(board, lambda: _failed_saves(board) > failed and not board.page.evaluate(in_flight, N1),
                 what="גם השמירה של מה שהוקלד אחר כך נכשלה")
+    # עוד לפני שהרשת חוזרת: ניסיון שיוצא מעכשיו נכשל, והמטען חוזר לתור ונשאר בו — עד ההסתרה.
+    _freeze_save_timers(board)
+    _wait_until(board, lambda: not board.page.evaluate(in_flight, N1), what="ניסיון שיצא לפני העצירה נגמר")
     board.fail_saves = 0
     _hidden_with_the_text_leaving_in_keepalive(board, N1)
     board._answer(board.held_saves[0], deliver=False)  # השרת כותב; התשובה לא מגיעה לדף שנסגר
@@ -1909,6 +1933,9 @@ def test_a_tablet_tab_closed_offline_keeps_the_text_of_a_short_note_and_saves_it
     in_flight = "(id) => window.__mgr._inFlight.has(id)"
     _wait_until(board, lambda: _failed_saves(board) > 0 and not board.page.evaluate(in_flight, N1),
                 what="השמירה נכשלה")
+    # עוד לפני שהרשת חוזרת: ניסיון שיוצא מעכשיו נכשל, והמטען חוזר לתור ונשאר בו — עד ההסתרה.
+    _freeze_save_timers(board)
+    _wait_until(board, lambda: not board.page.evaluate(in_flight, N1), what="ניסיון שיצא לפני העצירה נגמר")
     board.fail_saves = 0
     _hidden_with_the_text_leaving_in_keepalive(board, N1)
     assert _drafts_of(board, N1) == ["גרסה ישנה בלי רשת"], "אין טיוטה של טקסט ששמירתו נכשלה"
@@ -1936,13 +1963,22 @@ def test_a_restored_draft_survives_until_its_save_is_confirmed_even_when_the_sav
         localStorage.setItem('sticky-notes:held-draft:' + id + ':earlier-tab', JSON.stringify(d)); }""",
                         [N1, json.dumps(draft, ensure_ascii=False)])
     board.hold_saves = True
+    # במסלול של ``PUT`` הטיימרים נעצרים לפני שהשחזור מסתיים: הרשימה מהשרת — הקריאה שמסיימת אותו ומוסיפה את הטקסט
+    # לתור — מוחזקת עד שהם עצורים.
+    board.hold_list = save_path == "PUT"
     board.reopen()
+    if save_path == "PUT":
+        _freeze_save_timers(board)
+        board.release_list()
     board.wait_note(N1)
     if save_path == "PUT":
         _hidden_with_the_text_leaving_in_keepalive(board, N1)
     else:
         _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה המרוכזת יצאה")
         assert board.held_saves[0].request.method == "POST", "בקרת שפיות: המסלול המרוכז"
+        # **לפני ההסתרה**: במסלול המרוכז הפתק נשאר בתור בזמן שהשמירה באוויר, והסתרה כותבת טיוטה לכל פתק שבתור — ולכן
+        # רק כאן נראה אם השחזור מחק אותה (נמדד: בלי הבדיקה הזו, המסלול הזה עבר גם על הקוד שמחק).
+        assert _drafts_of(board, N1) == [restored], "השחזור מחק את הטיוטה לפני שהשמירה של הטקסט אושרה"
         _set_visibility(board, "hidden")
         board.page.wait_for_timeout(300)
     assert board.textarea(N1) == restored, "בקרת שפיות: הטקסט ששוחזר במסך"

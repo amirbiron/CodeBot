@@ -2029,6 +2029,8 @@
         // **מה שהשחזור של הטיוטה הזו ירשום כשמירות שלנו** — אותו חישוב של ``_restoreHeldDraft``: השמירות שבאוויר ועוד
         // הטקסט שבה. ממנו ``_draftKnowsSave`` יודע אם הטיוטה, כפי שהיא שמורה, תזהה שמירה שאושרה אחר כך.
         entry.draftKnows = unconfirmedSnapshots(draft.unconfirmed.concat([{ content: draft.local.content, title: draft.local.title }]));
+        // הטיוטה ששוחזרה ועוד לא הועברה — העותק החדש מחליף אותה עכשיו (``_dropDraftSource``).
+        this._dropDraftSource(entry, storage);
         return true;
       } catch(err) {
         // אחסון מלא — הטיוטה לא נשמרה, ומה שהוקלד אובד אם העמוד ייסגר. נרשם, כי זה בדיוק מה שהמנגנון נועד למנוע.
@@ -2047,6 +2049,9 @@
       entry.draftKnows = null;
       const storage = draftStorage();
       if (!storage) return;
+      // וגם הטיוטה ששוחזרה ולא הועברה למפתח של הרשומה — היא העותק השמור של אותה טיוטה (``_dropDraftSource``). מעקב
+      // כזה קיים רק כשיש ``draftKey``: השחזור מגדיר אותו ואז קורא ל-``_writeHeldDraft``, שנותן מפתח לפני שהוא כותב.
+      this._dropDraftSource(entry, storage);
       try {
         storage.removeItem(key);
       } catch(err) {
@@ -2056,8 +2061,28 @@
     }
 
     /**
-     * **הטיוטה האחרונה של הפתק**, אם יש — ``{key, draft}``, או ``null``. נקראת ולא נמחקת: הרשומה ששחזרה אותה מעבירה
-     * אותה למפתח משלה ומוחקת את זה שנמצא (``_restoreHeldDraft``). כמה לשוניות יכולות להשאיר כמה טיוטות לאותו פתק:
+     * **הטיוטה ששחזור לקח, כשההעברה שלה למפתח של הרשומה עוד לא הצליחה** (``entry.draftSource`` — המפתח שלה, והמחרוזת
+     * כפי שנקראה ב-``_findHeldDraft``). היא יוצאת יחד עם הטיוטה של הרשומה: כשזו נכתבת בהצלחה (``_writeHeldDraft`` —
+     * העותק החדש מחליף אותה) או נמחקת (``_removeHeldDraft``). **ורק אם המפתח עדיין מחזיק את מה שנקרא:** הלשונית
+     * שכתבה אותה יכולה להיות עדיין פתוחה, ולכתוב תחת המפתח שלה גרסה חדשה יותר — והיא שלה, ונשארת. המעקב נגמר בכל
+     * מקרה, כמו ב-``_removeHeldDraft``: מחיקה שנכשלת נרשמת, והטיוטה תוצג שוב בטעינה הבאה ותעבור את הפיוס.
+     */
+    _dropDraftSource(entry, storage){
+      const source = entry && entry.draftSource;
+      if (!source || !storage) return;
+      entry.draftSource = null;
+      try {
+        if (source.key !== entry.draftKey && storage.getItem(source.key) === source.raw) storage.removeItem(source.key);
+      } catch(err) {
+        // בלי מחיקה הטיוטה תוצג שוב בטעינה הבאה, ותעבור את הפיוס — לא אובדן, אבל שאלה מיותרת. נרשם.
+        console.warn('sticky note: removing a draft after taking it over failed — it may be shown again', source.key, err);
+      }
+    }
+
+    /**
+     * **הטיוטה האחרונה של הפתק**, אם יש — ``{key, draft, raw}`` (``raw`` — המחרוזת כפי שנקראה מהאחסון), או ``null``.
+     * נקראת ולא נמחקת: הרשומה ששחזרה אותה מעבירה אותה למפתח משלה ומוחקת את זה שנמצא (``_restoreHeldDraft``,
+     * ``_dropDraftSource``). כמה לשוניות יכולות להשאיר כמה טיוטות לאותו פתק:
      * החדשה ביותר מוצגת, והאחרות מחכות לטעינה הבאה — כל אחת היא טקסט שהמשתמש כתב ושאינו בשרת. טיוטה שהמבנה שלה
      * אינו מה שנכתב (אחסון של הדפדפן הוא קלט חיצוני — U3), או שישנה מ-``HELD_DRAFT_MAX_AGE_MS``, נמחקת.
      */
@@ -2102,9 +2127,9 @@
         // טעינה ובכל לשונית ולא תלויה בסדר שבו הדפדפן מונה את המפתחות. השנייה אינה הולכת לאיבוד: היא מוצגת בטעינה
         // שאחרי הבחירה.
         const order = Number.isFinite(draft.at) ? draft.at : draft.ts;
-        if (!best || order > best.order || (order === best.order && key > best.key)) best = { key, draft, order };
+        if (!best || order > best.order || (order === best.order && key > best.key)) best = { key, draft, order, raw };
       }
-      return best ? { key: best.key, draft: best.draft } : null;
+      return best ? { key: best.key, draft: best.draft, raw: best.raw } : null;
     }
 
     /**
@@ -2159,19 +2184,18 @@
       // שלה מעל מה שבמסך. איתן הבסיס מתיישר אליה, ומה שבטיוטה נשמר מעליה.
       entry.unconfirmed = unconfirmedSnapshots(unconfirmedSnapshots(draft.unconfirmed)
         .concat([{ content: draft.local.content, title: draft.local.title }]));
-      // **הטיוטה עוברת למפתח של הלשונית הזו**, והמפתח שנמצא נמחק — רק אחרי שהכתיבה הצליחה. לקיחה של המפתח עצמו
-      // הייתה משתפת אותו עם הלשונית שכתבה אותו, אם היא עדיין פתוחה: הקלדה באחת הייתה דורסת את הטקסט של השנייה,
-      // ובחירה באחת הייתה מוחקת את הטיוטה של השנייה. לשונית כזו כותבת את המפתח שלה שוב בעריכה הבאה או בהסתרה,
-      // והטקסט שלה עד כאן כבר שמור כאן, תחת המפתח החדש.
+      // **הטיוטה עוברת למפתח של הלשונית הזו**, והמפתח שנמצא נמחק — רק אחרי שכתיבה למפתח החדש הצליחה, ורק אם הוא
+      // עדיין מחזיק את מה שנקרא (``entry.draftSource``, ``_dropDraftSource``). לקיחה של המפתח עצמו הייתה משתפת אותו
+      // עם הלשונית שכתבה אותו, אם היא עדיין פתוחה: הקלדה באחת הייתה דורסת את הטקסט של השנייה, ובחירה באחת הייתה
+      // מוחקת את הטיוטה של השנייה. לשונית כזו כותבת את המפתח שלה שוב בעריכה הבאה או בהסתרה — גרסה חדשה יותר, שהיא
+      // שלה ונשארת — והטקסט שלה עד כאן כבר שמור כאן, תחת המפתח החדש.
+      //
+      // **כתיבה שנכשלת כאן (אחסון מלא) משאירה את המפתח שנמצא במעקב**, ולא רק את המפתח החדש שלא נכתב: הוא יוצא בכתיבה
+      // הבאה שמצליחה, או כשהטיוטה של הרשומה נמחקת (``_removeHeldDraft``) — למשל כשהטקסט ששוחזר נשמר. עד נובמבר 2026
+      // המחיקה ראתה רק את המפתח החדש, והטיוטה המקורית נשארה באחסון: בטעינה הבאה היא הוצגה מול טקסט שכבר נשמר.
       entry.draftKey = null;
-      if (this._writeHeldDraft(entry) && found.key !== entry.draftKey) {
-        const storage = draftStorage();
-        if (storage) {
-          try { storage.removeItem(found.key); } catch(err) {
-            console.warn('sticky note: removing a draft after taking it over failed — it may be shown again', found.key, err);
-          }
-        }
-      }
+      entry.draftSource = { key: found.key, raw: found.raw };
+      this._writeHeldDraft(entry);
       entry.draftAwaitingServer = true;
       if (this._renderingFromCache) return;
       this._reconcileServerNote(server, 'poll');
@@ -2188,11 +2212,24 @@
      * הבקשה נכשלה אחרי שהעמוד נסגר, הטקסט ששוחזר אבד. כתיבה שנכשלת כאן משאירה את הטיוטה כמו שנמצאה, תחת אותו מפתח:
      * היא עדיין מכירה את הטקסט שבמסך כשמירה שלנו.
      *
-     * **אין מה לשמור** — הטיוטה יוצאת, וגם השמירות שהיא זכרה (``entry.unconfirmed``): השרת נצפה עכשיו מחזיק את מה
-     * שבמסך, ולכן שמירה ישנה שונה כבר אינה מצב אפשרי שלו. בלי הניקוי, כל הסתרה הייתה כותבת טיוטה מחדש בגללה
-     * (``_unconfirmedDiffersFromScreen``).
+     * **אין מה לשמור, אבל שמירה שהטיוטה זכרה שונה ממה שבמסך, והאסימון בשרת לא זז** (``'same'`` מ-``_reconcileFields``;
+     * ``_unconfirmedDiffersFromScreen``) — למשל שמירה שנכשלה ברשת בלשונית הקודמת, ואחריה המשתמש החזיר את הטקסט. שום
+     * כתיבה לא נחתה מאז הבסיס של הטיוטה, ולכן השמירה ההיא עוד יכולה לנחות: היא נושאת את אותו אסימון, והשרת אינו
+     * מזיז אותו על שמירה שלא משנה כלום (``drop_unchanged_edits`` ב-``update_note``), כך שגם שמירה של מה שבמסך לא הייתה
+     * חוסמת אותה. השמירות שהטיוטה זכרה נשארות, והטיוטה נשארת כטיוטת סגירה, והשחזור **ממתין** (``entry.draftSettling``):
+     * הפיוס הבא עובר כאן שוב. נחתה השמירה ההיא — הפיוס מזהה אותה כשלנו ומיישר אליה את הבסיס, ומה שבמסך נשלח מעליה
+     * (הענף של "יש מה לשמור"). נחתה עריכה אחרת — האסימון זז, והשמירה ההיא כבר תידחה ב-409. וגם שמירה של המשתמש
+     * עצמו, שמשנה טקסט, מזיזה אותו. עד נובמבר 2026 השמירות נמחקו כאן, והשמירה שנחתה אחרי הקריאה נראתה כעדכון ממקום
+     * אחר: היא הוחלה על המסך בלי שאלה, ומה שהמשתמש החזיר אבד. ההמתנה מוגבלת לחיי העמוד: בהסתרה הטיוטה נמחקת לפי
+     * הכלל הרגיל של טיוטת סגירה (``_persistDraftsThatWontSurviveClose``). המשך שלה לטעינה הבאה היה משאיר אותה לתמיד
+     * בפתק שאיש לא עורך, כי שום דבר לא מסמן שהשמירה ההיא כבר לא תגיע.
+     *
+     * **אין מה לשמור, ואין שמירה כזו, או שהאסימון זז** — הטיוטה יוצאת, וגם השמירות שהיא זכרה (``entry.unconfirmed``):
+     * כל אחת מהן נשאה אסימון ישן מזה שבשרת, ולכן כבר אינה יכולה לנחות. בלי הניקוי, הסתרה אחרי שמירה שנכשלה הייתה
+     * כותבת טיוטה מחדש בגללן (``_unconfirmedDiffersFromScreen``).
      */
     _afterDraftRestored(entry, outcome){
+      entry.draftSettling = false;
       if (outcome === 'notified') return;
       const el = entry.el;
       const dirty = this._dirtyFields(entry);
@@ -2207,8 +2244,15 @@
         this._queueSave(el, fragment);
         return;
       }
-      entry.unconfirmed = [];
-      this._removeHeldDraft(entry);
+      if (outcome === 'same' && this._unconfirmedDiffersFromScreen(entry)) {
+        // אין מה לכתוב: הטיוטה שמורה כמו שהשחזור כתב אותה (או תחת המפתח המקורי — ``entry.draftSource``), והבסיס לא זז.
+        // היא רק עוברת לכללים של טיוטת סגירה.
+        entry.draftSettling = true;
+        entry.closeDraft = true;
+      } else {
+        entry.unconfirmed = [];
+        this._removeHeldDraft(entry);
+      }
       if (this._pending.has(String(el.dataset.noteId))) {
         this._saveDebounced();
         this._ensureBackgroundAutoFlush();
@@ -6701,9 +6745,15 @@
         // לא מכירה — היא יוצאת: בטעינה הבאה היא הייתה מציגה טקסט ישן מול השמירה הזו — "יש עדכון חדש" על הטקסט של
         // המשתמש עצמו, ו"התעלם" היה שומר את הישן מעליו. מה שבמסך עוד לא אבד: הוא נשלח בשמירה הבאה, והסתרה נוספת
         // תנסה לכתוב אותו שוב.
+        //
+        // **ושחזור שממתין לשמירה שהטיוטה זכרה** (``entry.draftSettling``, ``_afterDraftRestored``) — הטיוטה נשארת כל עוד
+        // שמירה כזו, ששונה ממה שבמסך, עוד זכורה. שמירה שלא שינתה טקסט (מיקום, גודל) אינה מסיימת את ההמתנה; שמירה של
+        // טקסט כן — האישור שלה מוחק מהזיכרון את כל מה שנשלח לפניה (``_forgetUnconfirmed``).
         if (entry.closeDraft && !entry.remote && !entry.draftAwaitingServer) {
           const dirty = this._dirtyFields(entry);
-          if (!(dirty.content || dirty.title)) this._removeHeldDraft(entry);
+          if (!(dirty.content || dirty.title)) {
+            if (!(entry.draftSettling && this._unconfirmedDiffersFromScreen(entry))) this._removeHeldDraft(entry);
+          }
           else if (!this._writeHeldDraft(entry) && !this._draftKnowsSave(entry, payload)) this._removeHeldDraft(entry);
         }
       }
@@ -6925,8 +6975,9 @@
         // לחיצה באמצע — התצוגה שתחת האצבע היא זו שההיסט של הלחיצה מחושב מולה.
         if (this._deferWhilePressed(entry, server, source, seq)) return 'deferred';
         if (hasSeq) entry.readSeq = seq;
-        // טיוטה ששוחזרה מהקאש וחיכתה לשרת — הקריאה הזו מסיימת את השחזור (``_restoreHeldDraft``).
-        const finishingDraft = !!entry.draftAwaitingServer;
+        // טיוטה ששוחזרה מהקאש וחיכתה לשרת — הקריאה הזו מסיימת את השחזור (``_restoreHeldDraft``). וגם שחזור שכבר
+        // נבדק, ועדיין ממתין לשמירה שהטיוטה זכרה ועשויה לנחות (``draftSettling``, ``_afterDraftRestored``).
+        const finishingDraft = !!(entry.draftAwaitingServer || entry.draftSettling);
         entry.draftAwaitingServer = false;
         const outcome = this._reconcileFields(entry, server, source);
         if (finishingDraft) this._afterDraftRestored(entry, outcome);
