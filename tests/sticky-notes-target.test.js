@@ -6561,11 +6561,19 @@ check('סגירת לשונית: טקסט ששמירתו לא תשרוד סגיר
   const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
   try {
     n.ta.value = 'בסיס + מה שהוקלד';
-    mgr._inFlight.set(DRAFT_ID, { data: {}, promise: new Promise(() => {}), flight: { keepalive: true } });
+    mgr._inFlight.set(DRAFT_ID, { data: { content: n.ta.value }, promise: new Promise(() => {}), flight: { keepalive: true } });
     mgr._persistDraftsThatWontSurviveClose();
     eq(draftsOf(storage).length, 0, 'השמירה שבאוויר היא keepalive ונושאת את הטקסט — אין טיוטה');
 
-    mgr._inFlight.set(DRAFT_ID, { data: {}, promise: new Promise(() => {}), flight: { keepalive: false } });
+    // keepalive שאינו נושא את הטקסט: הזזה בלבד (למשל אחרי שהשמירה של הטקסט נדחתה), או טקסט שהשתנה מאז.
+    for (const data of [{ position: { x: 1, y: 2 }, size: { width: 300, height: 200 } }, { content: 'בסיס + מה שהוק' }]) {
+      mgr._inFlight.set(DRAFT_ID, { data, promise: new Promise(() => {}), flight: { keepalive: true } });
+      mgr._persistDraftsThatWontSurviveClose();
+      eq(draftsOf(storage).length, 1, `keepalive שאינו נושא את הטקסט (${Object.keys(data).join(',')}) — טיוטה`);
+      mgr._removeHeldDraft(n.entry);
+    }
+
+    mgr._inFlight.set(DRAFT_ID, { data: { content: n.ta.value }, promise: new Promise(() => {}), flight: { keepalive: false } });
     mgr._persistDraftsThatWontSurviveClose();
     const drafts = draftsOf(storage);
     eq(drafts.length, 1, 'בקשה רגילה — הטקסט נשמר כטיוטה');
@@ -6595,6 +6603,26 @@ check('סגירת לשונית: טקסט ששמירתו לא תשרוד סגיר
     eq(draftsOf(storage).length, 0, 'פתק נקי — אין טיוטה');
   } finally { cleanupMgr(mgr); }
 });
+
+check('סגירת לשונית: מטען בתור נשמר כטיוטה גם כשמה שבמסך שווה לבסיס, והטיוטה זוכרת את השמירות שבאוויר', () => {
+  // המשתמש שינה, השמירה יצאה, והוא החזיר את הטקסט למה שהיה — מה שבמסך שווה לבסיס, אבל השמירה שבאוויר עוד עשויה
+  // לנחות, ואז השרת יחזיק אותה. בלי הטיוטה, ובלי שהיא זוכרת שהשמירה ההיא שלנו, הכוונה של המשתמש אובדת בסגירה.
+  const { mgr, storage } = keepaliveSandbox('ka7-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.ta.value = 'בסיס';
+    n.entry.unconfirmed = [{ content: 'בסיס + שינוי' }];
+    mgr._inFlight.set(DRAFT_ID, { data: { content: 'בסיס + שינוי' }, promise: new Promise(() => {}), flight: { keepalive: true } });
+    mgr._pending.set(DRAFT_ID, { content: 'בסיס' });
+    mgr._persistDraftsThatWontSurviveClose();
+    const drafts = draftsOf(storage);
+    eq(drafts.length, 1, 'מטען בתור — טיוטה, גם כשהטקסט שווה לבסיס');
+    eq(drafts[0].draft.local.content, 'בסיס', 'מה שבמסך');
+    eq(JSON.stringify(drafts[0].draft.unconfirmed), JSON.stringify([{ content: 'בסיס + שינוי' }]),
+      'והשמירה שבאוויר — כדי שהשחזור יזהה אותה כשלנו אם היא נחתה');
+  } finally { cleanupMgr(mgr); }
+});
+
 
 check('סגירת לשונית: טיוטת הסגירה מתעדכנת כשהשמירה מאושרת, ויוצאת כשהטקסט כולו נשמר', () => {
   // טיוטה שנשארת אחרי שהטקסט נשמר הייתה מוצגת בטעינה הבאה מול גרסה חדשה יותר — למשל של סוכן — ומחזירה טקסט ישן.

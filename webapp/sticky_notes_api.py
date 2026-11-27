@@ -826,6 +826,25 @@ _UTF8_MAX_BYTES_PER_CHAR = 4
 #: הסרת הרווחים. מחרוזת ארוכה ממנה נדחתה כ-base64 פגום (``invalid_content_b64``).
 MAX_CONTENT_B64_CHARS = 4 * -(-(_UTF8_MAX_BYTES_PER_CHAR * MAX_NOTE_CHARS) // 3)
 
+#: רצף של תווים שאינם רווח — ``\S`` של ``re`` על מחרוזת הוא בדיוק ההפך של ``str.isspace``, ההגדרה של ``split``
+#: (נבדק על כל נקודות הקוד, Python 3.13). הסריקה שלו ב-:func:`_decode_content_b64` אינה בונה את החלקים.
+_B64_NON_SPACE_RUN = re.compile(r"\S+")
+
+
+def _non_space_chars_exceed(value: str, limit: int) -> bool:
+    """האם יש ב-``value`` יותר מ-``limit`` תווים שאינם רווח — **בלי להקצות לפי גודל הקלט**.
+
+    עוצרת ברגע שהספירה עוברת את ``limit``, ומחזיקה אובייקט התאמה אחד בכל רגע. ``split`` — גם עם תקרת פיצולים —
+    בונה מחרוזת לכל חלק לפני שאפשר למדוד, ועל קלט של חלקים קצרים זה פי כמה וכמה מגודל הקלט, עוד לפני הסירוב
+    (``test_whitespace_padding_cannot_multiply_the_memory_of_the_check``).
+    """
+    total = 0
+    for run in _B64_NON_SPACE_RUN.finditer(value):
+        total += run.end() - run.start()
+        if total > limit:
+            return True
+    return False
+
 
 def _decode_content_b64(value: Any) -> str:
     """Decode Base64 UTF-8 content — **והטקסט שיוצא הוא בדיוק מה שקודד**.
@@ -842,21 +861,15 @@ def _decode_content_b64(value: Any) -> str:
         return ""
     if not isinstance(value, str):
         raise ValueError("content_b64 must be a string")
-    # הסרת הרווחים — של מחרוזת ה-base64, לא של התוכן — **לפני** המדידה: רווח אינו
-    # תוכן, ושכבות העברה שוברות base64 לשורות. ``split`` בלי מפריד מסיר כל רווח
-    # (``str.isspace``), וכל חלק שהוא מחזיר מכיל לפחות תו אחד שאינו רווח.
-    #
-    # **התקרה על מספר הפיצולים חוסמת את העבודה.** בלעדיה ``split`` בונה אובייקט לכל
-    # חלק, על מחרוזת שאין לה גבול (לוובאפ אין תקרה כללית על גוף הבקשה), והזיכרון
-    # גדל פי כמה וכמה מהקלט — המדידה, עם התאריך, ב-``test_whitespace_padding_cannot_multiply_the_memory_of_the_check``.
-    # אם כל הפיצולים נוצלו, יש יותר מ-:data:`MAX_CONTENT_B64_CHARS` תווים שאינם רווח
-    # (כל חלק, וגם השארית, מכילים לפחות אחד), והמחרוזת שמתקבלת ארוכה מהתקרה. אחרת
-    # כל הרווחים הוסרו, והאורך מדויק.
-    s = "".join(value.split(None, MAX_CONTENT_B64_CHARS))
+    # המדידה היא **בלי הרווחים** — של מחרוזת ה-base64, לא של התוכן: רווח אינו תוכן, ושכבות העברה שוברות
+    # base64 לשורות. והיא קודמת להסרה: לוובאפ אין תקרה כללית על גוף הבקשה, ו-``split`` על מחרוזת ארוכה מדי
+    # היה בונה את כל החלקים שלה רק כדי לדחות אותה (:func:`_non_space_chars_exceed`). אחרי המדידה ההסרה חסומה
+    # בתקרה עצמה: כל חלק מכיל לפחות תו אחד שאינו רווח, ולכן אין יותר מ-:data:`MAX_CONTENT_B64_CHARS` חלקים.
+    if _non_space_chars_exceed(value, MAX_CONTENT_B64_CHARS):
+        raise _ContentTooLong()
+    s = "".join(value.split())
     if not s:
         return ""
-    if len(s) > MAX_CONTENT_B64_CHARS:
-        raise _ContentTooLong()
     # Normalize urlsafe variants — של מחרוזת ה-base64, לא של התוכן.
     s = s.replace("-", "+").replace("_", "/")
     # Fix missing padding (common in transport layers)

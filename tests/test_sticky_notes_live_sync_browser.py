@@ -1762,3 +1762,55 @@ def test_a_tablet_tab_closed_while_a_large_save_is_in_flight_keeps_the_text_and_
     assert board.textarea(N1) == text, "הטקסט לא חזר מהטיוטה"
     board.wait_saved(N1, text, timeout_s=15.0)
     assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None, "התראה על הטקסט של המשתמש עצמו"
+
+
+def _close_while_a_save_is_in_flight_and_let_it_land(lp, nid):
+    """הלשונית מוסתרת ונסגרת בזמן שהשמירה של ``nid`` באוויר, **והשמירה נוחתת בשרת** — אבל התשובה לא מגיעה לדף שנסגר.
+    כמו בטאבלט: סגירת לשונית בלי שאלה, ובקשה שממשיכה בלי העמוד. ואז הלשונית נפתחת מחדש."""
+    _set_visibility(lp, "hidden")
+    assert len(lp.held_saves) == 1, lp.held_saves
+    lp._answer(lp.held_saves[0], deliver=False)  # השרת כותב; התשובה לא מגיעה
+    lp.hold_saves = False
+    lp.held_saves = []
+    lp.reopen()
+    lp.wait_note(nid)
+
+
+def test_a_tablet_tab_closed_with_an_edit_behind_a_save_that_landed_saves_the_edit_without_a_notice(board):
+    """עריכה שהוקלדה בזמן ששמירה הייתה באוויר נשמרת כטיוטה בסגירה. השמירה שבאוויר נחתה בשרת, ובפתיחה מחדש הפיוס
+    מזהה אותה **כשלנו** — כי הטיוטה זוכרת את השמירות שבאוויר — ולכן אין "יש עדכון חדש" על הטקסט של המשתמש עצמו,
+    והעריכה נשמרת מעליה."""
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_timeout(400)
+    board.page.keyboard.press("End")
+    board.hold_saves = True
+    board.page.keyboard.type(" א")
+    _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה הראשונה יצאה")
+    board.page.keyboard.type(" ב")
+    board.page.wait_for_timeout(800)  # ה-debounce עבר, והמסלול המרוכז דילג על הפתק שבאוויר
+    _close_while_a_save_is_in_flight_and_let_it_land(board, N1)
+    assert board.doc(N1)["content"] == "גרסה ישנה א", "בקרת שפיות: השמירה שבאוויר נחתה"
+    board.wait_saved(N1, "גרסה ישנה א ב")
+    assert board.textarea(N1) == "גרסה ישנה א ב"
+    board.page.wait_for_timeout(800)
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None, "התראה על הטקסט של המשתמש עצמו"
+
+
+def test_a_tablet_tab_closed_after_reverting_the_text_behind_a_save_keeps_the_revert(board):
+    """המשתמש שינה, השמירה יצאה, והוא החזיר את הטקסט בדיוק למה שהיה — מה שבמסך שווה לבסיס, אבל מטען בתור. השמירה
+    שבאוויר נוחתת והלשונית נסגרת: בפתיחה מחדש השרת מחזיק את השינוי, והטיוטה מחזירה את מה שהמשתמש השאיר."""
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_timeout(400)
+    board.page.keyboard.press("End")
+    board.hold_saves = True
+    board.page.keyboard.type(" א")
+    _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה הראשונה יצאה")
+    board.page.keyboard.press("Backspace")
+    board.page.keyboard.press("Backspace")
+    assert board.textarea(N1) == "גרסה ישנה", "בקרת שפיות: הטקסט חזר בדיוק לבסיס"
+    board.page.wait_for_timeout(800)
+    _close_while_a_save_is_in_flight_and_let_it_land(board, N1)
+    assert board.doc(N1)["content"] == "גרסה ישנה א", "בקרת שפיות: השמירה שבאוויר נחתה"
+    board.wait_saved(N1, "גרסה ישנה")
+    assert board.textarea(N1) == "גרסה ישנה"
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None

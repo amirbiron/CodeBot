@@ -1028,19 +1028,22 @@ def test_a_full_note_wrapped_in_lines_is_measured_without_the_whitespace(client)
 
 
 def test_whitespace_padding_cannot_multiply_the_memory_of_the_check():
-    """**הבדיקה שאחרי הסרת הרווחים אינה פותחת הגברה.** לוובאפ אין תקרה כללית על גוף הבקשה, ו-``split`` בלי תקרה
-    בונה אובייקט לכל חלק. על ``"QQ\\n"`` כפול 3.5 מיליון (10.5 מיליון תווים) נמדד ב-27.11.2026, ב-Python 3.13:
-    ``"".join(s.split())`` — שיא של 188MB; ``split`` עם תקרת פיצולים — 28.5MB.
+    """**הבדיקה שאחרי הסרת הרווחים אינה פותחת הגברה.** לוובאפ אין תקרה כללית על גוף הבקשה, ו-``split`` בונה מחרוזת
+    לכל חלק לפני שאפשר למדוד — גם עם תקרת פיצולים, שחוסמת את מספר החלקים ב-``MAX_CONTENT_B64_CHARS`` אבל לא את
+    ההקצאה שלהם. נמדד ב-27.11.2026, ב-Python 3.13, ב-``tracemalloc``: על ``"QQ\\n"`` שחורג בקצת מהתקרה (מחרוזת של
+    0.24MB) ``split`` עם תקרת פיצולים הגיע לשיא של 4.31MB, ועל 3.5 מיליון עותקים (10.5MB) ``split`` בלי תקרה — 188MB.
+    סריקה שסופרת לפני שהיא מפצלת (``_non_space_chars_exceed``) — אפס בשניהם.
 
-    התקרה, פי 4 מגודל המחרוזת, נבדקת משני הצדדים: הפונקציה מתחתיה, והגרסה בלי תקרת פיצולים מעליה — כך הטסט מראה
-    שהוא מסוגל להיכשל, ואם CPython ישתנה כך שהגרסה ההיא כבר לא יקרה, הוא ייכשל ויאמר שהתקרה איבדה את משמעותה."""
+    התקרה, פעם אחת גודל המחרוזת, נבדקת משני הצדדים: הפונקציה מתחתיה על שני הגדלים, ושתי הגרסאות של ``split`` מעליה
+    — כך הטסט מראה שהוא מסוגל להיכשל, ואם CPython ישתנה כך שהן כבר לא יקרות, הוא ייכשל ויאמר שהתקרה איבדה את
+    משמעותה."""
     import sys
     import tracemalloc
 
-    from webapp.sticky_notes_api import _ContentTooLong, _decode_content_b64
+    from webapp.sticky_notes_api import MAX_CONTENT_B64_CHARS, _ContentTooLong, _decode_content_b64
 
-    padded = "QQ\n" * 3_500_000
-    ceiling = 4 * sys.getsizeof(padded)
+    just_over = "QQ\n" * (MAX_CONTENT_B64_CHARS // 2 + 1)  # שני תווים שאינם רווח בכל חלק — אחד מעל התקרה
+    huge = "QQ\n" * 3_500_000
 
     def peak(fn):
         tracemalloc.start()
@@ -1052,12 +1055,18 @@ def test_whitespace_padding_cannot_multiply_the_memory_of_the_check():
             tracemalloc.stop()
         return top - before
 
-    def decode():
-        with pytest.raises(_ContentTooLong):
-            _decode_content_b64(padded)
+    def decode(padded):
+        def run():
+            with pytest.raises(_ContentTooLong):
+                _decode_content_b64(padded)
+        return run
 
-    assert peak(decode) < ceiling
-    assert peak(lambda: "".join(padded.split())) > ceiling, "האורקל כבר אינו יקר — התקרה איבדה את משמעותה"
+    for padded in (just_over, huge):
+        assert peak(decode(padded)) < sys.getsizeof(padded), len(padded)
+    ceiling = sys.getsizeof(just_over)
+    assert peak(lambda: "".join(just_over.split())) > ceiling, "האורקל כבר אינו יקר — התקרה איבדה את משמעותה"
+    assert peak(lambda: "".join(just_over.split(None, MAX_CONTENT_B64_CHARS))) > ceiling, \
+        "תקרת פיצולים כבר אינה יקרה — התקרה איבדה את משמעותה"
 
 
 # -- התוכן נשמר כמו שהוקלד: יצירה בלוח, batch, ורשימת הלוח --

@@ -688,6 +688,26 @@
    * מגן רק על שם שאינו קיים. זריקה כאן הייתה עוצרת את השמירה בהסתרת הלשונית כולה, גם של פתקים אחרים
    * (``_setupLifecycleGuards``). האזהרה נרשמת פעם אחת, כי זה מצב קבוע של הדפדפן ולא כשל רגעי.
    */
+  /**
+   * **השמירות שלנו שעוד לא אושרו, בצורה שנשמרת עם טיוטה** (``entry.unconfirmed`` — ``{content?, title?}`` של כל שמירה
+   * שיצאה ולא נענתה), עד ``UNCONFIRMED_SENDS_MAX`` האחרונות. ``_writeHeldDraft`` כותב אותן עם הטיוטה, ו-``_restoreHeldDraft``
+   * מחזיר אותן: שמירה שהייתה באוויר כשהעמוד נסגר עוד יכלה לנחות, ואז השרת מחזיק אותה ולא את הטיוטה — והפיוס צריך
+   * לדעת שהיא שלנו. בקריאה מהאחסון זה קלט חיצוני (U3): רשומה שאינה אובייקט, או שדה שאינו מחרוזת, נזרקים — והטיוטה
+   * עצמה נשארת, כי היא הטקסט של המשתמש.
+   */
+  function unconfirmedSnapshots(list){
+    if (!Array.isArray(list)) return [];
+    const out = [];
+    for (const s of list) {
+      if (!s || typeof s !== 'object' || Array.isArray(s)) continue;
+      const snap = {};
+      if (typeof s.content === 'string') snap.content = s.content;
+      if (typeof s.title === 'string') snap.title = canonicalTitleText(s.title);
+      if (Object.keys(snap).length) out.push(snap);
+    }
+    return out.slice(-UNCONFIRMED_SENDS_MAX);
+  }
+
   function draftStorage(){
     try {
       if (typeof localStorage === 'undefined' || !localStorage) return null;
@@ -2001,6 +2021,8 @@
         at: draftClock(),
         base: { content: base.content, title: base.title, updated_at: base.updated_at || null },
         local: { content: local.content, title: titleInput ? String(titleInput.value == null ? '' : titleInput.value) : local.title },
+        // השמירות שעוד באוויר — ראו ``unconfirmedSnapshots``. שדה אופציונלי: טיוטה בלעדיו (שגרסה קודמת כתבה) נקראת כרגיל.
+        unconfirmed: unconfirmedSnapshots(entry.unconfirmed),
       };
       try {
         storage.setItem(entry.draftKey, JSON.stringify(draft));
@@ -2127,7 +2149,12 @@
       // **הטקסט של הטיוטה אולי כבר בשרת** — שמירה שיצאה בפירוק, שהתשובה עליה לא הגיעה למנהל שמת. אז השרת מחזיק
       // בדיוק את מה שבמסך, ואין על מה להחליט: הטיוטה נרשמת כשמירה שלנו שעוד לא אושרה (``_rememberUnconfirmed``),
       // והפיוס מיישר אליה את הבסיס במקום להציג "יש עדכון חדש" על הטקסט של המשתמש עצמו.
-      entry.unconfirmed = [{ content: draft.local.content, title: canonicalTitleText(draft.local.title) }];
+      // **וגם השמירות שהיו באוויר כשהטיוטה נכתבה** (``unconfirmedSnapshots``): שמירה כזו עוד יכלה לנחות אחרי שהעמוד
+      // נסגר, ואז השרת מחזיק אותה ולא את הטיוטה. בלעדיהן הפיוס היה רואה בה שינוי ממקום אחר — "יש עדכון חדש" על
+      // הטקסט של המשתמש עצמו, או, כשהטיוטה שווה לבסיס (המשתמש החזיר את הטקסט בזמן שהשמירה הייתה באוויר), החלה
+      // שלה מעל מה שבמסך. איתן הבסיס מתיישר אליה, ומה שבטיוטה נשמר מעליה.
+      entry.unconfirmed = unconfirmedSnapshots(unconfirmedSnapshots(draft.unconfirmed)
+        .concat([{ content: draft.local.content, title: draft.local.title }]));
       // **הטיוטה עוברת למפתח של הלשונית הזו**, והמפתח שנמצא נמחק — רק אחרי שהכתיבה הצליחה. לקיחה של המפתח עצמו
       // הייתה משתפת אותו עם הלשונית שכתבה אותו, אם היא עדיין פתוחה: הקלדה באחת הייתה דורסת את הטקסט של השנייה,
       // ובחירה באחת הייתה מוחקת את הטיוטה של השנייה. לשונית כזו כותבת את המפתח שלה שוב בעריכה הבאה או בהסתרה,
@@ -7138,13 +7165,37 @@
       }
 
       /**
+       * **האם השמירה שבאוויר נושאת את הטקסט שבמסך, ותמשיך אחרי סגירה** — ``keepalive``, וכל שדה עריכה שהשרת לא אישר
+       * (``_dirtyFields``) נמצא בה באותו ערך. שמירה של מיקום או גודל בלבד, או של טקסט שהשתנה מאז, אינה נושאת אותו:
+       * למשל הזזה של פתק שהשמירה הקודמת שלו נדחתה — הטקסט רק במסך, והשמירה שבאוויר היא של המיקום.
+       */
+      _inFlightCarriesLocalText(id){
+        const key = String(id);
+        const record = this._inFlight && this._inFlight.get(key);
+        if (!record || !record.flight || record.flight.keepalive !== true) return false;
+        const entry = this.notes.get(key);
+        if (!entry) return false;
+        const sent = (record.data && typeof record.data === 'object') ? record.data : {};
+        const has = (field) => Object.prototype.hasOwnProperty.call(sent, field);
+        const local = this._localFields(entry);
+        const dirty = this._dirtyFields(entry);
+        if (dirty.content && !(has('content')
+            && asTextareaValue(String(sent.content == null ? '' : sent.content)) === asTextareaValue(local.content))) return false;
+        if (dirty.title && !(has('title') && canonicalTitleText(String(sent.title == null ? '' : sent.title)) === local.title)) return false;
+        return true;
+      }
+
+      /**
        * **הטקסט שלא ישרוד את סגירת העמוד נשמר כטיוטה בדפדפן** — כשהלשונית מוסתרת או נסגרת
        * (``_setupLifecycleGuards``), אחרי שמה שבתור כבר נשלח. זה החצי של הטאבלט: שם סגירת לשונית אינה מציגה את
        * שאלת ``beforeunload`` (``_hasHeldLocalEdits``), וזו ההגנה היחידה.
        *
-       * **מה נכתב:** כל פתק שבמסך שלו טקסט שהשרת לא אישר (``_dirtyFields``), חוץ מפתק שהטקסט שלו כבר בדרך
-       * בבקשת ``keepalive`` — בלי מטען בתור, ושמירה באוויר עם ``keepalive``. כלומר: שמירה שבאוויר בבקשה רגילה
-       * (גוף שלא נכנס במכסה), מטען שמחכה מאחורי שמירה שבאוויר, ושמירה שנכשלה או נדחתה. פתק מוחזק אינו כאן:
+       * **מה נכתב:** כל פתק שבמסך שלו טקסט שהשרת לא אישר (``_dirtyFields``), חוץ מפתק שהטקסט שלו כבר בדרך —
+       * בלי מטען בתור, ושמירה באוויר עם ``keepalive`` שנושאת אותו (``_inFlightCarriesLocalText``). כלומר: שמירה
+       * שבאוויר בבקשה רגילה (גוף שלא נכנס במכסה), שמירה באוויר של משהו אחר (מיקום, טקסט קודם), ושמירה שנכשלה או
+       * נדחתה. **ופתק שיש לו מטען בתור נכתב תמיד, גם כשמה שבמסך שווה לבסיס:** השמירה שבאוויר עוד עשויה לנחות,
+       * ואז השרת יחזיק אותה ולא את מה שבמסך — למשל כשהמשתמש החזיר את הטקסט למה שהיה בזמן שהשמירה הייתה באוויר. זה
+       * עובד בשחזור כי הטיוטה זוכרת את השמירות שבאוויר (``unconfirmedSnapshots``). פתק מוחזק אינו כאן:
        * ``_syncHeldDraft`` כבר כתב את הטיוטה שלו.
        *
        * **הטיוטה אולי כבר מיותרת בטעינה הבאה** — אם השמירה נחתה לפני שהעמוד נסגר. זה מטופל במקום שכבר מטפל
@@ -7157,10 +7208,11 @@
           if (!entry || !entry.el || entry.serverGone || !isSavedNoteId(id)) continue;
           if (entry.remote || entry.draftAwaitingServer) continue;
           const key = String(id);
-          const carried = !this._pending.has(key) && this._inFlight.has(key) && !this._inFlightWithoutKeepalive(key);
-          if (carried) continue;
-          const dirty = this._dirtyFields(entry);
-          if (!dirty.content && !dirty.title) continue;
+          if (!this._pending.has(key)) {
+            const dirty = this._dirtyFields(entry);
+            if (!dirty.content && !dirty.title) continue;
+            if (this._inFlightCarriesLocalText(key)) continue;
+          }
           if (this._writeHeldDraft(entry)) entry.closeDraft = true;
         }
       }
