@@ -5,8 +5,8 @@ on:
     # לפי השדה name: של כל workflow, בדיוק כמו שהוא כתוב שם. ci.yml מריץ את הטסטים במקביל
     # (xdist) ו-deploy.yml מריץ אותם ברצף, אחד אחרי השני. כשל שתלוי בסדר הטסטים, כמו טסט
     # שמשאיר מצב שמשפיע על הטסט שאחריו, מופיע רק בריצה ברצף, ולכן צריך להאזין לשניהם.
-    # לכל workflow יש אישו משלו (השם שלו בכותרת). ריצה מוצלחת סוגרת רק אישו של אותו workflow, ורק
-    # כשהקומיט שלה מכיל את הקומיט שנכשל (הבדיקה בג'וב הסגירה, למטה).
+    # לכל workflow ולכל קומיט שנכשל יש אישו משלו (שניהם בכותרת). ריצה מוצלחת סוגרת רק אישיוז של אותו
+    # workflow: את כל אלה שהקומיט שלה מכיל את הקומיט שנכשל בהם (הבדיקה בג'וב הסגירה, למטה).
     workflows: ["CI/CD Pipeline", "🚀 Code Keeper Bot CI/CD"]
     types: [completed]
   workflow_dispatch:
@@ -244,42 +244,90 @@ jobs:
             // filter to our workflow's failure issues (exclude PRs)
             const candidates = openIssues
               .filter(i => !i.pull_request)
-              .filter(i => i.title && i.title.startsWith(titlePrefix));
+              .filter(i => typeof i.title === 'string' && i.title.startsWith(titlePrefix));
             if (candidates.length === 0) {
               core.info('No open post-merge failure issues to close for this workflow');
               return;
             }
-            // close the most recent
-            candidates.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-            const issue = candidates[0];
 
             // סוגרים רק כשהקומיט שהצליח מכיל את הקומיט שנכשל (אותו קומיט או צאצא שלו), לפי ההיסטוריה
             // ולא לפי סדר הגעת האירועים. ל-deploy.yml אין concurrency, אז ריצות של קומיטים סמוכים רצות
             // במקביל, וריצה שנכשלת מסתיימת לפני ריצה מוצלחת כי היא עוצרת בכשל הראשון. בלי הבדיקה, הצלחה
             // של קומיט ישן שמגיעה אחרי הכשל הייתה סוגרת את האישו של קומיט חדש יותר שעדיין שבור.
             const shaPattern = /^[0-9a-f]{40}$/;
+            if (typeof run.head_sha !== 'string' || !shaPattern.test(run.head_sha)) {
+              core.info(`The run has no valid head_sha (${run.head_sha}); cannot verify which failing commits it ` +
+                `contains, leaving ${candidates.length} issue(s) open.`);
+              return;
+            }
             const marker = new RegExp(`<!-- ${process.env.POST_MERGE_SHA_MARKER}: ([0-9a-f]{40}) -->`);
-            const found = typeof issue.body === 'string' ? issue.body.match(marker) : null;
-            if (!found || typeof run.head_sha !== 'string' || !shaPattern.test(run.head_sha)) {
-              core.info(`Issue #${issue.number}: no failing-commit marker (or no head_sha on the run); ` +
-                `cannot verify that ${run.head_sha} contains it, leaving the issue open.`);
-              return;
+
+            // ההחלטה לאישו אחד, בלי לסגור כלום: { close: true } כשהקומיט שהצליח מכיל את הקומיט שנכשל,
+            // ואחרת { close: false } עם הסיבה. כל אישו נבדק לבד: לכל קומיט שנכשל יש אישו משלו (ה-SHA בכותרת),
+            // ושני כשלים ברצף על main פותחים שני אישיוז, שאותה ריצה מוצלחת יכולה לכסות את שניהם.
+            async function decide(issue) {
+              const found = typeof issue.body === 'string' ? issue.body.match(marker) : null;
+              if (!found) {
+                return { close: false, reason: 'no failing-commit marker in the body' };
+              }
+              const failedSha = found[1];
+              let comparison;
+              try {
+                ({ data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
+                  owner, repo, basehead: `${failedSha}...${run.head_sha}`
+                }));
+              } catch (err) {
+                // רק 404 נתפס כאן ("Resource not found" בתיעוד של Compare two commits): GitHub לא מוצא את מה
+                // שהתבקש להשוות, למשל קומיט שנעלם אחרי force push. אין מה להשוות, והאישו נשאר פתוח עם אזהרה.
+                // כל שגיאה אחרת (5xx, הגבלת קצב, הרשאה, רשת, באג בסקריפט) עולה הלאה, והלולאה למטה מכשילה בגללה
+                // את הצעד. err.status הוא קוד ה-HTTP של RequestError ב-@octokit/request-error, שדרכו
+                // github-script@v7 קורא ל-API.
+                if (err && err.status === 404) {
+                  return { close: false, failedSha, warn: true,
+                    reason: `GitHub cannot compare ${failedSha}...${run.head_sha} (404: ${err.message})` };
+                }
+                throw err;
+              }
+              // merge base של שני קומיטים הוא הראשון בדיוק כשהוא בהיסטוריה של השני (git merge-base).
+              const mergeBaseCommit = comparison && typeof comparison === 'object'
+                ? comparison.merge_base_commit : undefined;
+              const mergeBase = mergeBaseCommit && typeof mergeBaseCommit === 'object'
+                ? mergeBaseCommit.sha : undefined;
+              if (mergeBase !== failedSha) {
+                return { close: false, failedSha,
+                  reason: `${run.head_sha} does not contain the failing commit ${failedSha} ` +
+                    `(status: ${comparison && comparison.status}, merge base: ${mergeBase})` };
+              }
+              return { close: true, failedSha };
             }
-            const failedSha = found[1];
-            // merge base של שני קומיטים הוא הראשון בדיוק כשהוא בהיסטוריה של השני (git merge-base).
-            // אין כאן catch בכוונה: קריאה שנכשלת מפילה את הצעד, והאישו נשאר פתוח.
-            const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
-              owner, repo, basehead: `${failedSha}...${run.head_sha}`
-            });
-            const mergeBase = comparison && comparison.merge_base_commit ? comparison.merge_base_commit.sha : undefined;
-            if (mergeBase !== failedSha) {
-              core.info(`Issue #${issue.number}: ${run.head_sha} does not contain the failing commit ${failedSha} ` +
-                `(status: ${comparison && comparison.status}, merge base: ${mergeBase}); leaving the issue open.`);
-              return;
+
+            // עוברים על כל האישיוז, ולא רק על האחרון: אישו שנשאר פתוח, או שנכשל בבדיקה, לא עוצר את הבדיקה של
+            // האחרים. שגיאה לא צפויה נרשמת ונאספת, והצעד נכשל בסוף, אחרי שכל השאר נבדקו (ונסגרו אם צריך).
+            const failures = [];
+            for (const issue of candidates) {
+              try {
+                const decision = await decide(issue);
+                if (!decision.close) {
+                  const line = `Issue #${issue.number}: ${decision.reason}; leaving the issue open.`;
+                  if (decision.warn) core.warning(line); else core.info(line);
+                  continue;
+                }
+                const body = `✅ ${run.name} עבר בהצלחה על main ב-${run.head_sha.slice(0, 7)}, ` +
+                  `שמכיל את הקומיט שנכשל כאן (${decision.failedSha.slice(0, 7)}). סוגר את האישו.\n` +
+                  `[קישור להרצה](${run.html_url})`;
+                await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body });
+                await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+                core.info(`Closed failure issue #${issue.number} (failing commit ${decision.failedSha})`);
+              } catch (err) {
+                core.error(`Issue #${issue.number}: could not check or close it, leaving it open: ` +
+                  `${(err && err.stack) || err}`);
+                failures.push(`#${issue.number} (${(err && err.message) || err})`);
+              }
             }
-            await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: '✅ הריצה האחרונה על main עברה בהצלחה. סוגר את התקלה האחרונה.' });
-            await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
-            core.info(`Closed latest failure issue #${issue.number}`);
+            if (failures.length > 0) {
+              throw new Error(`Could not check or close ${failures.length} post-merge failure issue(s): ` +
+                failures.join('; '));
+            }
 
   test-issue:
     name: Manual test – open/close issue and mention
