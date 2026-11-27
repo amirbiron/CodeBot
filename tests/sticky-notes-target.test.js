@@ -6908,6 +6908,20 @@ check('שחזור טיוטה: הטיוטה נשארת עד שהשמירה של �
   } finally { cleanupMgr(mgr); }
 });
 
+check('סגירת לשונית: שמירות שטיוטה ששוחזרה זכרה, ונשארו אחרי בחירה בהתראה, אינן כותבות טיוטה מיותרת', () => {
+  // המצב אחרי "עדכן" בהתראה של טיוטה ששוחזרה: במסך הגרסה שבשרת, אין טיוטה, ו-``entry.unconfirmed`` עוד מחזיק את
+  // מה שהשחזור רשם. בלי תנאי של שמירה שנכשלה, כל סגירה כתבה טיוטה מיותרת — והיא הסתירה בטעינה הבאה טיוטה של לשונית
+  // אחרת (נמדד בדפדפן, ``test_drafts_written_in_the_same_millisecond_are_ordered_reliably``).
+  const { mgr, storage } = keepaliveSandbox('ka19-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס + מהסוכן', 'T1');
+  try {
+    n.entry.unconfirmed = [{ content: 'בסיס + שלי' }];
+    mgr._flushPendingKeepalive();
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 0, 'אין מה לשמור, ושום שמירה לא נכשלה — אין טיוטה');
+  } finally { cleanupMgr(mgr); }
+});
+
 check('שחזור טיוטה: טיוטה שהשרת כבר מחזיק את הטקסט שלה יוצאת, ושמירות ישנות שבה אינן מחזירות אותה בהסתרה', () => {
   // הטקסט של הטיוטה כבר בשרת (שמירה שנחתה אחרי שהעמוד נסגר). השמירות הישנות שהטיוטה זכרה כבר אינן מצב אפשרי של
   // השרת — הוא נצפה עכשיו מחזיק את מה שבמסך. בלעדי הניקוי, כל הסתרה הייתה כותבת טיוטה חדשה בגללן.
@@ -6919,9 +6933,11 @@ check('שחזור טיוטה: טיוטה שהשרת כבר מחזיק את הט�
     mgr._restoreHeldDraft(n.entry, { id: DRAFT_ID, content: 'בסיס + שלי', title: '', updated_at: 'T1' });
     eq(n.ta.value, 'בסיס + שלי', 'בקרת שפיות: הטקסט במסך');
     eq(draftsOf(storage).length, 0, 'אין מה לשמור — הטיוטה יצאה');
+    // שמירה אחרת של הפתק נדחתה אחר כך (למשל הזזה) — הפתק מסומן כשמירה שנכשלה, ומה שבמסך עדיין זהה לשרת.
+    mgr._markSaveFailed(DRAFT_ID);
     mgr._flushPendingKeepalive();
     mgr._persistDraftsThatWontSurviveClose();
-    eq(draftsOf(storage).length, 0, 'וגם ההסתרה לא כותבת אותה מחדש');
+    eq(draftsOf(storage).length, 0, 'וגם ההסתרה לא כותבת אותה מחדש בגלל השמירה הישנה שהטיוטה זכרה');
   } finally { cleanupMgr(mgr); }
 });
 
