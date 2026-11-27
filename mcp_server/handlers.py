@@ -3066,10 +3066,12 @@ def _readable_note(
     ``for_note_view`` (חובה, כמו ``with_version``) עובר ל-``backend.get_note``: ``True`` רק
     בקריאה של ``codekeeper_show_note``, שהדף שלה צובע לפי ``color`` ב-``hex``.
 
-    **השער קורא את שדות הריפו משני המקומות — מחוץ ל-``note`` ובתוכו.** בפתק ריפו תקין הם חוזרים
-    רק בחוץ, ליד ``target`` (``backend._as_note`` עם ``target_inside=False``); בפתק שהיעד שלו
-    אינו חוקי (``target: "unknown"``) אין בחוץ שדות, והם חוזרים בתוך ``note``. שער שקורא רק
-    מקום אחד היה נפתח על אחד המקרים.
+    **השער קורא את שדות הריפו משני המקומות — מחוץ ל-``note`` ובתוכו** (:func:`_note_location`). בפתק
+    ריפו תקין הוא נסגר כבר לפי ``target: "repo"``, והשדות יושבים בחוץ, ליד ``target`` (``backend._as_note``
+    עם ``target_inside=False``). השדות מכריעים רק בפתק שהיעד שלו אינו חוקי (``target: "unknown"`` — חצי
+    יעד ריפו), ושם הם בתוך ``note``, כי בחוץ אין שדות. ``_note_location`` היא ההגדרה האחת של "איפה הפתק
+    יושב", שגם בדיקת היתמות ב-:func:`_note_with_target` קוראת — ושם השדות שבחוץ הם מה שנשלח למניפסט.
+    שער שהיה קורא רק את מה שמחוץ ל-``note`` היה נפתח על חצי יעד ריפו.
     """
     current = backend.get_note(
         user_id, note_id=note_id, with_version=with_version, for_note_view=for_note_view)

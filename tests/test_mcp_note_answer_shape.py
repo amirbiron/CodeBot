@@ -420,6 +420,24 @@ async def test_an_archived_note_and_a_pinned_note_carry_their_stamps(server):
     assert read_pinned["note"]["files_page_pinned_at"] == STAMP.isoformat()
 
 
+async def test_a_repo_note_is_orphaned_only_when_its_path_left_the_mirror(server, store):
+    """היתמות נשאלת על שם הריפו והנתיב שמחוץ ל-``note`` — שם הם יושבים בתשובה של ``get_note``. בדיקה
+    שקוראת רק מתוך ``note`` שולחת למניפסט שם ונתיב ריקים, לא מוצאת כלום, ומסמנת **כל** פתק ריפו כמיותם —
+    גם כשהקובץ שלו קיים. לכן: נתיב שבמראה — בלי ``orphaned``; אותו פתק אחרי שהנתיב יצא מהמראה —
+    ``orphaned: true``, בשני הכלים."""
+    note_id = (await server.ok("codekeeper_create_repo_note", repo_name="repo", repo_path="a.py",
+                               content="על הקובץ"))["note"]["id"]
+
+    for tool in ("codekeeper_get_note", "codekeeper_show_note"):
+        live = await server.ok(tool, note_id=note_id)
+        assert live["target"] == "repo" and "orphaned" not in live, (tool, live)
+
+    store.raw["repo_files"].delete_many({"repo_name": "repo", "path": "a.py"})
+    for tool in ("codekeeper_get_note", "codekeeper_show_note"):
+        gone = await server.ok(tool, note_id=note_id)
+        assert gone["orphaned"] is True and gone["note"]["content"] == "על הקובץ", (tool, gone)
+
+
 async def test_a_half_repo_note_is_still_gated_and_keeps_its_fields_inside(server):
     """פתק שנושא רק חצי יעד ריפו (``target: "unknown"``): אין שדות יעד מחוץ ל-``note``, ולכן הם חוזרים
     בתוכו — ושער פתקי הריפו נסגר עליו בפני מי שאינו אדמין."""

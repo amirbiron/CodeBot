@@ -560,12 +560,13 @@ def _board_note(**over):
 
 
 def _repo_note(**over):
+    """פתק ריפו בצורה ש-``ProductionBackend.get_note`` מחזיר: **היעד רק מחוץ ל-``note``** (``target``,
+    ``repo_name``, ``repo_path``), ובלי שדות שאין להם ערך. דמה שמחזיקה את שדות הריפו גם בתוך ``note`` —
+    הצורה של לפני נובמבר 2026 — הייתה מעבירה בדיקת יתמות שקוראת רק מתוך ``note``, שבייצור מקבלת שם ונתיב
+    ריקים ומסמנת כל פתק ריפו כמיותם (``handlers._note_location``)."""
     out = {
         "ok": True,
-        "note": {
-            "id": _OID, "content": "secret", "title": None, "board_id": None,
-            "repo_name": "CodeBot", "repo_path": "a.py", "content_sha256": "sha-of-the-repo-body",
-        },
+        "note": {"id": _OID, "content": "secret", "content_sha256": "sha-of-the-repo-body"},
         "version": 1,
         "target": "repo",
         "repo_name": "CodeBot",

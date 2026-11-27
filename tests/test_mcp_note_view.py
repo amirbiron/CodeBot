@@ -442,10 +442,12 @@ def test_a_repo_note_is_for_the_admin_only_like_get_note():
         backend = _NoteBackend(answer=_repo_note_answer())
         assert handlers.show_note(backend, _USER, note_id=_NOTE_ID, is_admin=not_admin, can_write=True) == {
             "ok": False, "error": "not_found"}, not_admin
-    admin = handlers.show_note(_NoteBackend(answer=_repo_note_answer(), orphaned=True), _USER,
-                               note_id=_NOTE_ID, is_admin=True, can_write=True)
+    admin_backend = _NoteBackend(answer=_repo_note_answer(), orphaned=True)
+    admin = handlers.show_note(admin_backend, _USER, note_id=_NOTE_ID, is_admin=True, can_write=True)
     assert admin["ok"] is True and admin["orphaned"] is True
     assert (admin["target"], admin["repo_name"], admin["repo_path"]) == ("repo", "CodeBot", "a.py")
+    # היתמות נשאלת על הזוג שמחוץ ל-``note`` — שם הוא יושב בתשובה של ``get_note``, ולא בתוכו.
+    assert ("repo_path_orphaned", "CodeBot", "a.py") in admin_backend.calls, admin_backend.calls
 
 
 def test_show_note_is_get_note_without_threads_and_version(monkeypatch):
