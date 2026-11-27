@@ -3186,7 +3186,8 @@
      *    יורד מהמשטח (``docs/dev/sticky_notes_extending_ui.rst``, "flush לפני כל פעולה הרסנית").
      * 2. **שם** — לפתק בלי שם נפתח חלון השם, עם הצעה. ביטול עוצר את ההעברה. גם כשנראה
      *    שיש שם, השרת הוא שמכריע: אם הוא עונה ``title_required`` (שם שלא נשמר) — החלון נפתח.
-     * 3. **הבקשה** — ורק כשהשרת ענה ``ok`` הפתק יורד מהמשטח. כל סירוב נאמר למשתמש בשמו.
+     * 3. **הבקשה** — ורק כשהשרת ענה ``ok`` הפתק יורד מהמשטח, ורק בלי עבודה שהשרת לא קיבל: עריכה שנעשתה בזמן
+     *    שהבקשה ממתינה נשמרת קודם (``_leaveSurfaceAfterServer``). כל סירוב נאמר למשתמש בשמו.
      */
     async _archiveNote(el){
       const id = el && el.dataset ? el.dataset.noteId : '';
@@ -3213,7 +3214,7 @@
           if (title === null) return;
           answer = await this._postArchive(id, title);
         }
-        this._afterArchiveAnswer(el, answer);
+        await this._afterArchiveAnswer(el, answer);
       } finally {
         entry.archiving = false;
       }
@@ -3254,10 +3255,40 @@
       if (this.overlayMode && id) this._overlayNoteGone(id);
     }
 
+    /**
+     * **השרת אישר שהפתק עזב את המשטח** (העברה לארכיון, הסרה מעמוד הקבצים) — והוא יורד מהמסך רק בלי עבודה שהשרת
+     * לא קיבל. הבדיקה שלפני הבקשה (``_settleBeforeLeaving``) אינה מספיקה: בזמן שהבקשה ממתינה הפתק עדיין במסך, ואפשר
+     * לערוך אותו. עריכה כזו נשלחת עכשיו — השרת מקבל שמירה של פתק שבארכיון או שאינו נעוץ, כי ``update_note`` מוצא
+     * פתק לפי המזהה והמשתמש בלבד — והפתק יורד רק אחרי שנשמרה. כשהבדיקה מוצאת שאין עבודה כזו, ההסרה צמודה אליה,
+     * בלי ``await`` ביניהן. נכשלה, או שעדכון מחכה בפתק להחלטה — הפתק נשאר במסך, עם העבודה, והדגימה מורידה אותו
+     * כשהיא נגמרת (``_applyFetchedNote`` ← ``_removeIfGone``). עד נובמבר 2026 הוא ירד מיד, ``_removeNoteLocally``
+     * מחק את התור ואת הטיוטה שלו, והעריכה אבדה. מחזיר ``'ok'`` כשהפתק ירד, או את הסיבה שנשאר.
+     */
+    async _leaveSurfaceAfterServer(el){
+      const id = el && el.dataset ? String(el.dataset.noteId || '') : '';
+      let why = 'ok';
+      if (id && (this._isSaveHeld(id) || this._hasUnsavedLocalEdits(id))) why = await this._settleBeforeLeaving(el);
+      if (why === 'ok') this._noteLeftSurface(el);
+      return why;
+    }
+
+    /** הפעולה בשרת הצליחה, אבל הפתק נשאר במסך (``_leaveSurfaceAfterServer``) — ההודעה אומרת למה, ומה יקרה. */
+    _explainLeftButKept(why, done){
+      const messages = {
+        held: `${done}, אבל יש בו עדכון שמחכה להחלטה שלך — בחרו "עדכן" או "התעלם", והוא יירד מכאן.`,
+        unsaved: `${done}, אבל השינויים האחרונים בו לא נשמרו — הוא נשאר כאן עד שיישמרו.`,
+      };
+      this._notify(messages[why] || messages.unsaved, 'warning');
+    }
+
     /** מה המשתמש רואה אחרי תשובת ההעברה — הצלחה, או הסיבה שלא. */
-    _afterArchiveAnswer(el, answer){
+    async _afterArchiveAnswer(el, answer){
       if (answer.ok) {
-        this._noteLeftSurface(el);
+        const why = await this._leaveSurfaceAfterServer(el);
+        if (why !== 'ok') {
+          this._explainLeftButKept(why, 'הפתק הועבר לארכיון');
+          return;
+        }
         const link = { href: ARCHIVE_PAGE_URL, label: 'לארכיון' };
         if (answer.threads_resolved === null && answer.already_archived !== true) {
           this._notify('הפתק הועבר לארכיון, אבל השרשורים הפתוחים בו לא נסגרו.', 'warning', link);
@@ -3306,7 +3337,8 @@
      * הנמוך מבין זה לבין התקרה הכללית, ובלי מדידה — מול התקרה בלבד (``filesPageDeviceLimit``).
      *
      * **הסרה מעל עמוד הקבצים מורידה את הפתק מהעמוד**, ולכן עריכה שבתור נשלחת קודם (``flush``,
-     * כמו לפני כל פעולה שמורידה פתק מהמסך). בכל מקרה המסך משתנה רק אחרי שהשרת ענה ``ok``.
+     * כמו לפני כל פעולה שמורידה פתק מהמסך). בכל מקרה המסך משתנה רק אחרי שהשרת ענה ``ok`` — ובהסרה, רק בלי עבודה
+     * שהשרת לא קיבל, גם כזו שנעשתה בזמן שהבקשה ממתינה (``_leaveSurfaceAfterServer``).
      * לחיצה כפולה בזמן שהבקשה באוויר אינה שולחת שנייה (``entry.filesPagePinning``).
      */
     async _toggleFilesPagePin(el){
@@ -3335,21 +3367,25 @@
           init = { method: 'DELETE' };
         }
         const answer = await this._noteActionRequest(url, init);
-        this._afterFilesPagePinAnswer(el, pin, answer);
+        await this._afterFilesPagePinAnswer(el, pin, answer);
       } finally {
         entry.filesPagePinning = false;
       }
     }
 
     /** מה המשתמש רואה אחרי תשובת הנעיצה או ההסרה — הצלחה, או הסיבה שלא. */
-    _afterFilesPagePinAnswer(el, pin, answer){
+    async _afterFilesPagePinAnswer(el, pin, answer){
       const entry = this._getEntry(el);
       if (answer.ok) {
         const stamp = (typeof answer[FILES_PAGE_PIN_FIELD] === 'string' && answer[FILES_PAGE_PIN_FIELD])
           ? answer[FILES_PAGE_PIN_FIELD] : null;
         if (entry && entry.data) entry.data[FILES_PAGE_PIN_FIELD] = stamp;
         if (!pin && this.filesPageMode) {
-          this._noteLeftSurface(el);
+          const why = await this._leaveSurfaceAfterServer(el);
+          if (why !== 'ok') {
+            this._explainLeftButKept(why, 'הפתק הוסר מראש עמוד הקבצים');
+            return;
+          }
           this._notify('הפתק הוסר מראש עמוד הקבצים. הוא נשאר בלוח שלו.', 'success');
           return;
         }
@@ -6685,7 +6721,7 @@
        * באוויר יחד. בשני המקרים האסימון בשרת זז בגלל הכתיבה **שלנו**, וה-409 שאחריה אינו עדכון ממקום
        * אחר. בלי הזיכרון הזה היינו מציגים למשתמש "יש עדכון חדש" על הטקסט שהוא עצמו כתב.
        */
-      _rememberUnconfirmed(id, payload){
+      _rememberUnconfirmed(id, payload, sentToken){
         const entry = this.notes.get(String(id));
         if (!entry || !payload) return null;
         const hasContent = Object.prototype.hasOwnProperty.call(payload, 'content');
@@ -6694,6 +6730,9 @@
         const snap = {};
         if (hasContent) snap.content = String(payload.content == null ? '' : payload.content);
         if (hasTitle) snap.title = canonicalTitleText(String(payload.title == null ? '' : payload.title));
+        // **האסימון שהשמירה נשאה** (``prev_updated_at`` מ-``_withToken``) — ממנו ``_onSaveConfirmed`` יודע אם האישור
+        // שלה הזיז את האסימון בשרת. נשאר בזיכרון בלבד: ``unconfirmedSnapshots`` מעתיק לטיוטה רק גוף ושם.
+        snap.sentToken = sentToken == null ? null : String(sentToken);
         if (!entry.unconfirmed) entry.unconfirmed = [];
         entry.unconfirmed.push(snap);
         if (entry.unconfirmed.length > UNCONFIRMED_SENDS_MAX) entry.unconfirmed.shift();
@@ -6701,8 +6740,10 @@
       }
 
       /**
-       * שמירה שנגמרה — יוצאת מהזיכרון. ``superseded`` (שמירה שאושרה): גם כל מה שנשלח **לפניה** יוצא, כי
-       * ברגע האישור השרת כבר החזיק גוף חדש יותר משלנו, וכתיבה ישנה שלנו כבר אינה מה שבשרת.
+       * שמירה שנגמרה — יוצאת מהזיכרון. ``superseded`` (שמירה שאושרה **והזיזה את האסימון** — ``_onSaveConfirmed``): גם
+       * כל מה שנשלח **לפניה** יוצא, כי כל שמירה כזו נשאה אסימון ישן מזה שבשרת עכשיו, והשרת ידחה אותה ב-409 אם תגיע.
+       * אישור שלא הזיז את האסימון (השרת לא כתב כלום — ``drop_unchanged_edits`` ב-``update_note``) אינו חוסם אותן:
+       * הן נושאות את אותו אסימון, ועוד יכולות לנחות.
        */
       _forgetUnconfirmed(id, snap, superseded){
         const entry = this.notes.get(String(id));
@@ -6721,7 +6762,12 @@
        * עדכון ממקום אחר.
        */
       _onSaveConfirmed(id, payload, token, snap){
-        this._forgetUnconfirmed(id, snap, true);
+        // **השמירות שנשלחו לפניה יוצאות רק כשהאסימון זז** — האסימון שבתשובה שונה מזה שהשמירה נשאה. השרת לא מזיז
+        // אותו על שמירה שלא משנה כלום, ואז שמירה קודמת של טקסט אחר, שנשלחה עם אותו אסימון (למשל כזו שנכשלה ברשת
+        // אחרי שהשרת קיבל אותה), עוד יכולה לנחות. עד נובמבר 2026 כל אישור מחק אותה מהזיכרון, וכשהיא נחתה הפיוס ראה
+        // בה עדכון ממקום אחר: היא הוחלה על המסך בלי שאלה, ומה שהמשתמש כתב אחריה אבד. בלי אסימון בתשובה — אין ממה
+        // לדעת שהוא זז, והן נשארות.
+        this._forgetUnconfirmed(id, snap, !!token && !!snap && String(token) !== snap.sentToken);
         const entry = this.notes.get(String(id));
         if (!entry) return;
         // השרת נצפה עכשיו — קריאה שיצאה לפני השמירה מתארת אותו לפניה (``_nextReadSeq``).
@@ -6747,8 +6793,8 @@
         // תנסה לכתוב אותו שוב.
         //
         // **ושחזור שממתין לשמירה שהטיוטה זכרה** (``entry.draftSettling``, ``_afterDraftRestored``) — הטיוטה נשארת כל עוד
-        // שמירה כזו, ששונה ממה שבמסך, עוד זכורה. שמירה שלא שינתה טקסט (מיקום, גודל) אינה מסיימת את ההמתנה; שמירה של
-        // טקסט כן — האישור שלה מוחק מהזיכרון את כל מה שנשלח לפניה (``_forgetUnconfirmed``).
+        // שמירה כזו, ששונה ממה שבמסך, עוד זכורה. שמירה שלא שינתה טקסט (מיקום, גודל) אינה מסיימת את ההמתנה; שמירה
+        // שהזיזה את האסימון כן — האישור שלה מוחק מהזיכרון את כל מה שנשלח לפניה (``_forgetUnconfirmed``).
         if (entry.closeDraft && !entry.remote && !entry.draftAwaitingServer) {
           const dirty = this._dirtyFields(entry);
           if (!(dirty.content || dirty.title)) {
@@ -8452,7 +8498,7 @@
           return false;
         }
         // נזכר לפני השליחה: אם התשובה תלך לאיבוד, הגוף שבשרת יזוהה כשלנו (``_rememberUnconfirmed``).
-        const snap = this._rememberUnconfirmed(id, original);
+        const snap = this._rememberUnconfirmed(id, original, withToken.prev_updated_at);
         try {
           const { resp, json } = await send(withContentB64(withToken));
           // 409 נושא שני מובנים שונים לגמרי, ורק ``error`` מבדיל ביניהם. שם תפוס לא ייפתר לעולם
@@ -8535,15 +8581,17 @@
       const snapshots = entries.map(([id, fragment]) => {
         const payload = this._clonePayload(fragment) || {};
         delete payload.prev_updated_at;
+        const withToken = this._withToken(id, payload);
         return {
           id: String(id),
           seq: (this._pendingSeq.get(String(id)) || 0),
           payload,
-          // נזכר לפני השליחה — ראו ``_rememberUnconfirmed``.
-          sent: this._rememberUnconfirmed(id, payload),
+          withToken,
+          // נזכר לפני השליחה, עם האסימון שהיא נושאת — ראו ``_rememberUnconfirmed``.
+          sent: this._rememberUnconfirmed(id, payload, withToken && withToken.prev_updated_at),
         };
       });
-      const batchPayload = snapshots.map(s => Object.assign({ id: s.id }, withContentB64(this._withToken(s.id, s.payload))));
+      const batchPayload = snapshots.map(s => Object.assign({ id: s.id }, withContentB64(s.withToken)));
       const url = `/api/sticky-notes/batch`;
       // הבקשה המרוכזת **נרשמת כשמירה באוויר לכל פתק שבה**, בדיוק כמו ``_sendUpdate`` — אחרת ``_flushFor``
       // (יציאה מעריכה, סימון משימה, העברה לארכיון) היה שולח את אותו פתק שוב במקביל לה.
@@ -8823,13 +8871,16 @@
       try { el.remove(); } catch(_) {}
       // **וגם הטיוטה של הרשומה הזו** (``entry.draftKey``, למשל טיוטת סגירה). אף טעינה לא מגיעה לטיוטה של פתק שנמחק
       // — היא נמצאת רק לפי מזהה של פתק שמוצג (``_findHeldDraft``) — ולכן היא הייתה נשארת באחסון לתמיד, ותופסת מקום
-      // שהטיוטות של פתקים אחרים צריכות. פתק שהמשתמש עדיין עובד עליו לא מגיע לכאן (ראו למטה) — חוץ ממחיקה, שבה הוא
-      // בחר לוותר על הטקסט — וטיוטות של לשוניות אחרות נשארות שלהן.
+      // שהטיוטות של פתקים אחרים צריכות. פתק שעבר לארכיון או הוסר מעמוד הקבצים **כן** מוצג במקום אחר, ושם הטיוטה
+      // הייתה משוחזרת — אבל הוא מגיע לכאן רק בלי עבודה שהשרת לא קיבל (``_leaveSurfaceAfterServer``), ולכן אין בה כלום
+      // שאין בשרת. פתק שהמשתמש עדיין עובד עליו לא מגיע לכאן (ראו למטה) — חוץ ממחיקה, שבה הוא בחר לוותר על הטקסט —
+      // וטיוטות של לשוניות אחרות נשארות שלהן.
       if (removed) this._removeHeldDraft(removed);
       this.notes.delete(id);
       // **מה שנשאר בתור לפתק יוצא איתו.** המסלולים שמורידים פתק שהמשתמש עדיין עובד עליו עוצרים קודם
-      // (``_settleBeforeLeaving``), ולכן מה שנשאר כאן שייך לפתק שהשרת כבר אישר שאינו כאן — נמחק, עבר
-      // לארכיון, או הוסר מעמוד הקבצים. מטען שהיה נשאר בתור היה נשלח בלי אסימון (``_withToken``).
+      // (``_settleBeforeLeaving``, ואחרי הבקשה לשרת ``_leaveSurfaceAfterServer``), ולכן מה שנשאר כאן שייך לפתק
+      // שהשרת כבר אישר שאינו כאן — נמחק, עבר לארכיון, או הוסר מעמוד הקבצים. מטען שהיה נשאר בתור היה נשלח בלי
+      // אסימון (``_withToken``).
       this._pending.delete(String(id));
       this._pendingSeq.delete(String(id));
       // אורך המשטח נגזר מהפתקים שעליו. בלי הקריאה הזו מחיקת הפתק התחתון
