@@ -97,7 +97,7 @@ PY
 
 בעמוד הריפו ב-GitHub → **Settings → Webhooks → Add webhook**:
 
-- **Payload URL**: `https://codekeeper-webapp.onrender.com/api/webhooks/github`
+- **Payload URL**: `https://codekeeper.dev/api/webhooks/github`
 - **Content type**: `application/json`
 - **Secret**: אותו ערך של `GITHUB_WEBHOOK_SECRET` ברנדר.
 - **SSL verification**: Enable.

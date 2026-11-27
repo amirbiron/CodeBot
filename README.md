@@ -2,7 +2,7 @@
 
 **המקום לשמור את הקוד, את מסמכי התיעוד ואת הרעיונות שלך, ולתת לסוכן ה-AI שלך לעבוד איתם.**
 
-🌐 [לוובאפ](https://codekeeper-webapp.onrender.com) · 🤖 [לבוט בטלגרם](https://t.me/my_code_keeper_bot) · 📚 [לאתר התיעוד](https://amirbiron.github.io/CodeBot/)
+🌐 [לוובאפ](https://codekeeper.dev) · 🤖 [לבוט בטלגרם](https://t.me/my_code_keeper_bot) · 📚 [לאתר התיעוד](https://amirbiron.github.io/CodeBot/)
 
 ---
 
@@ -13,7 +13,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://python.org)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://t.me/my_code_keeper_bot)
-[![WebApp](https://img.shields.io/badge/WebApp-Visit-blueviolet.svg)](https://codekeeper-webapp.onrender.com)
+[![WebApp](https://img.shields.io/badge/WebApp-Visit-blueviolet.svg)](https://codekeeper.dev)
 [![MongoDB](https://img.shields.io/badge/MongoDB-Database-green.svg)](https://mongodb.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/Docs-Website-blueviolet.svg)](https://amirbiron.github.io/CodeBot/)
@@ -194,7 +194,7 @@ flowchart TB
 
 שמירת קטעי קוד ומסמכי מארקדאון עם תצוגה נוחה לקריאה, עם היסטוריית גירסאות, הדגשת תחביר, וחיפוש.
 
-← [הקבצים שלי](https://codekeeper-webapp.onrender.com/files)
+← [הקבצים שלי](https://codekeeper.dev/files)
 
 ### 🗂️ "האוספים שלי"
 

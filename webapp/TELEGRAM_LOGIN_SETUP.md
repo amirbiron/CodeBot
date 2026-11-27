@@ -12,8 +12,9 @@
    בחר את הבוט שלך
    Bot Settings
    Domain
-   הזן: codekeeper-webapp.onrender.com
+   הזן: codekeeper.dev
    ```
+   הווידג'ט עובד רק בדומיין שמוגדר כאן. כתובת קודמת של ה-WebApp (תת-הדומיין של Render) מפנה את דף ההתחברות לדומיין הזה (`WEBAPP_LEGACY_HOSTS`), ולכן שם אין צורך בווידג'ט. בזמן ההחלפה ב-BotFather אפשר להתחבר דרך הקישור שהבוט שולח (`/start webapp_login`), שלא תלוי בדומיין.
 
 2. **ודא שה-BOT_USERNAME נכון:**
    - בקובץ `.env` או במשתני הסביבה ב-Render
@@ -54,20 +55,20 @@ sudo ntpdate -s time.nist.gov
 # בבוט הראשי
 BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
 SECRET_KEY=your-secret-key-32-chars-minimum
-WEBAPP_URL=https://codekeeper-webapp.onrender.com
+WEBAPP_URL=https://codekeeper.dev
 
 # ב-Web App
 BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz  # אותו טוקן!
 BOT_USERNAME=my_code_keeper_bot  # בלי @
 SECRET_KEY=your-secret-key-32-chars-minimum  # אותו מפתח!
 MONGODB_URL=mongodb+srv://...
-WEBAPP_URL=https://codekeeper-webapp.onrender.com
+WEBAPP_URL=https://codekeeper.dev
 ```
 
 ### בדיקת תקינות
 
 1. **בדיקת Widget:**
-   - פתח את: `https://codekeeper-webapp.onrender.com/login`
+   - פתח את: `https://codekeeper.dev/login`
    - אמור להופיע כפתור "Log in with Telegram"
    - אם לא - בדוק את הדומיין ב-BotFather
 
@@ -127,7 +128,7 @@ print(f"Data: {data_check_string}")
    ```
 
 3. **הגדר ב-BotFather:**
-   - Domain: `codekeeper-webapp.onrender.com`
+   - Domain: `codekeeper.dev`
 
 4. **עדכן משתני סביבה ב-Render:**
    - וודא שכל המשתנים מוגדרים נכון

@@ -20,6 +20,8 @@ import note_threads as nt
 # מוצג גם במסך הנעילה, ותגובה של סוכן היא טקסט חופשי.
 from mcp_server.redaction import redact_secrets
 from sticky_notes_target import NOTE_LABEL_FIELDS, note_label
+# המארח של הכתובת הקנונית — לכלל הכפילות של מנויים מכתובת ישנה (``_retire_legacy_duplicates``).
+from webapp_url import webapp_host
 
 # כשל מסד בהכנת בונה של סוג אירוע — הסיכון היחיד שמסלול "נשאר לסבב הבא" הוצהר בשבילו.
 # ייבוא עמיד, כמו ב-``sticky_notes_api``: בסביבות stub אין pymongo, ומחלקה מקומית שלא
@@ -258,6 +260,100 @@ def _hash_endpoint(ep: str) -> str:
         return ""
 
 
+# docs:push-legacy-origin:start — הקטע מוטמע בתיעוד (docs/deployment/workers.rst); אל תסיר את הסימון
+# מנוי push שייך לכתובת שבה הוא נרשם: כל כתובת מקבלת מהדפדפן Service Worker משלה ומנוי משלו, עם endpoint אחר. משתמש
+# שהפעיל התראות בכתובת הישנה של ה-WebApp, ואחרי המעבר ל-``codekeeper.dev`` מפעיל אותן שוב באותו מכשיר, מחזיק שני
+# מנויים — ומקבל כל התראה פעמיים. השרת לא יכול לדעת ששני endpoints הם אותו מכשיר, ולכן כל מנוי שומר מאיזו כתובת נרשם
+# (``origin_host``) ומאיזה דפדפן (``user_agent``), ו-:func:`_retire_legacy_duplicates` מוחק מנוי מכתובת אחרת שה-user
+# agent שלו זהה למנוי בכתובת הקנונית: כנראה אותו דפדפן באותו מכשיר. מכשיר אחר, עם user agent אחר, ממשיך לקבל התראות
+# דרך הכתובת הישנה. user agent שהשתנה בינתיים (עדכון דפדפן) משאיר כפילות — זה המחיר של כלל שלא מוחק מכשיר שלא עבר.
+#
+# מנוי שנרשם לפני שהשדות האלה נוספו לא נושא אותם. מה שמשלים אותם הוא הדיווח של ה-Service Worker (``sw_report``): הוא
+# יוצא מהכתובת שבה המנוי נרשם, עם ה-user agent של הדפדפן, עם ה-session של אותה כתובת ועם ``endpoint_hash`` של המנוי —
+# ו-:func:`_record_reporting_device` כותב לפיהם את השדות, ומריץ את אותו כלל. כך כפילות נפתרת בכל צד שמגיע ראשון:
+# בהפעלה בכתובת החדשה, או בהתראה הבאה שהמנוי הישן מקבל.
+_LEGACY_RETIRED_EVENT = "push_legacy_subscriptions_retired"
+# docs:push-legacy-origin:end
+
+
+def _request_origin_host() -> str:
+    """המארח שהבקשה הגיעה אליו, באותיות קטנות — הכתובת שבה הדפדפן מחזיק את המנוי (שמות מארח אינם תלויי רישיות)."""
+    return str(request.host or "").lower()
+
+
+def _request_user_agent() -> str:
+    return str(request.headers.get("User-Agent") or "")
+
+
+def _retire_legacy_duplicates(db, user_id: Any, *, user_agent: str, canonical_host: str, keep_endpoint: Optional[str] = None) -> int:
+    """מוחק את המנויים של המשתמש שידוע שנרשמו בכתובת אחרת מ-``canonical_host``, וה-user agent שלהם הוא ``user_agent``. מחזיר כמה נמחקו.
+
+    מנוי בלי ``origin_host`` לא נמחק: לא ידוע מאיפה הוא, ו-:func:`_record_reporting_device` ישלים את השדה כשה-Service
+    Worker שלו ידווח. ``keep_endpoint`` — המנוי שזה עתה נשמר — לא נמחק גם אם נשאר בו ``origin_host`` אחר.
+    הכלל המלא, וההנמקה, בהערה שמעל ``_LEGACY_RETIRED_EVENT``.
+    """
+    if not user_agent or not canonical_host:
+        return 0
+    filt: Dict[str, Any] = {
+        "user_id": {"$in": _user_id_variants(user_id)},
+        "user_agent": user_agent,
+        "origin_host": {"$exists": True, "$ne": canonical_host},
+    }
+    if keep_endpoint:
+        filt["endpoint"] = {"$ne": keep_endpoint}
+    result = db.push_subscriptions.delete_many(filt)
+    return int(getattr(result, "deleted_count", 0) or 0)
+
+
+def _emit_legacy_retired(user_id: Any, retired: int, *, trigger: str) -> None:
+    if retired <= 0:
+        return
+    try:
+        from observability import emit_event  # type: ignore
+
+        emit_event(_LEGACY_RETIRED_EVENT, severity="info", user_id=str(user_id), retired=retired, trigger=trigger)
+    except Exception:
+        # כמו שאר האירועים בקובץ: כשל במערכת האירועים לא מכשיל את הבקשה. הלוג נשאר, כדי שמחיקה לא תעבור בלי עקבה.
+        logger.warning(
+            "push: could not emit %s (retired=%s, trigger=%s)", _LEGACY_RETIRED_EVENT, retired, trigger, exc_info=True
+        )
+
+
+def _record_reporting_device(db, user_id: Any, endpoint_hash: str, *, user_agent: str, origin_host: str) -> int:
+    """משלים ``user_agent`` ו-``origin_host`` למנוי שה-Service Worker שלו דיווח, ומריץ עליו את כלל הכפילות. מחזיר כמה מנויים נמחקו.
+
+    המנוי מזוהה לפי ``endpoint_hash`` מתוך המנויים של המשתמש שב-session — הדיווח לא נושא את ה-endpoint עצמו. בלי התאמה
+    יחידה לא נכתב כלום. ``origin_host`` נכתב רק כשהוא חסר: המנוי שייך לכתובת שבה נרשם, וה-Service Worker מדווח ממנה.
+    ``user_agent`` מתעדכן כשהוא שונה, כדי שעדכון דפדפן לא ישאיר את ההשוואה על ערך ישן.
+    """
+    variants = _user_id_variants(user_id)
+    subs = list(db.push_subscriptions.find({"user_id": {"$in": variants}}, {"endpoint": 1, "user_agent": 1, "origin_host": 1}))
+    matches = [s for s in subs if _hash_endpoint(str(s.get("endpoint") or "")) == endpoint_hash]
+    if len(matches) != 1:
+        return 0
+    sub = matches[0]
+    updates: Dict[str, Any] = {}
+    if user_agent and sub.get("user_agent") != user_agent:
+        updates["user_agent"] = user_agent
+    if origin_host and not sub.get("origin_host"):
+        updates["origin_host"] = origin_host
+    if updates:
+        db.push_subscriptions.update_one({"_id": sub["_id"]}, {"$set": updates})
+    sub_origin = updates.get("origin_host") or sub.get("origin_host")
+    sub_agent = updates.get("user_agent") or sub.get("user_agent")
+    canonical = webapp_host()
+    if not canonical or not sub_origin or sub_origin == canonical or not sub_agent:
+        return 0
+    # המנוי שדיווח הוא מכתובת ישנה. אם לאותו משתמש יש מנוי בכתובת הקנונית מאותו דפדפן, המנוי הזה הוא הכפילות.
+    has_canonical_twin = db.push_subscriptions.count_documents(
+        {"user_id": {"$in": variants}, "origin_host": canonical, "user_agent": sub_agent}, limit=1
+    )
+    if not has_canonical_twin:
+        return 0
+    result = db.push_subscriptions.delete_one({"_id": sub["_id"]})
+    return int(getattr(result, "deleted_count", 0) or 0)
+
+
 _URL_IN_ERROR_RE = re.compile(r"https?://\S+")
 
 
@@ -472,12 +568,17 @@ def subscribe():
         except Exception:
             _raw_enc = ""
 
+        origin_host = _request_origin_host()
+        user_agent = _request_user_agent()
         set_fields = {
             "user_id": user_id,
             "endpoint": endpoint,
             "keys": {"p256dh": keys.get("p256dh", ""), "auth": keys.get("auth", "")},
             "subscription": payload,  # store full object for sending
             "updated_at": now_utc,
+            # מאיזו כתובת ומאיזה דפדפן — לכלל הכפילות אחרי מעבר כתובת (ההערה שמעל ``_LEGACY_RETIRED_EVENT``)
+            "origin_host": origin_host,
+            "user_agent": user_agent,
         }
         if _raw_enc in ("aesgcm", "aes128gcm"):
             set_fields["content_encoding"] = _raw_enc
@@ -515,7 +616,29 @@ def subscribe():
             emit_event("push_subscribed", severity="info", user_id=str(user_id))
         except Exception:
             pass
-        return jsonify({"ok": True}), 201
+        response: Dict[str, Any] = {"ok": True}
+        canonical_host = webapp_host()
+        if canonical_host and origin_host == canonical_host:
+            # הפעלה בכתובת הקנונית: מנויים מכתובת ישנה מאותו דפדפן הם כפילות. ``legacy_remaining`` — כמה מנויים מכתובת
+            # אחרת נשארו למשתמש (כולל מנויים שעוד לא ידוע מאיפה הם), והעמוד מציע לו להפעיל מחדש גם במכשירים האחרים.
+            # המנוי עצמו כבר נשמר, ולכן כשל כאן לא מחזיר שגיאה — הוא נרשם ללוג, והכפילות תיפתר בדיווח הבא של ה-SW.
+            try:
+                retired = _retire_legacy_duplicates(
+                    db, user_id, user_agent=user_agent, canonical_host=canonical_host, keep_endpoint=endpoint
+                )
+                remaining = db.push_subscriptions.count_documents(
+                    {"user_id": {"$in": _user_id_variants(user_id)}, "origin_host": {"$ne": canonical_host}}
+                )
+            except PyMongoError:
+                logger.exception(
+                    "push_api.subscribe: retiring legacy-origin duplicates failed",
+                    extra={"user_id": str(user_id), "endpoint_hash": _hash_endpoint(endpoint)},
+                )
+            else:
+                _emit_legacy_retired(user_id, retired, trigger="subscribe")
+                response["legacy_retired"] = retired
+                response["legacy_remaining"] = int(remaining)
+        return jsonify(response), 201
     except Exception:
         return jsonify({"ok": False, "error": "Failed to save subscription"}), 500
 
@@ -2254,7 +2377,28 @@ def sw_report():
             )
         except Exception:
             pass
-        
+
+        # הדיווח יוצא מהכתובת שבה המנוי נרשם, עם ה-user agent של הדפדפן: משלים את השדות למנוי שנרשם לפני שהם נוספו,
+        # ופותר כפילות מכתובת ישנה (ההערה שמעל ``_LEGACY_RETIRED_EVENT``). בלי session או בלי hash אין למי לשייך.
+        if uid not in (None, "") and endpoint_hash:
+            try:
+                retired = _record_reporting_device(
+                    get_db(),
+                    uid,
+                    endpoint_hash,
+                    user_agent=_request_user_agent(),
+                    origin_host=_request_origin_host(),
+                )
+            except PyMongoError:
+                # ``logger`` של המודול ולא ``logging``: בסוף הפונקציה יש ``import logging`` מקומי, ולכן ``logging`` כאן
+                # הוא משתנה מקומי שעוד לא הוגדר — ``UnboundLocalError`` שה-``except`` החיצוני היה בולע.
+                logger.exception(
+                    "push_api.sw_report: recording the reporting device failed",
+                    extra={"endpoint_hash": endpoint_hash},
+                )
+            else:
+                _emit_legacy_retired(uid, retired, trigger="sw_report")
+
         # Log with structlog if available, else standard logging
         try:
             from observability import emit_event

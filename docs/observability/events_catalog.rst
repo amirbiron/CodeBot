@@ -83,6 +83,7 @@ Web Push
 - ``push_subscribed`` / ``push_unsubscribed`` — דפדפן נרשם למנוי או הוסר ממנו.
 - ``push_subscriptions_cleanup`` / ``push_subscriptions_delete_all`` — ניקוי מנויים מעמוד ההגדרות.
 - ``push_deleted_dead_endpoints`` — מנויים שהוסרו אחרי ``404``/``410`` משירות הפוש.
+- ``push_legacy_subscriptions_retired`` — מנויים שנמחקו כי נרשמו בכתובת קודמת של ה-WebApp מאותו דפדפן שכבר נרשם בכתובת הנוכחית, עם ``retired`` (כמה) ו-``trigger``: ``subscribe`` כשהמשתמש הפעיל התראות בכתובת הנוכחית, ``sw_report`` כשה-Service Worker של הכתובת הקודמת דיווח. הכלל: :ref:`push-legacy-origin`.
 - ``sw_push_report`` — דיווח מה-Service Worker על שלב בטיפול בהתראה.
 
 שליחה של תזכורות פתקים:

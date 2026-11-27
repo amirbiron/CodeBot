@@ -25,6 +25,8 @@ __all__ = [
     "WebappUrlStatus",
     "webapp_url_status",
     "webapp_base_url",
+    "webapp_host",
+    "is_valid_host",
     "webapp_link",
     "approval_notice",
     "webapp_base_url_for_request",
@@ -58,6 +60,22 @@ def _invalid(problem: str) -> WebappUrlStatus:
     return WebappUrlStatus(state=STATE_INVALID, problem=problem)
 
 
+def _netloc_problem(netloc: str) -> Optional[str]:
+    """הדקדוק של המארח והפורט, במקום אחד: ``None`` כשהם תקינים, ואחרת ``bad_host`` או ``bad_port``.
+
+    משותף ל-:func:`webapp_url_status` ול-:func:`is_valid_host`, כדי שהכתובת הקנונית ורשימת הכתובות הישנות
+    (``WEBAPP_LEGACY_HOSTS``, ב-``webapp/legacy_host_redirect.py``) ייבדקו באותו כלל. הפורט נקרא מהטקסט שאחרי ``:``
+    ולא דרך ``urlsplit``: הביטוי כבר מבטיח שיש לכל היותר נקודתיים אחת ואחריהן ספרות בלבד, ולכן אותן תוצאות — פורט
+    0 או מעל 65535 הוא ``bad_port``.
+    """
+    if not _NETLOC_RE.fullmatch(netloc):
+        return "bad_host"
+    _host, sep, port = netloc.rpartition(":")
+    if sep and not 1 <= int(port) <= 65535:
+        return "bad_port"
+    return None
+
+
 def webapp_url_status() -> WebappUrlStatus:
     """קורא את ``WEBAPP_URL`` ומחזיר את המצב שלו. לא זורק."""
     # שם המשתנה כמחרוזת ולא כקבוע: ``scripts/audit_config_definitions.py`` מזהה קריאה רק לפי ליטרל, ועליו נשען
@@ -74,15 +92,9 @@ def webapp_url_status() -> WebappUrlStatus:
     except ValueError:
         # למשל סוגר מרובע שלא נסגר (``https://[x``) — "Invalid IPv6 URL".
         return _invalid("bad_host")
-    if not _NETLOC_RE.fullmatch(parts.netloc):
-        return _invalid("bad_host")
-    try:
-        port = parts.port
-    except ValueError:
-        # פורט מחוץ לטווח 0-65535 (הביטוי כבר מבטיח ספרות בלבד).
-        return _invalid("bad_port")
-    if port == 0:
-        return _invalid("bad_port")
+    netloc_problem = _netloc_problem(parts.netloc)
+    if netloc_problem:
+        return _invalid(netloc_problem)
     expected = _SCHEME_PREFIX + parts.netloc
     if value != expected:
         if value == expected + "/":
@@ -95,6 +107,20 @@ def webapp_url_status() -> WebappUrlStatus:
 def webapp_base_url() -> Optional[str]:
     """הכתובת, בלי ``/`` בסוף — או ``None`` כשהמשתנה חסר או פגום. אין ברירת מחדל."""
     return webapp_url_status().url
+
+
+def webapp_host() -> Optional[str]:
+    """המארח של ``WEBAPP_URL`` (והפורט, אם נכתב), באותיות קטנות — או ``None`` כשאין כתובת תקינה.
+
+    להשוואה מול ``request.host``: שמות מארח אינם תלויי רישיות, ו-``request.host`` מחזיר את הכותרת כמו שנשלחה.
+    """
+    url = webapp_base_url()
+    return url[len(_SCHEME_PREFIX):].lower() if url else None
+
+
+def is_valid_host(value: Any) -> bool:
+    """``value`` הוא מארח ופורט אופציונלי, באותו דקדוק ש-``WEBAPP_URL`` נבדק בו — בלי scheme, נתיב, משתמש וסיסמה או רווחים."""
+    return isinstance(value, str) and _netloc_problem(value) is None
 
 
 def webapp_link(path: str) -> Optional[str]:
