@@ -6418,7 +6418,7 @@ function heldFetch() {
   const handler = (url, opts) => {
     const method = opts && opts.method;
     if (method !== 'PUT' && method !== 'POST') return new Promise(() => {});
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       let finish;
       const body = new Promise((r) => { finish = r; });
       const call = { url, opts, bodyRead: false };
@@ -6428,27 +6428,42 @@ function heldFetch() {
       });
       call.finishBody = () => finish();
       call.release = (status, json) => { call.respond(status, json); call.finishBody(); };
+      //: כשל רשת — מה ש-``fetch`` עושה כשאין חיבור: נדחה ב-``TypeError``, בלי תשובה.
+      call.fail = () => reject(new TypeError('Failed to fetch'));
       calls.push(call);
     });
   };
   return { calls, handler };
 }
 
-/** סנדבוקס משלה, עם ``heldFetch``, ומנהל אחד בה. ``storage`` — אחסון בזיכרון במקום ``localStorage`` שאינו שומר. */
-function keepaliveSandbox(name) {
+/**
+ * סנדבוקס משלה, עם ``heldFetch``, ומנהל אחד בה. ``storage`` — אחסון בזיכרון במקום ``localStorage`` שאינו שומר.
+ *
+ * ``opts.storage`` — אותו אחסון של סנדבוקס קודמת: **הטעינה הבאה של העמוד**, באותו דפדפן. ``opts.refuseWrites`` —
+ * כשהיא מחזירה ``true``, ``setItem`` זורק ``QuotaExceededError`` כמו אחסון מלא. ``sb`` מוחזר כדי שבדיקה תוכל לענות
+ * גם על בקשות שאינן שמירה (``sb.fetch`` הוא ה-``fetch`` הגלובלי של הסנדבוקס, ונקרא בזמן הקריאה).
+ */
+function keepaliveSandbox(name, opts = {}) {
   const sb = makeSandbox();
   const { calls, handler } = heldFetch();
   sb.fetch = handler;
-  const map = new Map();
+  const map = opts.storage || new Map();
   sb.localStorage = {
     getItem: (k) => (map.has(k) ? map.get(k) : null),
-    setItem: (k, v) => { map.set(k, String(v)); },
+    setItem: (k, v) => {
+      if (opts.refuseWrites && opts.refuseWrites()) {
+        const err = new Error('The quota has been exceeded.');
+        err.name = 'QuotaExceededError';
+        throw err;
+      }
+      map.set(k, String(v));
+    },
     removeItem: (k) => { map.delete(k); },
     key: (i) => Array.from(map.keys())[i] || null,
     get length() { return map.size; },
   };
   const mgr = new sb.window.StickyNotesManager(name);
-  return { mgr, calls, storage: map };
+  return { mgr, calls, storage: map, sb };
 }
 const utf8Bytes = (s) => new TextEncoder().encode(s).length;
 //: גוף שנכנס לבדו במכסה, ושניים כמוהו לא — 40,000 תווי ASCII, כמו המדידה בכרומיום.
@@ -6650,6 +6665,155 @@ check('סגירת לשונית: טיוטת הסגירה מתעדכנת כשהש�
     n.ta.value = 'עוד';
     mgr._onSaveConfirmed(DRAFT_ID, { position: { x: 1, y: 1 } }, 'T3', null);
     eq(draftsOf(storage).length, 0, 'אין טיוטה בלי שנכתבה בסגירה');
+  } finally { cleanupMgr(mgr); }
+});
+
+/**
+ * הסתרה ראשונה שכותבת טיוטת סגירה: שמירה של ``first`` באוויר ומטען של ``queued`` מאחוריה. ואז השמירה נכשלת (רשת),
+ * כך ששום אישור לא מעדכן את הטיוטה בזמן שהלשונית חוזרת. מחזיר את הטיוטה שנכתבה.
+ */
+async function closeDraftBehindAFailedSave(mgr, calls, storage, n, first, queued) {
+  n.ta.value = first;
+  const sending = mgr._sendUpdate(DRAFT_ID, { content: first }, 0);
+  n.ta.value = queued;
+  mgr._pending.set(DRAFT_ID, { content: queued });
+  mgr._flushPendingKeepalive();
+  mgr._persistDraftsThatWontSurviveClose();
+  const drafts = draftsOf(storage);
+  eq(drafts.length, 1, 'הסתרה ראשונה: מטען מאחורי שמירה שבאוויר — טיוטה');
+  calls[0].fail();
+  await sending;
+  return drafts[0].draft;
+}
+
+check('סגירת לשונית: טיוטת סגירה מהסתרה קודמת נכתבת מחדש כשהטקסט יוצא ב-keepalive — אחרת הטעינה הבאה מחזירה טקסט ישן', async () => {
+  // השמירה הראשונה נכשלה, המשתמש המשיך להקליד, ובהסתרה השנייה הטקסט יצא ב-keepalive. בלי כתיבה מחדש נשארת הטיוטה
+  // של ההסתרה הראשונה — טקסט ישן, בלי השמירה שיצאה. אם היא נחתה, הטעינה הבאה מציגה את הישן עם "יש עדכון חדש" על
+  // הטקסט של המשתמש עצמו, ו"התעלם" שומר את הישן מעליו.
+  const { mgr, calls, storage } = keepaliveSandbox('ka8-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    await closeDraftBehindAFailedSave(mgr, calls, storage, n, 'בסיס A', 'בסיס AB');
+    n.ta.value = 'בסיס ABC';
+    mgr._pending.set(DRAFT_ID, { content: 'בסיס ABC' });
+    mgr._flushPendingKeepalive();
+    eq(calls[calls.length - 1].opts.keepalive, true, 'בקרת שפיות: ההסתרה השנייה שלחה את הטקסט ב-keepalive');
+    mgr._persistDraftsThatWontSurviveClose();
+    const drafts = draftsOf(storage);
+    eq(drafts.length, 1, 'טיוטה אחת');
+    eq(drafts[0].draft.local.content, 'בסיס ABC', 'הטיוטה נכתבה מחדש עם מה שבמסך');
+    eq(drafts[0].draft.unconfirmed.some((s) => s.content === 'בסיס ABC'), true, 'והיא מכירה את השמירה שיצאה');
+
+    // הטעינה הבאה, אחרי שהשמירה נחתה בשרת: הפיוס מזהה אותה כשלנו — הטקסט החדש במסך, ובלי התראה.
+    const next = keepaliveSandbox('ka8-file', { storage });
+    const n2 = liveNoteOn(next.mgr, DRAFT_ID, 'בסיס ABC', 'T1');
+    const notices = [];
+    next.mgr._showRemoteNotice = (el, server) => { notices.push(server && server.content); };
+    try {
+      next.mgr._restoreHeldDraft(n2.entry, { id: DRAFT_ID, content: 'בסיס ABC', title: '', updated_at: 'T1' });
+      eq(n2.ta.value, 'בסיס ABC', 'הטקסט החדש במסך');
+      eq(JSON.stringify(notices), '[]', 'בלי "יש עדכון חדש" על הטקסט של המשתמש');
+    } finally { cleanupMgr(next.mgr); }
+  } finally { cleanupMgr(mgr); }
+});
+
+check('סגירת לשונית: טיוטת סגירה נכתבת מחדש כשהטקסט יוצא ב-keepalive גם ברשת תקינה — אחרי אישור, והקלדה מהירה שלפני ההסתרה', async () => {
+  // בלי שום כשל: האישור כתב את הטיוטה מחדש (נשאר טקסט שלא אושר), המשתמש הקליד עוד והסתיר את הלשונית לפני שהשמירה
+  // הבאה יצאה. בהסתרה הטקסט יוצא ב-keepalive, והפתק אינו מסומן כשמירה שנכשלה — רק הסימון של טיוטת הסגירה מכריע.
+  const { mgr, calls, storage } = keepaliveSandbox('ka13-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.ta.value = 'בסיס A';
+    const first = mgr._sendUpdate(DRAFT_ID, { content: 'בסיס A' }, 0);
+    n.ta.value = 'בסיס AB';
+    mgr._pending.set(DRAFT_ID, { content: 'בסיס AB' });
+    mgr._flushPendingKeepalive();
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 1, 'הסתרה ראשונה — טיוטה');
+    calls[0].release(200, { ok: true, updated_at: 'T1' });
+    await first;
+    eq(draftsOf(storage)[0].draft.base.updated_at, 'T1', 'בקרת שפיות: האישור כתב את הטיוטה מחדש על הבסיס החדש');
+    n.ta.value = 'בסיס ABC';
+    mgr._pending.set(DRAFT_ID, { content: 'בסיס ABC' });
+    mgr._flushPendingKeepalive();
+    eq(calls[calls.length - 1].opts.keepalive, true, 'בקרת שפיות: ההסתרה השנייה שלחה את הטקסט ב-keepalive');
+    eq(n.el.classList.contains('has-save-error'), false, 'בקרת שפיות: הפתק אינו מסומן כשמירה שנכשלה');
+    mgr._persistDraftsThatWontSurviveClose();
+    const drafts = draftsOf(storage);
+    eq(drafts.length, 1, 'טיוטה אחת');
+    eq(drafts[0].draft.local.content, 'בסיס ABC', 'הטיוטה נכתבה מחדש עם מה שבמסך');
+    eq(drafts[0].draft.unconfirmed.some((s) => s.content === 'בסיס ABC'), true, 'והיא מכירה את השמירה שיצאה');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('סגירת לשונית: טיוטת סגירה ישנה יוצאת כשמה שבמסך חזר לבסיס — אחרת היא מחזירה טקסט שהמשתמש מחק', async () => {
+  const { mgr, calls, storage } = keepaliveSandbox('ka9-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    await closeDraftBehindAFailedSave(mgr, calls, storage, n, 'בסיס A', 'בסיס AB');
+    // המשתמש מחק את מה שהוסיף, והמחיקה יצאה בהסתרה השנייה, ב-keepalive.
+    n.ta.value = 'בסיס';
+    mgr._pending.set(DRAFT_ID, { content: 'בסיס' });
+    mgr._flushPendingKeepalive();
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 0, 'אין טקסט שהשרת לא אישר — הטיוטה הישנה יצאה');
+    eq(n.entry.closeDraft, false, 'והסימון איתה');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('סגירת לשונית: טיוטת סגירה שאי אפשר לכתוב מחדש אחרי אישור יוצאת — היא לא מכירה את השמירה שאושרה', () => {
+  // אחסון מלא: הכתיבה מחדש ב-``_onSaveConfirmed`` נכשלת. הטיוטה שנשארת נשענת על בסיס ישן ואינה מכירה את השמירה
+  // שאושרה, ולכן הייתה מציגה בטעינה הבאה טקסט ישן מול השמירה הזו — כמו בבדיקה שלמעלה.
+  let refuse = false;
+  const { mgr, storage } = keepaliveSandbox('ka10-file', { refuseWrites: () => refuse });
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.ta.value = 'בסיס A';
+    mgr._inFlight.set(DRAFT_ID, { data: { content: 'בסיס A' }, promise: new Promise(() => {}), flight: { keepalive: false } });
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 1, 'נכתבה בהסתרה');
+    n.ta.value = 'בסיס AB';
+    refuse = true;
+    mgr._inFlight.delete(DRAFT_ID);
+    mgr._onSaveConfirmed(DRAFT_ID, { content: 'בסיס A' }, 'T1', null);
+    eq(draftsOf(storage).length, 0, 'הכתיבה מחדש נכשלה — הטיוטה הישנה יצאה');
+    eq(n.entry.closeDraft, false, 'והסימון איתה');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('סגירת לשונית: פתק שהשמירה האחרונה שלו נכשלה נשמר כטיוטה, גם כשהטקסט יוצא ב-keepalive', async () => {
+  // בלי רשת, שמירת keepalive שיוצאת בהסתרה תיכשל אחרי שהעמוד נסגר — ובלי טיוטה הטקסט לא נמצא בשום מקום.
+  const { mgr, calls, storage } = keepaliveSandbox('ka11-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.ta.value = 'בסיס + בלי רשת';
+    const sending = mgr._sendUpdate(DRAFT_ID, { content: 'בסיס + בלי רשת' }, 0);
+    calls[0].fail();
+    await sending;
+    eq(n.el.classList.contains('has-save-error'), true, 'בקרת שפיות: הפתק מסומן כשמירה שנכשלה');
+    mgr._flushPendingKeepalive();
+    eq(calls[calls.length - 1].opts.keepalive, true, 'בקרת שפיות: ההסתרה שלחה את הטקסט ב-keepalive');
+    mgr._persistDraftsThatWontSurviveClose();
+    const drafts = draftsOf(storage);
+    eq(drafts.length, 1, 'הטקסט נשמר כטיוטה');
+    eq(drafts[0].draft.local.content, 'בסיס + בלי רשת', 'מה שבמסך');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('מחיקת פתק: טיוטת הסגירה שלו יוצאת מהאחסון', async () => {
+  // פתק שנמחק לא מוצג שוב, ולכן אף טעינה לא מגיעה לטיוטה שלו — היא הייתה נשארת באחסון לתמיד.
+  const { mgr, storage, sb } = keepaliveSandbox('ka12-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  const saves = sb.fetch;
+  sb.fetch = (url, opts) => ((opts && opts.method === 'DELETE')
+    ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) })
+    : saves(url, opts));
+  try {
+    n.ta.value = 'בסיס + טקסט שלא נשמר';
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 1, 'נכתבה טיוטה בהסתרה');
+    eq(await mgr._deleteNoteEl(n.el), true, 'השרת אישר את המחיקה');
+    eq(draftsOf(storage).length, 0, 'הטיוטה יצאה עם הפתק');
   } finally { cleanupMgr(mgr); }
 });
 

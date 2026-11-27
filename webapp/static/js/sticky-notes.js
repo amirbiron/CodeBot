@@ -681,13 +681,6 @@
     return String(text == null ? '' : text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   }
 
-  let draftStorageWarned = false;
-  /**
-   * ``localStorage`` של הטיוטות, או ``null`` כשאין. **גם הקריאה של ``localStorage`` עצמו בתוך ``try``:** כשהאחסון
-   * חסום, ה-getter של ``window.localStorage`` זורק (HTML Standard, "SecurityError"), ו-``typeof`` אינו מגן — הוא
-   * מגן רק על שם שאינו קיים. זריקה כאן הייתה עוצרת את השמירה בהסתרת הלשונית כולה, גם של פתקים אחרים
-   * (``_setupLifecycleGuards``). האזהרה נרשמת פעם אחת, כי זה מצב קבוע של הדפדפן ולא כשל רגעי.
-   */
   /**
    * **השמירות שלנו שעוד לא אושרו, בצורה שנשמרת עם טיוטה** (``entry.unconfirmed`` — ``{content?, title?}`` של כל שמירה
    * שיצאה ולא נענתה), עד ``UNCONFIRMED_SENDS_MAX`` האחרונות. ``_writeHeldDraft`` כותב אותן עם הטיוטה, ו-``_restoreHeldDraft``
@@ -708,6 +701,13 @@
     return out.slice(-UNCONFIRMED_SENDS_MAX);
   }
 
+  let draftStorageWarned = false;
+  /**
+   * ``localStorage`` של הטיוטות, או ``null`` כשאין. **גם הקריאה של ``localStorage`` עצמו בתוך ``try``:** כשהאחסון
+   * חסום, ה-getter של ``window.localStorage`` זורק (HTML Standard, "SecurityError"), ו-``typeof`` אינו מגן — הוא
+   * מגן רק על שם שאינו קיים. זריקה כאן הייתה עוצרת את השמירה בהסתרת הלשונית כולה, גם של פתקים אחרים
+   * (``_setupLifecycleGuards``). האזהרה נרשמת פעם אחת, כי זה מצב קבוע של הדפדפן ולא כשל רגעי.
+   */
   function draftStorage(){
     try {
       if (typeof localStorage === 'undefined' || !localStorage) return null;
@@ -6675,10 +6675,14 @@
         // יש טקסט שלא אושר — היא נכתבת מחדש על הבסיס החדש; אין — היא יוצאת. טיוטה שנשארת אחרי שהטקסט נשמר הייתה
         // מוצגת בטעינה הבאה מול גרסה חדשה יותר, למשל של סוכן, ומחזירה טקסט ישן. פתק מוחזק — הטיוטה שלו של
         // ``_syncHeldDraft``, ולא נוגעים בה כאן.
+        //
+        // **וכשהכתיבה מחדש נכשלת** (אחסון מלא — ``_writeHeldDraft`` מחזיר ``false`` ורושם שגיאה) הטיוטה הישנה יוצאת
+        // גם היא. היא לא מכירה את השמירה שאושרה עכשיו, ולכן בטעינה הבאה הייתה מציגה טקסט ישן מולה — "יש עדכון
+        // חדש" על הטקסט של המשתמש עצמו, ו"התעלם" היה שומר את הישן מעליו. מה שבמסך עוד לא אבד: הוא נשלח בשמירה
+        // הבאה, והסתרה נוספת תנסה לכתוב אותו שוב.
         if (entry.closeDraft && !entry.remote && !entry.draftAwaitingServer) {
           const dirty = this._dirtyFields(entry);
-          if (dirty.content || dirty.title) this._writeHeldDraft(entry);
-          else this._removeHeldDraft(entry);
+          if (!(dirty.content || dirty.title) || !this._writeHeldDraft(entry)) this._removeHeldDraft(entry);
         }
       }
 
@@ -7198,10 +7202,26 @@
        * עובד בשחזור כי הטיוטה זוכרת את השמירות שבאוויר (``unconfirmedSnapshots``). פתק מוחזק אינו כאן:
        * ``_syncHeldDraft`` כבר כתב את הטיוטה שלו.
        *
+       * **"בדרך" אינו חל בשני מצבים, והטיוטה נכתבת גם כשהטקסט יוצא ב-``keepalive``:**
+       *
+       * - **כבר יש לפתק טיוטת סגירה מהסתרה קודמת** (``entry.closeDraft``) — היא נכתבת מחדש. אחרת היא נשארת עם טקסט
+       *   ישן, ובלי השמירה שיוצאת עכשיו ברשימת השמירות שבאוויר. אם השמירה נוחתת אחרי שהעמוד נסגר, הטעינה הבאה מציגה
+       *   את הטקסט הישן מולה: "יש עדכון חדש" על הטקסט החדש של המשתמש עצמו, ו"התעלם" שומר את הישן מעליו. זה קורה
+       *   כששום אישור (``_onSaveConfirmed``) לא עדכן את הטיוטה מאז שהטקסט שבמסך הוקלד: השמירות נכשלו בזמן שהלשונית
+       *   חזרה, או שהמשתמש הקליד אחרי האישור האחרון והסתיר את הלשונית לפני שהשמירה הבאה יצאה.
+       * - **השמירה האחרונה של הפתק נכשלה** (``_hasSaveFailed``, הסימון שהמשתמש רואה על הפתק). בלי רשת גם בקשת
+       *   ``keepalive`` תיכשל אחרי שהעמוד נסגר, ובלי טיוטה הטקסט לא נמצא בשום מקום.
+       *
+       * **ופתק שאין במסך שלו כלום שהשרת לא אישר, ויש לו טיוטת סגירה מהסתרה קודמת — הטיוטה יוצאת.** היא מחזיקה טקסט
+       * שהמשתמש כבר שינה, למשל מחק, והשחזור בטעינה הבאה היה מחזיר אותו ושולח אותו לשמירה, בלי שאלה (נמדד).
+       *
        * **הטיוטה אולי כבר מיותרת בטעינה הבאה** — אם השמירה נחתה לפני שהעמוד נסגר. זה מטופל במקום שכבר מטפל
        * בזה: השחזור רושם את הטיוטה כשמירה שלנו שעוד לא אושרה (``_restoreHeldDraft``), והפיוס מיישר אליה את הבסיס
        * בלי שאלה. ובעמוד שנשאר חי, הטיוטה מתעדכנת או יוצאת כשהשמירה מאושרת (``_onSaveConfirmed``) — טיוטה שנשארת
        * אחרי שהטקסט נשמר הייתה מוצגת בטעינה הבאה מול גרסה חדשה יותר, ומחזירה טקסט ישן.
+       *
+       * כתיבה שנכשלת כאן (אחסון מלא) משאירה טיוטה קודמת, אם יש: השמירה שבאוויר אולי לא תנחת, ואז הטיוטה הקודמת
+       * היא הטקסט היחיד שנשאר מהעבודה. אחרי אישור המצב שונה, והטיוטה יוצאת — ראו ``_onSaveConfirmed``.
        */
       _persistDraftsThatWontSurviveClose(){
         for (const [id, entry] of this.notes.entries()) {
@@ -7210,8 +7230,11 @@
           const key = String(id);
           if (!this._pending.has(key)) {
             const dirty = this._dirtyFields(entry);
-            if (!dirty.content && !dirty.title) continue;
-            if (this._inFlightCarriesLocalText(key)) continue;
+            if (!dirty.content && !dirty.title) {
+              if (entry.closeDraft) this._removeHeldDraft(entry);
+              continue;
+            }
+            if (this._inFlightCarriesLocalText(key) && !entry.closeDraft && !this._hasSaveFailed(key)) continue;
           }
           if (this._writeHeldDraft(entry)) entry.closeDraft = true;
         }
@@ -7467,6 +7490,16 @@
           const entry = this.notes.get(String(id));
           if (entry && entry.el && entry.el.classList) entry.el.classList.remove('has-save-error');
         } catch(_) {}
+      }
+
+      /**
+       * **האם השמירה האחרונה של הפתק נכשלה** — הסימון ש-``_markSaveFailed`` שם ו-``_clearSaveFailed`` מוריד, אותו
+       * סימון שהמשתמש רואה על הפתק, ולא עותק שני שלו. סימון גנרי בכוונה: כל כשל (רשת, 5xx, דחייה) אומר שגם השמירה
+       * הבאה אולי לא תגיע — ראו ``_persistDraftsThatWontSurviveClose``.
+       */
+      _hasSaveFailed(id){
+        const entry = this.notes.get(String(id));
+        return !!(entry && entry.el && entry.el.classList && entry.el.classList.contains('has-save-error'));
       }
 
       _showTaskError(el){
@@ -8679,6 +8712,11 @@
       // וגם של השרשורים — החיישן, מעקב הגודל, וטעינה שבאוויר.
       this._teardownThreadsOf(this._getEntry(el));
       try { el.remove(); } catch(_) {}
+      // **וגם הטיוטה של הרשומה הזו** (``entry.draftKey``, למשל טיוטת סגירה). אף טעינה לא מגיעה לטיוטה של פתק שנמחק
+      // — היא נמצאת רק לפי מזהה של פתק שמוצג (``_findHeldDraft``) — ולכן היא הייתה נשארת באחסון לתמיד, ותופסת מקום
+      // שהטיוטות של פתקים אחרים צריכות. פתק שהמשתמש עדיין עובד עליו לא מגיע לכאן (ראו למטה) — חוץ ממחיקה, שבה הוא
+      // בחר לוותר על הטקסט — וטיוטות של לשוניות אחרות נשארות שלהן.
+      if (removed) this._removeHeldDraft(removed);
       this.notes.delete(id);
       // **מה שנשאר בתור לפתק יוצא איתו.** המסלולים שמורידים פתק שהמשתמש עדיין עובד עליו עוצרים קודם
       // (``_settleBeforeLeaving``), ולכן מה שנשאר כאן שייך לפתק שהשרת כבר אישר שאינו כאן — נמחק, עבר
