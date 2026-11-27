@@ -438,10 +438,13 @@ def test_the_board_list_carries_the_pin_so_the_menu_knows_its_state(client):
 
 
 def test_the_mcp_serializer_carries_the_pin():
+    """פתק נעוץ נושא את חותמת הנעיצה; פתק שאינו נעוץ — בלי השדה (``_NoteFieldRule.WHEN_SET``):
+    בצורה המלאה של פתק ב-MCP שדה ריק אינו חוזר. הבדיקה דרך הכלים — ``tests/test_mcp_note_answer_shape.py``."""
     from mcp_server.backend import _as_note
 
-    assert _as_note({"_id": "x", FIELD: NOW})[FIELD] == NOW.isoformat()
-    assert _as_note({"_id": "x"})[FIELD] is None
+    shape = {"body": True, "target_inside": False}
+    assert _as_note({"_id": "x", "board_id": "b" * 24, FIELD: NOW}, **shape)[FIELD] == NOW.isoformat()
+    assert FIELD not in _as_note({"_id": "x", "board_id": "b" * 24}, **shape)
 
 
 # ---------------------------------------------------------------------------
