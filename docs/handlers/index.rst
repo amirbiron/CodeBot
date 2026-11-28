@@ -93,6 +93,14 @@ Show Command
 
    show
 
+Image Command
+-------------
+
+.. toctree::
+   :maxdepth: 1
+
+   image
+
 Drive Menu
 ----------
 

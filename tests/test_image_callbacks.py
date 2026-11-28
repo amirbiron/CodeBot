@@ -47,6 +47,8 @@ async def test_img_settings_and_regenerate(monkeypatch):
         def generate_image(self, *a, **k):
             return b'fake_png_data'
     monkeypatch.setattr(mod, 'CodeImageGenerator', _FakeGen, raising=True)
+    # היצירה רצה בתהליך נפרד (services/code_image_render.py); כאן התפר שלה, כדי שהטסט לא יריץ תהליך אמיתי
+    monkeypatch.setattr(mod.code_image_render, 'render_png', lambda request: b'\x89PNG\r\n\x1a\nfake', raising=True)
 
     captured = {}
     h = H(_App())
@@ -98,17 +100,20 @@ async def test_save_to_drive_success(monkeypatch):
         def generate_image(self, *a, **k):
             return b'fake_png_data'
     monkeypatch.setattr(mod, 'CodeImageGenerator', _FakeGen, raising=True)
+    # היצירה רצה בתהליך נפרד (services/code_image_render.py); כאן התפר שלה, כדי שהטסט לא יריץ תהליך אמיתי
+    monkeypatch.setattr(mod.code_image_render, 'render_png', lambda request: b'\x89PNG\r\n\x1a\nfake', raising=True)
 
     # Stub drive upload without importing heavy module
     import sys, types
+    from services.google_drive_service import DriveUpload  # הצורה האמיתית של מה שההעלאה מחזירה
     fake = types.ModuleType('services.google_drive_service')
     upload_owners = []
 
-    def _upload_bytes(uid, filename, data, sub_path=None, *, owner):
+    def _upload_bytes_with_link(uid, filename, data, folder_id=None, sub_path=None, *, owner, mimetype):
         upload_owners.append(owner)
-        return 'fid123'
+        return DriveUpload(file_id='fid123', web_view_link='https://drive.google.com/file/d/fid123/view?usp=drivesdk')
 
-    setattr(fake, 'upload_bytes', _upload_bytes)
+    setattr(fake, 'upload_bytes_with_link', _upload_bytes_with_link)
     # דרך monkeypatch כדי שהמודול האמיתי יחזור בסוף הטסט: טסט שמייבא את השירות אחר כך
     # (למשל ``harness`` ב-test_webapp_drive_oauth_state.py) היה מקבל את הדמה הזו בלי ``db``
     monkeypatch.setitem(sys.modules, 'services.google_drive_service', fake)
@@ -119,10 +124,12 @@ async def test_save_to_drive_success(monkeypatch):
 
     upd = SimpleNamespace(effective_user=SimpleNamespace(id=1), callback_query=_Query('save_to_drive_test.py', captured))
     await h.handle_callback_query(upd, ctx)
-    # expect edit text with fid
-    assert 'edit' in captured
-    args, kwargs = captured['edit']
-    assert 'fid123' in (args[0] if args else '') or 'fid123' in (kwargs.get('text', '') if kwargs else '')
+    # הודעה חדשה עם קישור לפתיחה ב-Drive, בלי המזהה הגולמי — והתמונה עצמה לא נערכה
+    assert 'edit' not in captured and 'caption' not in captured
+    args, kwargs = captured['reply_text']
+    text = args[0]
+    assert '<a href="https://drive.google.com/file/d/fid123/view?usp=drivesdk">פתיחה ב-Drive</a>' in text
+    assert 'id:' not in text
     # תמונת קוד נשמרת בחיבור של הבוט — זה הכפתור שלו
     assert upload_owners == ["bot"]
 

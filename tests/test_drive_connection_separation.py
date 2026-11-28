@@ -497,7 +497,7 @@ def test_the_personal_backup_exports_and_restores_the_webapp_drive_prefs():
 _STORAGE_METHODS = frozenset({"get_drive_tokens", "save_drive_tokens", "delete_drive_tokens", "get_drive_prefs", "save_drive_prefs"})
 
 #: נקודות הכניסה שחייבות לדרוש owner. השאר נגזר מהחתימות בשירות — ראו ``_owner_functions``.
-_REQUIRED_ENTRY_POINTS = frozenset({"save_tokens", "get_drive_service", "upload_bytes", "upload_file", "perform_scheduled_backup", "compute_friendly_name", "get_or_create_default_folder", "ensure_path"})
+_REQUIRED_ENTRY_POINTS = frozenset({"save_tokens", "get_drive_service", "upload_bytes", "upload_bytes_with_link", "upload_file", "perform_scheduled_backup", "compute_friendly_name", "get_or_create_default_folder", "ensure_path"})
 
 
 def _owner_functions():
