@@ -7619,6 +7619,43 @@ def api_search_docs():
     return jsonify({'ok': True, **docs_index.jsonable(result)}), 200
 
 
+@app.route('/api/search/docs/extract', methods=['POST'])
+@admin_api_required
+def api_search_docs_extract():
+    """"חלץ" מעל התוצאות של החיפוש בתיעוד, לאדמין: גוף ``{"query": ..., "section_ids": [...]}``, ותשובה עם הקטע
+    שמודל השפה בחר מתוך הסעיפים, או ``found: false``.
+
+    הלוגיקה, הקודים והאירוע ב-``services/docs_extract_service.py``. כשל של המסד שאינו "לא זמין" או "איטי" הוא
+    באג ולא נתפס כאן: הוא מגיע ל-``handle_exception``, שרושם אותו עם ה-traceback. אין מגבלת קצב משלו, כמו
+    בחיפוש: אדמינים פטורים מכל מגבלה באפליקציה (``_rate_limit_exempt_filter``).
+    """
+    from services import docs_extract_service as docs_extract
+    from services import docs_search_service as docs_search
+
+    body, failure = _docs_index_json_body()
+    if failure is not None:
+        return failure
+    db, failure = _docs_index_db()
+    if failure is not None:
+        return failure
+    try:
+        result = docs_extract.extract(db, body.get('query'), body.get('section_ids'))
+    except docs_search.DocsSearchError as exc:
+        return jsonify(exc.payload()), exc.http_status
+    return jsonify({'ok': True, **result}), 200
+
+
+def docs_extract_offered() -> bool:
+    """לתבנית של עמוד הקבצים: האם להציג את הכפתור "חלץ" (``is_offered`` ב-``services/docs_extract_service.py``).
+    נקראת רק לאדמין, מתוך ``files.html``."""
+    from services import docs_extract_service as docs_extract
+
+    return docs_extract.is_offered()
+
+
+app.jinja_env.globals['docs_extract_offered'] = docs_extract_offered
+
+
 @app.route('/admin/cache-inspector')
 def admin_cache_inspector_page():
     """

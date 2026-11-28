@@ -259,6 +259,7 @@ Google Drive
 - ``docs_index_quota_paused`` — Gemini החזיר 429, והמעבר עצר. ``detail`` הוא הסטטוס וההודעה של Google, בתקרת אורך. ברמת ``warning``.
 - ``docs_index_failed`` — מעבר נכשל, ברמת ``error``. ``code`` הוא הסיבה ו-``detail`` הפירוט. שני מקרים נשלחים עם שדות אחרים: ``lease_lost`` — ה-lease עבר למריץ אחר, והמעבר עצר בלי לכתוב עוד; ברמת ``warning``, ועם ``run_id`` בלבד. ``unexpected_error`` — חריגה שהמעבר לא צפה; ``detail`` הוא שם המחלקה בלבד, וההודעה וה-traceback בלוג.
 - ``docs_index_admin_action`` — פעולה בעמוד האדמין: ``action`` הוא הכפתור, ``result`` מה שחזר, ו-``user_id`` מי לחץ.
+- ``docs_extract`` — "חלץ" בחיפוש בתיעוד הסתיים (``services/docs_extract_service.py``, ראו :ref:`global-search-docs`). השדות שלו משלו: ``outcome`` — ``found``, ``not_found`` או ``failed`` (``OUTCOME_*`` במודול); ``code`` — הקוד של הכשל, או ``null``; ``model`` — המודל מההגדרות, או ``null`` כשהן לא מוגדרות; ו-``duration_ms``. כשל נשלח ברמת ``warning``. השאלה ותשובת המודל אינן נכנסות לאירוע.
 
 התראה לבוט, ``docs_index_approval_needed`` (``ALERT_APPROVAL_NEEDED``): נשלחת דרך ``emit_internal_alert`` כשהאינדקס *נכנס* להמתנה לאישור — במסמך המצב לא הייתה ``approval`` לפני הכתיבה של המעבר — ולא בכל מעבר שעוצר, כמו ``docs_index_awaiting_approval``. השדות שלה: ``reason`` (ה-``code`` של המעבר), ``chunks_to_embed``, ``approval_threshold``, ``source_commit`` של הקובץ שנבדק, ו-``indexed_commit`` — הקומיט שהאינדקס נכון אליו, כשיש כזה. ``alert_type`` הוא אותו שם, וה-runbook באותו שם ב-``config/observability_runbooks.yml`` נותן לה שורת Quick Fix לעמוד האדמין.
 

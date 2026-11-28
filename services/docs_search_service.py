@@ -243,47 +243,61 @@ def _ranked_round(
     return ranked, groups, chunks
 
 
+def read_sections(db: Any, section_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """מסמכי הסעיפים לפי המזהים, עם השדות ש-:func:`section_result` קורא. סעיף שאינו במסד חסר במילון."""
+    return {
+        doc["_id"]: doc
+        for doc in db[contract.SECTIONS_COLLECTION].find({"_id": {"$in": list(section_ids)}}, _SECTION_FIELDS)
+    }
+
+
+def section_result(section_id: str, doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """מסמך של סעיף מהמסד ← מה שהכרטיס מציג: כותרת, שביל, קובץ מקור, מארקדאון, וכתובת הסעיף באתר.
+
+    החיפוש והחילוץ (``services/docs_extract_service.py``) מציגים סעיף מאותה פונקציה, ולכן הקישור — כולל
+    הקפיצה לעדכון ביומן עדכונים — זהה בשניהם. ``None`` כשאי אפשר לבנות קישור תקין לסעיף; הסעיף לא מוצג.
+    """
+    # הטקסט שהקישור קופץ אליו — הפתיח של עדכון ביומן עדכונים. ערך שאינו טקסט מוביל לעוגן בלבד:
+    # הקישור נשאר נכון, רק בלי הקפיצה.
+    link_text = doc.get("link_text")
+    if not isinstance(link_text, str) or not link_text.strip():
+        link_text = ""
+    try:
+        url = contract.section_url(doc.get("page_path"), doc.get("anchor"), link_text)
+    except ValueError:
+        # המעבר בודק את שניהם לפני שהוא שומר — ערך כזה הגיע ממקור אחר, ואסור לו להיכנס לקישור.
+        logger.warning("docs search: section %s has no valid page path or anchor; skipped", section_id)
+        return None
+    breadcrumb = doc.get("breadcrumb")
+    return {
+        "section_id": section_id,
+        "title": doc.get("title") if isinstance(doc.get("title"), str) else "",
+        "breadcrumb": [part for part in breadcrumb if isinstance(part, str)]
+        if isinstance(breadcrumb, list) else [],
+        "page_title": doc.get("page_title") if isinstance(doc.get("page_title"), str) else "",
+        "page_path": doc["page_path"],
+        # קובץ המקור בריפו (``docs/webapp/search.rst``), שהכרטיס מציג. הוא נבדק מול
+        # ``SOURCE_PATH_RE`` כשקובץ הייצוא של האתר נקרא, ונכנס לכרטיס כטקסט בלבד ולא לקישור.
+        "source_path": doc.get("source_path") if isinstance(doc.get("source_path"), str) else "",
+        "anchor": doc["anchor"],
+        "url": url,
+        "markdown": doc.get("markdown") if isinstance(doc.get("markdown"), str) else "",
+    }
+
+
 def _results(db: Any, ranked: List[Tuple[str, float]]) -> List[Dict[str, Any]]:
     """הסעיפים עצמם, בסדר של הציון. סעיף שנמחק בין שתי הקריאות (מעבר שרץ עכשיו) לא מוחזר."""
-    ids = [section_id for section_id, _score in ranked]
-    found = {
-        doc["_id"]: doc
-        for doc in db[contract.SECTIONS_COLLECTION].find({"_id": {"$in": ids}}, _SECTION_FIELDS)
-    }
+    found = read_sections(db, [section_id for section_id, _score in ranked])
     results: List[Dict[str, Any]] = []
     for section_id, score in ranked:
         doc = found.get(section_id)
         if doc is None:
             continue
-        # הטקסט שהקישור קופץ אליו — הפתיח של עדכון ביומן עדכונים. ערך שאינו טקסט מוביל לעוגן בלבד:
-        # הקישור נשאר נכון, רק בלי הקפיצה.
-        link_text = doc.get("link_text")
-        if not isinstance(link_text, str) or not link_text.strip():
-            link_text = ""
-        try:
-            url = contract.section_url(doc.get("page_path"), doc.get("anchor"), link_text)
-        except ValueError:
-            # המעבר בודק את שניהם לפני שהוא שומר — ערך כזה הגיע ממקור אחר, ואסור לו להיכנס לקישור.
-            logger.warning("docs search: section %s has no valid page path or anchor; skipped", section_id)
+        result = section_result(section_id, doc)
+        if result is None:
             continue
-        breadcrumb = doc.get("breadcrumb")
-        results.append(
-            {
-                "section_id": section_id,
-                "title": doc.get("title") if isinstance(doc.get("title"), str) else "",
-                "breadcrumb": [part for part in breadcrumb if isinstance(part, str)]
-                if isinstance(breadcrumb, list) else [],
-                "page_title": doc.get("page_title") if isinstance(doc.get("page_title"), str) else "",
-                "page_path": doc["page_path"],
-                # קובץ המקור בריפו (``docs/webapp/search.rst``), שהכרטיס מציג. הוא נבדק מול
-                # ``SOURCE_PATH_RE`` כשקובץ הייצוא של האתר נקרא, ונכנס לכרטיס כטקסט בלבד ולא לקישור.
-                "source_path": doc.get("source_path") if isinstance(doc.get("source_path"), str) else "",
-                "anchor": doc["anchor"],
-                "url": url,
-                "markdown": doc.get("markdown") if isinstance(doc.get("markdown"), str) else "",
-                "score": round(score, 4),
-            }
-        )
+        result["score"] = round(score, 4)
+        results.append(result)
     return results
 
 

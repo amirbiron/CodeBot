@@ -1392,6 +1392,24 @@
      - ``DEFAULT_CONTEXT_EXCHANGES`` (5)
      - ``8``
      - Bot
+   * - ``DOCS_EXTRACT_API_KEY``
+     - מפתח ה-API של מודל השפה של "חלץ" בחיפוש בתיעוד (אדמין), למשל מפתח Gemini. שלושת משתני ``DOCS_EXTRACT_`` נפרדים מאלה של היועץ, באותם כללים. כשאף אחד מהם לא מוגדר הכפתור לא מוצג, וכשרק חלק מהם מוגדרים הלחיצה אומרת מה חסר. ראו :ref:`global-search-docs`
+     - לא
+     - ריק
+     - ``AIza...``
+     - WebApp
+   * - ``DOCS_EXTRACT_BASE_URL``
+     - כתובת ה-API התואם OpenAI של מודל השפה של "חלץ", כולל ``https://``
+     - לא
+     - ריק
+     - ``https://generativelanguage.googleapis.com/v1beta/openai/``
+     - WebApp
+   * - ``DOCS_EXTRACT_MODEL``
+     - שם המודל ש-"חלץ" פונה אליו
+     - לא
+     - ריק
+     - ``gemini-3.8-flash``
+     - WebApp
    * - ``SEMANTIC_SEARCH_ENABLED``
      - הפעלת החיפוש הסמנטי (embeddings). כבוי = חיפוש טקסטואלי בלבד
      - לא

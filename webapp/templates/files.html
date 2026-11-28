@@ -96,10 +96,12 @@
               <option value="fuzzy">מטושטש</option>
               <option value="function">פונקציות</option>
               {# אדמין אפקטיבי בלבד: ``user_is_admin`` שקר בזמן התחזות. הכתובות מגיעות מ-url_for,
-                 ו-global_search.js קורא אותן מכאן. #}
+                 ו-global_search.js קורא אותן מכאן. הכתובת של "חלץ" — רק כשההגדרות שלו לא ריקות כולן
+                 (``docs_extract_offered``); בלעדיה הכפתור לא מוצג. #}
               {% if user_is_admin %}
               <option value="docs"
                       data-search-url="{{ url_for('api_search_docs') }}"
+                      {% if docs_extract_offered() %}data-extract-url="{{ url_for('api_search_docs_extract') }}"{% endif %}
                       data-admin-url="{{ url_for('admin_docs_index_page') }}">תיעוד</option>
               {% endif %}
             </select>

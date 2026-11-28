@@ -924,6 +924,30 @@ class ConfigService:
             ),
             category="ai",
         ),
+        # --- "חלץ" בחיפוש בתיעוד בוובאפ: services/docs_extract_service.py. אותם כללים כמו של היועץ
+        # (services/llm_endpoint_settings.py), בהגדרות נפרדות. כשאף אחד מהשלושה לא מוגדר הכפתור לא מוצג. ---
+        "DOCS_EXTRACT_API_KEY": ConfigDefinition(
+            key="DOCS_EXTRACT_API_KEY",
+            services=("webapp",),
+            default="",
+            description="מפתח ה-API של מודל השפה של \"חלץ\" בחיפוש בתיעוד (אדמין), למשל מפתח Gemini",
+            category="ai",
+            sensitive=True,
+        ),
+        "DOCS_EXTRACT_BASE_URL": ConfigDefinition(
+            key="DOCS_EXTRACT_BASE_URL",
+            services=("webapp",),
+            default="",
+            description="כתובת ה-API התואם OpenAI של מודל השפה של \"חלץ\", כולל https://",
+            category="ai",
+        ),
+        "DOCS_EXTRACT_MODEL": ConfigDefinition(
+            key="DOCS_EXTRACT_MODEL",
+            services=("webapp",),
+            default="",
+            description="שם המודל ש-\"חלץ\" בחיפוש בתיעוד פונה אליו",
+            category="ai",
+        ),
         "SEMANTIC_SEARCH_ENABLED": ConfigDefinition(
             key="SEMANTIC_SEARCH_ENABLED",
             services=("webapp", "bot"),

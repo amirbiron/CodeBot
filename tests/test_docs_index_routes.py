@@ -455,6 +455,7 @@ _API = [
     ("POST", "/api/docs-index/check"),
     ("POST", "/api/docs-index/stop"),
     ("POST", "/api/search/docs"),
+    ("POST", "/api/search/docs/extract"),
 ]
 
 
