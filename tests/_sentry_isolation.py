@@ -22,8 +22,16 @@ redis, httpx, aiohttp, flask. הן עוטפות את הספריות האלה ע�
 - בתחילת הריצה מסיר את ``SENTRY_DSN`` מהסביבה, כך שגם כתובת אמיתית מהמעטפת
   של מי שמריץ לא מגיעה לבדיקות.
 - אחרי כל בדיקה, אחרי שכל הפיקסצ'רים שלה פורקו — כולל ``monkeypatch``, ולכן
-  בדיקה שהשתמשה בו נכון אינה נתפסת — ``SENTRY_DSN`` שנשאר בסביבה או לקוח
-  Sentry חי מוחזרים למצב נקי, והבדיקה **שהשאירה אותם** נכשלת בשמה.
+  בדיקה שהשתמשה בו נכון אינה נתפסת — ``SENTRY_DSN`` שנשאר בסביבה, לקוח Sentry
+  חי, או מודול מזויף של ``sentry_sdk`` שנשאר ב-``sys.modules`` מוחזרים למצב
+  נקי, והבדיקה **שהשאירה אותם** נכשלת בשמה.
+
+**ומודול מזויף.** קוד שמייבא את ``sentry_sdk`` בזמן הקריאה — ``_set_sentry_tag``
+ב-``observability.py`` — מקבל את מה שיש ב-``sys.modules`` באותו רגע. בדיקה ששמה
+שם מודול מזויף בלי להחזיר את האמיתי גרמה לכך שבכל הבדיקות שאחריה התגיות לא
+הגיעו ל-scope האמיתי, בזמן שבדיקה שייבאה את ``sentry_sdk`` בזמן האיסוף קיבלה
+אירועים אמיתיים — בלי תגיות. כך נפלו טסטים של ``tests/test_webserver_observability_scope.py``
+בריצה הסדרתית של ``deploy.yml`` ב-28.11.2026, אחרי ``tests/test_observability_basic.py``.
 
 **למה להכשיל ולא לנקות בשקט.** ניקוי שקט היה מסתיר את הבדיקה הדולפת, והכשל
 הבא היה מופיע שוב אצל בדיקה אחרת, תמימה — בדיוק מה שקרה כאן.
@@ -36,6 +44,8 @@ redis, httpx, aiohttp, flask. הן עוטפות את הספריות האלה ע�
 from __future__ import annotations
 
 import os
+import sys
+from types import ModuleType
 
 import pytest
 
@@ -51,8 +61,52 @@ DSN_ENV = "SENTRY_DSN"
 REPORT_PREFIX = "[sentry-isolation]"
 
 
+#: המודולים האמיתיים של sentry-sdk שנטענו עד תחילת הריצה, לפי שם (``pytest_configure``). בדיקה שהחליפה אחד מהם
+#: ב-``sys.modules`` ולא החזירה אותו נתפסת מול הרשימה הזו.
+_REAL_SENTRY_MODULES: dict[str, ModuleType] = {}
+
+
+def _is_sentry_module_name(name: str) -> bool:
+    return name == "sentry_sdk" or name.startswith("sentry_sdk.")
+
+
 def pytest_configure(config: pytest.Config) -> None:
     os.environ.pop(DSN_ENV, None)
+    _REAL_SENTRY_MODULES.update({name: mod for name, mod in sys.modules.items() if _is_sentry_module_name(name)})
+
+
+def _comes_from_the_installed_sentry_sdk(module: object) -> bool:
+    """האם המודול נטען מהחבילה המותקנת. מודול מזויף (``types.ModuleType``) אין לו ``__spec__``."""
+    if sentry_sdk is None:
+        return False
+    package_dir = os.path.dirname(sentry_sdk.__spec__.origin)
+    origin = getattr(getattr(module, "__spec__", None), "origin", None) or ""
+    return os.path.abspath(origin).startswith(package_dir + os.sep)
+
+
+def restore_real_sentry_modules() -> list[str]:
+    """מחזיר ל-``sys.modules`` את המודולים האמיתיים של sentry-sdk, ומחזיר את שמות אלה שהיו מוחלפים.
+
+    שם שהיה ברשימה של תחילת הריצה ומוחזק עכשיו במודול אחר — חוזר למודול האמיתי. שם שלא היה ברשימה (תת-מודול
+    שנטען מאוחר יותר) ואינו מהחבילה המותקנת — יוצא מ-``sys.modules``, והייבוא הבא טוען את האמיתי.
+    """
+    replaced: list[str] = []
+    for name, module in list(sys.modules.items()):
+        if not _is_sentry_module_name(name):
+            continue
+        real = _REAL_SENTRY_MODULES.get(name)
+        if real is not None:
+            if module is not real:
+                sys.modules[name] = real
+                replaced.append(name)
+        elif not _comes_from_the_installed_sentry_sdk(module):
+            del sys.modules[name]
+            replaced.append(name)
+    for name, real in _REAL_SENTRY_MODULES.items():
+        if name not in sys.modules:
+            sys.modules[name] = real
+            replaced.append(name)
+    return sorted(set(replaced))
 
 
 def shut_down_sentry() -> bool:
@@ -104,6 +158,13 @@ def restore_sentry_isolation() -> list[str]:
             f"{DSN_ENV} נשאר בסביבה. כותבים אותו ב-monkeypatch.setenv ולא ב-os.environ[...] = ..., "
             "ו-monkeypatch.delenv אחרי השמה ישירה אינו ניקוי: הוא זוכר את הערך שמצא ומחזיר אותו "
             "בסוף הבדיקה."
+        )
+    replaced = restore_real_sentry_modules()
+    if replaced:
+        problems.append(
+            f"מודול של sentry_sdk הוחלף ב-sys.modules ולא הוחזר ({', '.join(replaced)}). מחליפים אותו ב-"
+            "monkeypatch.setitem(sys.modules, ...), שמחזיר את האמיתי בסוף הבדיקה. השמה ישירה נשארת לכל שאר "
+            "הריצה, וכל קוד שמייבא את sentry_sdk בזמן הקריאה מקבל אחריה את המזויף."
         )
     if shut_down_sentry():
         problems.append(

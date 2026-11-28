@@ -300,6 +300,69 @@ def test_the_recommended_cleanup_passes_and_close_alone_does_not(tmp_path):
     )
 
 
+#: מודול מזויף של ``sentry_sdk`` שנשאר ב-``sys.modules``, כמו ב-``test_observability_basic.py`` וב-
+#: ``test_observability_sentry_bridge.py`` עד 28.11.2026. הבדיקה הבאה מייבאת את ``sentry_sdk`` בזמן הריצה — כמו
+#: ``_set_sentry_tag`` ב-``observability.py`` — ובודקת שהיא קיבלה את האמיתי.
+_FAKE_MODULE = """
+import sys
+import types
+
+
+def test_leaves_a_fake_sentry_sdk():
+    sys.modules["sentry_sdk"] = types.ModuleType("sentry_sdk")
+
+
+def test_next_one_imports_the_real_sentry_sdk():
+    import sentry_sdk
+
+    assert hasattr(sentry_sdk, "init") and sentry_sdk.__spec__ is not None
+"""
+
+
+def test_a_test_that_leaves_a_fake_sentry_sdk_errors_and_the_next_gets_the_real_one(tmp_path):
+    output = _run_inner(tmp_path, _FAKE_MODULE, with_guard=True)
+
+    assert "ERROR test_inner.py::test_leaves_a_fake_sentry_sdk" in output, (
+        f"הבדיקה שהשאירה sentry_sdk מזויף לא נכשלה בשמה:\n{output}"
+    )
+    assert "monkeypatch.setitem(sys.modules" in output, f"הכישלון אינו אומר מה לעשות במקום:\n{output}"
+    assert "PASSED test_inner.py::test_next_one_imports_the_real_sentry_sdk" in output, (
+        f"הבדיקה הבאה קיבלה את המודול המזויף:\n{output}"
+    )
+
+
+def test_without_the_guard_a_fake_sentry_sdk_does_reach_the_next_test(tmp_path):
+    output = _run_inner(tmp_path, _FAKE_MODULE, with_guard=False)
+
+    assert "FAILED test_inner.py::test_next_one_imports_the_real_sentry_sdk" in output, (
+        f"בלי הפלאגין המודול המזויף לא הגיע לבדיקה הבאה — התרחיש אינו משחזר את הדליפה:\n{output}"
+    )
+
+
+def test_a_fake_sentry_sdk_through_monkeypatch_is_not_flagged(tmp_path):
+    """הדרך הנכונה: ``monkeypatch.setitem`` מחזיר את האמיתי לפני שהשומר בודק."""
+    body = """
+import sys
+import types
+
+
+def test_fakes_sentry_sdk_the_right_way(monkeypatch):
+    monkeypatch.setitem(sys.modules, "sentry_sdk", types.ModuleType("sentry_sdk"))
+    monkeypatch.setitem(sys.modules, "sentry_sdk.integrations.logging", types.ModuleType("sentry_sdk.integrations.logging"))
+
+
+def test_next_one_imports_the_real_sentry_sdk():
+    import sentry_sdk
+
+    assert hasattr(sentry_sdk, "init")
+"""
+    output = _run_inner(tmp_path, body, with_guard=True)
+
+    assert "ERROR test_inner.py::" not in output and "2 passed" in output, (
+        f"בדיקה שהחליפה את sentry_sdk דרך monkeypatch נתפסה כדולפת:\n{output}"
+    )
+
+
 def test_a_dsn_from_the_outer_environment_never_reaches_the_tests(tmp_path):
     """כתובת אמיתית מהמעטפת של מי שמריץ — או מסוד ב-CI — אינה מגיעה לאף בדיקה."""
     body = "import os\n" + _NEXT_STARTS_CLEAN

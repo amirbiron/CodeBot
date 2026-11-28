@@ -26,7 +26,9 @@ def test_emit_event_error_sends_to_sentry_with_request_id(monkeypatch):
 
     sentry_mod.push_scope = _push_scope
     sentry_mod.capture_message = _capture_message
-    sys.modules["sentry_sdk"] = sentry_mod
+    # דרך monkeypatch, שמחזיר את sentry_sdk האמיתי בסוף הבדיקה. השמה ישירה נשארת לכל שאר הריצה
+    # (``tests/_sentry_isolation.py`` מכשיל אותה).
+    monkeypatch.setitem(sys.modules, "sentry_sdk", sentry_mod)
 
     # Use a dummy logger to avoid side effects
     class _Logger:
