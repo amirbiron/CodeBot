@@ -637,6 +637,15 @@
       return (Number.isFinite(v) && v > 0) ? v : 0;
     } catch(_) { return 0; }
   }
+  /**
+   * האם גוף ארוך מהתקרה של השרת — בקוד-פוינטים, כמו השרת (``codePointLength``), מול התקרה שהעמוד קיבל ממנו
+   * (``maxNoteChars``). בלי תקרה ידועה — לא. משותף למסגרת האדומה (``_checkContentLength``) ולשליחה מעל שמירה שנחתה
+   * (``_sendScreenOverOwnSave``).
+   */
+  function contentOverCap(text){
+    const cap = maxNoteChars();
+    return !!cap && codePointLength(text) > cap;
+  }
   //: שורת משימה: ``- [ ] טקסט`` או ``* [x] טקסט``, עם הזחה כלשהי.
   //: אותה תבנית בדיוק כמו ``_TASK_RE`` ב-``sticky_notes_tasks.py`` — שם
   //: מתבצעת הכתיבה, וכאן רק התצוגה. סטייה ביניהן הייתה מזיזה סידורים.
@@ -2343,6 +2352,11 @@
      */
     _sendScreenOverOwnSave(entry){
       const fragment = this._unsavedFragment(entry);
+      // **בלי גוף שהשרת ידחה בוודאות** — ארוך מהתקרה (``contentOverCap``, אותה מדידה של השרת ושל המסגרת האדומה,
+      // ``_checkContentLength``). השמירה נדחית כולה ב-``content_too_long``, ואיתה גם השדה שהתיישר. השליחה אינה מוגבלת לשדה
+      // שהתיישר: כל מה שבמסך ושונה מהבסיס יוצא. **ולא ב-``_unsavedFragment``:** בסוף השחזור (``_afterDraftRestored``) מטען
+      // ריק פירושו "אין מה לשמור", והטיוטה — העותק היחיד של טקסט ארוך ששוחזר — הייתה נמחקת.
+      if (Object.prototype.hasOwnProperty.call(fragment, 'content') && contentOverCap(fragment.content)) delete fragment.content;
       if (Object.keys(fragment).length) this._queueSave(entry.el, fragment);
     }
 
@@ -6661,11 +6675,8 @@
       // כבר הדביק והמשיך. כאן זה נראה בזמן ההקלדה.
       _checkContentLength(el, text){
         try {
-          const cap = maxNoteChars();
-          // בקוד-פוינטים, כמו השרת — ראו ``codePointLength``.
-          const len = codePointLength(text);
           let warn = el.querySelector('.sticky-note-warn');
-          if (!cap || len <= cap) {
+          if (!contentOverCap(text)) {
             if (warn && warn.remove) warn.remove();
             el.classList.remove('has-length-error');
             return false;
@@ -6674,6 +6685,9 @@
             warn = createEl('div', 'sticky-note-warn');
             el.appendChild(warn);
           }
+          // בקוד-פוינטים, כמו השרת — ראו ``codePointLength``.
+          const len = codePointLength(text);
+          const cap = maxNoteChars();
           // הניסוח מדויק לחוזה השרת: העדכון כולו נדחה, לא רק הזנב
           warn.textContent = `הפתק ארוך מהמותר: ${len} מתוך ${cap} תווים. יש לקצר אותו כדי שיישמר.`;
           el.classList.add('has-length-error');
@@ -7186,36 +7200,46 @@
         // נבדק, ועדיין ממתין לשמירה שהטיוטה זכרה ועשויה לנחות (``draftSettling``, ``_afterDraftRestored``).
         const finishingDraft = !!(entry.draftAwaitingServer || entry.draftSettling);
         entry.draftAwaitingServer = false;
-        // הבסיס לפני הפיוס — כדי לדעת אם הוא התיישר לשמירה שלנו שנחתה (``_reconcileFields``, ``isOurs``).
-        const base = this._noteBase(entry);
-        const before = { content: base.content, title: base.title };
-        const outcome = this._reconcileFields(entry, server, source);
+        const adopted = { content: false, title: false };
+        const outcome = this._reconcileFields(entry, server, source, adopted);
         if (finishingDraft) this._afterDraftRestored(entry, outcome);
-        else if ((outcome === 'adopted' || outcome === 'same') && (base.content !== before.content || base.title !== before.title)) {
-          // בלי שינוי ממקום אחר, הבסיס זז רק כשהתיישר לשמירה שלנו — ומה שבמסך נשלח מעליה (``_sendScreenOverOwnSave``).
+        else if (outcome !== 'notified' && (adopted.content || adopted.title)) {
+          // הבסיס התיישר לשמירה שלנו שנחתה, ואין החלטה פתוחה — גם כששדה אחר הוחל באותה קריאה ממקום אחר (``'applied'``).
+          // מה שבמסך נשלח מעליה (``_sendScreenOverOwnSave``).
           this._sendScreenOverOwnSave(entry);
         }
         return outcome;
       }
 
-      /** הפיוס עצמו, שדה-שדה — ראו ``_reconcileServerNote``. */
-      _reconcileFields(entry, server, source){
+      /**
+       * הפיוס עצמו, שדה-שדה — ראו ``_reconcileServerNote``. ``adopted`` (אופציונלי) מתמלא בשדות שבהם הבסיס התיישר לשמירה
+       * שלנו שנחתה — בנפרד מהתוצאה, כי באותה קריאה שדה אחר יכול להיות שינוי ממקום אחר (``'applied'``).
+       */
+      _reconcileFields(entry, server, source, adopted){
         const id = server.id;
         const base = this._noteBase(entry);
         this._applyRemoteColor(entry, server.color);
         const token = typeof server.updated_at === 'string' && server.updated_at ? server.updated_at : null;
         const remoteContent = String(server.content == null ? '' : server.content);
         const remoteTitle = canonicalTitleText(String(server.title == null ? '' : server.title));
-        const own = entry.unconfirmed || [];
-        // **שמירה שלנו מסבירה את מה שבשרת רק כשהיא יכלה לנחות** (``sendCouldLand``, מול האסימון שבבסיס לפני הפיוס) — לא
-        // לפי הטקסט בלבד. שמירה שהאסימון שלה כבר זז (נצפתה מאז כתיבה אחרת) הייתה נדחית ב-409, ולכן גוף זהה לשלה הוא
-        // כתיבה של מישהו אחר. עד נובמבר 2026 ההשוואה הייתה לפי הטקסט: הבסיס התיישר אליו בשקט, בלי התראה, והשמירה הבאה
-        // של מה שבמסך דרסה אותו.
-        const isOurs = (field, value) => own.some((s) => Object.prototype.hasOwnProperty.call(s, field) && s[field] === value
-          && sendCouldLand(s, base.updated_at));
-        // שמירה שלנו שנחתה (התשובה עליה הלכה לאיבוד, או שתיים היו באוויר): הבסיס מתיישר איתה.
-        if (remoteContent !== base.content && isOurs('content', remoteContent)) base.content = remoteContent;
-        if (remoteTitle !== base.title && isOurs('title', remoteTitle)) base.title = remoteTitle;
+        const remote = { content: remoteContent, title: remoteTitle };
+        const has = (s, field) => Object.prototype.hasOwnProperty.call(s, field);
+        // **שמירה שלנו שנחתה** (התשובה עליה הלכה לאיבוד, או שתיים היו באוויר): הבסיס מתיישר איתה — **אם שמירה אחת מסבירה
+        // את כל השדות שמתאימים לשמירות שלנו**, ורק כשהיא יכלה לנחות (``sendCouldLand``, מול האסימון שבבסיס לפני הפיוס).
+        // שמירה שהאסימון שלה כבר זז הייתה נדחית ב-409, ומבין השמירות שנשאו את האסימון שבבסיס רק אחת יכלה לנחות: הראשונה
+        // שנוחתת מזיזה אותו, ושאר אלה שנשאו אותו נדחות. לכן גוף שמתאים לשמירה אחת ושם שמתאים לשמירה אחרת הם צירוף שאף
+        // שמירה לא כתבה — שניהם נשארים שינוי ממקום אחר, והמשתמש מקבל התראה. עד נובמבר 2026 כל שדה הותאם בנפרד ולפי הטקסט
+        // בלבד, והבסיס התיישר בשקט גם לכתיבה של מישהו אחר.
+        const canLand = (entry.unconfirmed || []).filter((s) => sendCouldLand(s, base.updated_at));
+        const explains = (s, field) => has(s, field) && s[field] === remote[field];
+        const matching = ['content', 'title'].filter((f) => remote[f] !== base[f] && canLand.some((s) => explains(s, f)));
+        const landed = matching.length ? canLand.find((s) => matching.every((f) => explains(s, f))) : null;
+        if (landed) {
+          for (const f of matching) {
+            base[f] = remote[f];
+            if (adopted) adopted[f] = true;
+          }
+        }
         const foreign = { content: remoteContent !== base.content, title: remoteTitle !== base.title };
         if (!foreign.content && !foreign.title) {
           // שום שדה עריכה לא השתנה ממקום אחר — רק האסימון (שמירה שלנו), או כלום.

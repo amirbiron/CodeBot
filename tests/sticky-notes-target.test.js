@@ -7515,7 +7515,10 @@ check('שמירה שאושרה בלי שהאסימון זז אינה מוחקת 
     mgr._flushPendingKeepalive();
     const sent = calls[calls.length - 1];
     eq(sent.opts.keepalive, true, 'ובהסתרה הוא יוצא ב-keepalive');
-    eq(JSON.parse(sent.opts.body).prev_updated_at, 'T1', 'מעל "בסיס B", עם האסימון שלה');
+    const body = JSON.parse(sent.opts.body);
+    const content = typeof body.content_b64 === 'string' ? Buffer.from(body.content_b64, 'base64').toString('utf8') : body.content;
+    eq(content, 'בסיס', 'עם מה שהמשתמש החזיר');
+    eq(body.prev_updated_at, 'T1', 'מעל "בסיס B", עם האסימון שלה');
   } finally { cleanupMgr(mgr); }
 });
 
@@ -7603,6 +7606,108 @@ check('שמירה ישנה של השם שנחתה מזוהה בעמוד שנשא
     eq(n.titleInput.value, '', 'השם שהמשתמש מחק נשאר מחוק');
     const queued = mgr._pending.get(DRAFT_ID);
     eq(!!queued && queued.title, '', 'ונכנס לתור, לשמירה מעל "שם B"');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('שמירה ישנה שלנו שנחתה, ובאותה קריאה שם חדש ממקום אחר — השם מוחל, ומה שבמסך בגוף נשלח מעל השמירה', async () => {
+  // הפיוס מחיל את השם ("applied"), ובגוף מזהה את "בסיס B" כשלנו. עד התיקון השליחה מעל שמירה שנחתה רצה רק כשהפיוס
+  // לא החיל שום דבר ממקום אחר, ומה שהמשתמש החזיר בגוף נשאר רק במסך.
+  const { mgr, n, notices } = await revertConfirmedAfterAFailedSave('ka49-file', 'T0');
+  try {
+    eq(mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס B', title: 'שם R', updated_at: 'T1' }, 'poll'), 'applied',
+       'בקרה: השם ממקום אחר הוחל');
+    eq(n.titleInput.value, 'שם R', 'השם החדש במסך');
+    eq(n.ta.value, 'בסיס', 'ובגוף — מה שהמשתמש החזיר');
+    eq(JSON.stringify(notices), '[]', 'בלי "יש עדכון חדש"');
+    const queued = mgr._pending.get(DRAFT_ID) || {};
+    eq(queued.content, 'בסיס', 'הגוף נכנס לתור, מעל "בסיס B"');
+    eq(Object.prototype.hasOwnProperty.call(queued, 'title'), false, 'והשם — כמו שהוחל, בלי לשלוח אותו');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('שמירה ישנה שלנו שנחתה, ובאותה קריאה שם ממקום אחר בשם שהמשתמש שינה — התראה, ושום דבר לא נשלח (בקרה)', async () => {
+  // יש החלטה פתוחה: השמירות מוחזקות עד שהמשתמש בוחר, ושליחה עכשיו הייתה כותבת לפני הבחירה.
+  const { mgr, n, notices } = await revertConfirmedAfterAFailedSave('ka54-file', 'T0');
+  try {
+    n.titleInput.value = 'שם מקומי';
+    eq(mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס B', title: 'שם R', updated_at: 'T1' }, 'poll'), 'notified',
+       'בקרה: התראה על השם');
+    eq(notices.length, 1, 'בקרה: ההתראה הוצגה');
+    eq(mgr._pending.has(DRAFT_ID), false, 'ושום דבר לא נכנס לתור');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('שני שדות בשרת שמתאימים לשתי שמירות שונות שלנו אינם נחשבים שלנו — רק אחת מהן יכלה לנחות', () => {
+  // שתיהן נשאו את האסימון שבבסיס, והראשונה שנוחתת מזיזה אותו, ולכן השנייה כבר תידחה ב-409. גוף שמתאים לאחת ושם
+  // שמתאים לשנייה הם צירוף שאף שמירה לא כתבה. עד התיקון כל שדה הותאם בנפרד, הבסיס התיישר לשניהם בשקט, ומה שבמסך
+  // היה נשלח מעליהם בלי לשאול.
+  const { mgr } = keepaliveSandbox('ka50-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  const notices = [];
+  mgr._showRemoteNotice = (el, server) => { notices.push(server && server.content); };
+  try {
+    const now = Date.now();
+    n.entry.unconfirmed = [{ content: 'בסיס X', sentToken: 'T0', sentAt: now }, { title: 'שם Y', sentToken: 'T0', sentAt: now }];
+    n.ta.value = 'בסיס + מקומי';
+    eq(mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס X', title: 'שם Y', updated_at: 'T1' }, 'poll'), 'notified',
+       'השינוי בגוף הוא ממקום אחר, ויש במסך שינוי — התראה');
+    eq(JSON.stringify(notices), JSON.stringify(['בסיס X']), 'ההתראה על מה שבשרת');
+    eq(mgr._pending.has(DRAFT_ID), false, 'ושום דבר לא נשלח');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('שמירה אחת שלנו שמסבירה את הגוף ואת השם בשרת — שניהם נחשבים שלנו (בקרה)', () => {
+  const { mgr } = keepaliveSandbox('ka51-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.entry.unconfirmed = [{ content: 'בסיס X', title: 'שם Y', sentToken: 'T0', sentAt: Date.now() }];
+    n.ta.value = 'בסיס X';
+    n.titleInput.value = 'שם Y';
+    eq(mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס X', title: 'שם Y', updated_at: 'T1' }, 'poll'), 'adopted',
+       'הבסיס התיישר לשמירה');
+    eq(n.entry.base.content, 'בסיס X', 'בגוף');
+    eq(n.entry.base.title, 'שם Y', 'ובשם');
+  } finally { cleanupMgr(mgr); }
+});
+
+/** שם ישן שנחת מעל שם שהמשתמש מחק — ``ka47``, עם גוף במסך שלא בתור (כמו אחרי שמירה שנדחתה). */
+async function titleLandedWithAnUnsentBody(name, body) {
+  const box = keepaliveSandbox(name);
+  box.sb.window.STICKY_NOTE_MAX_CHARS = 20;
+  const n = liveNoteOn(box.mgr, DRAFT_ID, 'בסיס', 'T0');
+  n.titleInput.value = 'שם B';
+  const first = box.mgr._sendUpdate(DRAFT_ID, { title: 'שם B' }, 0);
+  box.calls[0].fail();
+  await first;
+  box.mgr._saveDebounced.cancel();
+  box.mgr._pending.delete(DRAFT_ID);
+  n.titleInput.value = '';
+  const second = box.mgr._sendUpdate(DRAFT_ID, { title: '' }, 0);
+  box.calls[1].release(200, { ok: true, updated_at: 'T0' });
+  await second;
+  n.ta.value = body;
+  eq(box.mgr._pending.has(DRAFT_ID), false, 'בקרה: אין מה לשלוח');
+  box.mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס', title: 'שם B', updated_at: 'T1' }, 'poll');
+  return { ...box, n, queued: box.mgr._pending.get(DRAFT_ID) || {} };
+}
+
+check('שמירה ישנה שלנו שנחתה — מה שבמסך נשלח מעליה, בלי גוף ארוך מהתקרה: השרת דוחה אותו', async () => {
+  // הגוף במסך ארוך מהתקרה (``STICKY_NOTE_MAX_CHARS``) — שמירה שלו נדחית ב-``content_too_long``, והמסגרת האדומה כבר
+  // אומרת למשתמש לקצר (``_checkContentLength``). השם שהמשתמש מחק נשלח בלעדיו. עד התיקון הוא נשלח יחד עם הגוף, והשמירה
+  // כולה נדחתה — גם השם.
+  const { mgr, queued } = await titleLandedWithAnUnsentBody('ka52-file', 'א'.repeat(21));
+  try {
+    eq(queued.title, '', 'השם נכנס לתור');
+    eq(Object.prototype.hasOwnProperty.call(queued, 'content'), false, 'בלי הגוף שארוך מהתקרה');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('שמירה ישנה שלנו שנחתה — שינוי אחר במסך, בתוך התקרה, נשלח איתה (בקרה)', async () => {
+  // השליחה אינה מוגבלת לשדה שהתיישר: כל מה שבמסך ושונה מהבסיס יוצא, חוץ ממה שהשרת ידחה בוודאות.
+  const { mgr, queued } = await titleLandedWithAnUnsentBody('ka53-file', 'בסיס + קצר');
+  try {
+    eq(queued.title, '', 'השם נכנס לתור');
+    eq(queued.content, 'בסיס + קצר', 'וגם הגוף שבמסך');
   } finally { cleanupMgr(mgr); }
 });
 
