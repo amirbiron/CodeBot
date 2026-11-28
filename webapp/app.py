@@ -12192,6 +12192,14 @@ def privacy_policy():
     return render_template('privacy.html')
 
 
+def _gallery_image_src(image: str, static_version: str) -> str:
+    """הנתיב של קובץ תחת ``static/gallery/``, עם ``?v=`` — המקום היחיד שבונה אותו.
+
+    התבנית ``gallery.html`` (הצילומים ו-``og:image``) ו-:func:`sitemap_xml` קוראות לפונקציה הזו, כי גוגל מזהה תמונה לפי הכתובת שלה: כתובת ב-sitemap ששונה מזו שבעמוד, גם רק ב-``?v=``, נראית לו כמו תמונה אחרת. ``static_version`` מגיע מבחוץ: בתבנית — ``static_version`` של ``inject_globals``, וב-sitemap — ``_STATIC_VERSION``, שהוא אותו ערך בבקשה רגילה.
+    """
+    return url_for('static', filename='gallery/' + image) + '?v=' + static_version
+
+
 @app.route('/gallery', methods=['GET'])
 @_limiter_exempt()
 def gallery():
@@ -12203,6 +12211,7 @@ def gallery():
         'gallery.html',
         slides=GALLERY_SLIDES,
         share_image=gallery_share_image(GALLERY_SLIDES[0]),
+        gallery_image_src=_gallery_image_src,
         base_url=_webapp_base_url(),
     )
 
@@ -12549,19 +12558,32 @@ def sitemap_xml():
 
     כל ``<loc>`` הוא כתובת מלאה, עם escaping של ``& < > ' "`` כמו שהפרוטוקול דורש. פטור ממגבלת הקצב כמו
     ``robots.txt``.
+
+    ב-``<url>`` של הגלריה יש ``<image:image>`` עם ``<image:loc>`` לכל צילום ב-``GALLERY_SLIDES``, לפי הסדר — הרחבת ה-image sitemap של גוגל (https://developers.google.com/search/docs/crawling-indexing/sitemaps/image-sitemaps). ב-HTML שהשרת שולח (``gallery.html``) יש ``<img>`` אחד, עם הצילום הראשון, ואת השאר ה-JS מחליף בדפדפן; גוגל מוצא תמונות לפי ה-``src`` של ``<img>``, וכאן הוא מקבל כתובת ישירה לכל צילום. הכתובת היא זו שבעמוד (:func:`_gallery_image_src`). רק ``image:loc``: את ``image:caption``, ``image:title``, ``image:license`` ו-``image:geo_location`` גוגל הסיר ב-2022 (https://developers.google.com/search/blog/2022/05/spring-cleaning-sitemap-extensions), ואת התיאור של התמונה הוא לוקח מה-``alt`` ומהטקסט בעמוד.
     """
     from xml.sax.saxutils import escape as xml_escape
 
+    def loc(url: str) -> str:
+        return xml_escape(url, {"'": '&apos;', '"': '&quot;'})
+
     base_url = _webapp_base_url()
+    page_images = {
+        'gallery': [base_url + _gallery_image_src(slide.image, _STATIC_VERSION) for slide in GALLERY_SLIDES],
+    }
     entries = ''.join(
-        '<url><loc>{}</loc></url>'.format(
-            xml_escape(base_url + url_for(endpoint), {"'": '&apos;', '"': '&quot;'})
+        '<url><loc>{}</loc>{}</url>'.format(
+            loc(base_url + url_for(endpoint)),
+            ''.join(
+                '<image:image><image:loc>{}</image:loc></image:image>'.format(loc(src))
+                for src in page_images.get(endpoint, ())
+            ),
         )
         for endpoint in SITEMAP_ENDPOINTS
     )
     body = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"'
+        ' xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">'
         f'{entries}</urlset>\n'
     )
     return Response(body, mimetype='application/xml')
