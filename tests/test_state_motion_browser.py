@@ -1,8 +1,10 @@
 """אנימציות מעבר המצב — בכרומיום אמיתי, בעמודים האמיתיים, מול השרת האמיתי ומונגו אמיתי.
 
-ארבעה רכיבים, כולם דרך ``AnimUtils`` שב-``webapp/static/js/utils/animations.js``: מיזעור פתק בלוח,
-תפריט ⋮ בעמוד הקובץ, קבוצה בפיד האחרון בדשבורד, והחלונית "קבצים אחרונים" מחלונית קיצורי הדרך.
-ההסבר המלא — ``docs/webapp/theming_and_css.rst``, העוגן ``anim-utils-state-motion``.
+הרכיבים הם הסעיפים הממוספרים בקובץ: מיזעור פתק בלוח, תפריט ⋮ בעמוד הקובץ, קבוצה בפיד האחרון בדשבורד,
+החלונית "קבצים אחרונים" מחלונית קיצורי הדרך, חלוניות הסרגל ורשימת "שפות", ה-select בחיפוש הגלובלי, וצעד
+בצ'קליסט "צעדים ראשונים". כולם עוברים דרך ``AnimUtils`` שב-``webapp/static/js/utils/animations.js``,
+חוץ מה-select, שמונפש ב-CSS. ההסבר המלא — ``docs/webapp/theming_and_css.rst``, העוגן
+``anim-utils-state-motion``.
 
 **איך מודדים אמצע של אנימציה.** אחרי הלחיצה, ``getAnimations()`` של האלמנט מחזיר את האנימציות
 שהופעלו. כל אחת מוקפאת (``pause``) ומוזזת לזמן נתון (``currentTime``), והמדידה נעשית שם — כך
@@ -797,6 +799,154 @@ def test_the_search_select_list_is_readable_in_every_theme(make_page, db, theme)
         assert ratio >= 4.5, f"ניגודיות {ratio:.2f} בערכה {theme}: {colors}"
 
 
+# --- 7. צעד בצ'קליסט "צעדים ראשונים" ---------------------------------------------------------
+
+#: הצעד הראשון בצ'קליסט — ``li`` שמצייר את הקופסה, ובתוכו ``<details>``. משתמש חדש רואה את הכרטיס.
+STEP_SEL = "#first-step-theme"
+STEP_SUMMARY = f"{STEP_SEL} summary"
+STEP_CHEVRON = f"{STEP_SEL} .first-steps-chevron"
+STEP_BODY = f"{STEP_SEL} .first-steps-body"
+STEP_OPEN_JS = "(s) => document.querySelector(s + ' details').open"
+
+#: עקומה כמו שהדפדפן כותב אותה בחזרה (``cubic-bezier(.2, …)`` ← ``cubic-bezier(0.2, …)``), כדי להשוות
+#: את התזמון של אנימציה לערך שב-``AnimUtils.MOTION`` ולא למחרוזת שמוקלדת כאן.
+EASING_JS = """(e) => { const a = document.createElement('div').animate(null, {duration: 1, easing: e});
+  const n = a.effect.getTiming().easing; a.cancel(); return n; }"""
+
+#: מסיים את כל האנימציות של האלמנט ושל צאצאיו — הקופסה, החץ והגוף — כדי שהלחיצה הבאה תתחיל ממנוחה.
+FINISH_ALL_JS = "(sel) => document.querySelector(sel).getAnimations({subtree: true}).forEach((a) => a.finish())"
+
+#: המסגרת הראשונה של כל אנימציה שעל האלמנט עצמו, בלי מפתחות התזמון.
+FIRST_FRAMES_JS = """(sel) => document.querySelector(sel).getAnimations().map((a) => {
+  const k = Object.assign({}, a.effect.getKeyframes()[0]);
+  ['offset', 'easing', 'composite', 'computedOffset'].forEach((x) => delete k[x]);
+  return k;
+})"""
+
+
+def _dashboard_with_steps(p, theme=None):
+    p.goto("/dashboard")
+    p.page.wait_for_selector(STEP_SEL)
+    if theme:
+        p.js("(t) => document.documentElement.setAttribute('data-theme', t)", theme)
+        assert p.js("(s) => getComputedStyle(document.querySelector(s)).transitionProperty", STEP_SEL) \
+            .startswith("background-color"), "הכלל של dark-mode.css חל על הצעד"
+    # מעברי ה-CSS של החלפת הערכה, ואנימציות של טעינת העמוד, מסתיימים לפני הלחיצה.
+    poll(p.page, "() => !document.getAnimations().some(a => a.playState === 'running')", "הדשבורד נרגע")
+    assert not p.js(STEP_OPEN_JS, STEP_SEL), "משתמש חדש — הצעד סגור"
+
+
+@pytest.mark.parametrize("theme", [None, "dark"])
+def test_a_first_step_opens_and_folds_in_place_and_its_body_fades_in(make_page, db, theme):
+    """לחיצה על הכותרת של צעד: ``open`` מתחלף מיד, הקופסה גדלה בקפיץ מהגובה הסגור לגובה הפתוח, הגוף
+    מופיע בהדרגה כבלוק אחד, והחץ מסתובב — ובסגירה הקופסה מתקפלת בחזרה לגובה הכותרת.
+
+    בערכה כהה: ``dark-mode.css`` דורס כל ``transition`` שנכתב על מחלקה אחת, והתנועה כאן עוברת דרך
+    ``Element.animate`` — וזה נבדק, לא מונח."""
+    p = make_page()
+    _dashboard_with_steps(p, theme)
+    motion = p.js("() => window.AnimUtils.MOTION")
+    fold_easing = p.js(EASING_JS, motion["stepFold"]["easing"])
+    closed = p.js(RECT_JS, STEP_SEL)
+
+    # --- פתיחה ---
+    p.page.click(STEP_SUMMARY)
+    p.js(FREEZE_JS, STEP_SEL)
+    assert p.js(STEP_OPEN_JS, STEP_SEL), "open מתחלף באותה לחיצה, לא בסוף האנימציה"
+    anims = p.js(ANIMS_JS, STEP_SEL)
+    assert [(a["props"], a["duration"], a["easing"]) for a in anims] == [
+        (["height", "overflow"], motion["stepFold"]["duration"], fold_easing)], anims
+    body = p.js(ANIMS_JS, STEP_BODY)
+    assert [(a["props"], a["duration"], a["delay"]) for a in body] == [
+        (["opacity"], motion["stepContent"]["duration"], 0)], "הגוף דוהה פנימה כבלוק אחד, בלי השהיה"
+    assert p.js(KEYFRAME_ANGLES_JS, STEP_CHEVRON) == pytest.approx([0, 180], abs=1)
+    chevron = p.js(ANIMS_JS, STEP_CHEVRON)
+    assert [a["duration"] for a in chevron] == [motion["stepChevron"]["duration"]], chevron
+
+    early = p.js(SEEK_JS, [STEP_SEL, 0.1])
+    opened = p.js(FINISH_JS, STEP_SEL)
+    assert opened["height"] > closed["height"] + 20, (closed, opened)
+    assert _between(early["height"], closed["height"], opened["height"]), (early, closed, opened)
+    assert opened["left_anims"] == 0, "שום דבר לא נשאר על הקופסה אחרי הסוף"
+    assert opened["scroll"] <= opened["client"], "בגובה הסופי שום שורה של הגוף לא נחתכה"
+    p.js(FINISH_ALL_JS, STEP_SEL)
+    assert abs(p.js(ANGLE_JS, STEP_CHEVRON) - 180) < 1, "צעד פתוח — החץ מצביע למעלה, לפי כלל ה-CSS"
+    assert p.js("(s) => getComputedStyle(document.querySelector(s)).opacity", STEP_BODY) == "1"
+
+    # --- סגירה ---
+    p.page.click(STEP_SUMMARY)
+    p.js(FREEZE_JS, STEP_SEL)
+    assert not p.js(STEP_OPEN_JS, STEP_SEL), "open מתחלף באותה לחיצה"
+    anims = p.js(ANIMS_JS, STEP_SEL)
+    assert [(a["props"], a["duration"]) for a in anims] == [
+        (["minHeight", "overflow"], motion["stepFold"]["duration"])], anims
+    assert p.js(ANIMS_JS, STEP_BODY) == [], "בסגירה הגוף לא דוהה"
+    assert p.js(KEYFRAME_ANGLES_JS, STEP_CHEVRON) == pytest.approx([180, 0], abs=1)
+    early = p.js(SEEK_JS, [STEP_SEL, 0.1])
+    folded = p.js(FINISH_JS, STEP_SEL)
+    assert _between(early["height"], opened["height"], folded["height"]), (early, opened, folded)
+    assert abs(folded["height"] - closed["height"]) < 1, (folded, closed)
+    assert folded["left_anims"] == 0
+
+
+def test_a_first_step_opened_from_the_keyboard_goes_through_the_same_motion(make_page, db):
+    """Enter ורווח על ה-``summary`` מפעילים את אותה לחיצה, ולכן גם מהמקלדת הצעד נפתח ונסגר בקפיץ —
+    ולא בבת אחת מהטיפול של הדפדפן ב-``<details>``, שהלחיצה עוצרת."""
+    p = make_page()
+    _dashboard_with_steps(p)
+    p.page.focus(STEP_SUMMARY)
+
+    p.page.keyboard.press("Enter")
+    p.js(FREEZE_JS, STEP_SEL)
+    assert p.js(STEP_OPEN_JS, STEP_SEL), "Enter פתח"
+    assert [a["props"] for a in p.js(ANIMS_JS, STEP_SEL)] == [["height", "overflow"]]
+    assert len(p.js(ANIMS_JS, STEP_BODY)) == 1, "הגוף דוהה פנימה גם כשהפתיחה מהמקלדת"
+    p.js(FINISH_ALL_JS, STEP_SEL)
+    assert p.js("() => document.activeElement.matches('#first-step-theme summary')"), "הפוקוס נשאר על הכותרת"
+
+    p.page.keyboard.press(" ")
+    p.js(FREEZE_JS, STEP_SEL)
+    assert not p.js(STEP_OPEN_JS, STEP_SEL), "רווח סגר"
+    assert [a["props"] for a in p.js(ANIMS_JS, STEP_SEL)] == [["minHeight", "overflow"]]
+    p.js(FINISH_ALL_JS, STEP_SEL)
+
+
+def test_a_second_click_mid_step_continues_from_the_visible_height_and_angle(make_page, db):
+    """לחיצה באמצע הפתיחה: הסגירה מתחילה מהגובה ומהזווית שרואים באותו רגע. את זה עושים
+    ``animateHeight`` ו-``rotateFrom`` — הבדיקה מוודאת שהצעד עובר דרכם, ולא בונה מנגנון משלו."""
+    p = make_page()
+    _dashboard_with_steps(p)
+    p.page.click(STEP_SUMMARY)
+    p.js(FREEZE_JS, STEP_SEL)
+    mid = p.js(SEEK_JS, [STEP_SEL, 0.3])
+    p.js(SEEK_JS, [STEP_CHEVRON, 0.3])
+    mid_angle = p.js(ANGLE_JS, STEP_CHEVRON)
+    assert 5 < mid_angle < 175, mid_angle
+
+    p.page.click(STEP_SUMMARY)
+    p.js(FREEZE_JS, STEP_SEL)
+    assert not p.js(STEP_OPEN_JS, STEP_SEL)
+    frames = p.js(FIRST_FRAMES_JS, STEP_SEL)
+    assert len(frames) == 1 and set(frames[0]) == {"minHeight", "overflow"}, \
+        f"הגובה הקודם בוטל, ונשארה אנימציה אחת: {frames}"
+    assert abs(float(frames[0]["minHeight"].removesuffix("px")) - mid["height"]) < 1, (frames, mid)
+    assert p.js(KEYFRAME_ANGLES_JS, STEP_CHEVRON) == pytest.approx([mid_angle, 0], abs=1)
+    p.js(FINISH_ALL_JS, STEP_SEL)
+
+
+def test_a_first_step_without_anim_utils_still_opens_and_closes(make_page, db):
+    """``AnimUtils`` נקרא בזמן הלחיצה. עמוד שאין בו אותו מחליף את ``open`` בלי אנימציה — ולא נשאר
+    תקוע, כי ברירת המחדל של הלחיצה כבר נעצרה."""
+    p = make_page()
+    _dashboard_with_steps(p)
+    p.js("() => { delete window.AnimUtils; }")
+    p.page.click(STEP_SUMMARY)
+    assert p.js(STEP_OPEN_JS, STEP_SEL)
+    assert p.js(SCRIPT_ANIMS_JS, STEP_SEL) == 0
+    p.page.click(STEP_SUMMARY)
+    assert not p.js(STEP_OPEN_JS, STEP_SEL)
+
+
 # --- מי שביקש פחות תנועה ---------------------------------------------------------------------
 
 
@@ -820,6 +970,10 @@ def test_reduced_motion_gets_the_same_state_changes_without_any_animation(make_p
     p.page.click(f"{GROUP_SEL} .group-toggle")
     assert not p.js("(s) => document.querySelector(s).classList.contains('is-open')", GROUP_SEL)
     assert p.js(SCRIPT_ANIMS_JS, GROUP_SEL) == 0
+    # צעד בצ'קליסט: גם הקופסה וגם החץ והגוף שבתוכה — ``SCRIPT_ANIMS_JS`` סופר את כל הצאצאים.
+    p.page.click(STEP_SUMMARY)
+    assert p.js(STEP_OPEN_JS, STEP_SEL)
+    assert p.js(SCRIPT_ANIMS_JS, STEP_SEL) == 0
 
     p.page.click(".quick-access-toggle")
     assert p.js(SCRIPT_ANIMS_JS, "#quickAccessDropdown") == 0

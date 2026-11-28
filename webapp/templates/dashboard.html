@@ -1893,7 +1893,8 @@
     opacity: var(--first-steps-muted-opacity);
 }
 
-/* בלי transition: בערכות הכהות dark-mode.css דורס אותו ממילא ([data-theme] *). */
+/* בלי transition: בערכות הכהות dark-mode.css דורס אותו ממילא ([data-theme] *). את הסיבוב בלחיצה מנפיש
+   ה-JS (``toggleStep``), וזווית היעד נקראת מהכלל של ``details[open]`` שלמטה. */
 .first-steps-chevron {
     flex: 0 0 auto;
     opacity: var(--first-steps-muted-opacity);
@@ -2425,6 +2426,54 @@
         }
         hideBtn.disabled = false;
         if (errorBox) errorBox.hidden = false;
+    });
+})();
+
+// צעד בצ'קליסט "צעדים ראשונים" נפתח ונסגר בקפיץ, הגוף מופיע בהדרגה כבלוק אחד, והחץ מסתובב — אותה
+// תנועה כמו מיזעור פתק (``_toggleMinimizedAnimated`` ב-``sticky-notes.js``), והחץ כמו ב-
+// ``animateGroupToggle`` למטה. התזמונים — ``AnimUtils.MOTION.stepFold``, ``stepContent``, ``stepChevron``.
+//
+// **ה-``<details>`` לא נפתח בעצמו.** ברירת המחדל של הלחיצה על ה-``summary`` נעצרת, ו-``open`` מתחלף
+// בתוך ה-``mutate`` של ``animateHeight`` — שרץ מיד, באותו רגע — ולכן כל מי שבודק את ``open`` אחרי
+// הלחיצה רואה את המצב החדש. Enter ורווח על ה-``summary`` מפעילים את אותה לחיצה, כך שגם המקלדת עוברת כאן.
+// מונפשת הקופסה שמציירת את הצעד, ``.first-steps-item``, עם ``clip`` כמו הקבוצות בפיד. היום הקופסה חותכת
+// גם ב-CSS (``overflow: hidden``), אבל האנימציה לא נשענת על זה: בלי חיתוך הגוף בולט מתחת לקופסה שעוד
+// גדלה. ואין בצעד ילד שיושב מחוץ לקופסה בכוונה, כמו בפתק — ``.is-next::before`` ממוקם בתוכה.
+// ``AnimUtils`` נקרא בזמן הלחיצה, כי ``animations.js`` נטען עם ``defer``; בלעדיו ``open`` פשוט מתחלף.
+// רק לחיצה של המשתמש עוברת כאן.
+(function () {
+    const card = document.getElementById('firstSteps');
+    if (!card) return;
+    const toggleStep = (item, details) => {
+        const AU = window.AnimUtils;
+        const flip = () => { details.open = !details.open; };
+        if (!AU || !AU.animateHeight) {
+            flip();
+            return;
+        }
+        const chevron = details.querySelector(':scope > summary .first-steps-chevron');
+        // הזווית שמצוירת עכשיו, **לפני** ההחלפה — כולל סיבוב שעוד רץ (``AnimUtils.rotateFrom``).
+        const chevronFrom = chevron ? AU.rotationOf(chevron) : 0;
+        AU.animateHeight(item, flip, Object.assign({ clip: true }, AU.MOTION.stepFold));
+        if (chevron) {
+            AU.rotateFrom(chevron, chevronFrom, AU.MOTION.stepChevron);
+        }
+        if (!details.open) {
+            return;
+        }
+        const body = details.querySelector(':scope > .first-steps-body');
+        if (body) {
+            AU.play([body], [{ opacity: 0 }, { opacity: 1 }], AU.MOTION.stepContent);
+        }
+    };
+    card.querySelectorAll('.first-steps-item').forEach((item) => {
+        const details = item.querySelector(':scope > details');
+        const summary = details && details.querySelector(':scope > summary');
+        if (!summary) return;
+        summary.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            toggleStep(item, details);
+        });
     });
 })();
 

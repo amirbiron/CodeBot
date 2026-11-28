@@ -84,15 +84,27 @@ class Touch:
 #: גם שנייה וחצי אחרי הטעינה, ובלי הבדיקה הזו אף כפתור בכרטיס לא היה מקבל נגיעה.
 #: ``paused`` ו-``finished`` הם המצבים שבהם ``currentTime`` אינו מתקדם (MDN,
 #: ``Animation.playState``).
-CENTER_JS = """([sel, index]) => {
+#:
+#: **ומה שזז בלי אנימציה משלו:** אלמנט שאח שלו משנה גובה זז בזרימה, ואף אנימציה אינה על
+#: אב שלו. לכן גם המלבן נמדד בשני פריימים רצופים ומושווה — אותה הגדרה של "יציב" כמו
+#: ב-Playwright 1.49 (``_stableRafCount``, ו-``rafCountForStablePosition`` של כרומיום הוא 1:
+#: אותו מלבן בשני פריימים רצופים). נמדד ב-28.11.2026: צעד בצ'קליסט "צעדים ראשונים" שנסגר בקפיץ
+#: הזיז את הצעד שמתחתיו מ-750 ל-652 כש-``moving`` היה false, והנגיעה פתחה את הצעד שאחריו.
+CENTER_JS = """async ([sel, index]) => {
   const el = document.querySelectorAll(sel)[index];
+  const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+  await frame();
+  const before = el.getBoundingClientRect();
+  await frame();
+  const r = el.getBoundingClientRect();
+  const still = r.left === before.left && r.top === before.top
+    && r.width === before.width && r.height === before.height;
   const moving = document.getAnimations().some(a => a.playState === 'running'
     && a.effect && a.effect.target && a.effect.target.contains(el));
-  const r = el.getBoundingClientRect();
   const x = r.left + r.width / 2, y = r.top + r.height / 2;
   const onScreen = y >= 0 && y <= innerHeight && x >= 0 && x <= innerWidth;
   const hit = onScreen ? document.elementFromPoint(x, y) : null;
-  return {ok: !moving, x, y, onScreen, hitsIt: !!hit && (hit === el || el.contains(hit))};
+  return {ok: !moving && still, x, y, onScreen, hitsIt: !!hit && (hit === el || el.contains(hit))};
 }"""
 
 
