@@ -683,10 +683,11 @@
 
   /**
    * **השמירות שלנו שעוד לא אושרו, בצורה שנשמרת עם טיוטה** (``entry.unconfirmed`` — ``{content?, title?}`` של כל שמירה
-   * שיצאה ולא נענתה), עד ``UNCONFIRMED_SENDS_MAX`` האחרונות. ``_writeHeldDraft`` כותב אותן עם הטיוטה, ו-``_restoreHeldDraft``
-   * מחזיר אותן: שמירה שהייתה באוויר כשהעמוד נסגר עוד יכלה לנחות, ואז השרת מחזיק אותה ולא את הטיוטה — והפיוס צריך
-   * לדעת שהיא שלנו. בקריאה מהאחסון זה קלט חיצוני (U3): רשומה שאינה אובייקט, או שדה שאינו מחרוזת, נזרקים — והטיוטה
-   * עצמה נשארת, כי היא הטקסט של המשתמש.
+   * שיצאה ולא נענתה, ואיתם ``sentToken`` ו-``sentAt``: האסימון שהיא נשאה ומתי יצאה — ראו ``_unconfirmedMayLand``), עד
+   * ``UNCONFIRMED_SENDS_MAX`` האחרונות. ``_writeHeldDraft`` כותב אותן עם הטיוטה, ו-``_restoreHeldDraft`` מחזיר אותן: שמירה
+   * שהייתה באוויר כשהעמוד נסגר עוד יכלה לנחות, ואז השרת מחזיק אותה ולא את הטיוטה — והפיוס צריך לדעת שהיא שלנו. בקריאה
+   * מהאחסון זה קלט חיצוני (U3): רשומה שאינה אובייקט, שדה טקסט שאינו מחרוזת, אסימון שאינו מחרוזת או ``null``, וזמן שאינו
+   * מספר סופי — נזרקים, וטיוטה שנכתבה לפני השדות האלה נקראת כרגיל. הטיוטה עצמה נשארת, כי היא הטקסט של המשתמש.
    */
   function unconfirmedSnapshots(list){
     if (!Array.isArray(list)) return [];
@@ -696,7 +697,10 @@
       const snap = {};
       if (typeof s.content === 'string') snap.content = s.content;
       if (typeof s.title === 'string') snap.title = canonicalTitleText(s.title);
-      if (Object.keys(snap).length) out.push(snap);
+      if (!Object.keys(snap).length) continue;
+      if (typeof s.sentToken === 'string' || s.sentToken === null) snap.sentToken = s.sentToken;
+      if (Number.isFinite(s.sentAt)) snap.sentAt = s.sentAt;
+      out.push(snap);
     }
     return out.slice(-UNCONFIRMED_SENDS_MAX);
   }
@@ -2184,6 +2188,12 @@
       // שלה מעל מה שבמסך. איתן הבסיס מתיישר אליה, ומה שבטיוטה נשמר מעליה.
       entry.unconfirmed = unconfirmedSnapshots(unconfirmedSnapshots(draft.unconfirmed)
         .concat([{ content: draft.local.content, title: draft.local.title }]));
+      // שמירה בלי אסימון או בלי זמן (הטקסט שבטיוטה, או טיוטה שנכתבה לפני השדות האלה) — יצאה לכל המאוחר כשהטיוטה
+      // נכתבה, עם האסימון של הבסיס שלה. ראו ``_unconfirmedMayLand``.
+      for (const s of entry.unconfirmed) {
+        if (!Object.prototype.hasOwnProperty.call(s, 'sentToken')) s.sentToken = draft.base.updated_at;
+        if (!Number.isFinite(s.sentAt)) s.sentAt = draft.ts;
+      }
       // **הטיוטה עוברת למפתח של הלשונית הזו**, והמפתח שנמצא נמחק — רק אחרי שכתיבה למפתח החדש הצליחה, ורק אם הוא
       // עדיין מחזיק את מה שנקרא (``entry.draftSource``, ``_dropDraftSource``). לקיחה של המפתח עצמו הייתה משתפת אותו
       // עם הלשונית שכתבה אותו, אם היא עדיין פתוחה: הקלדה באחת הייתה דורסת את הטקסט של השנייה, ובחירה באחת הייתה
@@ -2212,21 +2222,19 @@
      * הבקשה נכשלה אחרי שהעמוד נסגר, הטקסט ששוחזר אבד. כתיבה שנכשלת כאן משאירה את הטיוטה כמו שנמצאה, תחת אותו מפתח:
      * היא עדיין מכירה את הטקסט שבמסך כשמירה שלנו.
      *
-     * **אין מה לשמור, אבל שמירה שהטיוטה זכרה שונה ממה שבמסך, והאסימון בשרת לא זז** (``'same'`` מ-``_reconcileFields``;
-     * ``_unconfirmedDiffersFromScreen``) — למשל שמירה שנכשלה ברשת בלשונית הקודמת, ואחריה המשתמש החזיר את הטקסט. שום
-     * כתיבה לא נחתה מאז הבסיס של הטיוטה, ולכן השמירה ההיא עוד יכולה לנחות: היא נושאת את אותו אסימון, והשרת אינו
-     * מזיז אותו על שמירה שלא משנה כלום (``drop_unchanged_edits`` ב-``update_note``), כך שגם שמירה של מה שבמסך לא הייתה
-     * חוסמת אותה. השמירות שהטיוטה זכרה נשארות, והטיוטה נשארת כטיוטת סגירה, והשחזור **ממתין** (``entry.draftSettling``):
-     * הפיוס הבא עובר כאן שוב. נחתה השמירה ההיא — הפיוס מזהה אותה כשלנו ומיישר אליה את הבסיס, ומה שבמסך נשלח מעליה
-     * (הענף של "יש מה לשמור"). נחתה עריכה אחרת — האסימון זז, והשמירה ההיא כבר תידחה ב-409. וגם שמירה של המשתמש
-     * עצמו, שמשנה טקסט, מזיזה אותו. עד נובמבר 2026 השמירות נמחקו כאן, והשמירה שנחתה אחרי הקריאה נראתה כעדכון ממקום
-     * אחר: היא הוחלה על המסך בלי שאלה, ומה שהמשתמש החזיר אבד. ההמתנה מוגבלת לחיי העמוד: בהסתרה הטיוטה נמחקת לפי
-     * הכלל הרגיל של טיוטת סגירה (``_persistDraftsThatWontSurviveClose``). המשך שלה לטעינה הבאה היה משאיר אותה לתמיד
-     * בפתק שאיש לא עורך, כי שום דבר לא מסמן שהשמירה ההיא כבר לא תגיע.
+     * **אין מה לשמור, אבל שמירה שהטיוטה זכרה עוד יכולה לנחות** (``_unconfirmedMayLand``: שונה ממה שבמסך, נשאה את
+     * האסימון של הבסיס, והאסימון לא זז — ``'same'`` מ-``_reconcileFields``) — למשל שמירה שנכשלה ברשת בלשונית הקודמת,
+     * ואחריה המשתמש החזיר את הטקסט. השרת אינו מזיז את האסימון על שמירה שלא משנה כלום (``drop_unchanged_edits``
+     * ב-``update_note``), ולכן גם שמירה של מה שבמסך לא הייתה חוסמת אותה. השמירות שהטיוטה זכרה נשארות, והטיוטה נשארת
+     * כטיוטת סגירה, והשחזור **ממתין** (``entry.draftSettling``): הפיוס הבא עובר כאן שוב. נחתה השמירה ההיא — הפיוס מזהה
+     * אותה כשלנו ומיישר אליה את הבסיס, ומה שבמסך נשלח מעליה (הענף של "יש מה לשמור"). נחתה עריכה אחרת, או שמירה של
+     * המשתמש עצמו שמשנה טקסט — האסימון זז, והיא כבר תידחה ב-409. **ההמתנה נמשכת גם אחרי שהעמוד נסגר:** בהסתרה הטיוטה
+     * נשארת, כל עוד השמירה ההיא עוד יכולה לנחות (``_persistDraftsThatWontSurviveClose``), והטעינה הבאה ממשיכה מכאן.
+     * הגבול הוא זמן השליחה של השמירה (``sentAt``), ולא שום סימן מהשרת — אין סימן כזה כששמירה לא נוחתת לעולם. עד נובמבר
+     * 2026 השמירות נמחקו כאן, והשמירה שנחתה אחרי הקריאה נראתה כעדכון ממקום אחר: היא הוחלה על המסך בלי שאלה, ומה
+     * שהמשתמש החזיר אבד.
      *
-     * **אין מה לשמור, ואין שמירה כזו, או שהאסימון זז** — הטיוטה יוצאת, וגם השמירות שהיא זכרה (``entry.unconfirmed``):
-     * כל אחת מהן נשאה אסימון ישן מזה שבשרת, ולכן כבר אינה יכולה לנחות. בלי הניקוי, הסתרה אחרי שמירה שנכשלה הייתה
-     * כותבת טיוטה מחדש בגללן (``_unconfirmedDiffersFromScreen``).
+     * **אין מה לשמור, ואין שמירה שעוד יכולה לנחות** — הטיוטה יוצאת, וגם השמירות שהיא זכרה (``entry.unconfirmed``).
      */
     _afterDraftRestored(entry, outcome){
       entry.draftSettling = false;
@@ -2244,7 +2252,7 @@
         this._queueSave(el, fragment);
         return;
       }
-      if (outcome === 'same' && this._unconfirmedDiffersFromScreen(entry)) {
+      if (this._unconfirmedMayLand(entry)) {
         // אין מה לכתוב: הטיוטה שמורה כמו שהשחזור כתב אותה (או תחת המפתח המקורי — ``entry.draftSource``), והבסיס לא זז.
         // היא רק עוברת לכללים של טיוטת סגירה.
         entry.draftSettling = true;
@@ -3260,16 +3268,34 @@
      * לא קיבל. הבדיקה שלפני הבקשה (``_settleBeforeLeaving``) אינה מספיקה: בזמן שהבקשה ממתינה הפתק עדיין במסך, ואפשר
      * לערוך אותו. עריכה כזו נשלחת עכשיו — השרת מקבל שמירה של פתק שבארכיון או שאינו נעוץ, כי ``update_note`` מוצא
      * פתק לפי המזהה והמשתמש בלבד — והפתק יורד רק אחרי שנשמרה. כשהבדיקה מוצאת שאין עבודה כזו, ההסרה צמודה אליה,
-     * בלי ``await`` ביניהן. נכשלה, או שעדכון מחכה בפתק להחלטה — הפתק נשאר במסך, עם העבודה, והדגימה מורידה אותו
-     * כשהיא נגמרת (``_applyFetchedNote`` ← ``_removeIfGone``). עד נובמבר 2026 הוא ירד מיד, ``_removeNoteLocally``
-     * מחק את התור ואת הטיוטה שלו, והעריכה אבדה. מחזיר ``'ok'`` כשהפתק ירד, או את הסיבה שנשאר.
+     * בלי ``await`` ביניהן. נכשלה, או שעדכון מחכה בפתק להחלטה — הפתק נשאר במסך, עם העבודה, ו**הרשומה זוכרת שהשרת
+     * כבר אישר שהוא עזב** (``entry.leftOnServer``). מכאן הוא יורד כשהעבודה עליו נגמרת: כשהשמירה שלו מסתיימת
+     * (``_registerInFlight`` ← ``_completeLeaveIfDone``), או בדגימה — שקוראת אותו לבד גם כשהיא לא מכירה אף פתק מהמסך
+     * (``_applyVersions``), כי בלוח שבו הוא היה הפתק היחיד היא חוזרת ריקה. עד נובמבר 2026 הוא ירד מיד,
+     * ``_removeNoteLocally`` מחק את התור ואת הטיוטה שלו, והעריכה אבדה. מחזיר ``'ok'`` כשהפתק ירד, או את הסיבה שנשאר.
      */
     async _leaveSurfaceAfterServer(el){
       const id = el && el.dataset ? String(el.dataset.noteId || '') : '';
       let why = 'ok';
       if (id && (this._isSaveHeld(id) || this._hasUnsavedLocalEdits(id))) why = await this._settleBeforeLeaving(el);
-      if (why === 'ok') this._noteLeftSurface(el);
+      if (why === 'ok') {
+        this._noteLeftSurface(el);
+      } else {
+        const entry = this.notes.get(id);
+        if (entry) entry.leftOnServer = true;
+      }
       return why;
+    }
+
+    /**
+     * פתק שהשרת כבר אישר שעזב (``entry.leftOnServer``, ``_leaveSurfaceAfterServer``) יורד, אם אין בו יותר עבודה —
+     * אותה בדיקה של פתק שעזב ממקום אחר (``_removeIfGone``: לא בעריכה, בלי שינוי שלא נשמר, בלי שמירה בתור או באוויר,
+     * ובלי החלטה פתוחה). נקרא כששמירה של הפתק מסתיימת.
+     */
+    _completeLeaveIfDone(id){
+      const entry = this.notes.get(String(id));
+      if (!entry || !entry.el || !entry.leftOnServer || this._destroyed) return;
+      this._removeIfGone(entry);
     }
 
     /** הפעולה בשרת הצליחה, אבל הפתק נשאר במסך (``_leaveSurfaceAfterServer``) — ההודעה אומרת למה, ומה יקרה. */
@@ -6730,9 +6756,11 @@
         const snap = {};
         if (hasContent) snap.content = String(payload.content == null ? '' : payload.content);
         if (hasTitle) snap.title = canonicalTitleText(String(payload.title == null ? '' : payload.title));
-        // **האסימון שהשמירה נשאה** (``prev_updated_at`` מ-``_withToken``) — ממנו ``_onSaveConfirmed`` יודע אם האישור
-        // שלה הזיז את האסימון בשרת. נשאר בזיכרון בלבד: ``unconfirmedSnapshots`` מעתיק לטיוטה רק גוף ושם.
+        // **האסימון שהשמירה נשאה** (``prev_updated_at`` מ-``_withToken``) **ומתי היא יצאה** — מהם ``_onSaveConfirmed``
+        // יודע אם האישור שלה הזיז את האסימון בשרת, ו-``_unconfirmedMayLand`` — אם היא עוד יכולה לנחות. נשמרים עם
+        // הטיוטה (``unconfirmedSnapshots``), כי ההכרעה הזו נמשכת גם אחרי שהעמוד נסגר.
         snap.sentToken = sentToken == null ? null : String(sentToken);
+        snap.sentAt = Date.now();
         if (!entry.unconfirmed) entry.unconfirmed = [];
         entry.unconfirmed.push(snap);
         if (entry.unconfirmed.length > UNCONFIRMED_SENDS_MAX) entry.unconfirmed.shift();
@@ -6792,13 +6820,14 @@
         // המשתמש עצמו, ו"התעלם" היה שומר את הישן מעליו. מה שבמסך עוד לא אבד: הוא נשלח בשמירה הבאה, והסתרה נוספת
         // תנסה לכתוב אותו שוב.
         //
-        // **ושחזור שממתין לשמירה שהטיוטה זכרה** (``entry.draftSettling``, ``_afterDraftRestored``) — הטיוטה נשארת כל עוד
-        // שמירה כזו, ששונה ממה שבמסך, עוד זכורה. שמירה שלא שינתה טקסט (מיקום, גודל) אינה מסיימת את ההמתנה; שמירה
-        // שהזיזה את האסימון כן — האישור שלה מוחק מהזיכרון את כל מה שנשלח לפניה (``_forgetUnconfirmed``).
+        // **ואין מה לשמור, אבל שמירה קודמת ששונה ממה שבמסך עוד יכולה לנחות** (``_unconfirmedMayLand``) — הטיוטה נשארת:
+        // אם השמירה ההיא תנחת אחרי שהעמוד נסגר, רק הטיוטה תזהה אותה כשלנו ותחזיר את מה שבמסך מעליה. זה המצב אחרי
+        // אישור שלא הזיז את האסימון (שמירה קודמת עם אותו אסימון לא נמחקה מהזיכרון — ``_forgetUnconfirmed``), ובשחזור
+        // שממתין לשמירה שהטיוטה זכרה (``entry.draftSettling``). שמירה שלא שינתה טקסט (מיקום, גודל) אינה משנה את זה.
         if (entry.closeDraft && !entry.remote && !entry.draftAwaitingServer) {
           const dirty = this._dirtyFields(entry);
           if (!(dirty.content || dirty.title)) {
-            if (!(entry.draftSettling && this._unconfirmedDiffersFromScreen(entry))) this._removeHeldDraft(entry);
+            if (!this._unconfirmedMayLand(entry)) this._removeHeldDraft(entry);
           }
           else if (!this._writeHeldDraft(entry) && !this._draftKnowsSave(entry, payload)) this._removeHeldDraft(entry);
         }
@@ -7324,17 +7353,27 @@
       }
 
       /**
-       * **האם שמירה שלנו שעוד לא אושרה שונה ממה שבמסך** (``entry.unconfirmed``). שמירה כזו אולי נחתה בשרת, או עוד
-       * תנחת, ואז השרת מחזיק אותה ולא את מה שבמסך — למשל שמירה שנכשלה ברשת (אולי השרת כתב לפני שהחיבור נפל), ואחריה
-       * המשתמש החזיר את הטקסט למה שהיה. ההשוואה כמו ב-``_inFlightCarriesLocalText``.
+       * **האם שמירה שלנו שעוד לא אושרה, ששונה ממה שבמסך, עוד יכולה לנחות** (``entry.unconfirmed``). אם כן, השרת עלול
+       * להחזיק אותה ולא את מה שבמסך — למשל שמירה שנכשלה ברשת (אולי השרת כתב, ואולי עוד יכתוב), ואחריה המשתמש החזיר את
+       * הטקסט למה שהיה. **ההכרעה היא של המקום היחיד שקובע:** ``prev_updated_at`` — שמירה נוחתת רק כשהאסימון בשרת עדיין
+       * זה שהיא נשאה (``update_note`` דוחה ב-409 אסימון ישן). לכן היא "עוד יכולה לנחות" כשהאסימון שהיא נשאה
+       * (``sentToken``) הוא האסימון של הבסיס עכשיו — כלומר שום כתיבה שהזיזה אותו לא נצפתה מאז שהיא יצאה. נצפתה (אישור
+       * שהזיז אותו, פיוס שיישר אליו, "עדכן" או "התעלם") — היא כבר תידחה. **ובגבול זמן:** שמירה שיצאה לפני יותר מ-
+       * ``HELD_DRAFT_MAX_AGE_MS`` אינה נחשבת, אחרת שמירה שלא נחתה לעולם הייתה מחזיקה טיוטה לתמיד בפתק שאיש לא עורך.
+       * צילום בלי האסימון שהוא נשא — אין ממה לדעת, והוא אינו נחשב. ההשוואה למסך כמו ב-``_inFlightCarriesLocalText``.
        */
-      _unconfirmedDiffersFromScreen(entry){
+      _unconfirmedMayLand(entry){
         const own = (entry && entry.unconfirmed) || [];
         if (!own.length) return false;
         const local = this._localFields(entry);
+        const token = this._noteBase(entry).updated_at || null;
+        const now = Date.now();
         const has = (s, field) => Object.prototype.hasOwnProperty.call(s, field);
-        return own.some((s) => (has(s, 'content') && asTextareaValue(String(s.content == null ? '' : s.content)) !== asTextareaValue(local.content))
-          || (has(s, 'title') && canonicalTitleText(String(s.title == null ? '' : s.title)) !== local.title));
+        const sameToken = (s) => (typeof s.sentToken === 'string' || s.sentToken === null) && (s.sentToken || null) === token;
+        const recent = (s) => Number.isFinite(s.sentAt) && now - s.sentAt <= HELD_DRAFT_MAX_AGE_MS;
+        const differs = (s) => (has(s, 'content') && asTextareaValue(String(s.content == null ? '' : s.content)) !== asTextareaValue(local.content))
+          || (has(s, 'title') && canonicalTitleText(String(s.title == null ? '' : s.title)) !== local.title);
+        return own.some((s) => sameToken(s) && recent(s) && differs(s));
       }
 
       /**
@@ -7362,9 +7401,14 @@
        *
        * **ופתק שאין במסך שלו כלום שהשרת לא אישר, ויש לו טיוטת סגירה מהסתרה קודמת — הטיוטה יוצאת.** היא מחזיקה טקסט
        * שהמשתמש כבר שינה, למשל מחק, והשחזור בטעינה הבאה היה מחזיר אותו ושולח אותו לשמירה, בלי שאלה (נמדד). **החריג:**
-       * השמירה האחרונה של הפתק נכשלה (``_hasSaveFailed``), ושמירה שלו שעוד לא אושרה שונה ממה שבמסך
-       * (``_unconfirmedDiffersFromScreen``) — למשל שמירה שנכשלה ברשת לפני שהמשתמש מחק. היא אולי נחתה בשרת, ולכן נכתבת
-       * טיוטה עם מה שבמסך, גם בלי טיוטה קודמת: השחזור יזהה את השמירה ההיא כשלנו, ויחזיר את מה שבמסך מעליה.
+       * שמירה שלו שעוד לא אושרה, ששונה ממה שבמסך, עוד יכולה לנחות (``_unconfirmedMayLand`` — היא נשאה את האסימון
+       * שבבסיס עכשיו, ויצאה בתוך תוחלת החיים של טיוטה) — למשל שמירה שנכשלה ברשת לפני שהמשתמש מחק, או כזו שנשארה בזיכרון
+       * אחרי אישור שלא הזיז את האסימון, או שחזור שממתין לה. אז נכתבת טיוטה עם מה שבמסך, גם בלי טיוטה קודמת: אם היא תנחת
+       * אחרי שהעמוד נסגר, השחזור יזהה אותה כשלנו ויחזיר את מה שבמסך מעליה. התנאי נשען על האסימון ולא על כך שהשמירה
+       * האחרונה נכשלה: אחרי אישור שלא הזיז את האסימון הסימון של הכשל כבר נוקה, והשמירה ההיא עדיין יכולה לנחות. ושמירות
+       * שאינן יכולות לנחות — למשל כאלה שטיוטה ששוחזרה זכרה, אחרי בחירה בהתראה שהזיזה את האסימון — אינן כותבות טיוטה:
+       * טיוטה כזו הייתה מיותרת בכל סגירה, והייתה מסתירה בטעינה הבאה טיוטה אמיתית של לשונית אחרת (נמדד,
+       * ``test_drafts_written_in_the_same_millisecond_are_ordered_reliably``).
        *
        * **הטיוטה אולי כבר מיותרת בטעינה הבאה** — אם השמירה נחתה לפני שהעמוד נסגר. זה מטופל במקום שכבר מטפל
        * בזה: השחזור רושם את הטיוטה כשמירה שלנו שעוד לא אושרה (``_restoreHeldDraft``), והפיוס מיישר אליה את הבסיס
@@ -7381,10 +7425,8 @@
           const key = String(id);
           if (!this._pending.has(key)) {
             const dirty = this._dirtyFields(entry);
-            // **רק כשהשמירה האחרונה נכשלה** — אז שמירה שלא אושרה אולי נחתה. בלי התנאי, שמירות שטיוטה ששוחזרה זכרה,
-            // ונשארו אחרי שהמשתמש בחר בהתראה, כתבו טיוטה מיותרת בכל סגירה — והיא הסתירה בטעינה הבאה טיוטה אמיתית של
-            // לשונית אחרת (נמדד, ``test_drafts_written_in_the_same_millisecond_are_ordered_reliably``).
-            const earlier = this._hasSaveFailed(key) && this._unconfirmedDiffersFromScreen(entry);
+            // שמירה קודמת ששונה ממה שבמסך ועוד יכולה לנחות — ראו החריג בתיעוד שמעל.
+            const earlier = this._unconfirmedMayLand(entry);
             if (!dirty.content && !dirty.title && !earlier) {
               if (entry.closeDraft) this._removeHeldDraft(entry);
               continue;
@@ -7506,8 +7548,10 @@
           const row = remote.get(id);
           // טיוטה שמחכה לשרת ואינה ברשימה — נבדקת ישירות, גם כשהדגימה אינה מכירה אף פתק מהמסך: זו קריאה של פתק
           // אחד, והכרעה רק על ראיה ממנו (404, או השדות שלו — ``_applyFetchedNote``), ולא הורדה על סמך הרשימה.
-          // בלעדיה פתק כזה שנמחק, כשהיה היחיד במשטח, נשאר מוחזק לתמיד.
-          if (!row) { if (entry.draftAwaitingServer) toFetch.push(id); else missing.push(id); continue; }
+          // בלעדיה פתק כזה שנמחק, כשהיה היחיד במשטח, נשאר מוחזק לתמיד. **וכך גם פתק שהשרת כבר אישר שעזב**
+          // (``entry.leftOnServer`` — העברה לארכיון או הסרה מעמוד הקבצים, שהוא נשאר אחריהן בגלל עבודה שלא נשמרה): בלוח
+          // שבו הוא היה היחיד הדגימה חוזרת ריקה, ובלי הקריאה הזו הוא היה נשאר במסך עד רענון.
+          if (!row) { if (entry.draftAwaitingServer || entry.leftOnServer) toFetch.push(id); else missing.push(id); continue; }
           overlap += 1;
           // שמירה בתור או באוויר, או הכרעה שבדרך: המקומי חדש יותר, וה-409 יכריע אם צריך.
           // טיוטה שמחכה לשרת — נמשכת תמיד: הקריאה הטרייה היא מה שמסיים את השחזור, גם כשיש עריכה בתור.
@@ -8361,6 +8405,8 @@
               this._saveDebounced();
               this._ensureBackgroundAutoFlush();
             }
+            // פתק שהשרת כבר אישר שעזב, ונשאר במסך רק בגלל העבודה עליו — אולי היא נגמרה עכשיו.
+            this._completeLeaveIfDone(id);
           }
         }).catch(() => { /* הכשל עצמו מטופל אצל מי שממתין להבטחה; כאן רק הניקוי */ });
       }
