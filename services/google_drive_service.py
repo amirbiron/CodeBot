@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, List
 import zipfile as _zipfile
 from types import SimpleNamespace as _SimpleNamespace
+from urllib.parse import urlsplit
 
 from http_sync import request as http_request
 import requests  # for precise exception handling
@@ -801,10 +802,66 @@ def _sleep_backoff(attempt: int, retry_after_s: Optional[float] = None) -> None:
         pass
 
 
-def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None, sub_path: Optional[str] = None, *, owner: str) -> Optional[str]:
+#: סוג הקובץ שכל העלאה של ``upload_bytes`` קיבלה לפני שנוסף לה הפרמטר ``mimetype``. כל קריאות הגיבוי מעלות ZIP ולא מעבירות ``mimetype``, ולכן הן נשארות עליו. ברירת מחדל ולא גזירה מסיומת השם: שם של גיבוי שאינו נגמר ב-``.zip`` לא משנה את סוג הקובץ שלו.
+_DEFAULT_UPLOAD_MIMETYPE = "application/zip"
+
+
+@dataclass(frozen=True)
+class DriveUpload:
+    """קובץ שעלה ל-Drive: המזהה שלו, והקישור לפתיחה בדפדפן כשגוגל החזיר קישור תקין (``web_view_link``, אחרת ``None``)."""
+    file_id: str
+    web_view_link: Optional[str] = None
+
+
+def _web_view_link(response: Dict[str, Any]) -> Optional[str]:
+    """הקישור לפתיחת הקובץ בדפדפן מתוך התשובה של ``files().create``, או ``None``.
+
+    ``webViewLink`` הוא שדה של משאב ה-File ב-Drive v3: *"A link for opening the file in a relevant Google editor or viewer in a browser"* (``drive.v3.json`` ב-google-api-python-client 2.185.0). הוא מגיע מבחוץ, ולכן מתקבל רק כמחרוזת שהיא כתובת ``https`` עם מארח. הקורא בבוט משבץ אותו ב-``<a href>`` של הודעת HTML, וערך אחר היה מפיל את ההודעה במקום להציג אותה בלי קישור.
+    """
+    link = response.get("webViewLink")
+    if not isinstance(link, str):
+        return None
+    parts = urlsplit(link)
+    if parts.scheme != "https" or not parts.netloc:
+        return None
+    return link
+
+
+def upload_bytes(
+    user_id: int,
+    filename: str,
+    data: bytes,
+    folder_id: Optional[str] = None,
+    sub_path: Optional[str] = None,
+    *,
+    owner: str,
+    mimetype: str = _DEFAULT_UPLOAD_MIMETYPE,
+) -> Optional[str]:
     """מעלה ``data`` כקובץ ל-Drive של ``owner`` ומחזיר את המזהה שלו.
 
-    העלאה שנכשלה מחזירה ``None``, וכל ``return None`` כאן נרשם (``_log_drive_call_failed``) — הקורא בודק את הערך, והסיבה נמצאת בלוג.
+    המימוש ב-``upload_bytes_with_link``, וכאן מוחזר ממנו רק המזהה. העלאה שנכשלה מחזירה ``None`` — ראו שם.
+    """
+    uploaded = upload_bytes_with_link(user_id, filename, data, folder_id, sub_path, owner=owner, mimetype=mimetype)
+    return uploaded.file_id if uploaded is not None else None
+
+
+def upload_bytes_with_link(
+    user_id: int,
+    filename: str,
+    data: bytes,
+    folder_id: Optional[str] = None,
+    sub_path: Optional[str] = None,
+    *,
+    owner: str,
+    mimetype: str = _DEFAULT_UPLOAD_MIMETYPE,
+) -> Optional[DriveUpload]:
+    """מעלה ``data`` כקובץ ל-Drive של ``owner`` ומחזיר ``DriveUpload``: המזהה, והקישור לפתיחה בדפדפן.
+
+    ``mimetype`` נשלח כסוג התוכן של ההעלאה (``MediaIoBaseUpload``), ובגוף הבקשה אין ``mimeType``. לפי הסוג הזה Drive סימן את הקבצים: כל תמונת קוד שעלתה כשהסוג היה קבוע ל-ZIP מסומנת ב-Drive כ-ZIP ונפתחת רק אחרי שינוי הסיומת. ברירת המחדל היא ``_DEFAULT_UPLOAD_MIMETYPE``.
+
+    הקישור נלקח מהתשובה של גוגל ולא נבנה מהמזהה, והרשאות השיתוף של הקובץ לא משתנות: הקובץ נמצא ב-Drive של מי שהתחבר, ולכן הקישור אמור להיפתח לו בלי שהקובץ נפתח לאחרים (לא נבדק מול Drive חי).
+
+    העלאה שנכשלה מחזירה ``None``, וכל ``return None`` כאן נרשם (``_log_drive_call_failed``) — הקורא בודק את הערך, והסיבה נמצאת בלוג. קישור שלא חזר, או שאינו כתובת ``https``, אינו כשל: ``web_view_link`` הוא אז ``None``.
     """
     if MediaIoBaseUpload is None:
         _log_drive_call_failed("upload_bytes.unavailable", user_id, owner=owner)
@@ -831,7 +888,7 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
             chunksize = None  # type: ignore[assignment]
         media = MediaIoBaseUpload(
             io.BytesIO(data),
-            mimetype="application/zip",
+            mimetype=mimetype,
             resumable=True,
             chunksize=chunksize if isinstance(chunksize, int) else None,  # type: ignore[arg-type]
         )
@@ -839,7 +896,8 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
         if folder_id_eff:
             body["parents"] = [folder_id_eff]
         try:
-            request = service.files().create(body=body, media_body=media, fields="id")
+            # ``fields`` קובע אילו שדות חוזרים בתשובה (partial response, ``drive.v3.json``) — ולכן הקישור מתבקש בו במפורש
+            request = service.files().create(body=body, media_body=media, fields="id, webViewLink")
         except HttpError as e:
             if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id, owner=owner):
                 continue
@@ -882,10 +940,14 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
 
         if auth_retry:
             continue
-        file_id = response.get("id") if isinstance(response, dict) else None
-        if not file_id:
+        if not isinstance(response, dict):
             _log_drive_call_failed("upload_bytes.response", user_id, owner=owner)
-        return file_id
+            return None
+        file_id = response.get("id")
+        if not isinstance(file_id, str) or not file_id:
+            _log_drive_call_failed("upload_bytes.response", user_id, owner=owner)
+            return None
+        return DriveUpload(file_id=file_id, web_view_link=_web_view_link(response))
     return None
 
 

@@ -13,6 +13,7 @@ import html
 import secrets
 import telegram.error
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -109,6 +110,18 @@ def _load_image_config() -> dict:
         return {}
 
 IMAGE_CONFIG = _load_image_config()
+
+
+@dataclass(frozen=True)
+class _CodeImageSettings:
+    """ההגדרות שתמונת קוד נוצרת לפיהן: העדפות המשתמש, הדריסות לקובץ, וברירות המחדל של ``IMAGE_CONFIG`` — ראו ``AdvancedBotHandlers._resolve_code_image_settings``."""
+    style: str
+    theme: str
+    width: int
+    font_family: str
+    note: Optional[str]
+
+
 import json
 try:
     import aiohttp  # for GitHub rate limit check
@@ -336,7 +349,9 @@ class AdvancedBotHandlers:
             # אל תבלע חריגות שקטות – דווח ללוג כדי לא לשבור את כפתורי השיתוף
             logger.error(f"Failed to register share CallbackQueryHandler: {e}")
         # Handler מוקדם לכפתורי /image (צור מחדש/עריכת הגדרות/Drive/פונטים/סגנון/שמירה)
-        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_style:|img_set_width:|img_set_font:|img_note_prompt:|img_note_clear:|img_settings_done:|save_to_drive_|img_section:)'
+        # כל קידומת של callback_data במקלדות של תמונת קוד חייבת להיות כאן — ``_build_image_result_keyboard`` ו-``_build_image_settings_keyboard``.
+        # קידומת חסרה לא מגיעה ל-handler הזה, והכפתור לא עושה כלום. ``tests/test_image_full_quality.py`` עובר על כל הכפתורים בשתי המקלדות.
+        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_style:|img_set_width:|img_set_font:|img_note_prompt:|img_note_clear:|img_settings_done:|save_to_drive_|img_download:|img_section:)'
         image_handler = CallbackQueryHandler(self.handle_callback_query, pattern=image_pattern)
         try:
             self.application.add_handler(image_handler, group=-5)
@@ -431,6 +446,88 @@ class AdvancedBotHandlers:
             return f"tok:{tok}"
         except Exception:
             return file_name
+
+    def _image_callback(self, context: ContextTypes.DEFAULT_TYPE, prefix: str, file_name: str) -> str:
+        """ה-``callback_data`` המלא של כפתור בתמונת קוד: ``prefix`` ואחריו השם, או טוקן כשהשם לא נכנס.
+
+        ``prefix`` הוא כל מה שלפני השם, כולל ערך כמו ``img_set_theme:dark:``, ולכן ``_make_safe_suffix`` מודד בדיוק את המחרוזת שנשלחת. ה-handler מפרק אותה לפי הקידומת ומחזיר את השם ב-``_resolve_image_target``.
+        """
+        return f"{prefix}{self._make_safe_suffix(context, prefix, file_name)}"
+
+    @staticmethod
+    def _image_section_row(label: str, key: str) -> List[InlineKeyboardButton]:
+        """שורת כותרת במקלדת של תמונת קוד: כפתור שאינו עושה דבר. ה-handler של ``img_section:`` עונה ב-``query.answer()`` וחוזר."""
+        return [InlineKeyboardButton(label, callback_data=f"img_section:{key}")]
+
+    def _build_image_result_keyboard(self, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> InlineKeyboardMarkup:
+        """המקלדת שמתחת לתמונת קוד: ב-``/image``, אחרי "צור מחדש", ובחזרה מעריכת ההגדרות (``img_settings_done:``).
+
+        כל קידומת כאן רשומה ב-``image_pattern`` שב-``setup_advanced_handlers``, וכל כפתור נבנה ב-``_image_callback`` בגלל תקרת ה-``callback_data`` של טלגרם (1-64 בייטים, ``InlineKeyboardButton.MAX_CALLBACK_DATA``).
+        """
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 צור מחדש", callback_data=self._image_callback(context, "regenerate_image_", file_name)),
+             InlineKeyboardButton("📝 ערוך הגדרות", callback_data=self._image_callback(context, "edit_image_settings_", file_name))],
+            self._image_section_row("לתמונה באיכות גבוהה", "hq"),
+            [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=self._image_callback(context, "save_to_drive_", file_name)),
+             InlineKeyboardButton("⬇️ הורד כקובץ", callback_data=self._image_callback(context, "img_download:", file_name))],
+        ])
+
+    def _resolve_code_image_settings(self, user_id: int, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> _CodeImageSettings:
+        """ההגדרות של תמונת הקוד לקובץ: ``_get_effective_image_settings``, ומה שחסר שם — מ-``IMAGE_CONFIG``."""
+        settings = self._get_effective_image_settings(user_id, context, file_name)
+        return _CodeImageSettings(
+            style=str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai'),
+            theme=str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark'),
+            width=int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200),
+            font_family=str(settings.get('font') or 'dejavu'),
+            note=str(settings.get('note') or '').strip() or None,
+        )
+
+    @staticmethod
+    def _code_image_filename(file_name: str) -> str:
+        """שם הקובץ של תמונת קוד — אותו שם בתמונה שנשלחת, בהורדה כקובץ ובשמירה ל-Drive."""
+        return f"{file_name}.png"
+
+    def _render_code_image(self, settings: _CodeImageSettings, *, code: str, language: str, file_name: str) -> bytes:
+        """יוצר את תמונת הקוד (PNG) — המקום היחיד שבונה ``CodeImageGenerator`` לתמונה של קובץ אחד בהגדרות שלו.
+
+        ``/image``, "צור מחדש", "שמור ב-Drive" ו"הורד כקובץ" קוראים כאן, ולכן התמונה שנשמרת או שמורדת היא התמונה שהמשתמש ראה. ``/preview`` ו-``/image_all`` יוצרים אחרת (גובה מוגבל, רוחב של תצוגה מקדימה, מופע אחד לכל הלולאה) ואינם עוברים כאן.
+        """
+        gen = CodeImageGenerator(style=settings.style, theme=settings.theme, font_family=settings.font_family)
+        try:
+            return gen.generate_image(
+                code=code,
+                language=language,
+                filename=file_name,
+                max_width=settings.width,
+                note=settings.note,
+            )
+        finally:
+            # היעדר ``cleanup`` הוא מצב סטטי — מחולל בדיקה בלעדיו — ולא כשל; ב-``CodeImageGenerator`` הוא קיים ואינו עושה דבר
+            cleanup = getattr(gen, "cleanup", None)
+            if callable(cleanup):
+                cleanup()
+
+    async def _load_code_image_source(self, query, user_id: int, file_name: str) -> Optional[Dict[str, Any]]:
+        """הגרסה האחרונה של הקובץ שכפתור של תמונת קוד יוצר ממנו תמונה, או ``None`` אחרי שהמשתמש קיבל הסבר.
+
+        משותף ל"צור מחדש", "שמור ב-Drive" ו"הורד כקובץ": כל אחד מהם יוצר תמונה, ולכן כולם עוברים את ``image_rate_limiter``.
+        """
+        if CodeImageGenerator is None:  # pragma: no cover
+            await query.answer("❌ יצירת תמונות לא זמינה בסביבה זו", show_alert=True)
+            return None
+        if not await image_rate_limiter.check_rate_limit(user_id):
+            await query.answer("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.", show_alert=True)
+            return None
+        doc = _call_files_api("get_latest_version", user_id, file_name)
+        if not doc or not doc.get('code'):
+            await self._edit_message_with_media_fallback(
+                query,
+                f"❌ קובץ <code>{html.escape(file_name)}</code> לא נמצא או ריק.",
+                parse_mode=ParseMode.HTML,
+            )
+            return None
+        return doc
 
     def _parse_image_args(self, args: List[str]) -> Tuple[str, Optional[str], bool]:
         """מפצל פרמטרים של /image לשם קובץ ואופציונלית הערה קצרה (--note)."""
@@ -537,29 +634,24 @@ class AdvancedBotHandlers:
         current_font = str(settings.get('font') or 'dejavu')
         current_note = str(settings.get('note') or '').strip()
 
-        # suffixes בטוחים עבור callback_data קצרים
-        theme_suffix = self._make_safe_suffix(context, "img_set_theme:", file_name)
-        style_suffix = self._make_safe_suffix(context, "img_set_style:", file_name)
-        width_suffix = self._make_safe_suffix(context, "img_set_width:", file_name)
-        font_suffix = self._make_safe_suffix(context, "img_set_font:", file_name)
-        note_suffix = self._make_safe_suffix(context, "img_note_prompt:", file_name)
-        clear_suffix = self._make_safe_suffix(context, "img_note_clear:", file_name)
-        done_suffix = self._make_safe_suffix(context, "img_settings_done:", file_name)
-
+        # כל callback נמדד במלואו, כולל הערך שלפני השם (``_image_callback``): הערך מאריך את המחרוזת,
+        # ושם שנכנס עם הקידומת לבדה יכול לעבור את 64 הבייטים כשהערך נוסף לו
         def _mk_theme_cb(val: str) -> str:
-            return f"img_set_theme:{val}:{theme_suffix}"
+            return self._image_callback(context, f"img_set_theme:{val}:", file_name)
 
         def _mk_style_cb(val: str) -> str:
-            return f"img_set_style:{val}:{style_suffix}"
+            return self._image_callback(context, f"img_set_style:{val}:", file_name)
 
         def _mk_width_cb(val: int) -> str:
-            return f"img_set_width:{val}:{width_suffix}"
+            return self._image_callback(context, f"img_set_width:{val}:", file_name)
+
+        def _mk_font_cb(val: str) -> str:
+            return self._image_callback(context, f"img_set_font:{val}:", file_name)
 
         def _lbl(selected: bool, selected_label: str, default_label: str) -> str:
             return (f"✅ {selected_label}" if selected else default_label)
 
-        def _section_row(label: str, key: str) -> List[InlineKeyboardButton]:
-            return [InlineKeyboardButton(label, callback_data=f"img_section:{key}")]
+        _section_row = self._image_section_row
 
         rows: List[List[InlineKeyboardButton]] = [
             _section_row("ערכות תמה", "themes"),
@@ -646,14 +738,14 @@ class AdvancedBotHandlers:
         note_row = [
             InlineKeyboardButton(
                 note_label,
-                callback_data=f"img_note_prompt:{note_suffix}"
+                callback_data=self._image_callback(context, "img_note_prompt:", file_name)
             )
         ]
         if current_note:
             note_row.append(
                 InlineKeyboardButton(
                     "🧹 נקה",
-                    callback_data=f"img_note_clear:{clear_suffix}"
+                    callback_data=self._image_callback(context, "img_note_clear:", file_name)
                 )
             )
         rows.append(note_row)
@@ -662,18 +754,18 @@ class AdvancedBotHandlers:
         rows.append([
             InlineKeyboardButton(
                 _lbl(current_font == 'dejavu', 'DejaVu', '📝 DejaVu Sans Mono'),
-                callback_data=f"img_set_font:dejavu:{font_suffix}"
+                callback_data=_mk_font_cb('dejavu')
             ),
             InlineKeyboardButton(
                 _lbl(current_font == 'jetbrains', 'JetBrains', '🚀 JetBrains Mono'),
-                callback_data=f"img_set_font:jetbrains:{font_suffix}"
+                callback_data=_mk_font_cb('jetbrains')
             ),
             InlineKeyboardButton(
                 _lbl(current_font == 'cascadia', 'Cascadia', '💻 Cascadia Code'),
-                callback_data=f"img_set_font:cascadia:{font_suffix}"
+                callback_data=_mk_font_cb('cascadia')
             ),
         ])
-        rows.append([InlineKeyboardButton("שמור", callback_data=f"img_settings_done:{done_suffix}")])
+        rows.append([InlineKeyboardButton("שמור", callback_data=self._image_callback(context, "img_settings_done:", file_name))])
         return InlineKeyboardMarkup(rows)
 
     def _get_configured_width_options(self) -> List[int]:
@@ -4453,64 +4545,25 @@ class AdvancedBotHandlers:
             elif data.startswith("regenerate_image_"):
                 _suffix = data.replace("regenerate_image_", "")
                 file_name = self._resolve_image_target(context, _suffix)
-                if CodeImageGenerator is None:  # pragma: no cover
-                    await query.answer("❌ יצירת תמונות לא זמינה בסביבה זו", show_alert=True)
+                doc = await self._load_code_image_source(query, user_id, file_name)
+                if doc is None:
                     return
-                # Rate limit for expensive regeneration
-                try:
-                    allowed = await image_rate_limiter.check_rate_limit(user_id)
-                except Exception:
-                    allowed = True
-                if not allowed:
-                    await query.answer("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.", show_alert=True)
-                    return
-                doc = _call_files_api("get_latest_version", user_id, file_name)
-                if not doc or not doc.get('code'):
-                    await self._edit_message_with_media_fallback(
-                        query,
-                        f"❌ קובץ `{html.escape(file_name)}` לא נמצא או ריק.",
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
-                    return
-                settings = self._get_effective_image_settings(user_id, context, file_name)
-                style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
-                theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
-                width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
-                font_family = str(settings.get('font') or 'dejavu')
-                note_text = str(settings.get('note') or '').strip() or None
-                gen = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
-                try:
-                    img = gen.generate_image(
-                        code=str(doc['code']),
-                        language=str(doc.get('programming_language') or 'text'),
-                        filename=file_name,
-                        max_width=width,
-                        note=note_text,
-                    )
-                finally:
-                    try:
-                        gen.cleanup()  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-                bio = io.BytesIO(img)
-                bio.name = f"{file_name}.png"
-                # צרף מקלדת עדכנית גם להודעת ה-reply החדשה
-                regen_suffix = self._make_safe_suffix(context, "regenerate_image_", file_name)
-                edit_suffix = self._make_safe_suffix(context, "edit_image_settings_", file_name)
-                save_suffix = self._make_safe_suffix(context, "save_to_drive_", file_name)
-                kb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 יצור מחדש", callback_data=f"regenerate_image_{regen_suffix}"),
-                     InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{edit_suffix}")],
-                    [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{save_suffix}")]
-                ])
+                img_settings = self._resolve_code_image_settings(user_id, context, file_name)
+                img = self._render_code_image(
+                    img_settings,
+                    code=str(doc['code']),
+                    language=str(doc.get('programming_language') or 'text'),
+                    file_name=file_name,
+                )
+                image_name = self._code_image_filename(file_name)
                 extra_caption = ""
-                if note_text:
-                    extra_caption = f"\n📌 הערה: {html.escape(note_text)}"
+                if img_settings.note:
+                    extra_caption = f"\n📌 הערה: {html.escape(img_settings.note)}"
                 await query.message.reply_photo(
-                    photo=InputFile(bio, filename=bio.name),
+                    photo=InputFile(io.BytesIO(img), filename=image_name),
                     caption=f"🔄 נוצר מחדש: <code>{html.escape(file_name)}</code>{extra_caption}",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=kb,
+                    reply_markup=self._build_image_result_keyboard(context, file_name),
                 )
 
             elif data.startswith("edit_image_settings_"):
@@ -4675,14 +4728,7 @@ class AdvancedBotHandlers:
                 except Exception:
                     pass
                 # החזרת המקלדת לבסיס
-                regen_suffix = self._make_safe_suffix(context, "regenerate_image_", file_name)
-                edit_suffix = self._make_safe_suffix(context, "edit_image_settings_", file_name)
-                save_suffix = self._make_safe_suffix(context, "save_to_drive_", file_name)
-                kb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 צור מחדש", callback_data=f"regenerate_image_{regen_suffix}"),
-                     InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{edit_suffix}")],
-                    [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{save_suffix}")]
-                ])
+                kb = self._build_image_result_keyboard(context, file_name)
                 try:
                     await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=kb)
                 except Exception:
@@ -4699,66 +4745,67 @@ class AdvancedBotHandlers:
             elif data.startswith("save_to_drive_"):
                 _suffix = data.replace("save_to_drive_", "")
                 file_name = self._resolve_image_target(context, _suffix)
-                if CodeImageGenerator is None:  # pragma: no cover
-                    await query.answer("❌ יצירת תמונות לא זמינה בסביבה זו", show_alert=True)
+                doc = await self._load_code_image_source(query, user_id, file_name)
+                if doc is None:
                     return
-                # Rate limit for potentially heavy generation+upload
+                img = self._render_code_image(
+                    self._resolve_code_image_settings(user_id, context, file_name),
+                    code=str(doc['code']),
+                    language=str(doc.get('programming_language') or 'text'),
+                    file_name=file_name,
+                )
+                from services.google_drive_service import upload_bytes_with_link  # type: ignore
+                from drive_owner import BOT as _DRIVE_OWNER  # החיבור של הבוט — ראו drive_owner.py
                 try:
-                    allowed = await image_rate_limiter.check_rate_limit(user_id)
-                except Exception:
-                    allowed = True
-                if not allowed:
-                    await query.answer("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.", show_alert=True)
-                    return
-                doc = _call_files_api("get_latest_version", user_id, file_name)
-                if not doc or not doc.get('code'):
-                    await self._edit_message_with_media_fallback(
-                        query,
-                        f"❌ קובץ `{html.escape(file_name)}` לא נמצא או ריק.",
-                        parse_mode=ParseMode.MARKDOWN,
+                    # קריאת רשת סינכרונית — ב-to_thread כדי לא לעצור את לולאת הבוט בזמן ההעלאה
+                    uploaded = await asyncio.to_thread(
+                        upload_bytes_with_link,
+                        user_id,
+                        self._code_image_filename(file_name),
+                        img,
+                        sub_path="code_images",
+                        owner=_DRIVE_OWNER,
+                        mimetype="image/png",
                     )
-                    return
-                settings = self._get_effective_image_settings(user_id, context, file_name)
-                style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
-                theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
-                width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
-                font_family = str(settings.get('font') or 'dejavu')
-                note_text = str(settings.get('note') or '').strip() or None
-                gen = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
-                try:
-                    img = gen.generate_image(
-                        code=str(doc['code']),
-                        language=str(doc.get('programming_language') or 'text'),
-                        filename=file_name,
-                        max_width=width,
-                        note=note_text,
-                    )
-                finally:
-                    try:
-                        gen.cleanup()  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-                # העלאה ל-Drive
-                try:
-                    from services.google_drive_service import upload_bytes  # type: ignore
-                    from drive_owner import BOT as _DRIVE_OWNER  # החיבור של הבוט — ראו drive_owner.py
-                    fid = upload_bytes(user_id, filename=f"{file_name}.png", data=img, sub_path="code_images", owner=_DRIVE_OWNER)
                 except Exception:
-                    # כשל רגיל של העלאה לא מגיע לכאן: upload_bytes מחזיר None ורושם את הסיבה בעצמו (drive_call_failed).
-                    # מכאן עוברת רק חריגה שיצאה ממנו — והמשתמש מקבל הודעת כשל למטה בשני המקרים.
-                    logger.warning("drive_code_image_upload_failed", exc_info=True)
-                    fid = None
-                if fid:
-                    await self._edit_message_with_media_fallback(
-                        query,
-                        f"✅ נשמר ל-Drive (id: <code>{html.escape(str(fid))}</code>)",
+                    # כשל של Drive לא מגיע לכאן: upload_bytes_with_link מחזירה None ורושמת את הסיבה בעצמה (drive_call_failed).
+                    # חריגה שיצאה ממנה היא באג, ולכן היא לא מקבלת את ההודעה "בדוק הרשאות/חיבור": נרשמת ועולה לגבול של handle_callback_query.
+                    logger.exception("drive_code_image_upload_failed")
+                    raise
+                # הודעה חדשה ולא עריכה של התמונה: הכיתוב שלה והמקלדת — כולל "הורד כקובץ" — נשארים
+                if uploaded is None:
+                    await query.message.reply_text("⚠️ שמירה ל-Drive לא הצליחה (בדוק הרשאות/חיבור)")
+                elif uploaded.web_view_link:
+                    await query.message.reply_text(
+                        f"✅ נשמר ל-Drive: <code>{html.escape(file_name)}</code>\n"
+                        f"<a href=\"{html.escape(uploaded.web_view_link)}\">פתיחה ב-Drive</a>",
                         parse_mode=ParseMode.HTML,
                     )
                 else:
-                    await self._edit_message_with_media_fallback(
-                        query,
-                        "⚠️ שמירה ל-Drive לא הצליחה (בדוק הרשאות/חיבור)",
+                    # השמירה הצליחה והקישור לא חזר (או שאינו https) — הודעת הצלחה בלי קישור, ושורה שמאפשרת לספור את זה
+                    logger.warning("drive_code_image_no_link")
+                    await query.message.reply_text(
+                        f"✅ נשמר ל-Drive: <code>{html.escape(file_name)}</code>",
+                        parse_mode=ParseMode.HTML,
                     )
+
+            elif data.startswith("img_download:"):
+                file_name = self._resolve_image_target(context, data[len("img_download:"):])
+                doc = await self._load_code_image_source(query, user_id, file_name)
+                if doc is None:
+                    return
+                img = self._render_code_image(
+                    self._resolve_code_image_settings(user_id, context, file_name),
+                    code=str(doc['code']),
+                    language=str(doc.get('programming_language') or 'text'),
+                    file_name=file_name,
+                )
+                # מסמך ולא תמונה: reply_photo נדחס ל-JPG, ו-reply_document שולח את ה-PNG כמו שהוא
+                await query.message.reply_document(
+                    document=InputFile(io.BytesIO(img), filename=self._code_image_filename(file_name)),
+                    caption=f"⬇️ באיכות מלאה: <code>{html.escape(file_name)}</code>",
+                    parse_mode=ParseMode.HTML,
+                )
 
             # ועוד callback handlers...
 
@@ -5523,54 +5570,24 @@ class AdvancedBotHandlers:
 
         try:
             # העדפות אפקטיביות: פר-משתמש (DB) עם דריסה פר-קובץ (context)
-            settings = self._get_effective_image_settings(user_id, context, file_name)
-            style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
-            theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
-            width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
-            requested_width = width
-            font_family = str(settings.get('font') or 'dejavu')
-            note_text = str(settings.get('note') or '').strip() or None
+            img_settings = self._resolve_code_image_settings(user_id, context, file_name)
+            requested_width = img_settings.width
+            image_bytes = self._render_code_image(img_settings, code=code, language=language, file_name=file_name)
 
-            generator = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
-            try:
-                image_bytes = generator.generate_image(
-                    code=code,
-                    language=language,
-                    filename=file_name,
-                    max_width=width,
-                    note=note_text,
-                )
-            finally:
-                try:
-                    generator.cleanup()  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-
-            bio = io.BytesIO(image_bytes)
-            bio.name = f"{file_name}.png"
             safe_name = html.escape(file_name)
             safe_lang = html.escape(language)
             note_caption = ""
-            if note_text:
-                note_caption = f"\n📌 הערה: {html.escape(note_text)}"
-            # כפתורים מתקדמים – ודא עמידה במגבלת 64 בתים של טלגרם
-            regen_suffix = self._make_safe_suffix(context, "regenerate_image_", file_name)
-            edit_suffix = self._make_safe_suffix(context, "edit_image_settings_", file_name)
-            save_suffix = self._make_safe_suffix(context, "save_to_drive_", file_name)
-            kb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 צור מחדש", callback_data=f"regenerate_image_{regen_suffix}"),
-                     InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{edit_suffix}")],
-                    [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{save_suffix}")]
-                ])
+            if img_settings.note:
+                note_caption = f"\n📌 הערה: {html.escape(img_settings.note)}"
             await update.message.reply_photo(
-                photo=InputFile(bio, filename=f"{file_name}.png"),
+                photo=InputFile(io.BytesIO(image_bytes), filename=self._code_image_filename(file_name)),
                 caption=(
                     f"🖼️ <b>תמונת קוד:</b> <code>{safe_name}</code>\n"
-                    f"🔤 שפה: {safe_lang} | 🎨 תמה: {html.escape(theme)} | 🧩 סגנון: {html.escape(style)}"
+                    f"🔤 שפה: {safe_lang} | 🎨 תמה: {html.escape(img_settings.theme)} | 🧩 סגנון: {html.escape(img_settings.style)}"
                     f"{note_caption}"
                 ),
                 parse_mode=ParseMode.HTML,
-                reply_markup=kb,
+                reply_markup=self._build_image_result_keyboard(context, file_name),
             )
         except ImportError as e:
             await update.message.reply_text(
