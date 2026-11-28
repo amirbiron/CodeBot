@@ -324,9 +324,18 @@
     } catch (_err) {}
   }
 
+  /**
+   * ``OPEN_FILE_URL`` מ-``data-open-file-url`` של ``#collectionsContent``.
+   *
+   * **מתלונן רק בעמוד שיש בו את המכל.** הסקריפט נטען ב-``base.html`` בכל עמוד, אבל הכרטיסים נבנים רק
+   * בתוך המכל (``renderCollectionItems`` יוצא כשהוא חסר). בעמוד בלי המכל אין קישורים לבנות, ושגיאה שם
+   * הייתה אזעקת שווא בכל עמוד אחר — והפילה בדיקות דפדפן שנכשלות על ``console.error``, למשל בדשבורד
+   * (``tests/test_first_steps_browser.py``).
+   */
   function initOpenFileUrl() {
     const container = document.getElementById('collectionsContent');
-    OPEN_FILE_URL = (container && container.getAttribute('data-open-file-url')) || '';
+    if (!container) return;
+    OPEN_FILE_URL = container.getAttribute('data-open-file-url') || '';
     if (!OPEN_FILE_URL) {
       console.error('collections: data-open-file-url חסר בתבנית — קישורי הפתיחה בכרטיסים לא ייבנו');
     }
