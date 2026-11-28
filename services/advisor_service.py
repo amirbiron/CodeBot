@@ -25,9 +25,10 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Mapping, Optional, Tuple
-from urllib.parse import urlsplit
 
 import openai
+
+from services.llm_endpoint_settings import load_endpoint, url_error
 
 logger = logging.getLogger(__name__)
 
@@ -87,28 +88,16 @@ def load_settings(environ: Mapping[str, str] = os.environ) -> Tuple[Optional[Adv
     ``(הגדרות, [])`` — תקין. ``(None, [])`` — היועץ לא הוגדר כלל. ``(None, שגיאות)``
     — הוגדר חלקית או בערכים פגומים. ``ADVISOR_CONTACT_URL`` ו-``ADVISOR_CONTEXT_EXCHANGES``
     אינם חובה.
+
+    המפתח, הכתובת והמודל נקראים ב-``load_endpoint`` (``services/llm_endpoint_settings.py``), עם אותם כללים
+    כמו ההגדרות של החילוץ בחיפוש בתיעוד. השגיאות שלו באות ראשונות, ואחריהן אלה של שני המשתנים שכאן.
     """
-    api_key = environ.get("ADVISOR_API_KEY", "").strip()
-    base_url = environ.get("ADVISOR_BASE_URL", "").strip()
-    model = environ.get("ADVISOR_MODEL", "").strip()
+    endpoint, errors = load_endpoint("ADVISOR_", environ)
+    if endpoint is None and not errors:
+        return None, []
     contact_url = environ.get("ADVISOR_CONTACT_URL", "").strip()
     raw_exchanges = environ.get("ADVISOR_CONTEXT_EXCHANGES", "").strip()
 
-    if not (api_key or base_url or model):
-        return None, []
-
-    errors: List[str] = []
-    if not api_key:
-        errors.append("ADVISOR_API_KEY לא מוגדר")
-    # המפתח נשלח בכותרת Authorization, וכותרת HTTP היא ASCII. תו נסתר שנכנס
-    # בהעתקה מדפדפן היה מפיל כל קריאה בצד הלקוח, ולא בעלייה.
-    elif not api_key.isascii() or any(ch.isspace() for ch in api_key):
-        errors.append("ADVISOR_API_KEY חייב להיות ASCII בלי רווחים")
-    base_parts = urlsplit(base_url)
-    if base_parts.scheme not in ("https", "http") or not base_parts.netloc:
-        errors.append("ADVISOR_BASE_URL חייב להיות כתובת מלאה שמתחילה ב-https://")
-    if not model:
-        errors.append("ADVISOR_MODEL לא מוגדר")
     context_exchanges = DEFAULT_CONTEXT_EXCHANGES
     if raw_exchanges:
         # ספרות ASCII בלבד ובאורך חסום, לפני int(): ערך כמו "5.0", "²" או מחרוזת ארוכה
@@ -119,16 +108,15 @@ def load_settings(environ: Mapping[str, str] = os.environ) -> Tuple[Optional[Adv
             errors.append(f"ADVISOR_CONTEXT_EXCHANGES חייב להיות מספר שלם בין 1 ל-{MAX_CONTEXT_EXCHANGES}")
     # Bot API מקבל בכפתור url רק "HTTP or tg:// URL" — כתובת אחרת הייתה נכשלת
     # בכל תשובה שמציגה את הכפתור, לא בעלייה.
-    if contact_url:
-        contact_parts = urlsplit(contact_url)
-        if contact_parts.scheme not in ("https", "http", "tg") or not contact_parts.netloc:
-            errors.append("ADVISOR_CONTACT_URL חייב להתחיל ב-https:// או ב-tg://")
-    if errors:
+    contact_url_error = url_error("ADVISOR_CONTACT_URL", contact_url, ("https", "http", "tg")) if contact_url else None
+    if contact_url_error:
+        errors.append(contact_url_error)
+    if errors or endpoint is None:
         return None, errors
     return AdvisorSettings(
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
+        api_key=endpoint.api_key,
+        base_url=endpoint.base_url,
+        model=endpoint.model,
         contact_url=contact_url,
         context_exchanges=context_exchanges,
     ), []

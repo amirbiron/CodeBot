@@ -159,6 +159,15 @@ def section_url(page_path: object, anchor: object, text: object = "") -> str:
 #: סעיף אחד במסמך: עמוד, עוגן, שביל כותרות ומארקדאון — מה שהכרטיס בחיפוש מציג.
 SECTIONS_COLLECTION = "docs_sections"
 
+#: ה-``_id`` של סעיף: ``sha256`` של המפתח היציב שלו, כ-hex קטן (``_stable_id`` ב-``services/docs_index_service.py``).
+_SECTION_ID_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def is_section_id(value: object) -> TypeGuard[str]:
+    """האם הערך יכול להיות ``_id`` של סעיף ב-:data:`SECTIONS_COLLECTION`: 64 תווי hex קטנים, ולא שום דבר אחר."""
+    return isinstance(value, str) and _SECTION_ID_RE.fullmatch(value) is not None
+
+
 #: נתח אחד במסמך: הטקסט שהוטמע והווקטור שלו.
 CHUNKS_COLLECTION = "docs_chunks"
 
