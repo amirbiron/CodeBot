@@ -817,11 +817,18 @@ def _web_view_link(response: Dict[str, Any]) -> Optional[str]:
     """הקישור לפתיחת הקובץ בדפדפן מתוך התשובה של ``files().create``, או ``None``.
 
     ``webViewLink`` הוא שדה של משאב ה-File ב-Drive v3: *"A link for opening the file in a relevant Google editor or viewer in a browser"* (``drive.v3.json`` ב-google-api-python-client 2.185.0). הוא מגיע מבחוץ, ולכן מתקבל רק כמחרוזת שהיא כתובת ``https`` עם מארח. הקורא בבוט משבץ אותו ב-``<a href>`` של הודעת HTML, וערך אחר היה מפיל את ההודעה במקום להציג אותה בלי קישור.
+
+    הפונקציה רצה אחרי שהקובץ כבר עלה, ולכן קישור פגום לא מכשיל את ההעלאה: הוא נחשב לקישור שלא חזר.
     """
     link = response.get("webViewLink")
     if not isinstance(link, str):
         return None
-    parts = urlsplit(link)
+    try:
+        parts = urlsplit(link)
+    except ValueError:
+        # urlsplit זורק ValueError על מארח פגום — סוגר מרובע שלא נסגר, או תו שנורמליזציית NFKC הופכת לתו אסור
+        # (urllib/parse.py, Python 3.13). זה קישור שאי אפשר להציג, לא כשל של ההעלאה; הבוט רושם drive_code_image_no_link.
+        return None
     if parts.scheme != "https" or not parts.netloc:
         return None
     return link

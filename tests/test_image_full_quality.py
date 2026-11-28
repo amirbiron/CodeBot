@@ -81,8 +81,19 @@ def test_a_backup_named_without_zip_still_uploads_as_zip(monkeypatch):
 
 @pytest.mark.parametrize(
     "link",
-    [None, 123, "", "javascript:alert(1)", "http://drive.google.com/file/d/x/view", "https://", "/file/d/x/view"],
-    ids=["missing", "not-a-string", "empty", "javascript", "http", "no-host", "relative"],
+    [
+        None,
+        123,
+        "",
+        "javascript:alert(1)",
+        "http://drive.google.com/file/d/x/view",
+        "https://",
+        "/file/d/x/view",
+        # urlsplit זורק ValueError על מארח פגום — סוגר מרובע שלא נסגר, או תו שנורמליזציית NFKC הופכת לתו אסור
+        "https://[drive.google.com/file/d/x/view",
+        "https://＃drive.google.com/file/d/x/view",
+    ],
+    ids=["missing", "not-a-string", "empty", "javascript", "http", "no-host", "relative", "unclosed-bracket", "nfkc-invalid-host"],
 )
 def test_a_link_that_is_not_an_https_url_is_dropped_and_the_upload_still_counts(monkeypatch, link):
     response = {"id": "fid-png"}
@@ -93,6 +104,8 @@ def test_a_link_that_is_not_an_https_url_is_dropped_and_the_upload_still_counts(
     uploaded = gds.upload_bytes_with_link(7, "a.py.png", PNG, sub_path="code_images", owner="bot", mimetype="image/png")
 
     assert uploaded == gds.DriveUpload(file_id="fid-png", web_view_link=None)
+    # גם המסלול של הגיבויים: הקובץ עלה, והמזהה חוזר
+    assert gds.upload_bytes(7, "BKP_all_v1.zip", b"PK", sub_path="all", owner="bot") == "fid-png"
 
 
 @pytest.mark.parametrize("response", [{"webViewLink": LINK}, {"id": 12345}, {"id": ""}, ["fid"]], ids=["no-id", "int-id", "empty-id", "not-a-dict"])
@@ -162,12 +175,13 @@ class _Bot:
         self.requested = []  # שמות הקבצים שהכפתורים ביקשו מהמסד
         self.renders = []  # (הגדרות המחולל, הארגומנטים של generate_image)
         self.uploads = []
+        self.code = "print('x')"  # הגרסה האחרונה של הקובץ במסד — בדיקה יכולה לשנות אותה בין ההצגה ללחיצה
         bot = self
 
         class _Facade:
             def get_latest_version(self, uid, fn):
                 bot.requested.append(fn)
-                return {"file_name": fn, "code": "print('x')", "programming_language": "python"}
+                return {"file_name": fn, "code": bot.code, "programming_language": "python"}
 
         class _Gen:
             def __init__(self, *a, **k):
@@ -373,7 +387,7 @@ async def test_drive_and_download_make_the_same_image_with_the_same_name(monkeyp
     download_calls = await bot.press(download)
 
     _no_boundary_error(drive_calls + download_calls)
-    # שתיהן — והתמונה שהמשתמש ראה — מאותן הגדרות
+    # כשהקובץ וההגדרות לא השתנו מאז ההצגה, שתיהן זהות לתמונה שהוצגה — ראו גם הבדיקה הבאה
     assert bot.renders == [shown, shown]
     init, kwargs = shown
     assert init == {"style": "dracula", "theme": "github", "font_family": "jetbrains"}
@@ -382,6 +396,29 @@ async def test_drive_and_download_make_the_same_image_with_the_same_name(monkeyp
     document = _only(download_calls, "reply_document")[2]["document"]
     assert upload["filename"] == document.filename == "a.py.png"
     assert upload == {"filename": "a.py.png", "data": PNG, "sub_path": "code_images", "owner": "bot", "mimetype": "image/png"}
+
+
+@pytest.mark.asyncio
+async def test_after_a_change_the_buttons_render_the_current_file_and_settings_not_the_photo_above(monkeypatch):
+    # אחרי "ערוך הגדרות" ← "שמור" המקלדת חוזרת מתחת לתמונה הישנה, והקובץ יכול להשתנות מהוובאפ.
+    # הכפתורים יוצרים מחדש מהגרסה האחרונה ומההגדרות של רגע הלחיצה — כמו "צור מחדש" — ולא את התמונה שמעליהם.
+    bot = _Bot(monkeypatch)
+    save = await bot.button("a.py", "💾 שמור ב-Drive")
+    download = await bot.button("a.py", "⬇️ הורד כקובץ")
+    regenerate = await bot.button("a.py", "🔄 צור מחדש")
+    await bot.image_command("a.py")
+    shown = bot.renders[-1]
+    bot.renders.clear()
+
+    bot.code = "print('changed')"
+    bot.h._set_image_setting(bot.ctx, "a.py", "theme", "github")
+    for cb in (save, download, regenerate):
+        _no_boundary_error(await bot.press(cb))
+
+    drive, downloaded, regenerated = bot.renders
+    assert drive == downloaded == regenerated != shown
+    init, kwargs = downloaded
+    assert init["theme"] == "github" and kwargs["code"] == "print('changed')"
 
 
 @pytest.mark.asyncio

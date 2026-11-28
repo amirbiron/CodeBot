@@ -491,7 +491,7 @@ class AdvancedBotHandlers:
     def _render_code_image(self, settings: _CodeImageSettings, *, code: str, language: str, file_name: str) -> bytes:
         """יוצר את תמונת הקוד (PNG) — המקום היחיד שבונה ``CodeImageGenerator`` לתמונה של קובץ אחד בהגדרות שלו.
 
-        ``/image``, "צור מחדש", "שמור ב-Drive" ו"הורד כקובץ" קוראים כאן, ולכן התמונה שנשמרת או שמורדת היא התמונה שהמשתמש ראה. ``/preview`` ו-``/image_all`` יוצרים אחרת (גובה מוגבל, רוחב של תצוגה מקדימה, מופע אחד לכל הלולאה) ואינם עוברים כאן.
+        ``/image``, "צור מחדש", "שמור ב-Drive" ו"הורד כקובץ" קוראים כאן, ולכן מאותו קובץ ובאותן הגדרות כולם יוצרים אותה תמונה. הכפתורים יוצרים מחדש בלחיצה — מהגרסה האחרונה ומההגדרות של אותו רגע — ולכן קובץ או הגדרות שהשתנו מאז שהתמונה נשלחה נכנסים לתמונה שנשמרת או שמורדת. ``/preview`` ו-``/image_all`` יוצרים אחרת (גובה מוגבל, רוחב של תצוגה מקדימה, מופע אחד לכל הלולאה) ואינם עוברים כאן.
         """
         gen = CodeImageGenerator(style=settings.style, theme=settings.theme, font_family=settings.font_family)
         try:
