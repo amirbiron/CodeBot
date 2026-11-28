@@ -422,6 +422,14 @@
    * ``MAX_NOTE_TITLE``. לא ``pinned``: ``is-pinned`` כאן הוא מצב מיקום (``surface``/``anchored``).
    */
   const FILES_PAGE_PIN_FIELD = 'files_page_pinned_at';
+  /**
+   * מצב הנעיצה כמו שהשרת שלח אותו — בתשובת 📎 (``_afterFilesPagePinAnswer``) או בפתק שנקרא (``_applyFetchedNote``):
+   * מחרוזת לא ריקה, או ``null``. קלט חיצוני (U3) — ערך שאינו מחרוזת נחשב "לא נעוץ".
+   */
+  function filesPagePinStamp(obj){
+    const v = obj && obj[FILES_PAGE_PIN_FIELD];
+    return (typeof v === 'string' && v) ? v : null;
+  }
   /** הכתובת של עמוד הקבצים — הקישור בהודעה אחרי נעיצה. */
   const FILES_PAGE_URL = '/files';
   /**
@@ -3290,11 +3298,12 @@
 
     /**
      * הפתק עזב את המשטח שהוא מוצג עליו — השרת אישר מחיקה, העברה לארכיון או הסרה מעמוד הקבצים,
-     * או ענה שהפתק כבר אינו קיים. בפתק שנפתח מעל עמוד, העמוד מוריד גם את הכרטיס שלו.
+     * או ענה שהפתק כבר אינו קיים. בפתק שנפתח מעל עמוד, העמוד מוריד גם את הכרטיס שלו. ``opts`` — של
+     * ``_removeNoteLocally`` (``stillOnServer``: הפתק עזב, ולא נמחק).
      */
-    _noteLeftSurface(el){
+    _noteLeftSurface(el, opts){
       const id = el && el.dataset ? el.dataset.noteId : '';
-      this._removeNoteLocally(el);
+      this._removeNoteLocally(el, opts);
       if (this.overlayMode && id) this._overlayNoteGone(id);
     }
 
@@ -3318,7 +3327,8 @@
     async _leaveSurfaceAfterServer(el){
       const id = el && el.dataset ? String(el.dataset.noteId || '') : '';
       if (!id || !(this._isSaveHeld(id) || this._hasUnsavedLocalEdits(id))) {
-        this._noteLeftSurface(el);
+        // השרת אישר שהפתק עזב — הוא עדיין קיים, במקום אחר (טיוטה ששמירה קודמת שלו עוד יכולה לנחות — ``_removeNoteLocally``).
+        this._noteLeftSurface(el, { stillOnServer: true });
         return 'ok';
       }
       const why = await this._settleBeforeLeaving(el);
@@ -3464,9 +3474,7 @@
     async _afterFilesPagePinAnswer(el, pin, answer){
       const entry = this._getEntry(el);
       if (answer.ok) {
-        const stamp = (typeof answer[FILES_PAGE_PIN_FIELD] === 'string' && answer[FILES_PAGE_PIN_FIELD])
-          ? answer[FILES_PAGE_PIN_FIELD] : null;
-        if (entry && entry.data) entry.data[FILES_PAGE_PIN_FIELD] = stamp;
+        if (entry && entry.data) entry.data[FILES_PAGE_PIN_FIELD] = filesPagePinStamp(answer);
         // התשובה היא מבט טרי על השרת: קריאה של הפתק שיצאה לפניה מתארת את הנעיצה הקודמת (``_markServerObserved``) —
         // אחרי נעיצה מחדש היא הייתה מורידה פתק נעוץ, ואחרי הסרה מנקה את הסימון שהוא עזב (``_applyFetchedNote``).
         if (entry) this._markServerObserved(entry);
@@ -3609,7 +3617,8 @@
       };
       const toRect = opts && typeof opts.toRect === 'function' ? opts.toRect(cur.id) : null;
       await this._shrinkInto(entry.el, toRect);
-      this._removeNoteLocally(entry.el);
+      // הפתק רק נסגר — הוא עדיין בשרת, וטיוטה ששמירה קודמת שלו עוד יכולה לנחות נשארת (``_removeNoteLocally``).
+      this._removeNoteLocally(entry.el, { stillOnServer: true });
       if (this._onOverlayNoteClosed) this._onOverlayNoteClosed(summary);
     }
 
@@ -3675,7 +3684,7 @@
         return false;
       }
       this._openOverlay = null;
-      this._removeNoteLocally(entry.el);
+      this._removeNoteLocally(entry.el, { stillOnServer: true });
       return true;
     }
 
@@ -6891,15 +6900,15 @@
         // המשתמש עצמו, ו"התעלם" היה שומר את הישן מעליו. מה שבמסך עוד לא אבד: הוא נשלח בשמירה הבאה, והסתרה נוספת
         // תנסה לכתוב אותו שוב.
         //
-        // **ואין מה לשמור, אבל שמירה קודמת ששונה ממה שבמסך עוד יכולה לנחות** (``_unconfirmedMayLand``) — הטיוטה נשארת:
-        // אם השמירה ההיא תנחת אחרי שהעמוד נסגר, רק הטיוטה תזהה אותה כשלנו ותחזיר את מה שבמסך מעליה. זה המצב אחרי
-        // אישור שלא הזיז את האסימון (שמירה קודמת עם אותו אסימון לא נמחקה מהזיכרון — ``_forgetUnconfirmed``), ובשחזור
-        // שממתין לשמירה שהטיוטה זכרה (``entry.draftSettling``). שמירה שלא שינתה טקסט (מיקום, גודל) אינה משנה את זה.
+        // **ואין מה לשמור, אבל שמירה קודמת ששונה ממה שבמסך עוד יכולה לנחות** (``_unconfirmedMayLand``) — הטיוטה נשארת,
+        // ונכתבת מחדש כמו כשיש מה לשמור: אם השמירה ההיא תנחת אחרי שהעמוד נסגר, רק הטיוטה תזהה אותה כשלנו ותחזיר את מה
+        // שבמסך מעליה. זה המצב אחרי אישור שלא הזיז את האסימון (שמירה קודמת עם אותו אסימון לא נמחקה מהזיכרון —
+        // ``_forgetUnconfirmed``), ובשחזור שממתין לשמירה שהטיוטה זכרה (``entry.draftSettling``). עד נובמבר 2026 היא נשארה
+        // כמו שהייתה, ויכלה להחזיק טקסט שהמשתמש כבר החזיר — והטעינה הבאה שחזרה אותו ושלחה אותו לשמירה, בלי שאלה.
+        // שמירה שלא שינתה טקסט (מיקום, גודל) אינה משנה את זה.
         if (entry.closeDraft && !entry.remote && !entry.draftAwaitingServer) {
           const dirty = this._dirtyFields(entry);
-          if (!(dirty.content || dirty.title)) {
-            if (!this._unconfirmedMayLand(entry)) this._removeHeldDraft(entry);
-          }
+          if (!(dirty.content || dirty.title) && !this._unconfirmedMayLand(entry)) this._removeHeldDraft(entry);
           else if (!this._writeHeldDraft(entry) && !this._draftKnowsSave(entry, payload)) this._removeHeldDraft(entry);
         }
       }
@@ -6964,9 +6973,14 @@
        * שהמצב במסך כבר נשען עליה מתארת את השרת ברגע מוקדם יותר, ופיוס שלה היה מחזיר גרסה ישנה — למשל עדכון
        * שחיכה ללחיצה, שהיה מוחל אחרי שהרענון של הכניסה כבר הביא גרסה חדשה ממנו. ``_reconcileServerNote`` זורק
        * תשובה כזו (``'stale'``). ושמירה שאושרה, סימון משימה, ותשובה שמאשרת העברה לארכיון, נעיצה לעמוד הקבצים או הסרה
-       * ממנו, הם מבט טרי על השרת מהצד שלנו: כל קריאה שיצאה לפניהם ישנה מהם (``_markServerObserved``). המחיר: תשובה שיצאה קודם
-       * ונענתה אחרי — חדשה בפועל — נזרקת, והדגימה הבאה מביאה אותה. השיטה לעולם אינה מחזירה גרסה ישנה; לכל היותר
-       * מאחרת חדשה.
+       * ממנו, הם מבט טרי על השרת מהצד שלנו: כל קריאה שיצאה לפניהם ישנה מהם (``_markServerObserved``). המחיר: תשובה שיצאה
+       * קודם ונענתה אחרי — חדשה בפועל — נזרקת, והדגימה הבאה מביאה אותה.
+       *
+       * **מה זה לא מבטיח:** המספר מסדר לפי הרגע שבו הקריאה **יצאה**, ולא לפי הרגע שבו השרת קרא את הפתק. שתי קריאות שבאוויר
+       * יחד יכולות להיקרא בשרת בסדר הפוך, סביב כתיבה ממקום אחר: זו שיצאה אחרונה נקראת לפני הכתיבה, ונענית אחרי
+       * הראשונה. המספר שלה גבוה יותר, ולכן היא מוחלת, ומחזירה למסך את הגרסה שלפני הכתיבה, עם האסימון שלה (נמדד ב-node).
+       * זה חולף: הדגימה הבאה רואה בשרת אסימון אחר מזה שבבסיס, ומביאה את החדשה (``_applyVersions``); ועריכה בינתיים
+       * נשלחת עם האסימון הישן ונענית 409. ההכרעה לפי הסדר בשרת עצמו הייתה צריכה סדר על האסימונים, ואין כזה בקוד היום.
        */
       _nextReadSeq(){
         this._readSeq = (this._readSeq || 0) + 1;
@@ -7126,9 +7140,12 @@
         if (!entry || !entry.el) return 'absent';
         const hasSeq = typeof seq === 'number' && Number.isFinite(seq);
         if (hasSeq && (entry.readSeq || 0) > seq) return 'stale';
+        // **התשובה נקלטה גם כשהפיוס שלה ממתין** — המספר נרשם לפני ההמתנה. אחרת קריאה ישנה ממנה, שנענתה בזמן
+        // ההמתנה, הייתה נחשבת: למשל מורידה פתק שהתשובה הזו מראה שהוא שייך (``_applyFetchedNote``). הפיוס שממתין
+        // רץ אחר כך עם אותו מספר, ואינו נזרק בגללו (``'stale'`` רק על מספר ישן מהרשום).
+        if (hasSeq) entry.readSeq = seq;
         // לחיצה באמצע — התצוגה שתחת האצבע היא זו שההיסט של הלחיצה מחושב מולה.
         if (this._deferWhilePressed(entry, server, source, seq)) return 'deferred';
-        if (hasSeq) entry.readSeq = seq;
         // טיוטה ששוחזרה מהקאש וחיכתה לשרת — הקריאה הזו מסיימת את השחזור (``_restoreHeldDraft``). וגם שחזור שכבר
         // נבדק, ועדיין ממתין לשמירה שהטיוטה זכרה ועשויה לנחות (``draftSettling``, ``_afterDraftRestored``).
         const finishingDraft = !!(entry.draftAwaitingServer || entry.draftSettling);
@@ -7471,7 +7488,7 @@
        * עובד בשחזור כי הטיוטה זוכרת את השמירות שבאוויר (``unconfirmedSnapshots``). פתק מוחזק אינו כאן:
        * ``_syncHeldDraft`` כבר כתב את הטיוטה שלו.
        *
-       * **"בדרך" אינו חל בשני מצבים, והטיוטה נכתבת גם כשהטקסט יוצא ב-``keepalive``:**
+       * **"בדרך" אינו חל בשלושה מצבים, והטיוטה נכתבת גם כשהטקסט יוצא ב-``keepalive``:**
        *
        * - **כבר יש לפתק טיוטת סגירה מהסתרה קודמת** (``entry.closeDraft``) — היא נכתבת מחדש. אחרת היא נשארת עם טקסט
        *   ישן, ובלי השמירה שיוצאת עכשיו ברשימת השמירות שבאוויר. אם השמירה נוחתת אחרי שהעמוד נסגר, הטעינה הבאה מציגה
@@ -7480,6 +7497,9 @@
        *   חזרה, או שהמשתמש הקליד אחרי האישור האחרון והסתיר את הלשונית לפני שהשמירה הבאה יצאה.
        * - **השמירה האחרונה של הפתק נכשלה** (``_hasSaveFailed``, הסימון שהמשתמש רואה על הפתק). בלי רשת גם בקשת
        *   ``keepalive`` תיכשל אחרי שהעמוד נסגר, ובלי טיוטה הטקסט לא נמצא בשום מקום.
+       * - **שמירה קודמת עוד יכולה לנחות** (``_unconfirmedMayLand``, החריג שמתואר למטה). אם היא נוחתת קודם, האסימון זז,
+       *   ומה שיוצא עכשיו — עם האסימון של הבסיס — נדחה ב-409 אחרי שהעמוד נסגר. זה קורה גם כשהסימון של הכשל כבר נוקה,
+       *   באישור שלא הזיז את האסימון. עד נובמבר 2026 לא נכתבה כאן טיוטה, והטעינה הבאה הציגה את השמירה הקודמת.
        *
        * **ופתק שאין במסך שלו כלום שהשרת לא אישר, ויש לו טיוטת סגירה מהסתרה קודמת — הטיוטה יוצאת.** היא מחזיקה טקסט
        * שהמשתמש כבר שינה, למשל מחק, והשחזור בטעינה הבאה היה מחזיר אותו ושולח אותו לשמירה, בלי שאלה (נמדד). **החריג:**
@@ -7513,7 +7533,9 @@
               if (entry.closeDraft) this._removeHeldDraft(entry);
               continue;
             }
-            if (this._inFlightCarriesLocalText(key) && !entry.closeDraft && !this._hasSaveFailed(key)) continue;
+            // "בדרך" רק כששום שמירה קודמת אינה יכולה לנחות לפניה: שמירה כזו מזיזה את האסימון, ומה שיוצא עכשיו, עם
+            // האסימון של הבסיס, נדחה ב-409 אחרי שהעמוד נסגר.
+            if (this._inFlightCarriesLocalText(key) && !entry.closeDraft && !this._hasSaveFailed(key) && !earlier) continue;
           }
           if (this._writeHeldDraft(entry)) entry.closeDraft = true;
         }
@@ -7676,7 +7698,8 @@
             if (res.ok) this._reconcileServerNote(res.note, 'poll', res.seq);
             else this._finishDraftGone(entry);
           }
-          if (entry) this._removeIfGone(entry);
+          // ``res.ok`` — הפתק קיים, במקום אחר; ``404`` — נמחק.
+          if (entry) this._removeIfGone(entry, res.ok);
           return;
         }
         if (!res.ok) {
@@ -7688,6 +7711,10 @@
           // הקריאה מראה שהפתק שייך למשטח — גם אם השרת אמר קודם שהוא עזב (``entry.leftOnServer``): הוא חזר, למשל נעוץ
           // שוב או הוחזר מהארכיון, ואין עוד סיבה להוריד אותו כשהעבודה עליו נגמרת (``_completeLeaveIfDone``).
           entry.leftOnServer = false;
+          // **ומצב הנעיצה — מהקריאה הזו**, אחרי בדיקת המספר למעלה, כך שקריאה ישנה אינה משנה אותו. זה השדה היחיד שבו
+          // ההכרעה על השייכות נשענת על משהו שהלשונית כתבה בעצמה (תשובת 📎, ``_afterFilesPagePinAnswer``): בלי זה, פתק
+          // שנשאר אחרי הסרה ונעוץ שוב ממקום אחר נשאר "לא נעוץ", ו-📎 הבא היה שולח נעיצה במקום הסרה.
+          if (entry.data) entry.data[FILES_PAGE_PIN_FIELD] = filesPagePinStamp(res.note);
           this._reconcileServerNote(res.note, 'poll', res.seq);
           return;
         }
@@ -7705,17 +7732,21 @@
         return !!(this._isNoteEditing(entry) || dirty.content || dirty.title || this._hasUnsentEdits(id) || this._isSaveHeld(id));
       }
 
-      /** פתק שעזב את המשטח — יורד מהמסך, אלא אם המשתמש באמצע עבודה עליו (``_noteInWork``). */
-      _removeIfGone(entry){
+      /**
+       * פתק שעזב את המשטח — יורד מהמסך, אלא אם המשתמש באמצע עבודה עליו (``_noteInWork``). ``stillOnServer`` — הקריאה
+       * הראתה שהוא עזב ולא נמחק (``_removeNoteLocally``).
+       */
+      _removeIfGone(entry, stillOnServer){
         const id = String(entry.el.dataset.noteId);
         if (this._noteInWork(entry)) return;
+        const opts = { stillOnServer: !!stillOnServer };
         if (this.overlayMode) {
           // הפתק הפתוח מעל העמוד נמחק או עזב ממקום אחר — הוא נסגר, והעמוד מוריד את הכרטיס.
-          this._removeNoteLocally(entry.el);
+          this._removeNoteLocally(entry.el, opts);
           this._overlayNoteGone(id);
           return;
         }
-        this._removeNoteLocally(entry.el);
+        this._removeNoteLocally(entry.el, opts);
         this._afterRemoteApplied();
       }
 
@@ -8993,12 +9024,32 @@
     /**
      * מוריד פתק מהמנהל ומהמסך, **בלי לפנות לשרת** — אחרי מחיקה או העברה לארכיון שהשרת
      * כבר אישר.
+     *
+     * ``opts.stillOnServer`` — מי שקורא יודע שהפתק עדיין קיים בשרת: סגירה של פתק מעל עמוד, פתיחה של אחר במקומו, או
+     * פתק שעזב את המשטח (ארכיון, הסרה מעמוד הקבצים). בלי זה — מחיקה, ``404``, או שלא ידוע — ההנחה היא שהוא אינו.
      */
-    _removeNoteLocally(el){
+    _removeNoteLocally(el, opts){
       const id = el.dataset.noteId;
       // עדכון שחיכה ללחיצה על הפתק הזה — אין לו עוד על מה לרוץ.
       const removed = this.notes.get(id);
       if (removed && removed.pressTimer) { clearTimeout(removed.pressTimer); removed.pressTimer = null; }
+      // **הטיוטה של הרשומה הזו** (``entry.draftKey``, למשל טיוטת סגירה) — לפני ``el.remove()``, כי הכתיבה קוראת את מה
+      // שבתיבה. בדרך כלל היא יוצאת איתו: אף טעינה לא מגיעה לטיוטה של פתק שנמחק — היא נמצאת רק לפי מזהה של פתק שמוצג
+      // (``_findHeldDraft``) — ולכן היא הייתה נשארת באחסון לתמיד, ותופסת מקום שהטיוטות של פתקים אחרים צריכות. פתק
+      // שהמשתמש עדיין עובד עליו לא מגיע לכאן (ראו למטה) — חוץ ממחיקה, שבה הוא בחר לוותר על הטקסט — וטיוטות של לשוניות
+      // אחרות נשארות שלהן.
+      //
+      // **חוץ מפתק שעדיין קיים בשרת, ששמירה קודמת שלו עוד יכולה לנחות** (``_unconfirmedMayLand``) — למשל שמירה שנכשלה
+      // ברשת, ואחריה המשתמש החזיר את הטקסט. אין במסך שום דבר שאין בשרת, אבל הזיכרון של השמירה ההיא יורד עם הרשומה: אם
+      // היא תנחת, הפתיחה הבאה של הפתק — מעל העמוד, בארכיון או בלוח — תציג אותה, ומה שהמשתמש החזיר יאבד. לכן נכתבת
+      // טיוטה עם מה שבמסך, כמו בהסתרה (``_persistDraftsThatWontSurviveClose``), והפתיחה הבאה משחזרת אותה ומזהה את
+      // השמירה ההיא כשלנו. כתיבה שנכשלת (אחסון מלא) משאירה טיוטה קודמת, אם יש. עד נובמבר 2026 הטיוטה נמחקה כאן תמיד.
+      if (removed) {
+        const keep = !!(opts && opts.stillOnServer) && !removed.serverGone && isSavedNoteId(String(id))
+          && this._unconfirmedMayLand(removed);
+        if (keep) this._writeHeldDraft(removed);
+        else this._removeHeldDraft(removed);
+      }
       // טיימר ההתפרצות מחזיק הפניה ל-``el`` ול-``entry``. בלי הניקוי הזה
       // הוא ימשיך לרוץ אחרי שהפתק ירד מה-DOM.
       this._clearUndoTimer(el);
@@ -9007,13 +9058,6 @@
       // וגם של השרשורים — החיישן, מעקב הגודל, וטעינה שבאוויר.
       this._teardownThreadsOf(this._getEntry(el));
       try { el.remove(); } catch(_) {}
-      // **וגם הטיוטה של הרשומה הזו** (``entry.draftKey``, למשל טיוטת סגירה). אף טעינה לא מגיעה לטיוטה של פתק שנמחק
-      // — היא נמצאת רק לפי מזהה של פתק שמוצג (``_findHeldDraft``) — ולכן היא הייתה נשארת באחסון לתמיד, ותופסת מקום
-      // שהטיוטות של פתקים אחרים צריכות. פתק שעבר לארכיון או הוסר מעמוד הקבצים **כן** מוצג במקום אחר, ושם הטיוטה
-      // הייתה משוחזרת — אבל הוא מגיע לכאן רק בלי עבודה שהשרת לא קיבל (``_leaveSurfaceAfterServer``), ולכן אין בה כלום
-      // שאין בשרת. פתק שהמשתמש עדיין עובד עליו לא מגיע לכאן (ראו למטה) — חוץ ממחיקה, שבה הוא בחר לוותר על הטקסט —
-      // וטיוטות של לשוניות אחרות נשארות שלהן.
-      if (removed) this._removeHeldDraft(removed);
       this.notes.delete(id);
       // **מה שנשאר בתור לפתק יוצא איתו.** המסלולים שמורידים פתק שהמשתמש עדיין עובד עליו עוצרים קודם
       // (``_settleBeforeLeaving``, ואחרי הבקשה לשרת ``_leaveSurfaceAfterServer``), ולכן מה שנשאר כאן שייך לפתק
