@@ -139,9 +139,9 @@
   }
 
   // ---------------------------------------------------------------------------
-  // אנימציות של מעבר מצב: מיזעור פתק, תפריט ⋮ בעמוד הקובץ, קבוצה בפיד האחרון בדשבורד,
-  // והחלונית "קבצים אחרונים". ההסבר המלא — docs/webapp/theming_and_css.rst, העוגן
-  // ``anim-utils-state-motion``.
+  // אנימציות של מעבר מצב: מיזעור פתק, תפריט ⋮ בעמוד הקובץ, קבוצה בפיד האחרון בדשבורד, צעד
+  // בצ'קליסט "צעדים ראשונים", והחלונית "קבצים אחרונים". ההסבר המלא — docs/webapp/theming_and_css.rst,
+  // העוגן ``anim-utils-state-motion``.
   //
   // **שלושה כללים שכל הפונקציות כאן שומרות:**
   //
@@ -166,6 +166,10 @@
    * המצטברת, כדי שרשימה ארוכה לא תיכנס במשך שניות. עקומה שה-y שלה מעל 1 היא שעושה את הקפיץ:
    * התנועה עוברת מעט את היעד וחוזרת.
    *
+   * **שם לכל רכיב, גם כשהערכים זהים** (``noteFold`` ו-``groupFold``, וצעד בצ'קליסט "צעדים ראשונים" —
+   * ``step*`` — עם הערכים של ``noteFold``, ``noteContent`` ו-``groupChevron``): כך אפשר לכוונן רכיב
+   * אחד בלי לשנות את האחרים.
+   *
    * **הכניסה של פריטי תפריט (``spring-dropdown``) אינה כאן.** היא רצה גם מ-CSS (האפשרויות של
    * ה-select בחיפוש הגלובלי), ולכן התזמון שלה כתוב בטוקנים ``--motion-menu-*`` ב-``animations.css``,
    * ו-``menuMotion`` קורא אותם משם.
@@ -177,6 +181,9 @@
     groupChevron: Object.freeze({ duration: 400, easing: 'cubic-bezier(.4, 0, .2, 1)' }),
     groupRow: Object.freeze({ duration: 400, easing: 'cubic-bezier(.2, 1.4, .3, 1)', step: 60, maxIndex: 7 }),
     groupRowFade: Object.freeze({ duration: 300, easing: 'ease', step: 60, maxIndex: 7 }),
+    stepFold: Object.freeze({ duration: 500, easing: 'cubic-bezier(.2, 1.3, .3, 1)' }),
+    stepContent: Object.freeze({ duration: 250, easing: 'ease' }),
+    stepChevron: Object.freeze({ duration: 400, easing: 'cubic-bezier(.4, 0, .2, 1)' }),
     morph: Object.freeze({ duration: 500, easing: 'cubic-bezier(.2, 1.35, .3, 1)' }),
     morphContent: Object.freeze({ duration: 300, easing: 'ease', delay: 180 }),
     morphBackdrop: Object.freeze({ duration: 300, easing: 'ease' }),
