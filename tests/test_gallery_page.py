@@ -165,16 +165,25 @@ def test_the_sitemap_lists_every_slide_under_the_gallery_with_the_url_the_page_u
     from webapp.gallery import GALLERY_SLIDES
 
     client = webapp_app.app.test_client()
-    resp = client.get("/sitemap.xml")
-    assert resp.status_code == 200, resp.status_code
-    body = resp.get_data()
+    with client.get("/sitemap.xml") as resp:
+        assert resp.status_code == 200, resp.status_code
+        body = resp.get_data()
 
     # ה-namespace מוצהר בשורש, בקידומת ``image`` — כמו בדוגמה של גוגל
     declared = dict(ns for _event, ns in ET.iterparse(io.BytesIO(body), events=("start-ns",)))
     assert declared == {"": SITEMAP_NS, "image": IMAGE_NS}, declared
 
+    # הבסיס והכתובת של הגלריה — מאותם מקורות שה-sitemap נבנה מהם, וההשוואה מדויקת: סיומת ``/gallery`` הייתה
+    # מתאימה גם לעמוד אחר שנגמר כך
+    with webapp_app.app.test_request_context("/"):
+        from flask import url_for
+
+        base = webapp_app._webapp_base_url()
+        gallery_path = url_for("gallery")
+    assert re.match(r"^https?://[^/]+$", base), base
+
     urls = ET.fromstring(body).findall(f"{{{SITEMAP_NS}}}url")
-    gallery = [u for u in urls if u.findtext(f"{{{SITEMAP_NS}}}loc").endswith("/gallery")]
+    gallery = [u for u in urls if u.findtext(f"{{{SITEMAP_NS}}}loc") == base + gallery_path]
     assert len(gallery) == 1, [u.findtext(f"{{{SITEMAP_NS}}}loc") for u in urls]
     # שאר הדפים נשארו כמו שהיו: ``<loc>`` בלבד
     others = [u for u in urls if u is not gallery[0]]
@@ -185,21 +194,17 @@ def test_the_sitemap_lists_every_slide_under_the_gallery_with_the_url_the_page_u
     assert all([child.tag for child in image] == [f"{{{IMAGE_NS}}}loc"] for image in images)
     image_locs = [image.findtext(f"{{{IMAGE_NS}}}loc") for image in images]
 
-    base = gallery[0].findtext(f"{{{SITEMAP_NS}}}loc")[: -len("/gallery")]
-    assert re.match(r"^https?://[^/]+$", base), base
-    page_srcs = [s["src"] for s in _rendered_slides(client.get("/gallery").get_data(as_text=True))]
+    with client.get(gallery_path) as page:
+        page_srcs = [s["src"] for s in _rendered_slides(page.get_data(as_text=True))]
     assert image_locs == [base + src for src in page_srcs]
     # ולפי הסדר של הרשימה — לא רק כמו העמוד, שגם הוא יכול לטעות
     assert [urlsplit(u).path.rsplit("/", 1)[1] for u in image_locs] == [s.image for s in GALLERY_SLIDES]
 
     for url in image_locs:
         parts = urlsplit(url)
-        image_resp = client.get(parts.path, query_string=parts.query)
-        try:
+        with client.get(parts.path, query_string=parts.query) as image_resp:
             assert image_resp.status_code == 200, (url, image_resp.status_code)
             assert image_resp.mimetype.startswith("image/"), (url, image_resp.mimetype)
-        finally:
-            image_resp.close()
 
 
 def test_no_stray_files_in_the_gallery_folder():

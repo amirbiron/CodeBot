@@ -319,11 +319,11 @@ def test_the_sitemap_lists_every_public_page_with_an_absolute_url(wa):
     with wa.app.test_request_context("/"):
         from flask import url_for
 
+        base = wa._webapp_base_url()
         paths = [url_for(endpoint) for endpoint in wa.SITEMAP_ENDPOINTS]
-    assert len(locs) == len(paths)
-    for loc, path in zip(locs, paths):
-        assert re.match(r"^https?://[^/]+/", loc), loc
-        assert loc.endswith(path), (loc, path)
+    # השוואה מדויקת ולא לפי סיומת: הנתיב של עמוד הבית הוא ``/``, ו-``endswith("/")`` עובר על כל כתובת שנגמרת בלוכסן
+    assert re.match(r"^https?://[^/]+$", base), base
+    assert locs == [base + path for path in paths]
     assert any(loc.endswith("/markdown-editor") for loc in locs)
 
 

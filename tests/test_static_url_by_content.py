@@ -48,9 +48,9 @@ def _image_urls(client, page_query: str = "") -> dict[str, str]:
     urls: dict[str, str] = {}
     gallery_html = ""
     for page in OG_PAGES:
-        resp = client.get(page + page_query)
-        assert resp.status_code == 200, (page, resp.status_code)
-        text = resp.get_data(as_text=True)
+        with client.get(page + page_query) as resp:
+            assert resp.status_code == 200, (page, resp.status_code)
+            text = resp.get_data(as_text=True)
         parser = _Images()
         parser.feed(text)
         assert parser.og_image, page
@@ -65,7 +65,8 @@ def _image_urls(client, page_query: str = "") -> dict[str, str]:
     for i, slide in enumerate(json.loads(m.group(1)), 1):
         urls[f"gallery slide {i}"] = slide["src"]
 
-    sitemap = ET.fromstring(client.get("/sitemap.xml").get_data())
+    with client.get("/sitemap.xml") as resp:
+        sitemap = ET.fromstring(resp.get_data())
     for i, el in enumerate(sitemap.iter(f"{{{IMAGE_NS}}}loc"), 1):
         urls[f"sitemap image {i}"] = el.text
     return {label: _path_and_query(url) for label, url in urls.items()}
@@ -98,12 +99,9 @@ def test_every_url_carries_the_hash_of_the_file_it_serves(wa, fresh_process):
     assert len([label for label in urls if label.startswith("sitemap image ")]) == len(GALLERY_SLIDES)
     for label, url in urls.items():
         path, _, query = url.partition("?")
-        resp = client.get(path)
-        try:
+        with client.get(path) as resp:
             assert resp.status_code == 200, (label, url, resp.status_code)
             body = resp.get_data()
-        finally:
-            resp.close()
         assert query == "v=" + hashlib.sha256(body).hexdigest()[:8], (label, url)
 
 
