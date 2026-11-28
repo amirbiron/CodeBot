@@ -440,6 +440,38 @@ def test_an_attribute_that_is_not_the_submodule_is_left_alone(tmp_path):
     )
 
 
+def test_only_a_module_located_inside_the_installed_package_counts_as_real(tmp_path):
+    """תת-מודול שנטען מתוך החבילה נחשב אמיתי — גם חבילה בלי ``__init__.py``, שאין לה ``origin`` — וכל השאר לא.
+
+    ב-sentry-sdk 2.42.1 אין תיקייה בלי ``__init__.py``, ולכן חבילה כזו נבנית כאן ביד, כמו שפייתון בונה אותה:
+    ``origin`` הוא ``None``, והתיקייה שלה ב-``submodule_search_locations``.
+    """
+    import importlib.machinery
+    import types
+
+    import sentry_sdk
+
+    is_real = _sentry_isolation._comes_from_the_installed_sentry_sdk
+
+    def module_with(spec: importlib.machinery.ModuleSpec) -> types.ModuleType:
+        module = types.ModuleType(spec.name)
+        module.__spec__ = spec
+        return module
+
+    def package_in(directory: str) -> types.ModuleType:
+        spec = importlib.machinery.ModuleSpec("sentry_sdk.no_init", None, is_package=True)
+        spec.submodule_search_locations = [directory]
+        return module_with(spec)
+
+    assert is_real(sys.modules["sentry_sdk.scope"])
+    assert is_real(package_in(os.path.join(sentry_sdk.__path__[0], "no_init"))), (
+        "חבילה בלי __init__.py מתוך sentry_sdk סווגה כמזויפת — הייתה יוצאת מ-sys.modules ומכשילה את הבדיקה שטענה אותה"
+    )
+    assert not is_real(package_in(str(tmp_path / "no_init")))
+    assert not is_real(types.ModuleType("sentry_sdk.fake"))
+    assert not is_real(module_with(importlib.machinery.ModuleSpec("sentry_sdk.no_origin", None)))
+
+
 def test_a_dsn_from_the_outer_environment_never_reaches_the_tests(tmp_path):
     """כתובת אמיתית מהמעטפת של מי שמריץ — או מסוד ב-CI — אינה מגיעה לאף בדיקה."""
     body = "import os\n" + _NEXT_STARTS_CLEAN

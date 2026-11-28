@@ -76,19 +76,21 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def _comes_from_the_installed_sentry_sdk(module: object) -> bool:
-    """האם המודול נטען מהחבילה המותקנת. מודול מזויף (``types.ModuleType``) אין לו ``__spec__``.
+    """האם המודול נטען מהחבילה המותקנת. למודול מזויף (``types.ModuleType``) ה-``__spec__`` הוא ``None``.
 
-    התיקיות של החבילה נלקחות מ-``sentry_sdk.__path__`` ולא מה-``origin`` של ``__init__.py``, ש-``None`` בחבילה בלי
-    ``__init__.py``. מודול בלי ``origin`` נחשב לא-מהחבילה: ב-sentry-sdk 2.42.1 לכל תיקייה יש ``__init__.py``, ולכן לכל
-    תת-מודול אמיתי יש ``origin``.
+    המקום של מודול הוא ה-``origin`` שלו, ובחבילה בלי ``__init__.py`` — שבה ``origin`` הוא ``None`` — התיקיות שלה
+    (``submodule_search_locations``). המקום של sentry-sdk נלקח מ-``sentry_sdk.__path__`` מאותה סיבה, ולא מה-``origin``
+    של ``sentry_sdk``. מודול בלי אף מקום אינו מהחבילה.
     """
     if sentry_sdk is None:
         return False
-    origin = getattr(getattr(module, "__spec__", None), "origin", None)
-    if not origin:
+    spec = getattr(module, "__spec__", None)
+    origin = getattr(spec, "origin", None)
+    locations = [origin] if origin else list(getattr(spec, "submodule_search_locations", None) or ())
+    if not locations:
         return False
-    origin = os.path.abspath(origin)
-    return any(origin.startswith(os.path.abspath(path) + os.sep) for path in sentry_sdk.__path__)
+    roots = [os.path.abspath(path) + os.sep for path in sentry_sdk.__path__]
+    return all(any(os.path.abspath(location).startswith(root) for root in roots) for location in locations)
 
 
 def _undo_replacement(name: str, found: object, real: ModuleType | None) -> None:
