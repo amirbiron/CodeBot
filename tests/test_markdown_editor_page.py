@@ -21,6 +21,7 @@ from _link_preview import check_preview_image, read_preview_tags
 pytest.importorskip("flask")
 
 SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
+IMAGE_NS = "http://www.google.com/schemas/sitemap-image/1.1"
 
 #: ערכה ציבורית מינימלית, בצורה ש-``_fetch_shared_theme`` מחזיר. ``colors`` לא ריק, כי ``base.html``
 #: מחיל ערכה ציבורית רק כשיש לה צבעים (``hasSharedTheme``).
@@ -318,11 +319,11 @@ def test_the_sitemap_lists_every_public_page_with_an_absolute_url(wa):
     with wa.app.test_request_context("/"):
         from flask import url_for
 
+        base = wa._webapp_base_url()
         paths = [url_for(endpoint) for endpoint in wa.SITEMAP_ENDPOINTS]
-    assert len(locs) == len(paths)
-    for loc, path in zip(locs, paths):
-        assert re.match(r"^https?://[^/]+/", loc), loc
-        assert loc.endswith(path), (loc, path)
+    # השוואה מדויקת ולא לפי סיומת: הנתיב של עמוד הבית הוא ``/``, ו-``endswith("/")`` עובר על כל כתובת שנגמרת בלוכסן
+    assert re.match(r"^https?://[^/]+$", base), base
+    assert locs == [base + path for path in paths]
     assert any(loc.endswith("/markdown-editor") for loc in locs)
 
 
@@ -335,6 +336,9 @@ def test_the_sitemap_escapes_the_url(wa, monkeypatch):
     assert "a&amp;b" in body
     locs = [el.text for el in ET.fromstring(body).iter(f"{{{SITEMAP_NS}}}loc")]
     assert all(loc.startswith("https://example.test/a&b/") for loc in locs), locs
+    # גם ``image:loc`` של צילומי הגלריה (``tests/test_gallery_page.py``) עובר אותו escaping
+    image_locs = [el.text for el in ET.fromstring(body).iter(f"{{{IMAGE_NS}}}loc")]
+    assert image_locs and all(loc.startswith("https://example.test/a&b/static/") for loc in image_locs), image_locs
 
 
 # ---------------------------------------------------------------------------

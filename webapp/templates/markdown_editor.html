@@ -26,8 +26,8 @@
 <meta property="og:title" content="{{ editor_title }}">
 <meta property="og:description" content="{{ editor_description }}">
 <meta property="og:url" content="{{ editor_url }}">
-{# תמונת התצוגה המקדימה של הקישור. אותם כללים כמו בעמוד הבית (ההערה ב-``extra_head`` של ``index.html``), ונבדקת ב-``tests/test_markdown_editor_page.py`` דרך ``tests/_link_preview.py``, מול הקובץ שמוגש. הכותרת והתיאור מתחילים בעברית, ולכן ``og:title`` בלי RLM. #}
-<meta property="og:image" content="{{ base_url }}{{ url_for('static', filename='og/markdown-editor.jpg') }}?v={{ static_version }}">
+{# תמונת התצוגה המקדימה של הקישור. אותם כללים כמו בעמוד הבית (ההערה ב-``extra_head`` של ``index.html``), גם ``?v=`` לפי התוכן של הקובץ (``static_url_by_content``), ונבדקת ב-``tests/test_markdown_editor_page.py`` דרך ``tests/_link_preview.py``, מול הקובץ שמוגש. הכותרת והתיאור מתחילים בעברית, ולכן ``og:title`` בלי RLM. #}
+<meta property="og:image" content="{{ base_url }}{{ static_url_by_content('og/markdown-editor.jpg') }}">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="2524">
 <meta property="og:image:height" content="1325">
