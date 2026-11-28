@@ -7125,6 +7125,59 @@ check('סגירת לשונית: טיוטת סגירה שאי אפשר לכתוב
   } finally { cleanupMgr(mgr); }
 });
 
+check('סגירת לשונית: טיוטה עם טקסט שלא נשמר נשארת, כשאושרה רק שמירה של השם והכתיבה מחדש נכשלה', async () => {
+  // אחסון מלא. בטיוטה גוף שעוד לא בשרת, והשם בה הוא השם של הבסיס. המשתמש שינה רק את השם, והשמירה שלו אושרה. הטיוטה
+  // לא מכירה את השם החדש — אבל היא גם לא שינתה את השם, ולכן בשחזור השם מהשרת פשוט מוחל, בלי התראה. עד התיקון היא
+  // נמחקה, ועם האחסון המלא הגוף שבה אבד בסגירה.
+  let refuse = false;
+  const { mgr, calls, storage } = keepaliveSandbox('ka35-file', { refuseWrites: () => refuse });
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.ta.value = 'בסיס + גוף שלא נשמר';
+    mgr._inFlight.set(DRAFT_ID, { data: { content: n.ta.value }, promise: new Promise(() => {}), flight: { keepalive: false } });
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 1, 'בקרת שפיות: נכתבה טיוטה עם הגוף');
+    mgr._inFlight.delete(DRAFT_ID);
+    refuse = true;
+    n.titleInput.value = 'שם חדש';
+    mgr._onSaveConfirmed(DRAFT_ID, { title: 'שם חדש' }, 'T1', null);
+    const drafts = draftsOf(storage);
+    eq(drafts.length, 1, 'הטיוטה נשארה — היא העותק היחיד של הגוף מחוץ לזיכרון');
+    eq(drafts[0].draft.local.content, 'בסיס + גוף שלא נשמר', 'עם הגוף');
+  } finally { cleanupMgr(mgr); }
+  const next = keepaliveSandbox('ka35-file', { storage });
+  const n2 = liveNoteOn(next.mgr, DRAFT_ID, 'בסיס', 'T1');
+  const notices = [];
+  next.mgr._showRemoteNotice = (el, server) => { notices.push(server && server.content); };
+  try {
+    next.mgr._restoreHeldDraft(n2.entry, { id: DRAFT_ID, content: 'בסיס', title: 'שם חדש', updated_at: 'T1' });
+    eq(n2.ta.value, 'בסיס + גוף שלא נשמר', 'הטעינה הבאה: הגוף חוזר');
+    eq(n2.titleInput.value, 'שם חדש', 'והשם מהשרת');
+    eq(next.mgr._pending.get(DRAFT_ID) && next.mgr._pending.get(DRAFT_ID).content, 'בסיס + גוף שלא נשמר', 'והגוף נשלח לשמירה');
+    eq(JSON.stringify(notices), '[]', 'בלי "יש עדכון חדש"');
+  } finally { cleanupMgr(next.mgr); }
+});
+
+check('סגירת לשונית: טיוטה עם שם שלא נשמר נשארת, כשאושרה רק שמירה של הגוף והכתיבה מחדש נכשלה', async () => {
+  // המקרה ההפוך: בטיוטה שם שעוד לא בשרת, והגוף בה הוא הגוף של הבסיס. המשתמש שינה רק את הגוף, והשמירה שלו אושרה.
+  let refuse = false;
+  const { mgr, storage } = keepaliveSandbox('ka36-file', { refuseWrites: () => refuse });
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.titleInput.value = 'שם שלא נשמר';
+    mgr._inFlight.set(DRAFT_ID, { data: { title: 'שם שלא נשמר' }, promise: new Promise(() => {}), flight: { keepalive: false } });
+    mgr._persistDraftsThatWontSurviveClose();
+    eq(draftsOf(storage).length, 1, 'בקרת שפיות: נכתבה טיוטה עם השם');
+    mgr._inFlight.delete(DRAFT_ID);
+    refuse = true;
+    n.ta.value = 'בסיס + גוף חדש';
+    mgr._onSaveConfirmed(DRAFT_ID, { content: 'בסיס + גוף חדש' }, 'T1', null);
+    const drafts = draftsOf(storage);
+    eq(drafts.length, 1, 'הטיוטה נשארה — היא העותק היחיד של השם מחוץ לזיכרון');
+    eq(drafts[0].draft.local.title, 'שם שלא נשמר', 'עם השם');
+  } finally { cleanupMgr(mgr); }
+});
+
 /** טיוטה שכתבה לשונית קודמת: הבסיס הוא מה שהשרת החזיק אז, ו-``local`` הוא מה שהיה במסך. */
 function seedDraft(storage, local, unconfirmed) {
   const ts = Date.now();

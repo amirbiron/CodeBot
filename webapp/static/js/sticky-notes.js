@@ -2033,6 +2033,12 @@
         // **מה שהשחזור של הטיוטה הזו ירשום כשמירות שלנו** — אותו חישוב של ``_restoreHeldDraft``: השמירות שבאוויר ועוד
         // הטקסט שבה. ממנו ``_draftKnowsSave`` יודע אם הטיוטה, כפי שהיא שמורה, תזהה שמירה שאושרה אחר כך.
         entry.draftKnows = unconfirmedSnapshots(draft.unconfirmed.concat([{ content: draft.local.content, title: draft.local.title }]));
+        // **ואילו שדות הטיוטה עצמה משנה** — מה שבה מול הבסיס שלה. שדה שהיא לא שינתה מתיישר בשחזור עם מה שבשרת בלי
+        // שאלה, ולכן רק בשדה שהיא כן שינתה שמירה שהיא לא מכירה היא בעיה (``_draftKnowsSave``).
+        entry.draftDirty = {
+          content: asTextareaValue(draft.local.content) !== asTextareaValue(draft.base.content),
+          title: canonicalTitleText(draft.local.title) !== canonicalTitleText(draft.base.title),
+        };
         // הטיוטה ששוחזרה ועוד לא הועברה — העותק החדש מחליף אותה עכשיו (``_dropDraftSource``).
         this._dropDraftSource(entry, storage);
         return true;
@@ -2051,6 +2057,7 @@
       // הסימון של טיוטת סגירה, ומה שהטיוטה מכירה, הולכים עם המפתח — ראו ``_onSaveConfirmed``.
       entry.closeDraft = false;
       entry.draftKnows = null;
+      entry.draftDirty = null;
       const storage = draftStorage();
       if (!storage) return;
       // וגם הטיוטה ששוחזרה ולא הועברה למפתח של הרשומה — היא העותק השמור של אותה טיוטה (``_dropDraftSource``). מעקב
@@ -6826,7 +6833,7 @@
         // ``_syncHeldDraft``, ולא נוגעים בה כאן.
         //
         // **וכשהכתיבה מחדש נכשלת** (אחסון מלא — ``_writeHeldDraft`` מחזיר ``false`` ורושם שגיאה), ההכרעה היא לפי
-        // מה שהטיוטה הישנה מכירה (``_draftKnowsSave``). מכירה את השמירה שאושרה — היא נשארת: השחזור שלה יזהה את מה
+        // מה שהטיוטה הישנה מכירה (``_draftKnowsSave``), בשדות שהיא עצמה משנה. מכירה את השמירה שאושרה — היא נשארת: השחזור שלה יזהה את מה
         // שבשרת כשמירה שלנו, והטקסט שבה, שנכתב אחרי שהשמירה יצאה, עוד לא בשרת — היא העותק היחיד שלו מחוץ לזיכרון.
         // לא מכירה — היא יוצאת: בטעינה הבאה היא הייתה מציגה טקסט ישן מול השמירה הזו — "יש עדכון חדש" על הטקסט של
         // המשתמש עצמו, ו"התעלם" היה שומר את הישן מעליו. מה שבמסך עוד לא אבד: הוא נשלח בשמירה הבאה, והסתרה נוספת
@@ -6846,17 +6853,21 @@
       }
 
       /**
-       * **האם טיוטת הסגירה, כפי שהיא שמורה, מכירה את השמירה שאושרה** — כלומר שהשחזור שלה בטעינה הבאה יזהה את מה שהשרת
-       * מחזיק עכשיו כשמירה שלנו. אותה השוואה של ``_reconcileFields``: לכל שדה עריכה שבשמירה, הערך שווה לשדה הזה באחת
-       * השמירות שהשחזור ירשום (``entry.draftKnows``, מ-``_writeHeldDraft``). שמירה בלי שדה עריכה (מיקום, גודל) לא
-       * שינתה טקסט, והטיוטה נשארת נכונה מולה.
+       * **האם טיוטת הסגירה, כפי שהיא שמורה, מכירה את השמירה שאושרה — בכל שדה שהטיוטה עצמה משנה** — כלומר שהשחזור שלה
+       * בטעינה הבאה לא יציג "יש עדכון חדש" על מה שהשרת מחזיק עכשיו. אותה השוואה של ``_reconcileFields``: לכל שדה עריכה
+       * שבשמירה, הערך שווה לשדה הזה באחת השמירות שהשחזור ירשום (``entry.draftKnows``, מ-``_writeHeldDraft``). **שדה
+       * שהטיוטה לא משנה** (``entry.draftDirty`` — מה שבה שווה לבסיס שלה) אינו נבדק: בשחזור הערך מהשרת מוחל עליו בלי
+       * שאלה, כמו כל שינוי זר בשדה שהמשתמש לא נגע בו. בלי זה, אישור של שמירת שם בלבד מחק טיוטה שהחזיקה גוף שעוד לא
+       * בשרת — כשהכתיבה מחדש נכשלה (אחסון מלא), היא הייתה העותק היחיד שלו. כשלא ידוע אילו שדות היא משנה, כל שדה נבדק.
+       * שמירה בלי שדה עריכה (מיקום, גודל) לא שינתה טקסט, והטיוטה נשארת נכונה מולה.
        */
       _draftKnowsSave(entry, payload){
         const known = (entry && entry.draftKnows) || [];
+        const changed = (entry && entry.draftDirty) || { content: true, title: true };
         const sent = (field) => !!payload && Object.prototype.hasOwnProperty.call(payload, field);
         const knows = (field, value) => known.some((s) => Object.prototype.hasOwnProperty.call(s, field) && s[field] === value);
-        if (sent('content') && !knows('content', String(payload.content == null ? '' : payload.content))) return false;
-        if (sent('title') && !knows('title', canonicalTitleText(String(payload.title == null ? '' : payload.title)))) return false;
+        if (sent('content') && changed.content && !knows('content', String(payload.content == null ? '' : payload.content))) return false;
+        if (sent('title') && changed.title && !knows('title', canonicalTitleText(String(payload.title == null ? '' : payload.title)))) return false;
         return true;
       }
 
