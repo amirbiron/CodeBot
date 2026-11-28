@@ -90,6 +90,8 @@ async def test_image_command_success(monkeypatch):
         def generate_image(self, *a, **k):
             return b'fake_png_data'
     monkeypatch.setattr(mod, 'CodeImageGenerator', _FakeGen, raising=True)
+    # היצירה רצה בתהליך נפרד (services/code_image_render.py); כאן התפר שלה, כדי שהטסט לא יריץ תהליך אמיתי
+    monkeypatch.setattr(mod.code_image_render, 'render_png', lambda request: b'\x89PNG\r\n\x1a\nfake', raising=True)
 
     captured = {}
     class _Msg:
@@ -132,11 +134,13 @@ async def test_image_command_with_note(monkeypatch):
         def __init__(self, *a, **k):
             pass
 
-        def generate_image(self, *a, **k):
-            captured_note['note'] = k.get('note')
-            return b'fake_png_data'
+    def _render_png(request):
+        # היצירה רצה בתהליך נפרד (services/code_image_render.py), והפתקית מגיעה אליו בבקשה
+        captured_note['note'] = request['note']
+        return b'\x89PNG\r\n\x1a\nfake'
 
     monkeypatch.setattr(mod, 'CodeImageGenerator', _FakeGen, raising=True)
+    monkeypatch.setattr(mod.code_image_render, 'render_png', _render_png, raising=True)
 
     class _Msg:
         async def reply_text(self, *a, **k):

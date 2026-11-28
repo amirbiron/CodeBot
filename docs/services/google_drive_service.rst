@@ -1,4 +1,4 @@
-:summary: שירות Google Drive: חיבור נפרד לבוט ולוובאפ (``owner``), אימות ב-Device Flow ובהפניה בדפדפן, ניהול טוקנים, יצירת ZIP והעלאה לתיקיות לפי קטגוריה. התאריך והגרסה נכנסים לשם קובץ ה-ZIP, לא למבנה התיקיות.
+:summary: שירות Google Drive: חיבור נפרד לבוט ולוובאפ (``owner``), אימות ב-Device Flow ובהפניה בדפדפן, ניהול טוקנים, יצירת ZIP והעלאה לתיקיות לפי קטגוריה, וסוג הקובץ והקישור לפתיחה שמוחזרים בהעלאה. התאריך והגרסה נכנסים לשם קובץ ה-ZIP, לא למבנה התיקיות.
 
 Google Drive Service
 ====================
@@ -92,9 +92,21 @@ Google Drive Service
 
 **מה הוובאפ עושה עם התשובה.** ב-``CONNECTION_AUTH_REQUIRED`` נכתב ``auth_required_at`` בהעדפות של הוובאפ, ו-``/api/drive/status`` מחזיר ``needs_reconnect`` — מסך ההגדרות מציג אז "החיבור ל-Google Drive פג" עם כפתור חיבור מחדש במקום "מחובר". בגיבוי מתוזמן גם ``schedule_next_at`` מתרוקן, והסורק מדלג על המשתמש (``_pause_drive_schedule``), במקום לנסות שוב בכל סריקה. ההשהיה כותבת את הסימון באותה כתיבה (או דורשת שהוא כבר שם), ולכן אין תזמון מושהה ש-``needs_reconnect`` שלו כבוי. חיבור מחדש (``/api/drive/callback``) מוחק את הסימון ומחזיר את התזמון לפעולה (``resume_drive_schedule_after_reconnect``), וגם בדיקה שעברה מוחקת אותו. האירועים: ``webapp_drive_backup_failed`` ב-:ref:`drive-events`.
 
+.. _drive-upload-mimetype-link:
+
+סוג הקובץ והקישור בהעלאה (``upload_bytes_with_link``)
+-----------------------------------------------------------
+``upload_bytes_with_link`` מעלה בייטים ומחזירה ``DriveUpload``: המזהה של הקובץ (``file_id``) והקישור לפתיחה שלו בדפדפן (``web_view_link``). ``upload_bytes`` קוראת לה ומחזירה רק את המזהה, ולכן מי שקורא ל-``upload_bytes`` — כל מסלולי הגיבוי — לא השתנה.
+
+- **סוג הקובץ.** הפרמטר ``mimetype`` נשלח כסוג התוכן של ההעלאה (``MediaIoBaseUpload``), ולפיו Drive מסמן את הקובץ. ברירת המחדל שלו היא ``_DEFAULT_UPLOAD_MIMETYPE``, הסוג שכל העלאה קיבלה לפני שנוסף הפרמטר, ולכן גיבוי שלא מעביר ``mimetype`` עולה כמו קודם. זו ברירת מחדל ולא גזירה מהסיומת: גיבוי ששמו לא נגמר ב-``.zip`` עולה באותו סוג. השמירה של תמונת קוד מהבוט (``_save_code_image_to_drive`` ב-``bot_handlers.py``) מעבירה ``image/png``. עד 28.11.2026 גם תמונת קוד עלתה בסוג של ZIP, ולכן ב-Drive היא סומנה כ-ZIP, לא נפתחה, ובהורדה קיבלה את הסיומת ``.zip``. התמונות שכבר בתיקייה ``code_images`` נשארו כך.
+- **הקישור.** ``files().create`` מבקש בפרמטר ``fields`` גם את ``webViewLink``, שדה של משאב ה-File ב-Drive v3 (*"A link for opening the file in a relevant Google editor or viewer in a browser"*). ``fields`` קובע אילו שדות חוזרים בתשובה (*"Selector specifying which fields to include in a partial response"*), ולכן הקישור מתבקש בו במפורש. שני הציטוטים מ-``drive.v3.json`` ב-google-api-python-client 2.185.0. הקישור נלקח מהתשובה של גוגל, ולא נבנה מהמזהה. הוא מתקבל רק כשהוא מחרוזת שהיא כתובת ``https`` עם מארח (``_web_view_link``), כי הבוט משבץ אותו ב-``<a href>`` של הודעת HTML. אחרת ``web_view_link`` הוא ``None``, וההעלאה עדיין הצליחה.
+- **ההרשאות.** הרשאות השיתוף של הקובץ לא משתנות. הוא נמצא ב-Drive של מי שחיבר אותו לבוט, ולכן הקישור אמור להיפתח לו כי הקובץ שלו, ולא כי הקובץ פתוח לאחרים.
+
+``tests/test_image_full_quality.py`` בודק את שני הצדדים: העלאה עם ``image/png`` מקבלת את הסוג הזה ומחזירה את הקישור, וגיבוי בלי הפרמטר נשאר ZIP, גם כשהשם שלו לא נגמר ב-``.zip``. הכפתורים בבוט: :ref:`image-full-quality`.
+
 כשלים שמוחזרים כ-``None``
 --------------------------
-``upload_bytes`` ו-``upload_file`` מחזירים ``None`` כשההעלאה נכשלת, והקורא בודק את הערך. כל ``return None`` בהן נרשם בשורת לוג אחת, ``drive_call_failed`` (``_log_drive_call_failed``): הפעולה שנכשלה (``op``, למשל ``upload_bytes.chunk``), השירות, המשתמש, סוג החריגה, סטטוס ה-HTTP, קוד השגיאה של Drive (``drive_reason``, למשל ``storageQuotaExceeded``) וקוד השגיאה של OAuth שבתוך ``RefreshError`` (``oauth_error``, למשל ``invalid_grant``; ``_refresh_error_code``). גם ``ensure_folder``, ובניית השירות ב-``get_drive_service``, רושמים כך חריגה שהם בולעים. כשהעלאה נכשלת כי אין שירות או אין תיקייה (``upload_bytes.no_service``, ‏``upload_bytes.no_folder``), הסיבה שמאחוריה נמצאת בשורה של השלב שנכשל: טוקנים חסרים או רענון שנכשל (השורות של ``_ensure_valid_credentials``), בניית השירות, או ``ensure_folder``. ``drive_reason`` הוא קוד בלבד — ``errors[0].reason`` או ``error.status``. כשאין קוד הוא ריק, והודעת השגיאה של גוגל (``error.message``) לא נרשמת גם אז (``_parse_http_error_status_reason`` עם ``include_message=False``). הטקסט של החריגה לא נרשם: ב-``HttpError`` הוא כתובת הבקשה והודעת השגיאה של גוגל כמו שהיא, וקוד שגיאה שאינו מילה אחת נרשם כ-``unrecognized``.
+``upload_bytes``, ‏``upload_bytes_with_link`` ו-``upload_file`` מחזירים ``None`` כשההעלאה נכשלת, והקורא בודק את הערך. תשובה בלי מזהה שהוא מחרוזת היא כשל (``upload_bytes.response``). כל ``return None`` בהן נרשם בשורת לוג אחת, ``drive_call_failed`` (``_log_drive_call_failed``): הפעולה שנכשלה (``op``, למשל ``upload_bytes.chunk``), השירות, המשתמש, סוג החריגה, סטטוס ה-HTTP, קוד השגיאה של Drive (``drive_reason``, למשל ``storageQuotaExceeded``) וקוד השגיאה של OAuth שבתוך ``RefreshError`` (``oauth_error``, למשל ``invalid_grant``; ``_refresh_error_code``). גם ``ensure_folder``, ובניית השירות ב-``get_drive_service``, רושמים כך חריגה שהם בולעים. כשהעלאה נכשלת כי אין שירות או אין תיקייה (``upload_bytes.no_service``, ‏``upload_bytes.no_folder``), הסיבה שמאחוריה נמצאת בשורה של השלב שנכשל: טוקנים חסרים או רענון שנכשל (השורות של ``_ensure_valid_credentials``), בניית השירות, או ``ensure_folder``. ``drive_reason`` הוא קוד בלבד — ``errors[0].reason`` או ``error.status``. כשאין קוד הוא ריק, והודעת השגיאה של גוגל (``error.message``) לא נרשמת גם אז (``_parse_http_error_status_reason`` עם ``include_message=False``). הטקסט של החריגה לא נרשם: ב-``HttpError`` הוא כתובת הבקשה והודעת השגיאה של גוגל כמו שהיא, וקוד שגיאה שאינו מילה אחת נרשם כ-``unrecognized``.
 
 מבני קבצים
 -----------

@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 
 @pytest.mark.asyncio
-async def test_image_command_calls_cleanup(monkeypatch):
+async def test_image_command_renders_in_the_worker_process_and_builds_no_generator_in_the_bot(monkeypatch):
+    # ``/image`` יוצר את התמונה בתהליך נפרד (``services/code_image_render.py``). ה-``cleanup`` של ``CodeImageGenerator`` נקרא
+    # שם, אחרי היצירה, ובתהליך הבוט לא נבנה מחולל בכלל — אחרת העבודה הייתה חוזרת לעצור את לולאת הבוט.
     mod = __import__('bot_handlers')
     H = getattr(mod, 'AdvancedBotHandlers')
 
@@ -21,15 +23,15 @@ async def test_image_command_calls_cleanup(monkeypatch):
 
     class _FakeGen:
         def __init__(self, *a, **k):
-            captured['inst'] = self
-            self._cleanup_called = False
-        def generate_image(self, *a, **k):
-            return b'fake_png_data'
-        def cleanup(self):
-            self._cleanup_called = True
-            captured['cleanup'] = True
+            captured['built_in_bot_process'] = True
 
     monkeypatch.setattr(mod, 'CodeImageGenerator', _FakeGen, raising=True)
+
+    def _render_png(request):
+        captured['worker_request'] = request
+        return b'\x89PNG\r\n\x1a\nfake'
+
+    monkeypatch.setattr(mod.code_image_render, 'render_png', _render_png, raising=True)
 
     class _Msg:
         async def reply_text(self, *a, **k):
@@ -46,7 +48,8 @@ async def test_image_command_calls_cleanup(monkeypatch):
     h = H(_App())
     await h.image_command(_Upd(), _Ctx())
     assert captured.get('reply_photo') is True
-    assert captured.get('cleanup') is True
+    assert captured['worker_request']['filename'] == 'x.py'
+    assert 'built_in_bot_process' not in captured
 
 
 @pytest.mark.asyncio
