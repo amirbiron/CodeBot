@@ -3269,9 +3269,10 @@
      * לערוך אותו. עריכה כזו נשלחת עכשיו — השרת מקבל שמירה של פתק שבארכיון או שאינו נעוץ, כי ``update_note`` מוצא
      * פתק לפי המזהה והמשתמש בלבד — והפתק יורד רק אחרי שנשמרה. כשהבדיקה מוצאת שאין עבודה כזו, ההסרה צמודה אליה,
      * בלי ``await`` ביניהן. נכשלה, או שעדכון מחכה בפתק להחלטה — הפתק נשאר במסך, עם העבודה, ו**הרשומה זוכרת שהשרת
-     * כבר אישר שהוא עזב** (``entry.leftOnServer``). מכאן הוא יורד כשהעבודה עליו נגמרת: כשהשמירה שלו מסתיימת
-     * (``_registerInFlight`` ← ``_completeLeaveIfDone``), או בדגימה — שקוראת אותו לבד גם כשהיא לא מכירה אף פתק מהמסך
-     * (``_applyVersions``), כי בלוח שבו הוא היה הפתק היחיד היא חוזרת ריקה. עד נובמבר 2026 הוא ירד מיד,
+     * כבר אישר שהוא עזב** (``entry.leftOnServer``). מכאן הוא יורד כשהעבודה עליו נגמרת, ורק על סמך קריאה טרייה שלו —
+     * הסימון אומר "לבדוק אותו", לא "להוריד אותו", כי בינתיים הוא אולי חזר: כשהשמירה שלו מסתיימת (``_registerInFlight``
+     * ← ``_completeLeaveIfDone``), או בדגימה — שקוראת אותו לבד גם כשהיא לא מכירה אף פתק מהמסך (``_applyVersions``),
+     * כי בלוח שבו הוא היה הפתק היחיד היא חוזרת ריקה. עד נובמבר 2026 הוא ירד מיד,
      * ``_removeNoteLocally`` מחק את התור ואת הטיוטה שלו, והעריכה אבדה. מחזיר ``'ok'`` כשהפתק ירד, או את הסיבה שנשאר.
      */
     async _leaveSurfaceAfterServer(el){
@@ -3288,14 +3289,19 @@
     }
 
     /**
-     * פתק שהשרת כבר אישר שעזב (``entry.leftOnServer``, ``_leaveSurfaceAfterServer``) יורד, אם אין בו יותר עבודה —
-     * אותה בדיקה של פתק שעזב ממקום אחר (``_removeIfGone``: לא בעריכה, בלי שינוי שלא נשמר, בלי שמירה בתור או באוויר,
-     * ובלי החלטה פתוחה). נקרא כששמירה של הפתק מסתיימת.
+     * פתק שהשרת כבר אישר שעזב (``entry.leftOnServer``, ``_leaveSurfaceAfterServer``) יורד כשאין בו יותר עבודה
+     * (``_noteInWork``) — **על סמך קריאה טרייה שלו, ולא על סמך מה שהשרת אמר כשהבקשה נענתה.** מאז הוא אולי חזר למשטח:
+     * נעיצה מחדש בעמוד הקבצים, או חזרה מהארכיון, בלשונית הזו או במקום אחר. הקריאה עוברת ב-``_applyFetchedNote``, שמוריד
+     * רק על ראיה מהפתק עצמו (404, או שדות שאומרים שעזב — ``_noteBelongsHere``) ומנקה את הסימון כשהוא עדיין שייך. קריאה
+     * שנכשלה אינה ראיה לכלום, והדגימה תנסה שוב (``_applyVersions``). נקרא כששמירה של הפתק מסתיימת.
      */
-    _completeLeaveIfDone(id){
-      const entry = this.notes.get(String(id));
-      if (!entry || !entry.el || !entry.leftOnServer || this._destroyed) return;
-      this._removeIfGone(entry);
+    async _completeLeaveIfDone(id){
+      const key = String(id);
+      const entry = this.notes.get(key);
+      if (!entry || !entry.el || !entry.leftOnServer || this._destroyed || this._noteInWork(entry)) return;
+      const res = await this._fetchServerNote(key);
+      if (this._destroyed || this.notes.get(key) !== entry) return;
+      this._applyFetchedNote(key, res);
     }
 
     /** הפעולה בשרת הצליחה, אבל הפתק נשאר במסך (``_leaveSurfaceAfterServer``) — ההודעה אומרת למה, ומה יקרה. */
@@ -3406,6 +3412,9 @@
         const stamp = (typeof answer[FILES_PAGE_PIN_FIELD] === 'string' && answer[FILES_PAGE_PIN_FIELD])
           ? answer[FILES_PAGE_PIN_FIELD] : null;
         if (entry && entry.data) entry.data[FILES_PAGE_PIN_FIELD] = stamp;
+        // נעיצה שהצליחה — הפתק שוב שייך לעמוד הקבצים, גם אם הוא נשאר במסך אחרי הסרה קודמת (``entry.leftOnServer``,
+        // ``_leaveSurfaceAfterServer``). בלי האיפוס, השמירה הבאה שלו הייתה מובילה לקריאה שרק תאשר את זה.
+        if (pin && entry) entry.leftOnServer = false;
         if (!pin && this.filesPageMode) {
           const why = await this._leaveSurfaceAfterServer(el);
           if (why !== 'ok') {
@@ -6771,14 +6780,17 @@
        * שמירה שנגמרה — יוצאת מהזיכרון. ``superseded`` (שמירה שאושרה **והזיזה את האסימון** — ``_onSaveConfirmed``): גם
        * כל מה שנשלח **לפניה** יוצא, כי כל שמירה כזו נשאה אסימון ישן מזה שבשרת עכשיו, והשרת ידחה אותה ב-409 אם תגיע.
        * אישור שלא הזיז את האסימון (השרת לא כתב כלום — ``drop_unchanged_edits`` ב-``update_note``) אינו חוסם אותן:
-       * הן נושאות את אותו אסימון, ועוד יכולות לנחות.
+       * הן נושאות את אותו אסימון, ועוד יכולות לנחות. **ושמירה שיצאה בלי אסימון** (``sentToken === null`` — פתק שאין
+       * לו אסימון בבסיס, ``_withToken``) נשארת גם אז: השרת בודק התנגשות רק כשיש ``prev_updated_at``, ולכן שום אסימון
+       * חדש אינו חוסם אותה.
        */
       _forgetUnconfirmed(id, snap, superseded){
         const entry = this.notes.get(String(id));
         if (!entry || !snap || !entry.unconfirmed) return;
         const i = entry.unconfirmed.indexOf(snap);
         if (i === -1) return;
-        entry.unconfirmed.splice(superseded ? 0 : i, superseded ? i + 1 : 1);
+        if (!superseded) { entry.unconfirmed.splice(i, 1); return; }
+        entry.unconfirmed = entry.unconfirmed.filter((s, k) => k > i || (k < i && s.sentToken === null));
       }
 
       /**
@@ -7358,9 +7370,12 @@
        * הטקסט למה שהיה. **ההכרעה היא של המקום היחיד שקובע:** ``prev_updated_at`` — שמירה נוחתת רק כשהאסימון בשרת עדיין
        * זה שהיא נשאה (``update_note`` דוחה ב-409 אסימון ישן). לכן היא "עוד יכולה לנחות" כשהאסימון שהיא נשאה
        * (``sentToken``) הוא האסימון של הבסיס עכשיו — כלומר שום כתיבה שהזיזה אותו לא נצפתה מאז שהיא יצאה. נצפתה (אישור
-       * שהזיז אותו, פיוס שיישר אליו, "עדכן" או "התעלם") — היא כבר תידחה. **ובגבול זמן:** שמירה שיצאה לפני יותר מ-
-       * ``HELD_DRAFT_MAX_AGE_MS`` אינה נחשבת, אחרת שמירה שלא נחתה לעולם הייתה מחזיקה טיוטה לתמיד בפתק שאיש לא עורך.
-       * צילום בלי האסימון שהוא נשא — אין ממה לדעת, והוא אינו נחשב. ההשוואה למסך כמו ב-``_inFlightCarriesLocalText``.
+       * שהזיז אותו, פיוס שיישר אליו, "עדכן" או "התעלם") — היא כבר תידחה. **ושמירה שיצאה בלי אסימון** (``sentToken``
+       * ``null`` — לפתק שאין לו אסימון בבסיס השמירה יוצאת בלי ``prev_updated_at``, ``_withToken``) תמיד יכולה לנחות:
+       * השרת בודק התנגשות רק כשהאסימון נשלח (``update_note`` ו-``batch_update_notes``), ולכן שום כתיבה אינה חוסמת אותה.
+       * **ובגבול זמן:** שמירה שיצאה לפני יותר מ-``HELD_DRAFT_MAX_AGE_MS`` אינה נחשבת, אחרת שמירה שלא נחתה לעולם הייתה
+       * מחזיקה טיוטה לתמיד בפתק שאיש לא עורך. צילום שאין בו השדה ``sentToken`` בכלל — אין ממה לדעת, והוא אינו נחשב.
+       * ההשוואה למסך כמו ב-``_inFlightCarriesLocalText``.
        */
       _unconfirmedMayLand(entry){
         const own = (entry && entry.unconfirmed) || [];
@@ -7369,11 +7384,11 @@
         const token = this._noteBase(entry).updated_at || null;
         const now = Date.now();
         const has = (s, field) => Object.prototype.hasOwnProperty.call(s, field);
-        const sameToken = (s) => (typeof s.sentToken === 'string' || s.sentToken === null) && (s.sentToken || null) === token;
+        const unfenced = (s) => s.sentToken === null || (typeof s.sentToken === 'string' && s.sentToken === token);
         const recent = (s) => Number.isFinite(s.sentAt) && now - s.sentAt <= HELD_DRAFT_MAX_AGE_MS;
         const differs = (s) => (has(s, 'content') && asTextareaValue(String(s.content == null ? '' : s.content)) !== asTextareaValue(local.content))
           || (has(s, 'title') && canonicalTitleText(String(s.title == null ? '' : s.title)) !== local.title);
-        return own.some((s) => sameToken(s) && recent(s) && differs(s));
+        return own.some((s) => unfenced(s) && recent(s) && differs(s));
       }
 
       /**
@@ -7603,6 +7618,9 @@
           return;
         }
         if (entry) {
+          // הקריאה מראה שהפתק שייך למשטח — גם אם השרת אמר קודם שהוא עזב (``entry.leftOnServer``): הוא חזר, למשל נעוץ
+          // שוב או הוחזר מהארכיון, ואין עוד סיבה להוריד אותו כשהעבודה עליו נגמרת (``_completeLeaveIfDone``).
+          entry.leftOnServer = false;
           this._reconcileServerNote(res.note, 'poll', res.seq);
           return;
         }
@@ -7613,13 +7631,17 @@
         this._afterRemoteApplied();
       }
 
-      /** פתק שעזב את המשטח — יורד מהמסך, אלא אם המשתמש באמצע עבודה עליו. */
-      _removeIfGone(entry){
+      /** האם המשתמש באמצע עבודה על הפתק — עריכה, שינוי שלא נשמר, שמירה בתור או באוויר, או החלטה פתוחה. */
+      _noteInWork(entry){
         const id = String(entry.el.dataset.noteId);
         const dirty = this._dirtyFields(entry);
-        if (this._isNoteEditing(entry) || dirty.content || dirty.title || this._hasUnsentEdits(id) || this._isSaveHeld(id)) {
-          return;
-        }
+        return !!(this._isNoteEditing(entry) || dirty.content || dirty.title || this._hasUnsentEdits(id) || this._isSaveHeld(id));
+      }
+
+      /** פתק שעזב את המשטח — יורד מהמסך, אלא אם המשתמש באמצע עבודה עליו (``_noteInWork``). */
+      _removeIfGone(entry){
+        const id = String(entry.el.dataset.noteId);
+        if (this._noteInWork(entry)) return;
         if (this.overlayMode) {
           // הפתק הפתוח מעל העמוד נמחק או עזב ממקום אחר — הוא נסגר, והעמוד מוריד את הכרטיס.
           this._removeNoteLocally(entry.el);
@@ -8406,7 +8428,10 @@
               this._ensureBackgroundAutoFlush();
             }
             // פתק שהשרת כבר אישר שעזב, ונשאר במסך רק בגלל העבודה עליו — אולי היא נגמרה עכשיו.
-            this._completeLeaveIfDone(id);
+            this._completeLeaveIfDone(id).catch((err) => {
+              // הקריאה שמכריעה לא הסתיימה — הפתק נשאר, והדגימה תנסה שוב (``_applyVersions``). נרשם, כי זה לא צפוי.
+              console.warn('sticky note: checking a note that left before removing it failed', id, err);
+            });
           }
         }).catch(() => { /* הכשל עצמו מטופל אצל מי שממתין להבטחה; כאן רק הניקוי */ });
       }

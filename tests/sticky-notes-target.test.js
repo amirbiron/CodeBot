@@ -5947,27 +5947,61 @@ check('🗃️: עריכה בזמן שבקשת ההעברה באוויר, ששמ
   } finally { stopSaveTimers(m); }
 });
 
+/**
+ * פתק לוח שנשאר במסך אחרי שהשרת אישר שעבר לארכיון: עריכה בזמן הבקשה, והשמירה שלה נכשלת. ``serverNote`` — מה
+ * שקריאה של הפתק מהשרת מחזירה אחר כך (העברה לארכיון, או חזרה ממנו במקום אחר). מחזיר גם את ``saveNow`` — הניסיון
+ * החוזר, כשהשמירה כבר עוברת.
+ */
+async function archivedButKept(id, serverNote) {
+  let failSaves = true;
+  const env = archiveSandbox((req) => {
+    if (req.url.endsWith('/archive')) return [200, { ok: true, already_archived: false, threads_resolved: 0 }];
+    if (req.method === 'GET' && req.url.endsWith(`/note/${id}`)) return [200, { ok: true, note: serverNote }];
+    return failSaves ? [500, { ok: false }] : [200, { ok: true, updated_at: 'T1' }];
+  });
+  const leave = holdLeaveRequest(env, '/archive');
+  const { m, el } = await boardNoteFor(env, { id, title: 'שם', content: 'גוף', updated_at: 'T0', board_id: 'arch' });
+  const run = m._archiveNote(el);
+  eq(await leave.reached(), true, 'בקרה: בקשת ההעברה יצאה');
+  editNote(m, el, 'גוף + בזמן ההעברה');
+  leave.release();
+  await run;
+  eq(m.notes.has(id), true, 'בקרה: השמירה נכשלה — הפתק נשאר');
+  const saveNow = async () => {
+    failSaves = false;
+    await m._flushFor(el);   // הניסיון החוזר
+    // ההסרה מחכה לקריאה של הפתק מהשרת (``_completeLeaveIfDone``) — כמה תורות של לולאת האירועים.
+    for (let i = 0; i < 20; i++) await tick();
+  };
+  return { env, m, el, saveNow };
+}
+
 check('🗃️: פתק שנשאר במסך כי השמירה נכשלה יורד כשהיא עוברת — בלי לחכות לדגימה', async () => {
   // השרת כבר אישר שהפתק עבר לארכיון. כשהעבודה עליו נשמרת אין סיבה שיישאר, וגם אין מי שיוריד אותו אחר כך:
   // כשהוא הפתק היחיד בלוח, הדגימה חוזרת ריקה ואינה מורידה כלום (``_applyVersions``).
-  let failSaves = true;
-  const env = archiveSandbox((req) => (req.url.endsWith('/archive')
-    ? [200, { ok: true, already_archived: false, threads_resolved: 0 }]
-    : (failSaves ? [500, { ok: false }] : [200, { ok: true, updated_at: 'T1' }])));
-  const leave = holdLeaveRequest(env, '/archive');
-  const { m, el } = await boardNoteFor(env, { id: 'al4', title: 'שם', content: 'גוף', updated_at: 'T0' });
+  const { env, m, el, saveNow } = await archivedButKept('al4', { id: 'al4', title: 'שם', content: 'גוף + בזמן ההעברה',
+    board_id: 'arch', archived_at: '2026-11-28T10:00:00+00:00', updated_at: 'T1' });
   try {
-    const run = m._archiveNote(el);
-    eq(await leave.reached(), true, 'בקרה: בקשת ההעברה יצאה');
-    editNote(m, el, 'גוף + בזמן ההעברה');
-    leave.release();
-    await run;
-    eq(m.notes.has('al4'), true, 'בקרה: השמירה נכשלה — הפתק נשאר');
-    failSaves = false;
-    await m._flushFor(el);   // הניסיון החוזר
-    await tick();
+    // ניסיון חוזר שנכשל שוב: המטען חוזר לתור, והפתק עדיין בעבודה — אין סיבה לקרוא אותו מהשרת.
+    await m._flushFor(el);
+    for (let i = 0; i < 20; i++) await tick();
+    eq(env.requests.filter((r) => r.method === 'GET' && r.url.endsWith('/note/al4')).length, 0,
+       'כל עוד יש בפתק עבודה, שמירה שמסתיימת אינה קוראת אותו מהשרת');
+    await saveNow();
     eq(JSON.stringify(savedContents(env.requests, 'al4').slice(-1)), JSON.stringify(['גוף + בזמן ההעברה']), 'העריכה נשמרה');
     eq(m.notes.has('al4'), false, 'והפתק ירד');
+  } finally { stopSaveTimers(m); }
+});
+
+check('🗃️: פתק שנשאר במסך, והוחזר מהארכיון במקום אחר לפני שהשמירה עברה — נשאר בלוח', async () => {
+  // מה שהשרת אמר כשבקשת ההעברה נענתה כבר לא נכון: הפתק חזר ללוח (ממכשיר אחר). ההסרה נשענת על קריאה טרייה שלו,
+  // ולא על מה שנזכר מהתשובה ההיא — אחרת פתק שחזר היה יורד מהמסך.
+  const { m, saveNow } = await archivedButKept('al6', { id: 'al6', title: 'שם', content: 'גוף + בזמן ההעברה',
+    board_id: 'arch', archived_at: null, updated_at: 'T1' });
+  try {
+    await saveNow();
+    eq(m.notes.has('al6'), true, 'הפתק נשאר בלוח');
+    eq(m.notes.get('al6').leftOnServer, false, 'והסימון שהוא עזב נוקה — הקריאה הראתה שהוא שייך');
   } finally { stopSaveTimers(m); }
 });
 
@@ -6035,6 +6069,42 @@ check('📎 בעמוד הקבצים: עריכה בזמן שבקשת ההסרה �
     await run;
     eq(JSON.stringify(savedContents(env.requests, 'fl1')), JSON.stringify(['גוף + בזמן ההסרה']), 'העריכה נשמרה');
     eq(gone.join(), 'fl1', 'השמירה אושרה — הכרטיס יורד');
+  } finally { stopSaveTimers(m); }
+});
+
+check('📎 בעמוד הקבצים: פתק שנשאר במסך אחרי ההסרה ונעוץ שוב — לא יורד כשהשמירה שלו עוברת', async () => {
+  // ההסרה הצליחה, השמירה של מה שנערך בזמן הבקשה נכשלה, והפתק נשאר. המשתמש נועץ אותו שוב — עכשיו הוא שייך לעמוד,
+  // ושמירה שעוברת אחר כך אינה סיבה להוריד אותו.
+  let failSaves = true;
+  const pinnedAt = '2026-11-28T11:00:00+00:00';
+  const env = archiveSandbox((req) => {
+    if (req.url.endsWith('/files-page-pin')) {
+      return req.method === 'DELETE'
+        ? [200, { ok: true, already_unpinned: false, files_page_pinned_at: null }]
+        : [200, { ok: true, files_page_pinned_at: pinnedAt }];
+    }
+    if (req.method === 'GET' && req.url.endsWith('/note/fl2')) {
+      return [200, { ok: true, note: { id: 'fl2', title: 'נעוץ', content: 'גוף + בזמן ההסרה', board_id: 'b1',
+                                        files_page_pinned_at: pinnedAt, updated_at: 'T1' } }];
+    }
+    return failSaves ? [500, { ok: false }] : [200, { ok: true, updated_at: 'T1' }];
+  });
+  const leave = holdLeaveRequest(env, '/files-page-pin');
+  const { m, el, gone } = await openOnFilesPage(env, { id: 'fl2', content: 'גוף', updated_at: 'T0' });
+  try {
+    const run = m._toggleFilesPagePin(el);
+    eq(await leave.reached(), true, 'בקרה: בקשת ההסרה יצאה');
+    editNote(m, el, 'גוף + בזמן ההסרה');
+    leave.release();
+    await run;
+    eq(m.notes.has('fl2'), true, 'בקרה: השמירה נכשלה — הפתק נשאר');
+    await m._toggleFilesPagePin(el);   // 📎 — נעיצה מחדש
+    eq(m.notes.get('fl2').leftOnServer, false, 'הנעיצה הצליחה — הסימון שהפתק עזב נוקה');
+    failSaves = false;
+    await m._flushFor(el);
+    for (let i = 0; i < 20; i++) await tick();
+    eq(m.notes.has('fl2'), true, 'השמירה עברה — והפתק הנעוץ נשאר');
+    eq(gone.length, 0, 'והעמוד לא קיבל הודעה שהכרטיס יורד');
   } finally { stopSaveTimers(m); }
 });
 
@@ -7186,6 +7256,36 @@ check('שמירה שאושרה והזיזה את האסימון מוחקת את 
     eq(n.ta.value, 'בסיס B', 'העריכה ממקום אחר מוחלת');
     eq(JSON.stringify(notices), '[]', 'בלי התראה — לא נגעו בפתק מקומית');
   } finally { cleanupMgr(mgr); }
+});
+
+check('שמירה שיצאה בלי אסימון עוד יכולה לנחות גם אחרי שהאסימון זז — הטיוטה נשארת, והטעינה הבאה מזהה אותה', async () => {
+  // לפתק שאין לו אסימון בבסיס (פתק ישן בלי ``updated_at``) השמירה יוצאת בלי ``prev_updated_at``, והשרת אינו בודק
+  // התנגשות על שמירה כזו — היא נוחתת מתי שהיא מגיעה. עד התיקון אישור שהזיז את האסימון מחק אותה מהזיכרון, וגם
+  // ההסתרה ראתה בה שמירה חסומה: כש"בסיס B" נחתה אחרי הסגירה, היא הוצגה כעדכון ממקום אחר, ומה שהמשתמש כתב אבד.
+  const { mgr, calls, storage } = keepaliveSandbox('ka34-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', null);
+  try {
+    n.ta.value = 'בסיס B';
+    const first = mgr._sendUpdate(DRAFT_ID, { content: 'בסיס B' }, 0);
+    eq(JSON.parse(calls[0].opts.body).prev_updated_at, undefined, 'בקרת שפיות: השמירה יצאה בלי אסימון');
+    calls[0].fail();
+    await first;
+    mgr._saveDebounced.cancel();
+    n.ta.value = 'בסיס C';
+    mgr._pending.delete(DRAFT_ID);
+    const second = mgr._sendUpdate(DRAFT_ID, { content: 'בסיס C' }, 0);
+    calls[1].release(200, { ok: true, updated_at: 'T1' });
+    await second;
+    mgr._flushPendingKeepalive();
+    mgr._persistDraftsThatWontSurviveClose();
+    const drafts = draftsOf(storage);
+    eq(drafts.length, 1, 'בהסתרה נכתבה טיוטה — "בסיס B" עוד יכולה לנחות');
+    eq(drafts[0].draft.local.content, 'בסיס C', 'עם מה שבמסך');
+  } finally { cleanupMgr(mgr); }
+  const next = restoreOnNextLoad('ka34-file', storage, 'בסיס B', 'T2');
+  eq(next.screen, 'בסיס C', 'הטעינה הבאה, אחרי ש"בסיס B" נחתה: מה שהמשתמש כתב במסך');
+  eq(next.queued, 'בסיס C', 'ונשלח לשמירה מעליה');
+  eq(JSON.stringify(next.notices), '[]', 'בלי "יש עדכון חדש"');
 });
 
 const EARLIER_TAB_KEY = `sticky-notes:held-draft:${DRAFT_ID}:earlier-tab`;
