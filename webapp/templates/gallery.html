@@ -6,7 +6,7 @@
   - **פריסה.** ה-``body`` הוא עמודת flex בגובה ``100dvh`` (עם ``100vh`` לדפדפן שאינו מכיר ``dvh``), ואזור התמונה מקבל את כל מה שנשאר אחרי הסרגל העליון והלוח שמתחתיו. הגובה נקבע רק כאן, ב-CSS, ולא מחושב ב-JS. בלי ``overflow: hidden``: במסך נמוך מדי לכל הרכיבים, ה-``body`` (שהוא שגולל באתר, ראו ``docs/webapp/theming_and_css.rst``) נגלל, והכפתורים נשארים נגישים.
   - **צבעים.** הלוח הוא ``glass-card`` והכפתורים ``btn-primary`` / ``btn-secondary``, כמו בעמוד הבית; הטקסט ב-``--text-primary`` / ``--text-secondary`` עם ``currentColor`` כנפילה לערכה שאינה מגדירה אותם (High Contrast).
   - **כיוון.** החלקה, חיצים במקלדת והחץ שעל הכפתורים נגזרים מהכיוון של הפריסה בפועל (``direction``) ולא מוקשחים: ב-RTL הצילום הבא יושב משמאל, ולכן חץ שמאלה וגרירה ימינה מביאים אותו (``bugbot-rules/rtl-geometry-and-clamp.md``).
-  - **כתובות התמונות** נושאות ``?v={{ static_version }}``, כי ``SEND_FILE_MAX_AGE_DEFAULT`` שומר סטטיקה בדפדפן לזמן ארוך, ובלי מזהה גרסה צילום שהוחלף באותו שם לא היה מגיע למבקרים. הן נבנות ב-``gallery_image_src`` (``_gallery_image_src`` ב-``webapp/app.py``), ומשם גם הכתובות של הצילומים ב-``sitemap.xml``, כדי שגוגל יראה באותו צילום את אותה כתובת בשני המקומות.
+  - **כתובות התמונות** נבנות ב-``static_url_by_content`` (``webapp/app.py``): ``?v=`` לפי התוכן של הקובץ ולא לפי הדיפלוי, כך שהכתובת משתנה רק כשהצילום משתנה. מאותה פונקציה גם הכתובות של הצילומים ב-``sitemap.xml``, כדי שגוגל יראה באותו צילום את אותה כתובת בשני המקומות. הנימוק המלא ב-docstring שלה.
 #}
 
 {% set gallery_title = 'CodeKeeper — גלריית צילומי מסך' %}
@@ -25,7 +25,7 @@
 <meta property="og:title" content="{{ gallery_title }}">
 <meta property="og:description" content="{{ gallery_description }}">
 <meta property="og:url" content="{{ base_url }}{{ url_for('gallery') }}">
-<meta property="og:image" content="{{ base_url }}{{ gallery_image_src(share_image, static_version) }}">
+<meta property="og:image" content="{{ base_url }}{{ static_url_by_content('gallery/' ~ share_image) }}">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:alt" content="{{ slides[0].alt }}">
 {% endblock %}
@@ -218,7 +218,7 @@ body > .navbar {
 {% set ns = namespace(slides=[]) %}
 {% for slide in slides %}
 {% set ns.slides = ns.slides + [{
-    'src': gallery_image_src(slide.image, static_version),
+    'src': static_url_by_content('gallery/' ~ slide.image),
     'title': slide.title,
     'desc': slide.desc,
     'alt': slide.alt,

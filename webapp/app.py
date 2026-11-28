@@ -29,6 +29,7 @@ import atexit
 import time as _time
 from werkzeug.http import http_date, parse_date
 from werkzeug.utils import secure_filename
+from werkzeug.security import safe_join
 from urllib.parse import urlparse, urlunparse, quote as url_quote
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from flask_compress import Compress
@@ -12192,12 +12193,27 @@ def privacy_policy():
     return render_template('privacy.html')
 
 
-def _gallery_image_src(image: str, static_version: str) -> str:
-    """הנתיב של קובץ תחת ``static/gallery/``, עם ``?v=`` — המקום היחיד שבונה אותו.
+@lru_cache(maxsize=None)
+def _static_content_version(filename: str) -> str:
+    """שמונה התווים הראשונים של SHA-256 של התוכן של קובץ תחת ``static/`` — ה-``?v=`` של :func:`static_url_by_content`.
 
-    התבנית ``gallery.html`` (הצילומים ו-``og:image``) ו-:func:`sitemap_xml` קוראות לפונקציה הזו, כי גוגל מזהה תמונה לפי הכתובת שלה: כתובת ב-sitemap ששונה מזו שבעמוד, גם רק ב-``?v=``, נראית לו כמו תמונה אחרת. ``static_version`` מגיע מבחוץ: בתבנית — ``static_version`` של ``inject_globals``, וב-sitemap — ``_STATIC_VERSION``, שהוא אותו ערך בבקשה רגילה.
+    הנתיב מחובר ב-``safe_join``, כמו ש-Flask מחבר אותו כשהוא מגיש את הקובץ (``send_static_file`` ← ``send_from_directory``, נקרא ב-Flask 3.1.2 וב-Werkzeug 3.1.9), כך שה-hash הוא של הקובץ שמוגש בכתובת. שם שיוצא מ-``static/`` זורק ``ValueError``. נקרא בבקשה הראשונה ולא בזמן ייבוא, ונשמר בזיכרון של התהליך: הקבצים משתנים רק בדיפלוי, ודיפלוי מעלה תהליך חדש. ``lru_cache`` לא שומר חריגה (קובץ חסר), ולכן הבקשה הבאה תנסה שוב. בלי תקרה, כי השמות מגיעים רק מהקוד — תבניות ו-``GALLERY_SLIDES`` — ולא מהבקשה.
     """
-    return url_for('static', filename='gallery/' + image) + '?v=' + static_version
+    path = safe_join(app.static_folder, filename)
+    if path is None:
+        raise ValueError(f"_static_content_version: {filename!r} אינו נתיב תחת static/")
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:8]
+
+
+def static_url_by_content(filename: str) -> str:
+    """הנתיב של קובץ תחת ``static/``, עם ``?v=`` שנגזר מהתוכן שלו (:func:`_static_content_version`) ולא מהדיפלוי.
+
+    לתמונות שגורם חיצוני שומר לפי הכתובת שלהן: צילומי הגלריה, שגוגל מאנדקס (בעמוד וב-:func:`sitemap_xml`), ותמונות ה-``og:image`` של עמוד הבית, העורך הציבורי והגלריה, שוואטסאפ וטלגרם שומרים את התצוגה המקדימה לפיהן. ``static_version`` (``_STATIC_VERSION``) מתחלף בכל דיפלוי, ואיתו הייתה מתחלפת הכתובת של תמונה שלא השתנתה; גוגל ממליץ להפנות לתמונה תמיד באותה כתובת (https://developers.google.com/search/docs/appearance/google-images). כאן הכתובת משתנה רק כשהקובץ משתנה — ולכן צילום שהוחלף באותו שם עדיין מגיע למבקרים, למרות ``SEND_FILE_MAX_AGE_DEFAULT`` של שנה. ``?nc=1`` (``inject_globals``) לא משפיע על הכתובות האלה. זמינה בכל תבנית, בשם הזה.
+    """
+    return url_for('static', filename=filename) + '?v=' + _static_content_version(filename)
+
+
+app.jinja_env.globals['static_url_by_content'] = static_url_by_content
 
 
 @app.route('/gallery', methods=['GET'])
@@ -12211,7 +12227,6 @@ def gallery():
         'gallery.html',
         slides=GALLERY_SLIDES,
         share_image=gallery_share_image(GALLERY_SLIDES[0]),
-        gallery_image_src=_gallery_image_src,
         base_url=_webapp_base_url(),
     )
 
@@ -12559,7 +12574,7 @@ def sitemap_xml():
     כל ``<loc>`` הוא כתובת מלאה, עם escaping של ``& < > ' "`` כמו שהפרוטוקול דורש. פטור ממגבלת הקצב כמו
     ``robots.txt``.
 
-    ב-``<url>`` של הגלריה יש ``<image:image>`` עם ``<image:loc>`` לכל צילום ב-``GALLERY_SLIDES``, לפי הסדר — הרחבת ה-image sitemap של גוגל (https://developers.google.com/search/docs/crawling-indexing/sitemaps/image-sitemaps). ב-HTML שהשרת שולח (``gallery.html``) יש ``<img>`` אחד, עם הצילום הראשון, ואת השאר ה-JS מחליף בדפדפן; גוגל מוצא תמונות לפי ה-``src`` של ``<img>``, וכאן הוא מקבל כתובת ישירה לכל צילום. הכתובת היא זו שבעמוד (:func:`_gallery_image_src`). רק ``image:loc``: את ``image:caption``, ``image:title``, ``image:license`` ו-``image:geo_location`` גוגל הסיר ב-2022 (https://developers.google.com/search/blog/2022/05/spring-cleaning-sitemap-extensions), ואת התיאור של התמונה הוא לוקח מה-``alt`` ומהטקסט בעמוד.
+    ב-``<url>`` של הגלריה יש ``<image:image>`` עם ``<image:loc>`` לכל צילום ב-``GALLERY_SLIDES``, לפי הסדר — הרחבת ה-image sitemap של גוגל (https://developers.google.com/search/docs/crawling-indexing/sitemaps/image-sitemaps). ב-HTML שהשרת שולח (``gallery.html``) יש ``<img>`` אחד, עם הצילום הראשון, ואת השאר ה-JS מחליף בדפדפן; גוגל מוצא תמונות לפי ה-``src`` של ``<img>``, וכאן הוא מקבל כתובת ישירה לכל צילום. הכתובת היא זו שבעמוד (:func:`static_url_by_content`). רק ``image:loc``: את ``image:caption``, ``image:title``, ``image:license`` ו-``image:geo_location`` גוגל הסיר ב-2022 (https://developers.google.com/search/blog/2022/05/spring-cleaning-sitemap-extensions), ואת התיאור של התמונה הוא לוקח מה-``alt`` ומהטקסט בעמוד.
     """
     from xml.sax.saxutils import escape as xml_escape
 
@@ -12568,7 +12583,7 @@ def sitemap_xml():
 
     base_url = _webapp_base_url()
     page_images = {
-        'gallery': [base_url + _gallery_image_src(slide.image, _STATIC_VERSION) for slide in GALLERY_SLIDES],
+        'gallery': [base_url + static_url_by_content('gallery/' + slide.image) for slide in GALLERY_SLIDES],
     }
     entries = ''.join(
         '<url><loc>{}</loc>{}</url>'.format(

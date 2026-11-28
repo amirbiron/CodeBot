@@ -31,7 +31,8 @@
 <meta property="og:title" content="{{ '\u200f' ~ home_title }}">
 <meta property="og:description" content="{{ home_tagline }}">
 <meta property="og:url" content="{{ base_url }}{{ url_for('index') }}">
-<meta property="og:image" content="{{ base_url }}{{ url_for('static', filename='og/og-image.jpg') }}?v={{ static_version }}">
+{# ``?v=`` לפי התוכן של הקובץ ולא לפי הדיפלוי (``static_url_by_content`` ב-``webapp/app.py``): וואטסאפ וטלגרם שומרים את התצוגה המקדימה לפי הכתובת #}
+<meta property="og:image" content="{{ base_url }}{{ static_url_by_content('og/og-image.jpg') }}">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">

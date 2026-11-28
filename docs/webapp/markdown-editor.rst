@@ -114,7 +114,7 @@
 מנועי חיפוש
 ------------
 - **בעמוד:** ``<title>``, ``description``, ``<link rel="canonical">``, תגיות ``og:`` עם כתובת מלאה (``_webapp_base_url``), ונתונים מובנים מסוג ``WebApplication`` (schema.org).
-- **תמונת התצוגה המקדימה** של קישור לעמוד, בוואטסאפ, בטלגרם ובלינקדאין: ``og:image`` מ-``webapp/static/og/markdown-editor.jpg``, בכתובת מלאה ועם מזהה הגרסה (``?v=``), יחד עם ``og:image:type``, ``og:image:width``, ``og:image:height`` ו-``og:image:alt``, ו-``twitter:card`` מסוג ``summary_large_image``. הכללים, כמו בעמוד הבית, בהערה שב-``extra_head`` של ``webapp/templates/index.html``.
+- **תמונת התצוגה המקדימה** של קישור לעמוד, בוואטסאפ, בטלגרם ובלינקדאין: ``og:image`` מ-``webapp/static/og/markdown-editor.jpg``, בכתובת מלאה ועם ``?v=`` לפי התוכן של הקובץ (``static_url_by_content``, כמו בגלריה: :ref:`webapp-gallery`), יחד עם ``og:image:type``, ``og:image:width``, ``og:image:height`` ו-``og:image:alt``, ו-``twitter:card`` מסוג ``summary_large_image``. הכללים, כמו בעמוד הבית, בהערה שב-``extra_head`` של ``webapp/templates/index.html``.
 - **``/robots.txt``** מפנה ל-``/sitemap.xml`` בכתובת מלאה, וחוסם רק את ``/api/``. הסטטיקה לא חסומה: גוגל מרנדר עמוד עם ה-CSS וה-JS שלו.
 - **``/sitemap.xml``** מונה את העמודים הציבוריים שב-``SITEMAP_ENDPOINTS`` (``webapp/app.py``), לפי שם ה-endpoint, בכתובת מלאה ומבורחת. עמוד ציבורי חדש נכנס למפה כשמוסיפים אותו לרשימה. בתוך ה-``<url>`` של הגלריה יש גם ``<image:image>`` לכל צילום, כדי שגוגל יכיר את כולם (:ref:`webapp-gallery`). שני הנתיבים פטורים ממגבלת הקצב הגורפת, כמו העמוד.
 - **קישורים פנימיים** לעמוד: מכרטיס ה-Markdown בעמוד הבית, ומתחת ללוח של הגלריה.

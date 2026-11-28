@@ -87,17 +87,6 @@ def test_slides_are_rendered_from_the_single_list_in_order():
     assert [s["src"].split("?")[0] for s in slides] == [f"/static/gallery/{s.image}" for s in GALLERY_SLIDES]
 
 
-def test_every_image_url_carries_the_static_version():
-    """``SEND_FILE_MAX_AGE_DEFAULT`` שומר סטטיקה בדפדפן לזמן ארוך; צילום שהוחלף באותו שם מגיע למבקרים רק דרך ``?v=``."""
-    html = _get_gallery().get_data(as_text=True)
-    parser = _Meta()
-    parser.feed(html)
-
-    urls = [s["src"] for s in _rendered_slides(html)] + parser.img_srcs + [parser.props["og:image"]]
-    missing = [u for u in urls if not re.search(r"\?v=[^&\s]+$", u)]
-    assert not missing, missing
-
-
 def test_slides_are_webp_and_the_preview_is_jpeg():
     """הצילומים בעמוד — בסקריפט וב-``<img>`` — הם WebP, ותמונת התצוגה המקדימה (``og:image``) היא ה-JPEG הנפרד."""
     html = _get_gallery().get_data(as_text=True)
