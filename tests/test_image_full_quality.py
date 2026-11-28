@@ -165,34 +165,42 @@ class _Query:
 
 
 class _Bot:
-    """מה שהבדיקות צריכות מהבוט: הקובץ, המחולל וה-Drive, כולם מדומים ומתועדים."""
+    """מה שהבדיקות צריכות מהבוט: הקובץ וגרסאותיו, היצירה וה-Drive, כולם מדומים ומתועדים."""
 
     def __init__(self, monkeypatch, *, upload=None):
         import bot_handlers as mod
+        from bson.objectid import ObjectId
         from rate_limiter import RateLimiter
 
         self.mod = mod
-        self.requested = []  # שמות הקבצים שהכפתורים ביקשו מהמסד
-        self.renders = []  # (הגדרות המחולל, הארגומנטים של generate_image)
+        self._object_id = ObjectId
+        self.requested = []  # שמות הקבצים שהכפתורים ביקשו מהמסד לפי שם (הגרסה האחרונה)
+        self.pinned = []  # מזהי הגרסאות שהכפתורים ביקשו מהמסד לפי ``_id``
+        self.renders = []  # הבקשות ש-``render_png`` קיבל — מה שהתהליך הנפרד היה יוצר
         self.uploads = []
-        self.code = "print('x')"  # הגרסה האחרונה של הקובץ במסד — בדיקה יכולה לשנות אותה בין ההצגה ללחיצה
+        self.versions = {}  # מזהה גרסה ← מסמך, כמו במסד
+        self.latest_id = None
+        self.save("print('x')")
         bot = self
 
         class _Facade:
             def get_latest_version(self, uid, fn):
                 bot.requested.append(fn)
-                return {"file_name": fn, "code": bot.code, "programming_language": "python"}
+                return dict(bot.versions[bot.latest_id], file_name=fn)
 
-        class _Gen:
-            def __init__(self, *a, **k):
-                self.init = k
+            def get_version_by_id(self, uid, version_id):
+                bot.pinned.append(version_id)
+                doc = bot.versions.get(version_id)
+                return dict(doc) if doc else None
 
-            def generate_image(self, *a, **k):
-                bot.renders.append((self.init, k))
-                return PNG
+        def _render_png(request):
+            bot.renders.append(dict(request))
+            return PNG
 
         monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
-        monkeypatch.setattr(mod, "CodeImageGenerator", _Gen, raising=True)
+        # זמינות היצירה נבדקת לפי המחלקה; היצירה עצמה רצה בתהליך נפרד, ו-``render_png`` הוא התפר שלה
+        monkeypatch.setattr(mod, "CodeImageGenerator", object, raising=True)
+        monkeypatch.setattr(mod.code_image_render, "render_png", _render_png, raising=True)
         # מגביל אמיתי עם מצב משלו לכל בדיקה — המגביל של המודול זוכר לחיצות בין בדיקות
         monkeypatch.setattr(mod, "image_rate_limiter", RateLimiter(max_per_minute=100_000), raising=True)
 
@@ -212,6 +220,13 @@ class _Bot:
         self.h = mod.AdvancedBotHandlers(self.app)
         self.ctx = SimpleNamespace(user_data={}, args=[])
 
+    def save(self, code, file_name="a.py"):
+        """שמירה של גרסה חדשה: מסמך חדש עם ``_id`` משלו, והוא הגרסה האחרונה."""
+        version_id = str(self._object_id())
+        self.versions[version_id] = {"_id": self._object_id(version_id), "file_name": file_name, "code": code, "programming_language": "python"}
+        self.latest_id = version_id
+        return version_id
+
     async def press(self, data):
         calls = []
         await self.h.handle_callback_query(SimpleNamespace(effective_user=SimpleNamespace(id=42), callback_query=_Query(data, calls)), self.ctx)
@@ -228,6 +243,7 @@ class _Bot:
         """המקלדת שמתחת לתמונה ש-``/image`` שלח — מה שהמשתמש מקבל, ולא פונקציה פנימית."""
         rows = _layout(_only(await self.image_command(file_name), "reply_photo")[2]["reply_markup"])
         self.requested.clear()
+        self.pinned.clear()
         self.renders.clear()
         return rows
 
@@ -297,7 +313,14 @@ async def test_every_place_that_shows_a_code_image_shows_the_same_keyboard(monke
     done_cb = (await bot.settings_keyboard(file_name))[-1][0][1]
     from_settings_done = _layout(_only(await bot.press(done_cb), "edit_message_reply_markup")[2]["reply_markup"])
 
-    assert from_command == from_regenerate == from_settings_done
+    # אותה גרסה הוצגה ב-/image וב"צור מחדש", ולכן אותה מקלדת בדיוק, כולל מזהה הגרסה שבכפתורים
+    assert from_command == from_regenerate
+    pinned = f"img_download:{bot.latest_id}:"
+    assert from_command[2][1][1].startswith(pinned)
+    # בחזרה מעריכת ההגדרות אין גרסה לנעוץ (כפתורי ההגדרות לא נושאים אותה), ולכן ``-`` — אחרת זו אותה מקלדת
+    assert from_settings_done == _layout(bot.h._build_image_result_keyboard(bot.ctx, file_name))
+    assert from_settings_done[2][1][1].startswith("img_download:-:")
+    assert [t for row in from_settings_done for t, _ in row] == [t for row in from_command for t, _ in row]
 
 
 _NAMES = ["a.py"] + ["ש" * n + ".py" for n in range(1, 41)] + ["x" * 90 + ".py"]
@@ -324,11 +347,15 @@ async def test_every_image_button_fits_telegram_and_reaches_the_image_handler_wi
         if cb.startswith("img_section:"):
             continue
         bot.requested.clear()
+        bot.pinned.clear()
         bot.h._set_image_setting(bot.ctx, file_name, "note", "n")
         calls = await bot.press(cb)
         _no_boundary_error(calls)
-        if cb.startswith(("regenerate_image_", "save_to_drive_", "img_download:")):
-            assert bot.requested == [file_name], cb
+        if cb.startswith("regenerate_image_"):
+            assert bot.requested == [file_name] and bot.pinned == [], cb
+        elif cb.startswith(("img_drive:", "img_download:")):
+            # הגרסה שהוצגה, לפי ה-``_id`` שבכפתור — בלי לחפש לפי שם
+            assert bot.pinned == [bot.latest_id] and bot.requested == [], cb
         elif cb.startswith("edit_image_settings_"):
             assert _layout(_only(calls, "edit_message_text")[2]["reply_markup"]) == settings_rows
         elif cb.startswith(("img_set_theme:", "img_set_style:", "img_set_width:", "img_set_font:")):
@@ -339,7 +366,11 @@ async def test_every_image_button_fits_telegram_and_reaches_the_image_handler_wi
         elif cb.startswith("img_note_clear:"):
             assert "note" not in bot.ctx.user_data.get("img_settings", {}).get(file_name, {})
         elif cb.startswith("img_settings_done:"):
-            assert _layout(_only(calls, "edit_message_reply_markup")[2]["reply_markup"]) == result_rows
+            # המקלדת של התמונה בלי מזהה הגרסה — כפתורי ההגדרות לא נושאים אותו. בלי המזהה הכפתור קצר יותר, ולכן שם שנכנס
+            # בלעדיו נשאר שם ולא טוקן, ואי אפשר רק להחליף את המזהה ב-``-``
+            unpinned = _layout(bot.h._build_image_result_keyboard(bot.ctx, file_name))
+            assert _layout(_only(calls, "edit_message_reply_markup")[2]["reply_markup"]) == unpinned
+            assert [t for row in unpinned for t, _ in row] == [t for row in result_rows for t, _ in row]
         else:  # pragma: no cover - כפתור חדש שהבדיקה לא מכירה
             pytest.fail(f"כפתור בלי בדיקת יעד: {cb}")
 
@@ -387,11 +418,11 @@ async def test_drive_and_download_make_the_same_image_with_the_same_name(monkeyp
     download_calls = await bot.press(download)
 
     _no_boundary_error(drive_calls + download_calls)
-    # כשהקובץ וההגדרות לא השתנו מאז ההצגה, שתיהן זהות לתמונה שהוצגה — ראו גם הבדיקה הבאה
+    # כשההגדרות לא השתנו מאז ההצגה, שתיהן זהות לתמונה שהוצגה
     assert bot.renders == [shown, shown]
-    init, kwargs = shown
-    assert init == {"style": "dracula", "theme": "github", "font_family": "jetbrains"}
-    assert kwargs["max_width"] == 1400 and kwargs["note"] == "הערה"
+    assert {k: shown[k] for k in ("style", "theme", "font_family", "width", "note")} == {
+        "style": "dracula", "theme": "github", "font_family": "jetbrains", "width": 1400, "note": "הערה",
+    }
     [upload] = bot.uploads
     document = _only(download_calls, "reply_document")[2]["document"]
     assert upload["filename"] == document.filename == "a.py.png"
@@ -399,26 +430,84 @@ async def test_drive_and_download_make_the_same_image_with_the_same_name(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_after_a_change_the_buttons_render_the_current_file_and_settings_not_the_photo_above(monkeypatch):
-    # אחרי "ערוך הגדרות" ← "שמור" המקלדת חוזרת מתחת לתמונה הישנה, והקובץ יכול להשתנות מהוובאפ.
-    # הכפתורים יוצרים מחדש מהגרסה האחרונה ומההגדרות של רגע הלחיצה — כמו "צור מחדש" — ולא את התמונה שמעליהם.
+async def test_after_the_file_changes_drive_and_download_render_the_version_that_was_shown(monkeypatch):
     bot = _Bot(monkeypatch)
+    shown_id = bot.latest_id
     save = await bot.button("a.py", "💾 שמור ב-Drive")
     download = await bot.button("a.py", "⬇️ הורד כקובץ")
     regenerate = await bot.button("a.py", "🔄 צור מחדש")
-    await bot.image_command("a.py")
-    shown = bot.renders[-1]
-    bot.renders.clear()
 
-    bot.code = "print('changed')"
-    bot.h._set_image_setting(bot.ctx, "a.py", "theme", "github")
+    bot.save("print('changed')")  # למשל מהוובאפ, אחרי שהתמונה נשלחה
     for cb in (save, download, regenerate):
         _no_boundary_error(await bot.press(cb))
 
     drive, downloaded, regenerated = bot.renders
-    assert drive == downloaded == regenerated != shown
-    init, kwargs = downloaded
-    assert init["theme"] == "github" and kwargs["code"] == "print('changed')"
+    assert drive["code"] == downloaded["code"] == "print('x')"
+    assert bot.pinned == [shown_id, shown_id]
+    # "צור מחדש" יוצר מהגרסה האחרונה, כמו קודם
+    assert regenerated["code"] == "print('changed')"
+
+
+@pytest.mark.asyncio
+async def test_the_settings_are_the_ones_at_click_time(monkeypatch):
+    # בזרימה הרגילה שינוי הגדרות נגמר ב"צור מחדש", ולכן ההגדרות של רגע הלחיצה הן גם של התמונה שמעל הכפתורים.
+    # אחרי "ערוך הגדרות" ← "שמור", לפני "צור מחדש", התמונה שמעל הכפתורים עדיין בהגדרות הקודמות.
+    bot = _Bot(monkeypatch)
+    download = await bot.button("a.py", "⬇️ הורד כקובץ")
+
+    bot.h._set_image_setting(bot.ctx, "a.py", "theme", "github")
+    _no_boundary_error(await bot.press(download))
+
+    [downloaded] = bot.renders
+    assert downloaded["theme"] == "github" and downloaded["code"] == "print('x')"
+
+
+@pytest.mark.asyncio
+async def test_without_a_version_in_the_button_the_latest_version_is_used(monkeypatch):
+    bot = _Bot(monkeypatch)
+    done_cb = (await bot.settings_keyboard("a.py"))[-1][0][1]
+    restored = _layout(_only(await bot.press(done_cb), "edit_message_reply_markup")[2]["reply_markup"])
+    download = restored[2][1][1]
+    assert download.startswith("img_download:-:")
+
+    bot.save("print('changed')")
+    _no_boundary_error(await bot.press(download))
+
+    assert bot.pinned == [] and bot.requested == ["a.py"]
+    assert bot.renders[-1]["code"] == "print('changed')"
+
+
+@pytest.mark.asyncio
+async def test_a_version_that_is_no_longer_available_falls_back_to_the_latest_and_says_so(monkeypatch, caplog):
+    bot = _Bot(monkeypatch)
+    shown_id = bot.latest_id
+    download = await bot.button("a.py", "⬇️ הורד כקובץ")
+    bot.save("print('changed')")
+    del bot.versions[shown_id]  # נמחקה — או מזהה שאינו של המשתמש, שעליו המסד עונה אותו דבר
+
+    with caplog.at_level(logging.WARNING, logger="bot_handlers"):
+        calls = await bot.press(download)
+
+    _no_boundary_error(calls)
+    assert bot.pinned == [shown_id] and bot.requested == ["a.py"]
+    assert bot.renders[-1]["code"] == "print('changed')"
+    caption = _only(calls, "reply_document")[2]["caption"]
+    assert "כבר לא זמינה" in caption
+    assert any(r.getMessage() == "code_image_pinned_version_unavailable" for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_a_drive_button_sent_before_the_version_was_pinned_still_saves_the_latest(monkeypatch):
+    # כפתורים בהודעות שנשלחו לפני ``img_drive:`` — ``save_to_drive_<שם>``, בלי מזהה גרסה
+    bot = _Bot(monkeypatch)
+    bot.save("print('latest')")
+
+    calls = await bot.press("save_to_drive_a.py")
+
+    _no_boundary_error(calls)
+    assert bot.requested == ["a.py"] and bot.pinned == []
+    assert bot.renders[-1]["code"] == "print('latest')"
+    assert [u["mimetype"] for u in bot.uploads] == ["image/png"]
 
 
 @pytest.mark.asyncio
@@ -427,6 +516,7 @@ async def test_the_drive_message_links_to_the_file_and_escapes_the_link(monkeypa
 
     link = 'https://drive.google.com/file/d/fid/view?usp=drivesdk&x="y"'
     bot = _Bot(monkeypatch, upload=lambda: DriveUpload(file_id="fid-raw-id", web_view_link=link))
+    bot.save("print('x')", file_name="<a>.py")  # השם בהודעה הוא של מסמך הגרסה
     save = await bot.button("<a>.py", "💾 שמור ב-Drive")
 
     calls = await bot.press(save)
@@ -482,3 +572,64 @@ async def test_a_bug_in_the_upload_is_not_reported_as_a_drive_connection_problem
     assert any("אירעה שגיאה" in str(c) for c in calls), calls
     [record] = [r for r in caplog.records if r.getMessage() == "drive_code_image_upload_failed"]
     assert record.exc_info and record.exc_info[0] is AttributeError
+
+
+# --- הגרסה לפי ``_id`` בשכבת הקבצים ----------------------------------------------------------------
+
+
+def test_the_files_facade_loads_a_version_by_id_only_for_its_owner_and_only_while_it_is_active(monkeypatch):
+    from bson.objectid import ObjectId
+    from pymongo.errors import PyMongoError
+
+    from src.infrastructure.composition.files_facade import FilesFacade
+
+    version_id = ObjectId()
+    stored = {"_id": version_id, "user_id": 7, "file_name": "a.py", "code": "x", "is_active": True}
+    queries = []
+
+    class _DB:
+        error = None
+
+        def find_version_by_id(self, doc_id, user_id):
+            # כמו ``Repository.find_version_by_id``: ``user_id`` הוא חלק מהשאילתה
+            queries.append((doc_id, user_id))
+            if self.error:
+                raise self.error
+            return dict(stored) if (doc_id, user_id) == (stored["_id"], stored["user_id"]) else None
+
+    db = _DB()
+    facade = FilesFacade()
+    monkeypatch.setattr(facade, "_get_db", lambda: db)
+
+    assert facade.get_version_by_id(7, str(version_id))["code"] == "x"
+    # ה-``_id`` נשלח כ-ObjectId, כמו שהוא שמור — מחרוזת לא הייתה מוצאת כלום
+    assert queries[-1] == (version_id, 7) and isinstance(queries[-1][0], ObjectId)
+    assert facade.get_version_by_id(8, str(version_id)) is None
+
+    # מזהה שאינו ObjectId — מ-callback_data מזויף — לא מגיע למסד בכלל
+    before = len(queries)
+    for forged in ("", "abc", "x" * 24, None, 123, str(version_id) + "0"):
+        assert facade.get_version_by_id(7, forged) is None
+    assert len(queries) == before
+
+    stored["is_active"] = False  # בסל המיחזור
+    assert facade.get_version_by_id(7, str(version_id)) is None
+
+    db.error = PyMongoError("no primary")
+    with pytest.raises(PyMongoError):
+        facade.get_version_by_id(7, str(version_id))
+
+
+def test_the_version_id_is_read_both_from_a_fresh_document_and_from_a_cached_one():
+    # ``get_latest_version`` עטוף ב-``@cached``, והקאש שומר JSON עם ``default=str`` (``cache_manager.py``): בפגיעה בקאש ה-``_id``
+    # מגיע כמחרוזת של 24 תווים, ובהחטאה — כ-``ObjectId``. בשני המקרים הכפתורים צריכים לשאת אותו.
+    from bson.objectid import ObjectId
+
+    import bot_handlers as mod
+
+    oid = ObjectId()
+    version_id = mod.AdvancedBotHandlers._image_version_id
+    assert version_id({"_id": oid}) == str(oid)
+    assert version_id({"_id": str(oid)}) == str(oid)
+    for no_pin in ({}, {"_id": None}, {"_id": ""}, {"_id": {"$oid": str(oid)}}, {"_id": "not-an-object-id"}):
+        assert version_id(no_pin) is None, no_pin

@@ -602,6 +602,25 @@ class FilesFacade:
         except Exception:
             return []
 
+    def get_version_by_id(self, user_id: int, version_id: str) -> Optional[Dict[str, Any]]:
+        """מסמך הגרסה שה-``_id`` שלו הוא ``version_id`` — רק של ``user_id``, ורק כשהוא פעיל (``is_active_version``). אחרת ``None``.
+
+        בשביל "שמור ב-Drive" ו"הורד כקובץ" בתמונת קוד, שיוצרים את הגרסה שממנה נוצרה התמונה. לפי ``_id`` ולא לפי מספר גרסה: על
+        ``(user_id, file_name, version)`` אין אינדקס ייחודי, ושתי שמירות מקבילות יכולות לקבל אותו מספר — ``get_version`` היה מחזיר
+        אחת מהן. ``version_id`` מגיע מ-``callback_data``, שלקוח יכול לזייף, ולכן מזהה שאינו ObjectId הוא ``None``, ו-``user_id``
+        הוא חלק מהשאילתה (``Repository.find_version_by_id``) — לא בדיקה אחריה. שגיאת מסד אינה נבלעת כאן, כמו ב-``get_latest_version``.
+        """
+        from bson.objectid import ObjectId
+
+        from file_versions import is_active_version
+
+        if not isinstance(version_id, str) or not ObjectId.is_valid(version_id):
+            return None
+        doc = self._get_db().find_version_by_id(ObjectId(version_id), user_id)
+        if not doc or not is_active_version(doc):
+            return None
+        return doc
+
     def get_version(self, user_id: int, file_name: str, version: int) -> Optional[Dict[str, Any]]:
         try:
             db = self._get_db()

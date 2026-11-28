@@ -30,6 +30,7 @@ from telegram.ext import (
 from telegram.ext import ApplicationHandlerStop
 
 from services import code_service as code_processor
+from services import code_image_render
 from utils import TelegramUtils, TextUtils  # עריכות בטוחות + אסקייפ ל-Markdown
 try:
     from services.image_generator import CodeImageGenerator
@@ -112,6 +113,30 @@ def _load_image_config() -> dict:
 IMAGE_CONFIG = _load_image_config()
 
 
+#: התבניות של שלושת ה-handlers המוקדמים (קבוצה ‎-5) שמנתבים ל-``AdvancedBotHandlers.handle_callback_query``. ה-catch-all של
+#: המחלקה בקבוצה 5 לא מקבל אותן (``_not_routed_early``), ולכן עדכון מגיע ל-``handle_callback_query`` פעם אחת לכל היותר.
+FAV_TOGGLE_CALLBACK_PATTERN = r'^(fav_toggle_id:|fav_toggle_tok:)'
+#: בלי ``share_gist_id:`` ו-``share_pastebin_id:``: הם של ``handle_callback_query`` ב-``conversation_handlers.py`` (קבוצה 5), שמשתף לפי
+#: ObjectId. כשהתבנית כאן תפסה אותם, ``_share_to_gist`` חיפש קובץ בשם ``id:<מזהה>`` וערך את ההודעה ל"לא נמצא" לפני השיתוף האמיתי.
+SHARE_CALLBACK_PATTERN = r'^(share_gist_(?!id:)|share_pastebin_(?!id:)|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share)'
+#: כל קידומת של ``callback_data`` במקלדות של תמונת קוד — ``_build_image_result_keyboard`` ו-``_build_image_settings_keyboard``. קידומת
+#: חסרה לא מגיעה ל-handler של התמונות, והכפתור לא עושה כלום. ``save_to_drive_`` נשאר בשביל כפתורים שכבר נשלחו לפני ``img_drive:``.
+#: ``tests/test_image_full_quality.py`` עובר על כל הכפתורים בשתי המקלדות.
+IMAGE_CALLBACK_PATTERN = (
+    r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_style:|img_set_width:|img_set_font:|img_note_prompt:|'
+    r'img_note_clear:|img_settings_done:|save_to_drive_|img_drive:|img_download:|img_section:)'
+)
+_EARLY_CALLBACK_PATTERNS = tuple(re.compile(p) for p in (FAV_TOGGLE_CALLBACK_PATTERN, SHARE_CALLBACK_PATTERN, IMAGE_CALLBACK_PATTERN))
+
+
+def _not_routed_early(data: Any) -> bool:
+    """התבנית של ה-catch-all של ``AdvancedBotHandlers`` בקבוצה 5: כל ``callback_data`` שאף handler מוקדם לא תופס.
+
+    PTB מפעיל תבנית callable כמו שהיא, על ``callback_data`` (``CallbackQueryHandler.check_update`` ב-python-telegram-bot 22.5).
+    """
+    return isinstance(data, str) and not any(p.match(data) for p in _EARLY_CALLBACK_PATTERNS)
+
+
 @dataclass(frozen=True)
 class _CodeImageSettings:
     """ההגדרות שתמונת קוד נוצרת לפיהן: העדפות המשתמש, הדריסות לקובץ, וברירות המחדל של ``IMAGE_CONFIG`` — ראו ``AdvancedBotHandlers._resolve_code_image_settings``."""
@@ -120,6 +145,22 @@ class _CodeImageSettings:
     width: int
     font_family: str
     note: Optional[str]
+
+
+@dataclass(frozen=True)
+class _CodeImageSource:
+    """מה שכפתור של תמונת קוד יוצר ממנו תמונה — ``AdvancedBotHandlers._load_code_image_source``.
+
+    ``file_name`` הוא השם שהתמונה נושאת: של מסמך הגרסה כשהיא נטענה לפי ``_id``, ואחרת השם שבכפתור. ``fell_back`` — ביקשו גרסה
+    מסוימת, והיא לא הייתה זמינה, ולכן נטענה הגרסה האחרונה.
+    """
+    doc: Dict[str, Any]
+    file_name: str
+    fell_back: bool
+
+
+#: השורה שנוספת להודעה כשביקשו את הגרסה של התמונה והיא כבר לא זמינה (``_CodeImageSource.fell_back``).
+_PINNED_VERSION_UNAVAILABLE_NOTE = "ℹ️ הגרסה שממנה נוצרה התמונה כבר לא זמינה, ולכן נוצר מהגרסה האחרונה."
 
 
 import json
@@ -321,16 +362,22 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler(["lang_debug", "langdebug"], self.lang_debug_command))
 
         # Callback handlers לכפתורים
-        # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
-        # חשוב: הוספה בקבוצה מאוחרת, כדי לתת עדיפות ל-handlers ספציפיים (למשל מועדפים)
+        # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי.
+        # ``handle_callback_query`` רשום כאן ארבע פעמים: שלושה handlers מוקדמים בקבוצה ‎-5 (מועדפים, שיתוף, תמונה)
+        # ו-catch-all בקבוצה 5. ב-PTB כל קבוצה מפעילה handler תואם אחד והעיבוד ממשיך לקבוצה הבאה, ולכן עדכון שתאם
+        # handler מוקדם היה מגיע ל-catch-all שוב — שני PNG בלחיצה אחת. היום מה שמונע את זה הוא ה-catch-all של
+        # ``conversation_handlers`` שנרשם ב-``main.py`` לפני המחלקה הזו ותופס את קבוצה 5 ראשון — סדר רישום, לא הבטחה.
+        # לכן ה-catch-all כאן לא מקבל את הקידומות של ה-handlers המוקדמים (``_not_routed_early``): עדכון נכנס ל-
+        # ``handle_callback_query`` פעם אחת לכל היותר, בכל סדר. לא ``ApplicationHandlerStop``: ה-catch-all של
+        # ``conversation_handlers`` בקבוצה 5 חייב לקבל גם את הלחיצות האלה — הוא מוציא ממצב חיפוש ומבטל זרימות איסוף
+        # בכל לחיצה על כפתור אחר, ומשתף לפי ObjectId (``share_gist_id:``). ``tests/test_callback_routing_real_ptb.py``.
         try:
-            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query), group=5)
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=_not_routed_early), group=5)
         except TypeError:
             # סביבת בדיקות עם add_handler ללא פרמטר group
-            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=_not_routed_early))
         # Handler מוקדם וממוקד לטוגל מועדפים כדי להבטיח קליטה מיידית
-        toggle_pattern = r'^(fav_toggle_id:|fav_toggle_tok:)'
-        toggle_handler = CallbackQueryHandler(self.handle_callback_query, pattern=toggle_pattern)
+        toggle_handler = CallbackQueryHandler(self.handle_callback_query, pattern=FAV_TOGGLE_CALLBACK_PATTERN)
         try:
             self.application.add_handler(toggle_handler, group=-5)
         except TypeError:
@@ -338,8 +385,7 @@ class AdvancedBotHandlers:
         except Exception as e:
             logger.error(f"Failed to register favorites toggle CallbackQueryHandler: {e}")
         # Handler ממוקד עם קדימות גבוהה לכפתורי /share
-        share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share)'
-        share_handler = CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern)
+        share_handler = CallbackQueryHandler(self.handle_callback_query, pattern=SHARE_CALLBACK_PATTERN)
         try:
             self.application.add_handler(share_handler, group=-5)
         except TypeError:
@@ -348,11 +394,8 @@ class AdvancedBotHandlers:
         except Exception as e:
             # אל תבלע חריגות שקטות – דווח ללוג כדי לא לשבור את כפתורי השיתוף
             logger.error(f"Failed to register share CallbackQueryHandler: {e}")
-        # Handler מוקדם לכפתורי /image (צור מחדש/עריכת הגדרות/Drive/פונטים/סגנון/שמירה)
-        # כל קידומת של callback_data במקלדות של תמונת קוד חייבת להיות כאן — ``_build_image_result_keyboard`` ו-``_build_image_settings_keyboard``.
-        # קידומת חסרה לא מגיעה ל-handler הזה, והכפתור לא עושה כלום. ``tests/test_image_full_quality.py`` עובר על כל הכפתורים בשתי המקלדות.
-        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_style:|img_set_width:|img_set_font:|img_note_prompt:|img_note_clear:|img_settings_done:|save_to_drive_|img_download:|img_section:)'
-        image_handler = CallbackQueryHandler(self.handle_callback_query, pattern=image_pattern)
+        # Handler מוקדם לכפתורי /image (צור מחדש/עריכת הגדרות/Drive/פונטים/סגנון/שמירה) — הקידומות ב-``IMAGE_CALLBACK_PATTERN``
+        image_handler = CallbackQueryHandler(self.handle_callback_query, pattern=IMAGE_CALLBACK_PATTERN)
         try:
             self.application.add_handler(image_handler, group=-5)
         except TypeError:
@@ -459,18 +502,39 @@ class AdvancedBotHandlers:
         """שורת כותרת במקלדת של תמונת קוד: כפתור שאינו עושה דבר. ה-handler של ``img_section:`` עונה ב-``query.answer()`` וחוזר."""
         return [InlineKeyboardButton(label, callback_data=f"img_section:{key}")]
 
-    def _build_image_result_keyboard(self, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> InlineKeyboardMarkup:
+    def _build_image_result_keyboard(
+        self, context: ContextTypes.DEFAULT_TYPE, file_name: str, version_id: Optional[str] = None
+    ) -> InlineKeyboardMarkup:
         """המקלדת שמתחת לתמונת קוד: ב-``/image``, אחרי "צור מחדש", ובחזרה מעריכת ההגדרות (``img_settings_done:``).
 
-        כל קידומת כאן רשומה ב-``image_pattern`` שב-``setup_advanced_handlers``, וכל כפתור נבנה ב-``_image_callback`` בגלל תקרת ה-``callback_data`` של טלגרם (1-64 בייטים, ``InlineKeyboardButton.MAX_CALLBACK_DATA``).
+        כל קידומת כאן רשומה ב-``IMAGE_CALLBACK_PATTERN``, וכל כפתור נבנה ב-``_image_callback`` בגלל תקרת ה-``callback_data`` של טלגרם (1-64 בייטים, ``InlineKeyboardButton.MAX_CALLBACK_DATA``).
+
+        ``version_id`` הוא ה-``_id`` של מסמך הגרסה שממנו נוצרה התמונה שמעל המקלדת. "שמור ב-Drive" ו"הורד כקובץ" נושאים אותו בתוך ה-``callback_data`` עצמו (``img_drive:<id>:`` ו-``img_download:<id>:``), ויוצרים את הגרסה הזו גם אחרי שהקובץ השתנה, וגם אחרי דיפלוי, שמאפס את ``user_data`` (לבוט אין persistence) ואיתו את הטוקנים של השמות. בלי ``version_id`` — ``-``, והם יוצרים מהגרסה האחרונה (``_load_code_image_source``). "צור מחדש" תמיד מהגרסה האחרונה.
         """
+        pin = version_id or "-"
         return InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 צור מחדש", callback_data=self._image_callback(context, "regenerate_image_", file_name)),
              InlineKeyboardButton("📝 ערוך הגדרות", callback_data=self._image_callback(context, "edit_image_settings_", file_name))],
             self._image_section_row("לתמונה באיכות גבוהה", "hq"),
-            [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=self._image_callback(context, "save_to_drive_", file_name)),
-             InlineKeyboardButton("⬇️ הורד כקובץ", callback_data=self._image_callback(context, "img_download:", file_name))],
+            [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=self._image_callback(context, f"img_drive:{pin}:", file_name)),
+             InlineKeyboardButton("⬇️ הורד כקובץ", callback_data=self._image_callback(context, f"img_download:{pin}:", file_name))],
         ])
+
+    @staticmethod
+    def _image_version_id(doc: Dict[str, Any]) -> Optional[str]:
+        """ה-``_id`` של מסמך הגרסה כמחרוזת של ObjectId, או ``None`` כשאין כזה (מסמך בלי ``_id``, או ערך שאינו ObjectId)."""
+        from bson.objectid import ObjectId
+
+        value = str(doc.get("_id") or "")
+        return value if ObjectId.is_valid(value) else None
+
+    def _parse_pinned_image_callback(self, context: ContextTypes.DEFAULT_TYPE, data: str, prefix: str) -> Tuple[Optional[str], str]:
+        """מפרק ``<prefix><id או ->:<שם או טוקן>`` למזהה הגרסה (``None`` כש-``-``) ולשם הקובץ."""
+        pin, separator, suffix = data[len(prefix):].partition(":")
+        if not separator:
+            # בלי מזהה בכלל — אין מה לנעוץ, והכול הוא השם
+            return None, self._resolve_image_target(context, pin)
+        return (None if pin == "-" else pin), self._resolve_image_target(context, suffix)
 
     def _resolve_code_image_settings(self, user_id: int, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> _CodeImageSettings:
         """ההגדרות של תמונת הקוד לקובץ: ``_get_effective_image_settings``, ומה שחסר שם — מ-``IMAGE_CONFIG``."""
@@ -488,30 +552,33 @@ class AdvancedBotHandlers:
         """שם הקובץ של תמונת קוד — אותו שם בתמונה שנשלחת, בהורדה כקובץ ובשמירה ל-Drive."""
         return f"{file_name}.png"
 
-    def _render_code_image(self, settings: _CodeImageSettings, *, code: str, language: str, file_name: str) -> bytes:
-        """יוצר את תמונת הקוד (PNG) — המקום היחיד שבונה ``CodeImageGenerator`` לתמונה של קובץ אחד בהגדרות שלו.
+    async def _render_code_image(self, settings: _CodeImageSettings, *, code: str, language: str, file_name: str) -> bytes:
+        """יוצר את תמונת הקוד (PNG) — המקום היחיד שיוצר תמונה של קובץ אחד בהגדרות שלו.
 
-        ``/image``, "צור מחדש", "שמור ב-Drive" ו"הורד כקובץ" קוראים כאן, ולכן מאותו קובץ ובאותן הגדרות כולם יוצרים אותה תמונה. הכפתורים יוצרים מחדש בלחיצה — מהגרסה האחרונה ומההגדרות של אותו רגע — ולכן קובץ או הגדרות שהשתנו מאז שהתמונה נשלחה נכנסים לתמונה שנשמרת או שמורדת. ``/preview`` ו-``/image_all`` יוצרים אחרת (גובה מוגבל, רוחב של תצוגה מקדימה, מופע אחד לכל הלולאה) ואינם עוברים כאן.
+        ``/image``, "צור מחדש", "שמור ב-Drive" ו"הורד כקובץ" קוראים כאן, ולכן מאותו קוד ובאותן הגדרות כולם יוצרים אותה תמונה. ``/preview`` ו-``/image_all`` יוצרים אחרת (גובה מוגבל, רוחב של תצוגה מקדימה, מופע אחד לכל הלולאה) ואינם עוברים כאן.
+
+        היצירה רצה בתהליך נפרד (``services/code_image_render.py``, ושם ההסבר), כדי שלא תעצור את לולאת הבוט. ``asyncio.to_thread`` כאן רק מחזיק את ההמתנה לתהליך: תחת gevent הוא גרינלט, וההמתנה ל-``subprocess`` משחררת את הלולאה — הדפוס של ``GitHubMenuHandler._pack_folder_from_archive``. כשל זורק (``CodeImageRenderError``, ``ImportError``).
         """
-        gen = CodeImageGenerator(style=settings.style, theme=settings.theme, font_family=settings.font_family)
-        try:
-            return gen.generate_image(
-                code=code,
-                language=language,
-                filename=file_name,
-                max_width=settings.width,
-                note=settings.note,
-            )
-        finally:
-            # היעדר ``cleanup`` הוא מצב סטטי — מחולל בדיקה בלעדיו — ולא כשל; ב-``CodeImageGenerator`` הוא קיים ואינו עושה דבר
-            cleanup = getattr(gen, "cleanup", None)
-            if callable(cleanup):
-                cleanup()
+        request = code_image_render.build_request(
+            code=code,
+            language=language,
+            filename=file_name,
+            style=settings.style,
+            theme=settings.theme,
+            font_family=settings.font_family,
+            width=settings.width,
+            note=settings.note,
+        )
+        return await asyncio.to_thread(code_image_render.render_png, request)
 
-    async def _load_code_image_source(self, query, user_id: int, file_name: str) -> Optional[Dict[str, Any]]:
-        """הגרסה האחרונה של הקובץ שכפתור של תמונת קוד יוצר ממנו תמונה, או ``None`` אחרי שהמשתמש קיבל הסבר.
+    async def _load_code_image_source(
+        self, query, user_id: int, file_name: str, *, version_id: Optional[str] = None
+    ) -> Optional[_CodeImageSource]:
+        """הקובץ שכפתור של תמונת קוד יוצר ממנו תמונה, או ``None`` אחרי שהמשתמש קיבל הסבר.
 
         משותף ל"צור מחדש", "שמור ב-Drive" ו"הורד כקובץ": כל אחד מהם יוצר תמונה, ולכן כולם עוברים את ``image_rate_limiter``.
+
+        עם ``version_id`` — מסמך הגרסה הזה בדיוק (``get_version_by_id``: רק של המשתמש, ורק כשהוא פעיל), והשם מהמסמך, כך שגם טוקן של שם שאבד בדיפלוי לא מפריע. כשהגרסה לא זמינה — נמחקה, או מזהה שלא שייך למשתמש — הקובץ נטען מהגרסה האחרונה לפי השם, ``fell_back`` מסמן את זה להודעה, ונרשמת שורת ``code_image_pinned_version_unavailable``. בלי ``version_id`` — הגרסה האחרונה.
         """
         if CodeImageGenerator is None:  # pragma: no cover
             await query.answer("❌ יצירת תמונות לא זמינה בסביבה זו", show_alert=True)
@@ -519,6 +586,13 @@ class AdvancedBotHandlers:
         if not await image_rate_limiter.check_rate_limit(user_id):
             await query.answer("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.", show_alert=True)
             return None
+        fell_back = False
+        if version_id:
+            pinned = _call_files_api("get_version_by_id", user_id, version_id)
+            if pinned and pinned.get('code'):
+                return _CodeImageSource(doc=pinned, file_name=str(pinned.get('file_name') or file_name), fell_back=False)
+            logger.warning("code_image_pinned_version_unavailable")
+            fell_back = True
         doc = _call_files_api("get_latest_version", user_id, file_name)
         if not doc or not doc.get('code'):
             await self._edit_message_with_media_fallback(
@@ -527,7 +601,76 @@ class AdvancedBotHandlers:
                 parse_mode=ParseMode.HTML,
             )
             return None
-        return doc
+        return _CodeImageSource(doc=doc, file_name=file_name, fell_back=fell_back)
+
+    async def _render_code_image_source(self, user_id: int, context: ContextTypes.DEFAULT_TYPE, source: _CodeImageSource) -> bytes:
+        """התמונה של ``source``, בהגדרות של רגע הלחיצה — "שמור ב-Drive" ו"הורד כקובץ" יוצרים דרך כאן את אותה תמונה."""
+        return await self._render_code_image(
+            self._resolve_code_image_settings(user_id, context, source.file_name),
+            code=str(source.doc['code']),
+            language=str(source.doc.get('programming_language') or 'text'),
+            file_name=source.file_name,
+        )
+
+    async def _send_code_image_file(
+        self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int, file_name: str, *, version_id: Optional[str]
+    ) -> None:
+        """"⬇️ הורד כקובץ": ה-PNG כמסמך. ``reply_photo`` נדחס ל-JPG, ו-``reply_document`` שולח את ה-PNG כמו שהוא."""
+        source = await self._load_code_image_source(query, user_id, file_name, version_id=version_id)
+        if source is None:
+            return
+        img = await self._render_code_image_source(user_id, context, source)
+        caption = f"⬇️ באיכות מלאה: <code>{html.escape(source.file_name)}</code>"
+        if source.fell_back:
+            caption += f"\n{_PINNED_VERSION_UNAVAILABLE_NOTE}"
+        await query.message.reply_document(
+            document=InputFile(io.BytesIO(img), filename=self._code_image_filename(source.file_name)),
+            caption=caption,
+            parse_mode=ParseMode.HTML,
+        )
+
+    async def _save_code_image_to_drive(
+        self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int, file_name: str, *, version_id: Optional[str]
+    ) -> None:
+        """"💾 שמור ב-Drive": ה-PNG ל-Drive של הבוט, ותשובה בהודעה חדשה — הכיתוב של התמונה והמקלדת שלה, כולל "הורד כקובץ", נשארים."""
+        source = await self._load_code_image_source(query, user_id, file_name, version_id=version_id)
+        if source is None:
+            return
+        img = await self._render_code_image_source(user_id, context, source)
+        from services.google_drive_service import upload_bytes_with_link  # type: ignore
+        from drive_owner import BOT as _DRIVE_OWNER  # החיבור של הבוט — ראו drive_owner.py
+        try:
+            # קריאת רשת סינכרונית — ב-to_thread כדי לא לעצור את לולאת הבוט בזמן ההעלאה
+            uploaded = await asyncio.to_thread(
+                upload_bytes_with_link,
+                user_id,
+                self._code_image_filename(source.file_name),
+                img,
+                sub_path="code_images",
+                owner=_DRIVE_OWNER,
+                mimetype="image/png",
+            )
+        except Exception:
+            # כשל של Drive לא מגיע לכאן: upload_bytes_with_link מחזירה None ורושמת את הסיבה בעצמה (drive_call_failed).
+            # חריגה שיצאה ממנה היא באג, ולכן היא לא מקבלת את ההודעה "בדוק הרשאות/חיבור": נרשמת ועולה לגבול של handle_callback_query.
+            logger.exception("drive_code_image_upload_failed")
+            raise
+        note = f"\n{_PINNED_VERSION_UNAVAILABLE_NOTE}" if source.fell_back else ""
+        if uploaded is None:
+            await query.message.reply_text("⚠️ שמירה ל-Drive לא הצליחה (בדוק הרשאות/חיבור)")
+        elif uploaded.web_view_link:
+            await query.message.reply_text(
+                f"✅ נשמר ל-Drive: <code>{html.escape(source.file_name)}</code>\n"
+                f"<a href=\"{html.escape(uploaded.web_view_link)}\">פתיחה ב-Drive</a>{note}",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            # השמירה הצליחה והקישור לא חזר (או שאינו https) — הודעת הצלחה בלי קישור, ושורה שמאפשרת לספור את זה
+            logger.warning("drive_code_image_no_link")
+            await query.message.reply_text(
+                f"✅ נשמר ל-Drive: <code>{html.escape(source.file_name)}</code>{note}",
+                parse_mode=ParseMode.HTML,
+            )
 
     def _parse_image_args(self, args: List[str]) -> Tuple[str, Optional[str], bool]:
         """מפצל פרמטרים של /image לשם קובץ ואופציונלית הערה קצרה (--note)."""
@@ -4545,14 +4688,14 @@ class AdvancedBotHandlers:
             elif data.startswith("regenerate_image_"):
                 _suffix = data.replace("regenerate_image_", "")
                 file_name = self._resolve_image_target(context, _suffix)
-                doc = await self._load_code_image_source(query, user_id, file_name)
-                if doc is None:
+                source = await self._load_code_image_source(query, user_id, file_name)
+                if source is None:
                     return
                 img_settings = self._resolve_code_image_settings(user_id, context, file_name)
-                img = self._render_code_image(
+                img = await self._render_code_image(
                     img_settings,
-                    code=str(doc['code']),
-                    language=str(doc.get('programming_language') or 'text'),
+                    code=str(source.doc['code']),
+                    language=str(source.doc.get('programming_language') or 'text'),
                     file_name=file_name,
                 )
                 image_name = self._code_image_filename(file_name)
@@ -4563,7 +4706,7 @@ class AdvancedBotHandlers:
                     photo=InputFile(io.BytesIO(img), filename=image_name),
                     caption=f"🔄 נוצר מחדש: <code>{html.escape(file_name)}</code>{extra_caption}",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=self._build_image_result_keyboard(context, file_name),
+                    reply_markup=self._build_image_result_keyboard(context, file_name, self._image_version_id(source.doc)),
                 )
 
             elif data.startswith("edit_image_settings_"):
@@ -4742,70 +4885,18 @@ class AdvancedBotHandlers:
                 except Exception:
                     pass
 
+            elif data.startswith("img_drive:"):
+                version_id, file_name = self._parse_pinned_image_callback(context, data, "img_drive:")
+                await self._save_code_image_to_drive(query, context, user_id, file_name, version_id=version_id)
+
             elif data.startswith("save_to_drive_"):
-                _suffix = data.replace("save_to_drive_", "")
-                file_name = self._resolve_image_target(context, _suffix)
-                doc = await self._load_code_image_source(query, user_id, file_name)
-                if doc is None:
-                    return
-                img = self._render_code_image(
-                    self._resolve_code_image_settings(user_id, context, file_name),
-                    code=str(doc['code']),
-                    language=str(doc.get('programming_language') or 'text'),
-                    file_name=file_name,
-                )
-                from services.google_drive_service import upload_bytes_with_link  # type: ignore
-                from drive_owner import BOT as _DRIVE_OWNER  # החיבור של הבוט — ראו drive_owner.py
-                try:
-                    # קריאת רשת סינכרונית — ב-to_thread כדי לא לעצור את לולאת הבוט בזמן ההעלאה
-                    uploaded = await asyncio.to_thread(
-                        upload_bytes_with_link,
-                        user_id,
-                        self._code_image_filename(file_name),
-                        img,
-                        sub_path="code_images",
-                        owner=_DRIVE_OWNER,
-                        mimetype="image/png",
-                    )
-                except Exception:
-                    # כשל של Drive לא מגיע לכאן: upload_bytes_with_link מחזירה None ורושמת את הסיבה בעצמה (drive_call_failed).
-                    # חריגה שיצאה ממנה היא באג, ולכן היא לא מקבלת את ההודעה "בדוק הרשאות/חיבור": נרשמת ועולה לגבול של handle_callback_query.
-                    logger.exception("drive_code_image_upload_failed")
-                    raise
-                # הודעה חדשה ולא עריכה של התמונה: הכיתוב שלה והמקלדת — כולל "הורד כקובץ" — נשארים
-                if uploaded is None:
-                    await query.message.reply_text("⚠️ שמירה ל-Drive לא הצליחה (בדוק הרשאות/חיבור)")
-                elif uploaded.web_view_link:
-                    await query.message.reply_text(
-                        f"✅ נשמר ל-Drive: <code>{html.escape(file_name)}</code>\n"
-                        f"<a href=\"{html.escape(uploaded.web_view_link)}\">פתיחה ב-Drive</a>",
-                        parse_mode=ParseMode.HTML,
-                    )
-                else:
-                    # השמירה הצליחה והקישור לא חזר (או שאינו https) — הודעת הצלחה בלי קישור, ושורה שמאפשרת לספור את זה
-                    logger.warning("drive_code_image_no_link")
-                    await query.message.reply_text(
-                        f"✅ נשמר ל-Drive: <code>{html.escape(file_name)}</code>",
-                        parse_mode=ParseMode.HTML,
-                    )
+                # כפתור שנשלח לפני ``img_drive:``, בלי מזהה גרסה — מהגרסה האחרונה, כמו שהוא עבד כשנשלח
+                file_name = self._resolve_image_target(context, data.replace("save_to_drive_", ""))
+                await self._save_code_image_to_drive(query, context, user_id, file_name, version_id=None)
 
             elif data.startswith("img_download:"):
-                file_name = self._resolve_image_target(context, data[len("img_download:"):])
-                doc = await self._load_code_image_source(query, user_id, file_name)
-                if doc is None:
-                    return
-                img = self._render_code_image(
-                    self._resolve_code_image_settings(user_id, context, file_name),
-                    code=str(doc['code']),
-                    language=str(doc.get('programming_language') or 'text'),
-                    file_name=file_name,
-                )
-                # מסמך ולא תמונה: reply_photo נדחס ל-JPG, ו-reply_document שולח את ה-PNG כמו שהוא
-                await query.message.reply_document(
-                    document=InputFile(io.BytesIO(img), filename=self._code_image_filename(file_name)),
-                    caption=f"⬇️ באיכות מלאה: <code>{html.escape(file_name)}</code>",
-                    parse_mode=ParseMode.HTML,
-                )
+                version_id, file_name = self._parse_pinned_image_callback(context, data, "img_download:")
+                await self._send_code_image_file(query, context, user_id, file_name, version_id=version_id)
 
             # ועוד callback handlers...
 
@@ -5572,7 +5663,7 @@ class AdvancedBotHandlers:
             # העדפות אפקטיביות: פר-משתמש (DB) עם דריסה פר-קובץ (context)
             img_settings = self._resolve_code_image_settings(user_id, context, file_name)
             requested_width = img_settings.width
-            image_bytes = self._render_code_image(img_settings, code=code, language=language, file_name=file_name)
+            image_bytes = await self._render_code_image(img_settings, code=code, language=language, file_name=file_name)
 
             safe_name = html.escape(file_name)
             safe_lang = html.escape(language)
@@ -5587,7 +5678,7 @@ class AdvancedBotHandlers:
                     f"{note_caption}"
                 ),
                 parse_mode=ParseMode.HTML,
-                reply_markup=self._build_image_result_keyboard(context, file_name),
+                reply_markup=self._build_image_result_keyboard(context, file_name, self._image_version_id(file_data)),
             )
         except ImportError as e:
             await update.message.reply_text(

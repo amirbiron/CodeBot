@@ -47,6 +47,8 @@ async def test_img_settings_and_regenerate(monkeypatch):
         def generate_image(self, *a, **k):
             return b'fake_png_data'
     monkeypatch.setattr(mod, 'CodeImageGenerator', _FakeGen, raising=True)
+    # היצירה רצה בתהליך נפרד (services/code_image_render.py); כאן התפר שלה, כדי שהטסט לא יריץ תהליך אמיתי
+    monkeypatch.setattr(mod.code_image_render, 'render_png', lambda request: b'\x89PNG\r\n\x1a\nfake', raising=True)
 
     captured = {}
     h = H(_App())
@@ -98,6 +100,8 @@ async def test_save_to_drive_success(monkeypatch):
         def generate_image(self, *a, **k):
             return b'fake_png_data'
     monkeypatch.setattr(mod, 'CodeImageGenerator', _FakeGen, raising=True)
+    # היצירה רצה בתהליך נפרד (services/code_image_render.py); כאן התפר שלה, כדי שהטסט לא יריץ תהליך אמיתי
+    monkeypatch.setattr(mod.code_image_render, 'render_png', lambda request: b'\x89PNG\r\n\x1a\nfake', raising=True)
 
     # Stub drive upload without importing heavy module
     import sys, types

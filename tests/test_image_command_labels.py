@@ -24,6 +24,8 @@ async def test_image_command_keyboard_labels(monkeypatch):
         def generate_image(self, *a, **k):
             return b'fake_png_data'
     monkeypatch.setattr(mod, 'CodeImageGenerator', _FakeGen, raising=True)
+    # היצירה רצה בתהליך נפרד (services/code_image_render.py); כאן התפר שלה, כדי שהטסט לא יריץ תהליך אמיתי
+    monkeypatch.setattr(mod.code_image_render, 'render_png', lambda request: b'\x89PNG\r\n\x1a\nfake', raising=True)
 
     captured = {}
     class _Msg:

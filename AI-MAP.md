@@ -53,7 +53,7 @@
 - `docs/modules/index.rst` — **מודולים ראשיים**: תיעוד מפורט של המודולים הראשיים בפרויקט.
 - `docs/handlers/index.rst` — **Handlers**: תיעוד של כל ה-handlers בפרויקט.
   - `docs/handlers/show.rst` — **Show Command**: מפרט פקודת /show: מבנה תגובת ה-HTML, שורות הכפתורים (מחיקה, עריכה, הערה, הורדה, שיתוף ומועדפים), והערות יישום.
-  - `docs/handlers/image.rst` — **Image Command**: פקודת /image בבוט: המקלדת שמתחת לתמונת הקוד, ההורדה כקובץ באיכות מלאה, השמירה ל-Drive כ-PNG עם קישור לפתיחה, ואיך כפתור חדש מגיע ל-handler של התמונות בלי לעבור את התקרה של טלגרם על callback_data.
+  - `docs/handlers/image.rst` — **Image Command**: פקודת /image בבוט: המקלדת שמתחת לתמונת הקוד, ההורדה כקובץ באיכות מלאה והשמירה ל-Drive של הגרסה שמעל הכפתורים, היצירה בתהליך נפרד, ואיך כפתור חדש מגיע ל-handler של התמונות פעם אחת בלי לעבור את התקרה של טלגרם על…
   - `docs/handlers/drive_menu.rst` — **Drive Menu V2**: תפריט הגיבוי ל‑Google Drive (גרסת V2) כולל בחירה מהירה (קבצי גיבוי/הכל/מתקדם), בחירת תיקיית יעד (אוטומטי/ברירת מחדל/מותאם), תזמון גיבוי, וטיפול שגיאות ברור.
   - `docs/handlers/document-flow.rst` — **זרימת הטיפול במסמכים (Document Flow)**: המפה בין הרכיבים שמטפלים בקובץ שנשלח לבוט, מצבי upload_mode, התלויות שמוזרקות ל-DocumentHandler, ושכבת האחסון (FilesFacade מול ה-DB הישן).
 - `docs/services/index.rst` — **Services**: תיעוד של שירותי הליבה של המערכת.
