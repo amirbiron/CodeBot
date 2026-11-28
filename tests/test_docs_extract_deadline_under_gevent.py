@@ -7,8 +7,9 @@
 ``monkey.patch_all()`` בעצמו, וקורא ל-``_call_model`` של השירות, עם הלקוח האמיתי של ה-SDK, מול שרת שמטפטף תשובה
 בתהליך נפרד.
 
-**מה נבדק:** הקריאה נקטעת בתקרה — ב-HTTP, וב-HTTPS בשני המסלולים שבהם httpx2 בונה את ה-SSLContext — ובזמן
-ההמתנה הלולאה של gevent ממשיכה לרוץ (``max_gap``), כלומר בקשות אחרות ב-worker לא נעצרות. והביקורת: אותה קריאה עם
+**מה נבדק:** הקריאה נקטעת בתקרה — ב-HTTP וב-HTTPS, עם הלקוח של הפרודקשן — ובזמן ההמתנה הלולאה של gevent ממשיכה
+לרוץ (``max_gap``), כלומר בקשות אחרות ב-worker לא נעצרות. למה אין מקרה ל-HTTPS בלי ``SSL_CERT_FILE``: בראש
+``main`` בפרוב. והביקורת: אותה קריאה עם
 התקרה של ה-SDK בלבד עדיין רצה, כי השרת שולח משהו לפני שהתקרה הזו נגמרת. בלי הביקורת, הטסט היה עובר גם אם השרת
 פשוט היה סוגר את החיבור.
 """
@@ -37,7 +38,7 @@ def test_the_extract_deadline_cuts_a_dripping_answer_without_blocking_the_worker
     assert result["patched"] is True, "הפרוב לא רץ תחת gevent — הבדיקה לא בודקת כלום"
     assert result["deadline_enforceable"] is True
     deadline = result["deadline"]
-    for case in ("http", "https", "https_truststore"):
+    for case in ("http", "https"):
         measured = result[case]
         assert measured["code"] == "extract_timeout", (case, measured)
         assert deadline <= measured["elapsed"] < deadline + 0.5, (case, measured)

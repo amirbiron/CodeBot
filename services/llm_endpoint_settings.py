@@ -13,6 +13,20 @@ from typing import List, Mapping, Optional, Tuple
 from urllib.parse import urlsplit
 
 
+def is_full_url(value: str, schemes: Tuple[str, ...]) -> bool:
+    """האם ``value`` הוא כתובת עם אחת מ-``schemes`` ועם שרת.
+
+    ``urlsplit`` זורק ``ValueError`` על כתובת שהשרת בה בסוגריים מרובעים פגומים, כמו ``https://[::1``
+    (``Invalid IPv6 URL``; נבדק ב-Python 3.13) — וזו בדיוק כתובת לא תקינה, ולא חריגה שעולה הלאה: מי שקורא את
+    ההגדרות מצפה לרשימת שגיאות, ותבנית עמוד הקבצים קוראת אותן בכל רינדור.
+    """
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return False
+    return parts.scheme in schemes and bool(parts.netloc)
+
+
 @dataclass(frozen=True)
 class LlmEndpoint:
     api_key: str
@@ -43,8 +57,7 @@ def load_endpoint(prefix: str, environ: Mapping[str, str]) -> Tuple[Optional[Llm
         errors.append(f"{key_name} חייב להיות ASCII בלי רווחים")
     # הכתובת היא חובה: בלי ``base_url`` מפורש ה-SDK קורא בעצמו את ``OPENAI_BASE_URL`` מהסביבה
     # (openai 3.36.1, ``openai/_client.py``).
-    base_parts = urlsplit(base_url)
-    if base_parts.scheme not in ("https", "http") or not base_parts.netloc:
+    if not is_full_url(base_url, ("https", "http")):
         errors.append(f"{url_name} חייב להיות כתובת מלאה שמתחילה ב-https://")
     if not model:
         errors.append(f"{model_name} לא מוגדר")

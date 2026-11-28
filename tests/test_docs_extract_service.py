@@ -428,7 +428,12 @@ def test_without_any_setting_there_is_no_extract_and_no_model_call(world):
         ({"DOCS_EXTRACT_API_KEY": "extract key"}, "DOCS_EXTRACT_API_KEY חייב להיות ASCII בלי רווחים"),
         ({"DOCS_EXTRACT_BASE_URL": "llm.example.test/v1"},
          "DOCS_EXTRACT_BASE_URL חייב להיות כתובת מלאה שמתחילה ב-https://"),
+        # ``urlsplit`` זורק ``ValueError`` על הכתובת הזו. בלי הטיפול בו, החריגה הייתה עולה מכאן — ומתבנית עמוד
+        # הקבצים, שבודקת את ההגדרות בכל רינדור לאדמין.
+        ({"DOCS_EXTRACT_BASE_URL": "https://[::1"},
+         "DOCS_EXTRACT_BASE_URL חייב להיות כתובת מלאה שמתחילה ב-https://"),
     ],
+    ids=["no-model", "key-with-space", "url-without-scheme", "url-urlsplit-refuses"],
 )
 def test_partial_settings_say_what_is_missing_without_the_values(world, override, missing):
     error = _failed(world, environ={**ENV, **override})
@@ -448,8 +453,9 @@ def test_the_advisor_settings_do_not_turn_the_extract_on(world):
 
 @pytest.mark.parametrize(
     "environ,offered",
-    [({}, False), (ENV, True), ({"DOCS_EXTRACT_MODEL": "extract-model"}, True)],
-    ids=["unset", "configured", "partial"],
+    [({}, False), (ENV, True), ({"DOCS_EXTRACT_MODEL": "extract-model"}, True),
+     ({**ENV, "DOCS_EXTRACT_BASE_URL": "https://[::1"}, True)],
+    ids=["unset", "configured", "partial", "url-urlsplit-refuses"],
 )
 def test_the_button_is_offered_unless_nothing_is_set(environ, offered):
     """הגדרות חלקיות — הכפתור מוצג, והלחיצה אומרת מה חסר (החלטה 6 בתוכנית)."""

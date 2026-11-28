@@ -101,6 +101,10 @@ def test_settings_valid():
         ({"ADVISOR_API_KEY": "test-key\u200f"}, "ADVISOR_API_KEY חייב להיות ASCII בלי רווחים"),
         ({"ADVISOR_API_KEY": "test key"}, "ADVISOR_API_KEY חייב להיות ASCII בלי רווחים"),
         ({"ADVISOR_CONTACT_URL": "t.me/someone"}, "ADVISOR_CONTACT_URL חייב להתחיל ב-https:// או ב-tg://"),
+        # ``urlsplit`` זורק ``ValueError`` על סוגריים מרובעים פגומים. עד התיקון החריגה עלתה מ-``load_settings``, מחוץ
+        # ל-``try`` של ``register_advisor_handlers`` — ולא כיבתה את היועץ בלבד, כמו שהוא מבטיח.
+        ({"ADVISOR_BASE_URL": "https://[::1"}, "ADVISOR_BASE_URL חייב להיות כתובת מלאה שמתחילה ב-https://"),
+        ({"ADVISOR_CONTACT_URL": "https://[::1"}, "ADVISOR_CONTACT_URL חייב להתחיל ב-https:// או ב-tg://"),
     ],
 )
 def test_settings_errors_disable_the_advisor(override, expected_error):

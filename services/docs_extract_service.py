@@ -17,8 +17,9 @@
 טיפה עוברת אותה בלי סוף, וה-worker של gevent אינו מגביל את אורך הבקשה (``wait-without-own-deadline``).
 ``gevent.Timeout`` נקטע גם באמצע קריאה מהרשת — אבל רק בתהליך שעבר ``monkey.patch_all()``, כמו ה-worker של
 gunicorn (``gunicorn/workers/ggevent.py``, ``GeventWorker.patch``); בתהליך אחר הוא חסר אונים (gevent 24.11.1,
-``gevent/timeout.py``). לכן בתהליך כזה החילוץ מסרב (``extract_needs_gevent``) במקום לרוץ בלי תקרה. שני
-המצבים נמדדו מול שרת שמטפטף תשובה, ב-``tests/test_docs_extract_deadline_under_gevent.py``.
+``gevent/timeout.py``). לכן בתהליך כזה החילוץ מסרב (``extract_needs_gevent``) במקום לרוץ בלי תקרה.
+``tests/test_docs_extract_deadline_under_gevent.py`` מודד, מול שרת שמטפטף תשובה, שהתקרה של ה-SDK לבדה לא עוצרת את
+הקריאה ו-``gevent.Timeout`` כן. שבלי ``patch_all`` הוא לא עוצר אותה — נמדד מול אותו שרת ב-28.11.2026, בניסוי נפרד.
 
 **השאלה ותשובת המודל אינן נרשמות** — לא בלוג ולא באירוע ``docs_extract``, כמו שהחיפוש לא רושם את השאלה.
 """
@@ -291,25 +292,31 @@ def extract(
     האירוע :data:`EVENT`. מה שלא נמסר נלקח מהמודול בזמן הקריאה: ``os.environ``, ``_openai_client`` ו-
     :func:`deadline_enforceable`.
     """
+    if environ is None:
+        environ = os.environ
+    if client_factory is None:
+        client_factory = _openai_client
+    if can_enforce_deadline is None:
+        can_enforce_deadline = deadline_enforceable
     started = clock()
     model: Optional[str] = None
     try:
         text = docs_search.validated_query(query)
         ids = validated_section_ids(section_ids)
-        endpoint, errors = load_settings(os.environ if environ is None else environ)
+        endpoint, errors = load_settings(environ)
         if endpoint is None:
             if errors:
                 raise DocsSearchError("extract_misconfigured", 503, detail="; ".join(errors))
             raise DocsSearchError("extract_not_configured", 503)
         model = endpoint.model
-        if not (can_enforce_deadline or deadline_enforceable)():
+        if not can_enforce_deadline():
             raise DocsSearchError("extract_needs_gevent", 503)
         sections = _read_sections(db, ids)
         size = sum(len(section["markdown"].encode("utf-8", "surrogatepass")) for section in sections)
         if size > MAX_SECTIONS_BYTES:
             raise DocsSearchError("sections_too_large", 422, detail=f"max {MAX_SECTIONS_BYTES} bytes")
         messages = build_messages(text, sections)
-        content = _call_model(endpoint, messages, client_factory or _openai_client)
+        content = _call_model(endpoint, messages, client_factory)
         sent_bytes = sum(len(message["content"].encode("utf-8", "surrogatepass")) for message in messages[1:])
         number, quote = parse_answer(content, len(sections), sent_bytes)
     except DocsSearchError as exc:

@@ -83,16 +83,25 @@ def _write_certificate(folder: str) -> tuple[str, str]:
 
 def main(folder: str) -> dict:
     cert_path, key_path = _write_certificate(folder)
-    # שני המסלולים שבהם httpx2 בונה את ה-SSLContext: עם ``SSL_CERT_FILE`` — ``ssl.create_default_context``; בלעדיו,
-    # כמו בפרודקשן — ``truststore.SSLContext``, ש-OpenSSL שבתוכו מאמת מול ``SSL_CERT_FILE`` (``httpx2/_config.py``).
+    # הלקוח של הפרודקשן (``_openai_client``) סומך על התעודה דרך ``SSL_CERT_FILE``: עם המשתנה הזה httpx2 בונה את
+    # ה-SSLContext ב-``ssl.create_default_context(cafile=...)``, בכל הגרסאות שנבדקו (2.13.1 ו-2.16.2).
+    #
+    # **בלי** ``SSL_CERT_FILE`` — כמו ב-Render — המסלול תלוי בגרסה: ב-httpx2 2.13.1 זה ``truststore.SSLContext``
+    # (``httpx2/_config.py``), וב-2.16.2 בלינוקס זה ``ssl.SSLContext`` עם הנתיבים שהוקמפלו לתוך OpenSSL, בלי truststore
+    # בכלל (``default_ssl_context`` ב-``httpcore2/_ssl.py``). תעודה עצמית של הבדיקה לא נכנסת לאף אחד מהם בלי לשנות את
+    # מאגר התעודות של המערכת, ולכן אין כאן מקרה כזה: גרסה ראשונה של הפרוב בדקה את truststore דרך ``trust_env=False``,
+    # ובגרסה 2.16.2 שה-CI התקין המקרה הזה נכשל באימות התעודה ולא בתקרה. שני המסלולים בונים את ההקשר מהמודול ``ssl``
+    # בזמן הקריאה, אחרי ש-gevent החליף אותו — אותו מנגנון כמו המסלול שנבדק כאן. מסלול truststore נמדד ב-28.11.2026,
+    # עם httpx2 2.13.1: ``_original_SSLContext`` של truststore היה זה של ``gevent.ssl``, והקריאה נקטעה בתקרה.
     os.environ["SSL_CERT_FILE"] = cert_path
     os.environ.pop("SSL_CERT_DIR", None)
 
     plain, plain_port = _start_drip_server("http")
     secure, secure_port = _start_drip_server("tls", cert_path, key_path)
 
-    import httpx2
-    import openai
+    # השירות מייבא את openai רק בקריאה הראשונה למודל (``_call_model``). הייבוא הראשון עוצר את הלולאה לכ-0.4 שניות,
+    # פעם אחת לתהליך, ולא הוא מה שנמדד כאן — ולכן הוא קורה לפני המדידה.
+    import openai  # noqa: F401
 
     from services import docs_extract_service as svc
     from services.docs_search_service import DocsSearchError
@@ -109,11 +118,6 @@ def main(folder: str) -> dict:
             gevent.sleep(0.05)
 
     heart_greenlet = gevent.spawn(heart)
-
-    def through_truststore(endpoint):
-        # כמו ``_openai_client``, עם ``trust_env=False``: httpx2 מדלג על ``SSL_CERT_FILE`` ובונה ``truststore.SSLContext``.
-        return openai.OpenAI(api_key=endpoint.api_key, base_url=endpoint.base_url, timeout=DEADLINE_SECONDS,
-                             max_retries=0, http_client=httpx2.Client(trust_env=False, timeout=DEADLINE_SECONDS))
 
     def measure(base_url, factory):
         endpoint = LlmEndpoint("probe-key", base_url, "probe-model")
@@ -135,7 +139,6 @@ def main(folder: str) -> dict:
         "deadline": DEADLINE_SECONDS,
         "http": measure(f"http://127.0.0.1:{plain_port}/v1/", svc._openai_client),
         "https": measure(f"https://127.0.0.1:{secure_port}/v1/", svc._openai_client),
-        "https_truststore": measure(f"https://127.0.0.1:{secure_port}/v1/", through_truststore),
     }
 
     # הביקורת: אותה קריאה בלי ``gevent.Timeout``, עם התקרה של ה-SDK בלבד.
