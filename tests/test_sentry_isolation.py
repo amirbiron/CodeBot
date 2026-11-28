@@ -348,7 +348,8 @@ import types
 
 def test_fakes_sentry_sdk_the_right_way(monkeypatch):
     monkeypatch.setitem(sys.modules, "sentry_sdk", types.ModuleType("sentry_sdk"))
-    monkeypatch.setitem(sys.modules, "sentry_sdk.integrations.logging", types.ModuleType("sentry_sdk.integrations.logging"))
+    logging_name = "sentry_sdk.integrations.logging"
+    monkeypatch.setitem(sys.modules, logging_name, types.ModuleType(logging_name))
 
 
 def test_next_one_imports_the_real_sentry_sdk():
@@ -360,6 +361,82 @@ def test_next_one_imports_the_real_sentry_sdk():
 
     assert "ERROR test_inner.py::" not in output and "2 passed" in output, (
         f"בדיקה שהחליפה את sentry_sdk דרך monkeypatch נתפסה כדולפת:\n{output}"
+    )
+
+
+#: תת-מודול מזויף שהוחלף גם ב-``sys.modules`` וגם כמאפיין על ``sentry_sdk``. ``importlib.import_module`` קורא
+#: מ-``sys.modules``, ו-``sentry_sdk.scope`` קורא מהמאפיין — הבדיקה הבאה בודקת ששתי הדרכים מחזירות את אותו מודול אמיתי.
+_FAKE_SUBMODULE_ON_BOTH_PATHS = """
+import importlib
+import sys
+import types
+
+import sentry_sdk
+
+
+def test_leaves_a_fake_scope_on_both_paths():
+    fake = types.ModuleType("sentry_sdk.scope")
+    sys.modules["sentry_sdk.scope"] = fake
+    sentry_sdk.scope = fake
+
+
+def test_next_one_gets_the_same_real_scope_both_ways():
+    via_import = importlib.import_module("sentry_sdk.scope")
+
+    assert sentry_sdk.scope is via_import
+    assert hasattr(via_import, "Scope")
+"""
+
+
+def test_a_fake_submodule_on_both_paths_is_undone_on_both(tmp_path):
+    """ניקוי של ``sys.modules`` בלבד היה מחזיר את האמיתי ל-``import``, ומשאיר את המזויף כמאפיין על ``sentry_sdk``."""
+    output = _run_inner(tmp_path, _FAKE_SUBMODULE_ON_BOTH_PATHS, with_guard=True)
+
+    assert "ERROR test_inner.py::test_leaves_a_fake_scope_on_both_paths" in output, (
+        f"הבדיקה שהשאירה תת-מודול מזויף לא נכשלה בשמה:\n{output}"
+    )
+    assert "PASSED test_inner.py::test_next_one_gets_the_same_real_scope_both_ways" in output, (
+        f"אחרי הניקוי המאפיין על sentry_sdk והייבוא אינם אותו מודול אמיתי:\n{output}"
+    )
+
+
+def test_without_the_guard_a_fake_submodule_on_both_paths_does_reach_the_next_test(tmp_path):
+    output = _run_inner(tmp_path, _FAKE_SUBMODULE_ON_BOTH_PATHS, with_guard=False)
+
+    assert "FAILED test_inner.py::test_next_one_gets_the_same_real_scope_both_ways" in output, (
+        f"בלי הפלאגין התת-מודול המזויף לא הגיע לבדיקה הבאה — התרחיש אינו משחזר את הדליפה:\n{output}"
+    )
+
+
+#: ``sentry_sdk.monitor`` הוא הדקורטור מ-``sentry_sdk.crons``, ולא המודול ``sentry_sdk.monitor``. כשהמודול הוחלף
+#: ב-``sys.modules`` בלבד, הניקוי מחזיר אותו לשם — ואינו דורס את הדקורטור במודול.
+_FAKE_MONITOR_MODULE = """
+import importlib
+import sys
+import types
+
+import sentry_sdk
+import sentry_sdk.crons
+
+
+def test_leaves_a_fake_monitor_module():
+    sys.modules["sentry_sdk.monitor"] = types.ModuleType("sentry_sdk.monitor")
+
+
+def test_next_one_still_has_the_monitor_decorator():
+    assert sentry_sdk.monitor is sentry_sdk.crons.monitor
+    assert hasattr(importlib.import_module("sentry_sdk.monitor"), "Monitor")
+"""
+
+
+def test_an_attribute_that_is_not_the_submodule_is_left_alone(tmp_path):
+    output = _run_inner(tmp_path, _FAKE_MONITOR_MODULE, with_guard=True)
+
+    assert "ERROR test_inner.py::test_leaves_a_fake_monitor_module" in output, (
+        f"הבדיקה שהשאירה מודול מזויף לא נכשלה בשמה:\n{output}"
+    )
+    assert "PASSED test_inner.py::test_next_one_still_has_the_monitor_decorator" in output, (
+        f"הניקוי דרס את sentry_sdk.monitor, או לא החזיר את המודול:\n{output}"
     )
 
 

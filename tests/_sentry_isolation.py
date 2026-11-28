@@ -76,37 +76,68 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def _comes_from_the_installed_sentry_sdk(module: object) -> bool:
-    """האם המודול נטען מהחבילה המותקנת. מודול מזויף (``types.ModuleType``) אין לו ``__spec__``."""
+    """האם המודול נטען מהחבילה המותקנת. מודול מזויף (``types.ModuleType``) אין לו ``__spec__``.
+
+    התיקיות של החבילה נלקחות מ-``sentry_sdk.__path__`` ולא מה-``origin`` של ``__init__.py``, ש-``None`` בחבילה בלי
+    ``__init__.py``. מודול בלי ``origin`` נחשב לא-מהחבילה: ב-sentry-sdk 2.42.1 לכל תיקייה יש ``__init__.py``, ולכן לכל
+    תת-מודול אמיתי יש ``origin``.
+    """
     if sentry_sdk is None:
         return False
-    package_dir = os.path.dirname(sentry_sdk.__spec__.origin)
-    origin = getattr(getattr(module, "__spec__", None), "origin", None) or ""
-    return os.path.abspath(origin).startswith(package_dir + os.sep)
+    origin = getattr(getattr(module, "__spec__", None), "origin", None)
+    if not origin:
+        return False
+    origin = os.path.abspath(origin)
+    return any(origin.startswith(os.path.abspath(path) + os.sep) for path in sentry_sdk.__path__)
+
+
+def _undo_replacement(name: str, found: object, real: ModuleType | None) -> None:
+    """מחזיר את ``real`` ל-``sys.modules`` במקום ``found`` (או מוציא את השם כש-``real`` הוא ``None``).
+
+    גם המאפיין על המודול ההורה מתוקן — אבל רק כשהוא מצביע על ``found``. ``import x.y`` ו-``importlib.import_module``
+    קוראים מ-``sys.modules``, ו-``x.y`` קורא מהמאפיין, ובדיקה שהחליפה את שניהם הייתה משאירה אחרי ניקוי של
+    ``sys.modules`` בלבד שני מודולים שונים לאותו שם. ולמה רק כשהוא ``found``: לא כל מאפיין בשם של תת-מודול הוא
+    התת-מודול.
+    ב-sentry-sdk 2.42.1 ``sentry_sdk.monitor`` הוא הדקורטור מ-``sentry_sdk.crons``, ולא המודול ``sentry_sdk.monitor``.
+    """
+    if real is None:
+        del sys.modules[name]
+    else:
+        sys.modules[name] = real
+    parent_name, _, child = name.rpartition(".")
+    parent = sys.modules.get(parent_name) if parent_name else None
+    if parent is None or found is None or getattr(parent, child, None) is not found:
+        return
+    if real is None:
+        delattr(parent, child)
+    else:
+        setattr(parent, child, real)
 
 
 def restore_real_sentry_modules() -> list[str]:
     """מחזיר ל-``sys.modules`` את המודולים האמיתיים של sentry-sdk, ומחזיר את שמות אלה שהיו מוחלפים.
 
     שם שהיה ברשימה של תחילת הריצה ומוחזק עכשיו במודול אחר — חוזר למודול האמיתי. שם שלא היה ברשימה (תת-מודול
-    שנטען מאוחר יותר) ואינו מהחבילה המותקנת — יוצא מ-``sys.modules``, והייבוא הבא טוען את האמיתי.
+    שנטען מאוחר יותר) ואינו מהחבילה המותקנת — יוצא מ-``sys.modules``, והייבוא הבא טוען את האמיתי. בשני המקרים גם
+    המאפיין על המודול ההורה מתוקן, כשהוא מצביע על המודול שהוחלף (``_undo_replacement``).
     """
     replaced: list[str] = []
-    for name, module in list(sys.modules.items()):
-        if not _is_sentry_module_name(name):
-            continue
+    # ההורה לפני הילדים: כשגם ``sentry_sdk`` עצמו הוחלף, המאפיין של כל ילד נבדק על ההורה האמיתי.
+    names = sorted(
+        {name for name in sys.modules if _is_sentry_module_name(name)} | set(_REAL_SENTRY_MODULES),
+        key=lambda name: (name.count("."), name),
+    )
+    for name in names:
         real = _REAL_SENTRY_MODULES.get(name)
+        found = sys.modules.get(name)
         if real is not None:
-            if module is not real:
-                sys.modules[name] = real
+            if found is not real:
+                _undo_replacement(name, found, real)
                 replaced.append(name)
-        elif not _comes_from_the_installed_sentry_sdk(module):
-            del sys.modules[name]
+        elif found is not None and not _comes_from_the_installed_sentry_sdk(found):
+            _undo_replacement(name, found, None)
             replaced.append(name)
-    for name, real in _REAL_SENTRY_MODULES.items():
-        if name not in sys.modules:
-            sys.modules[name] = real
-            replaced.append(name)
-    return sorted(set(replaced))
+    return sorted(replaced)
 
 
 def shut_down_sentry() -> bool:
