@@ -459,31 +459,37 @@ class AdvancedBotHandlers:
             # Fallback – if something goes wrong, return sanitized short name tail
             return (file_name or 'file')[-40:]
 
-    def _resolve_image_target(self, context: ContextTypes.DEFAULT_TYPE, suffix: str) -> str:
-        """Resolve a callback suffix back to the original file name.
-        Supports either a raw file name or a token prefixed with 'tok:'.
+    def _resolve_image_target(self, context: ContextTypes.DEFAULT_TYPE, suffix: str) -> Optional[str]:
+        """שם הקובץ שבסוף ``callback_data`` של כפתור תמונה, או ``None`` כשהכפתור פג תוקף.
+
+        סיומת ``tok:<טוקן>`` נפתרת מהמיפוי ב-``user_data``, וכל סיומת אחרת היא השם עצמו. טוקן שאינו במיפוי הוא כפתור שפג תוקפו,
+        ולא שם קובץ: לבוט אין persistence, ודיפלוי מאפס את ``user_data`` ואיתו את המיפוי. עד 28.11.2026 טוקן כזה המשיך הלאה כשם,
+        והכפתור חיפש קובץ בשם ``tok:...``. החלוקה חד-משמעית כי ``_make_safe_suffix`` לא שולח שם שמתחיל ב-``tok:`` כמו שהוא.
         """
-        try:
-            if suffix.startswith('tok:'):
-                token = suffix.split(':', 1)[1]
-            else:
-                token = suffix
-            # Try token lookup first
-            name = (context.user_data.get('img_name_by_tok') or {}).get(token)
-            if name:
-                return str(name)
-            # Not a known token – assume it's a direct file name
+        if not suffix.startswith('tok:'):
             return suffix
-        except Exception:
-            return suffix
+        name = (context.user_data.get('img_name_by_tok') or {}).get(suffix[len('tok:'):])
+        return str(name) if name else None
+
+    async def _reply_image_button_expired(self, query) -> None:
+        """תשובה לכפתור תמונה שהטוקן שלו כבר לא במיפוי (``_resolve_image_target`` החזירה ``None``).
+
+        הודעה חדשה ולא עריכה: באותה מקלדת יכולים להיות כפתורים שעדיין עובדים — שם קצר נכנס בלי טוקן בכפתור אחד ולא באחר.
+        """
+        await query.message.reply_text(
+            "⌛ הכפתור הזה פג תוקף: הבוט הופעל מחדש מאז שהוא נשלח, ולכן כבר לא יודע לאיזה קובץ הכפתור שייך. "
+            "צור את התמונה מחדש עם /image ושם הקובץ."
+        )
 
     def _make_safe_suffix(self, context: ContextTypes.DEFAULT_TYPE, action_prefix: str, file_name: str) -> str:
         """Return a safe suffix for callback_data for given action.
         If the combined callback would exceed 64 bytes, return a 'tok:<token>' suffix.
+        שם שמתחיל ב-``tok:`` הופך תמיד לטוקן, כדי ש-``_resolve_image_target`` לא יבלבל אותו עם טוקן — שם כזה אפשרי מהוובאפ ומה-MCP,
+        שלא אוסרים ``:``.
         """
         try:
             cb = f"{action_prefix}{file_name}"
-            if len(cb.encode('utf-8')) <= 64:
+            if len(cb.encode('utf-8')) <= 64 and not file_name.startswith('tok:'):
                 return file_name
             tok = self._get_or_create_image_token(context, file_name)
             return f"tok:{tok}"
@@ -528,8 +534,10 @@ class AdvancedBotHandlers:
         value = str(doc.get("_id") or "")
         return value if ObjectId.is_valid(value) else None
 
-    def _parse_pinned_image_callback(self, context: ContextTypes.DEFAULT_TYPE, data: str, prefix: str) -> Tuple[Optional[str], str]:
-        """מפרק ``<prefix><id או ->:<שם או טוקן>`` למזהה הגרסה (``None`` כש-``-``) ולשם הקובץ."""
+    def _parse_pinned_image_callback(
+        self, context: ContextTypes.DEFAULT_TYPE, data: str, prefix: str
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """מפרק ``<prefix><id או ->:<שם או טוקן>`` למזהה הגרסה (``None`` כש-``-``) ולשם הקובץ (``None`` כשהטוקן פג תוקף)."""
         pin, separator, suffix = data[len(prefix):].partition(":")
         if not separator:
             # בלי מזהה בכלל — אין מה לנעוץ, והכול הוא השם
@@ -571,28 +579,60 @@ class AdvancedBotHandlers:
         )
         return await asyncio.to_thread(code_image_render.render_png, request)
 
+    @staticmethod
+    def _read_pinned_code_image_version(user_id: int, version_id: str) -> Optional[Dict[str, Any]]:
+        """מסמך הגרסה ש"שמור ב-Drive" ו"הורד כקובץ" נעוצים אליה, או ``None`` כשהיא לא קיימת. כשל קריאה זורק.
+
+        לא דרך ``_call_files_api``: היא מחזירה ``None`` גם על חריגה, ואז כשל של המסד נראה כמו "הגרסה נמחקה", והכפתור יוצר בשקט
+        מגרסה אחרת. ``FilesFacade.get_version_by_id`` ו-``Repository.find_version_by_id`` מתחתיה כבר מבדילות: ``None`` הוא "אין מסמך
+        כזה של המשתמש", ושגיאת מסד נזרקת. כאן נרשמת שורת ``code_image_pinned_version_read_failed`` עם ה-traceback (הגבול של
+        ``handle_callback_query`` רושם רק את הטקסט), והחריגה עולה לגבול, שעונה "❌ אירעה שגיאה. נסה שוב.".
+        """
+        try:
+            facade = _get_files_facade_or_none()
+            if facade is None:
+                # ``_get_files_facade_or_none`` בולעת את כשל הבנייה — בלי פסאדה אי אפשר לדעת אם הגרסה קיימת, וזה כשל ולא "לא נמצא"
+                raise RuntimeError("files facade unavailable")
+            return facade.get_version_by_id(user_id, version_id)
+        except Exception:
+            logger.exception("code_image_pinned_version_read_failed")
+            raise
+
     async def _load_code_image_source(
-        self, query, user_id: int, file_name: str, *, version_id: Optional[str] = None
+        self, query, user_id: int, file_name: Optional[str], *, version_id: Optional[str] = None
     ) -> Optional[_CodeImageSource]:
         """הקובץ שכפתור של תמונת קוד יוצר ממנו תמונה, או ``None`` אחרי שהמשתמש קיבל הסבר.
 
         משותף ל"צור מחדש", "שמור ב-Drive" ו"הורד כקובץ": כל אחד מהם יוצר תמונה, ולכן כולם עוברים את ``image_rate_limiter``.
 
-        עם ``version_id`` — מסמך הגרסה הזה בדיוק (``get_version_by_id``: רק של המשתמש, ורק כשהוא פעיל), והשם מהמסמך, כך שגם טוקן של שם שאבד בדיפלוי לא מפריע. כשהגרסה לא זמינה — נמחקה, או מזהה שלא שייך למשתמש — הקובץ נטען מהגרסה האחרונה לפי השם, ``fell_back`` מסמן את זה להודעה, ונרשמת שורת ``code_image_pinned_version_unavailable``. בלי ``version_id`` — הגרסה האחרונה.
+        ``file_name`` הוא ``None`` כשהטוקן של השם כבר לא במיפוי (``_resolve_image_target``) — כפתור מלפני דיפלוי.
+
+        עם ``version_id`` — מסמך הגרסה הזה בדיוק (``_read_pinned_code_image_version``), והשם מהמסמך, כך שהכפתור עובד גם כשהטוקן של השם
+        אבד. רק כשהגרסה לא קיימת — נמחקה, או מזהה שלא שייך למשתמש — הקובץ נטען מהגרסה האחרונה לפי השם, ``fell_back`` מסמן את זה
+        להודעה, ונרשמת שורת ``code_image_pinned_version_unavailable``. כשל בקריאת הגרסה אינו "לא קיימת": הוא זורק, ואין יצירה מגרסה
+        אחרת. בלי ``version_id`` — הגרסה האחרונה. בלי שם, ובלי גרסה שאפשר ליצור ממנה — הודעה שהכפתור פג תוקף.
         """
         if CodeImageGenerator is None:  # pragma: no cover
             await query.answer("❌ יצירת תמונות לא זמינה בסביבה זו", show_alert=True)
+            return None
+        if file_name is None and not version_id:
+            # לפני מגביל הקצב: כפתור שפג תוקף לא יוצר תמונה, ולכן לא נספר
+            await self._reply_image_button_expired(query)
             return None
         if not await image_rate_limiter.check_rate_limit(user_id):
             await query.answer("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.", show_alert=True)
             return None
         fell_back = False
         if version_id:
-            pinned = _call_files_api("get_version_by_id", user_id, version_id)
-            if pinned and pinned.get('code'):
-                return _CodeImageSource(doc=pinned, file_name=str(pinned.get('file_name') or file_name), fell_back=False)
+            pinned = self._read_pinned_code_image_version(user_id, version_id)
+            pinned_name = (pinned or {}).get('file_name') or file_name
+            if pinned and pinned.get('code') and pinned_name:
+                return _CodeImageSource(doc=pinned, file_name=str(pinned_name), fell_back=False)
             logger.warning("code_image_pinned_version_unavailable")
             fell_back = True
+        if file_name is None:
+            await self._reply_image_button_expired(query)
+            return None
         doc = _call_files_api("get_latest_version", user_id, file_name)
         if not doc or not doc.get('code'):
             await self._edit_message_with_media_fallback(
@@ -613,7 +653,7 @@ class AdvancedBotHandlers:
         )
 
     async def _send_code_image_file(
-        self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int, file_name: str, *, version_id: Optional[str]
+        self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int, file_name: Optional[str], *, version_id: Optional[str]
     ) -> None:
         """"⬇️ הורד כקובץ": ה-PNG כמסמך. ``reply_photo`` נדחס ל-JPG, ו-``reply_document`` שולח את ה-PNG כמו שהוא."""
         source = await self._load_code_image_source(query, user_id, file_name, version_id=version_id)
@@ -630,7 +670,7 @@ class AdvancedBotHandlers:
         )
 
     async def _save_code_image_to_drive(
-        self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int, file_name: str, *, version_id: Optional[str]
+        self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int, file_name: Optional[str], *, version_id: Optional[str]
     ) -> None:
         """"💾 שמור ב-Drive": ה-PNG ל-Drive של הבוט, ותשובה בהודעה חדשה — הכיתוב של התמונה והמקלדת שלה, כולל "הורד כקובץ", נשארים."""
         source = await self._load_code_image_source(query, user_id, file_name, version_id=version_id)
@@ -4687,10 +4727,10 @@ class AdvancedBotHandlers:
                 return
             elif data.startswith("regenerate_image_"):
                 _suffix = data.replace("regenerate_image_", "")
-                file_name = self._resolve_image_target(context, _suffix)
-                source = await self._load_code_image_source(query, user_id, file_name)
+                source = await self._load_code_image_source(query, user_id, self._resolve_image_target(context, _suffix))
                 if source is None:
                     return
+                file_name = source.file_name
                 img_settings = self._resolve_code_image_settings(user_id, context, file_name)
                 img = await self._render_code_image(
                     img_settings,
@@ -4712,6 +4752,9 @@ class AdvancedBotHandlers:
             elif data.startswith("edit_image_settings_"):
                 _suffix = data.replace("edit_image_settings_", "")
                 file_name = self._resolve_image_target(context, _suffix)
+                if file_name is None:
+                    await self._reply_image_button_expired(query)
+                    return
                 # מקלדת עם סימון הבחירה הנוכחית
                 kb = self._build_image_settings_keyboard(user_id, context, file_name)
                 await self._edit_message_with_media_fallback(
@@ -4727,6 +4770,9 @@ class AdvancedBotHandlers:
                     await query.answer("⚠️ נתונים שגויים", show_alert=False)
                     return
                 file_name = self._resolve_image_target(context, suffix)
+                if file_name is None:
+                    await self._reply_image_button_expired(query)
+                    return
                 self._set_image_setting(context, file_name, 'theme', theme)
                 # עדכן את המקלדת כך שהתמה הנבחרת תוצג כ✅
                 try:
@@ -4752,6 +4798,9 @@ class AdvancedBotHandlers:
                     await query.answer("⚠️ סגנון לא תקין", show_alert=False)
                     return
                 file_name = self._resolve_image_target(context, suffix)
+                if file_name is None:
+                    await self._reply_image_button_expired(query)
+                    return
                 self._set_image_setting(context, file_name, 'style', style_name)
                 try:
                     await query.answer("🖌️ עודכן!", show_alert=False)
@@ -4771,6 +4820,9 @@ class AdvancedBotHandlers:
                     await query.answer("⚠️ רוחב לא תקין", show_alert=False)
                     return
                 file_name = self._resolve_image_target(context, suffix)
+                if file_name is None:
+                    await self._reply_image_button_expired(query)
+                    return
                 self._set_image_setting(context, file_name, 'width', width)
                 try:
                     await query.answer("📏 עודכן!", show_alert=False)
@@ -4792,6 +4844,9 @@ class AdvancedBotHandlers:
                     await query.answer("⚠️ פונט לא נתמך", show_alert=False)
                     return
                 file_name = self._resolve_image_target(context, suffix)
+                if file_name is None:
+                    await self._reply_image_button_expired(query)
+                    return
                 self._set_image_setting(context, file_name, 'font', font_key)
                 try:
                     await query.answer("🔤 עודכן!", show_alert=False)
@@ -4806,6 +4861,9 @@ class AdvancedBotHandlers:
             elif data.startswith("img_note_prompt:"):
                 suffix = data.replace("img_note_prompt:", "", 1)
                 file_name = self._resolve_image_target(context, suffix)
+                if file_name is None:
+                    await self._reply_image_button_expired(query)
+                    return
                 state = {
                     'file_name': file_name,
                     'chat_id': getattr(getattr(query, "message", None), "chat_id", None),
@@ -4843,6 +4901,9 @@ class AdvancedBotHandlers:
             elif data.startswith("img_note_clear:"):
                 suffix = data.replace("img_note_clear:", "", 1)
                 file_name = self._resolve_image_target(context, suffix)
+                if file_name is None:
+                    await self._reply_image_button_expired(query)
+                    return
                 self._set_image_setting(context, file_name, 'note', None)
                 try:
                     await query.answer("🧹 הפתקית נוקתה.", show_alert=False)
@@ -4857,6 +4918,9 @@ class AdvancedBotHandlers:
             elif data.startswith("img_settings_done:"):
                 _suffix = data.replace("img_settings_done:", "")
                 file_name = self._resolve_image_target(context, _suffix)
+                if file_name is None:
+                    await self._reply_image_button_expired(query)
+                    return
                 # שלב שמירה: פרסיסטנס של העדפות גלובליות למשתמש
                 try:
                     eff = self._get_image_settings(context, file_name)

@@ -180,6 +180,7 @@ class _Bot:
         self.uploads = []
         self.versions = {}  # מזהה גרסה ← מסמך, כמו במסד
         self.latest_id = None
+        self.pinned_error = None  # חריגה ש-``get_version_by_id`` זורק — כשל של המסד, כמו ב-``Repository.find_version_by_id``
         self.save("print('x')")
         bot = self
 
@@ -190,6 +191,8 @@ class _Bot:
 
             def get_version_by_id(self, uid, version_id):
                 bot.pinned.append(version_id)
+                if bot.pinned_error is not None:
+                    raise bot.pinned_error
                 doc = bot.versions.get(version_id)
                 return dict(doc) if doc else None
 
@@ -494,6 +497,141 @@ async def test_a_version_that_is_no_longer_available_falls_back_to_the_latest_an
     caption = _only(calls, "reply_document")[2]["caption"]
     assert "כבר לא זמינה" in caption
     assert any(r.getMessage() == "code_image_pinned_version_unavailable" for r in caplog.records)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    ["database-error", "no-files-facade"],
+)
+async def test_a_failed_read_of_the_pinned_version_is_an_error_and_not_an_image_of_another_version(monkeypatch, caplog, failure):
+    from pymongo.errors import PyMongoError
+
+    bot = _Bot(monkeypatch)
+    download = await bot.button("a.py", "⬇️ הורד כקובץ")
+    save = await bot.button("a.py", "💾 שמור ב-Drive")
+    bot.save("print('changed')")
+    if failure == "database-error":
+        bot.pinned_error = PyMongoError("primary unreachable")
+    else:
+        # ``_get_files_facade_or_none`` מחזירה ``None`` כשבניית הפסאדה נכשלה — אי אפשר לדעת אם הגרסה קיימת
+        monkeypatch.setattr(bot.mod, "_get_files_facade_or_none", lambda: None)
+
+    with caplog.at_level(logging.WARNING, logger="bot_handlers"):
+        calls = await bot.press(download) + await bot.press(save)
+
+    # כשל מגיע לגבול של handle_callback_query, ולא הופך ל"לא זמינה" שיוצר מהגרסה האחרונה
+    assert sum("אירעה שגיאה" in str(c) for c in calls if c[0] == "edit_message_text") == 2, calls
+    assert bot.requested == [] and bot.renders == [] and bot.uploads == []
+    assert not [c for c in calls if c[0] in ("reply_document", "reply_photo")]
+    assert not any(r.getMessage() == "code_image_pinned_version_unavailable" for r in caplog.records)
+    expected = PyMongoError if failure == "database-error" else RuntimeError
+    records = [r for r in caplog.records if r.getMessage() == "code_image_pinned_version_read_failed"]
+    assert len(records) == 2 and all(r.exc_info and r.exc_info[0] is expected for r in records)
+
+
+# --- כפתור מלפני הפעלה מחדש של הבוט --------------------------------------------------------------
+# לבוט אין persistence: הפעלה מחדש (דיפלוי) מאפסת את ``user_data``, ואיתו את המיפוי מטוקן לשם שכפתורים של שם ארוך נושאים.
+
+_LONG_NAME = "קובץ-עם-שם-ארוך-מאוד-בעברית-שלא-נכנס-בשישים-וארבעה-בייטים.py"
+
+
+def _restart(bot):
+    bot.ctx.user_data.clear()
+
+
+def _expired(calls):
+    """הכפתור ענה שהוא פג תוקף — ולא "לא נמצא" על שם כמו ``tok:...``, ולא שגיאה."""
+    _no_boundary_error(calls)
+    texts = [c[1][0] for c in calls if c[0] == "reply_text"]
+    assert len(texts) == 1 and "פג תוקף" in texts[0], calls
+    assert not any("לא נמצא" in str(c) or "tok:" in str(c) for c in calls), calls
+
+
+@pytest.mark.asyncio
+async def test_after_a_restart_drive_and_download_still_make_the_image_with_the_real_name(monkeypatch):
+    bot = _Bot(monkeypatch)
+    bot.save("print('x')", file_name=_LONG_NAME)
+    download = await bot.button(_LONG_NAME, "⬇️ הורד כקובץ")
+    save = await bot.button(_LONG_NAME, "💾 שמור ב-Drive")
+    assert ":tok:" in download and ":tok:" in save  # השם לא נכנס ב-64 בייטים, ולכן הכפתור נושא טוקן
+    _restart(bot)
+
+    download_calls = await bot.press(download)
+    drive_calls = await bot.press(save)
+
+    _no_boundary_error(download_calls + drive_calls)
+    # השם מגיע ממסמך הגרסה, בלי המיפוי — ולא נשאל שום שם במסד
+    assert bot.requested == [] and len(bot.pinned) == 2
+    assert [r["filename"] for r in bot.renders] == [_LONG_NAME, _LONG_NAME]
+    document = _only(download_calls, "reply_document")[2]
+    assert document["document"].filename == f"{_LONG_NAME}.png"
+    assert _LONG_NAME in document["caption"]
+    assert [u["filename"] for u in bot.uploads] == [f"{_LONG_NAME}.png"]
+    assert _LONG_NAME in _only(drive_calls, "reply_text")[1][0]
+    assert not any("tok:" in str(c) for c in download_calls + drive_calls)
+
+
+@pytest.mark.asyncio
+async def test_after_a_restart_drive_and_download_whose_version_is_gone_say_the_button_expired(monkeypatch):
+    bot = _Bot(monkeypatch)
+    shown_id = bot.save("print('x')", file_name=_LONG_NAME)
+    download = await bot.button(_LONG_NAME, "⬇️ הורד כקובץ")
+    save = await bot.button(_LONG_NAME, "💾 שמור ב-Drive")
+    bot.save("print('changed')", file_name=_LONG_NAME)
+    del bot.versions[shown_id]
+    _restart(bot)
+
+    for cb in (download, save):
+        _expired(await bot.press(cb))
+
+    # בלי השם אין גרסה אחרונה לחפש: לא נשאל שום שם במסד, ושום תמונה לא נוצרה
+    assert bot.pinned == [shown_id, shown_id] and bot.requested == []
+    assert bot.renders == [] and bot.uploads == []
+
+
+@pytest.mark.asyncio
+async def test_after_a_restart_every_image_button_without_a_version_says_it_expired(monkeypatch):
+    bot = _Bot(monkeypatch)
+    bot.save("print('x')", file_name=_LONG_NAME)
+    bot.h._set_image_setting(bot.ctx, _LONG_NAME, "note", "n")  # כדי שגם "נקה" יופיע
+    result_rows = await bot.image_keyboard(_LONG_NAME)
+    settings_rows = await bot.settings_keyboard(_LONG_NAME)
+    buttons = [
+        cb
+        for rows in (result_rows, settings_rows)
+        for row in rows
+        for _text, cb in row
+        if not cb.startswith("img_section:") and not re.match(r"^img_(?:drive|download):[0-9a-f]{24}:", cb)
+    ]
+    # כפתור "שמור ב-Drive" מלפני ``img_drive:``, בלי מזהה גרסה: ``save_to_drive_tok:<טוקן>``
+    drive_cb = result_rows[2][0][1]  # img_drive:<id>:tok:<טוקן>
+    buttons.append(f"save_to_drive_{drive_cb.split(':', 2)[2]}")
+    assert all("tok:" in cb for cb in buttons), buttons
+    assert len(buttons) >= 10, buttons  # צור מחדש, ערוך הגדרות, וכל תפריט ההגדרות
+    _restart(bot)
+
+    for cb in buttons:
+        _expired(await bot.press(cb))
+
+    assert bot.requested == [] and bot.renders == [] and bot.uploads == []
+    # שום הגדרה לא נשמרה תחת שם כמו ``tok:...``, ושום פתקית לא מחכה לקובץ כזה
+    assert not bot.ctx.user_data.get("img_settings") and "waiting_for_image_note" not in bot.ctx.user_data
+
+
+@pytest.mark.asyncio
+async def test_a_file_name_that_starts_like_a_token_is_sent_as_a_token(monkeypatch):
+    # שם כזה אפשרי מהוובאפ ומה-MCP, שלא אוסרים ``:`` — בלי טוקן הוא היה נקרא ככפתור שפג תוקף
+    name = "tok:a.py"
+    bot = _Bot(monkeypatch)
+    bot.save("print('x')", file_name=name)
+    regenerate = await bot.button(name, "🔄 צור מחדש")
+    assert regenerate != f"regenerate_image_{name}"
+
+    calls = await bot.press(regenerate)
+
+    _no_boundary_error(calls)
+    assert bot.requested == [name] and [r["filename"] for r in bot.renders] == [name]
 
 
 @pytest.mark.asyncio
