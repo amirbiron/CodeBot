@@ -423,12 +423,13 @@
    */
   const FILES_PAGE_PIN_FIELD = 'files_page_pinned_at';
   /**
-   * מצב הנעיצה כמו שהשרת שלח אותו — בתשובת 📎 (``_afterFilesPagePinAnswer``) או בפתק שנקרא (``_applyFetchedNote``):
-   * מחרוזת לא ריקה, או ``null``. קלט חיצוני (U3) — ערך שאינו מחרוזת נחשב "לא נעוץ".
+   * מצב הנעיצה כמו שהשרת שלח אותו — הערך של ``FILES_PAGE_PIN_FIELD`` בתשובת 📎 (``_afterFilesPagePinAnswer``) או
+   * בפתק שנקרא (``_applyFetchedNote``): מחרוזת לא ריקה, או ``null``. קלט חיצוני (U3) — ערך שאינו מחרוזת נחשב "לא
+   * נעוץ". **מקבל את הערך ולא את האובייקט:** הקריאה של השדה נשארת גלויה במקום שקורא אותו, ו-
+   * ``tests/test_files_page_pins.py`` מצמיד אותה לתשובה שהראוט שולח.
    */
-  function filesPagePinStamp(obj){
-    const v = obj && obj[FILES_PAGE_PIN_FIELD];
-    return (typeof v === 'string' && v) ? v : null;
+  function filesPagePinStamp(value){
+    return (typeof value === 'string' && value) ? value : null;
   }
   /** הכתובת של עמוד הקבצים — הקישור בהודעה אחרי נעיצה. */
   const FILES_PAGE_URL = '/files';
@@ -735,6 +736,18 @@
     const sent = { sentToken: draft.base.updated_at, sentAt: draft.ts };
     const sends = unconfirmedSnapshots(draft.unconfirmed).map((s) => Object.assign({}, sent, s));
     return unconfirmedSnapshots(sends.concat([Object.assign({ content: draft.local.content, title: draft.local.title }, sent)]));
+  }
+
+  /**
+   * **האם שמירה שלנו (צילום ב-``entry.unconfirmed``) יכולה לנחות, או שנחתה — מול האסימון שבבסיס עכשיו.** ההכרעה היא
+   * של המקום היחיד שקובע: ``prev_updated_at`` — שמירה נוחתת רק כשהאסימון בשרת עדיין זה שהיא נשאה (``update_note`` דוחה
+   * ב-409 אסימון ישן). לכן כן — כשהיא נשאה את האסימון שבבסיס, כלומר שום כתיבה שהזיזה אותו לא נצפתה מאז שיצאה; או
+   * כשהיא יצאה בלי אסימון (``null`` — פתק שאין לו אסימון בבסיס, ``_withToken``), כי השרת בודק התנגשות רק כשהאסימון
+   * נשלח (``update_note`` ו-``batch_update_notes``). צילום בלי השדה — אין ממה לדעת, ולא. משותף ל-``_unconfirmedMayLand``
+   * ולזיהוי של שמירה שלנו בפיוס (``_reconcileFields``): הגדרה אחת לשאלה אחת.
+   */
+  function sendCouldLand(snap, baseToken){
+    return snap.sentToken === null || (typeof snap.sentToken === 'string' && snap.sentToken === (baseToken || null));
   }
 
   let draftStorageWarned = false;
@@ -2283,12 +2296,7 @@
       entry.draftSettling = false;
       if (outcome === 'notified') return;
       const el = entry.el;
-      const dirty = this._dirtyFields(entry);
-      const local = this._localFields(entry);
-      const titleInput = el.querySelector('.sticky-note-title');
-      const fragment = {};
-      if (dirty.content) fragment.content = local.content;
-      if (dirty.title) fragment.title = titleInput ? String(titleInput.value == null ? '' : titleInput.value) : local.title;
+      const fragment = this._unsavedFragment(entry);
       if (Object.keys(fragment).length) {
         this._writeHeldDraft(entry);
         entry.closeDraft = true;
@@ -2308,6 +2316,34 @@
         this._saveDebounced();
         this._ensureBackgroundAutoFlush();
       }
+    }
+
+    /**
+     * **מה שבמסך ושונה מהבסיס, כמטען לשמירה** — שדות העריכה בלבד (``_dirtyFields``), והשם כמו שהוא בתיבה. ריק כשהמסך
+     * שווה לבסיס. משותף לסוף השחזור (``_afterDraftRestored``) ולשמירה שלנו שנחתה בעמוד פתוח (``_sendScreenOverOwnSave``).
+     */
+    _unsavedFragment(entry){
+      const dirty = this._dirtyFields(entry);
+      const local = this._localFields(entry);
+      const titleInput = entry.el.querySelector('.sticky-note-title');
+      const fragment = {};
+      if (dirty.content) fragment.content = local.content;
+      if (dirty.title) fragment.title = titleInput ? String(titleInput.value == null ? '' : titleInput.value) : local.title;
+      return fragment;
+    }
+
+    /**
+     * **שמירה ישנה שלנו נחתה, והפיוס יישר אליה את הבסיס — בעמוד שנשאר פתוח** (לא בשחזור: שם ``_afterDraftRestored``
+     * עושה את אותו דבר). במסך אולי טקסט אחר — למשל מה שהמשתמש החזיר אחרי שהשמירה ההיא נכשלה ברשת — ובשרת עכשיו
+     * השמירה ההיא. מה שבמסך נשלח מעליה, עם האסימון שהפיוס יישר. מסך ששווה לבסיס — אין מה לשלוח. **בלי תנאים נוספים,
+     * בכוונה:** בפיוס שהגיע לכאן (``'adopted'``/``'same'``) ההתראה כבר נוקתה וההמתנה של השחזור כבר נגמרה, ולכן השמירות
+     * אינן מוחזקות; ושמירה שכבר בתור או באוויר מתמזגת עם זו — התור שומר את החדש, ומטען שחוזר מכשל או מ-409 אינו דורס
+     * אותו (``_restorePending``). עד נובמבר 2026 שום דבר לא שלח אותו עד העריכה הבאה או הטעינה הבאה, ובינתיים מכשירים
+     * אחרים ראו את השמירה הישנה.
+     */
+    _sendScreenOverOwnSave(entry){
+      const fragment = this._unsavedFragment(entry);
+      if (Object.keys(fragment).length) this._queueSave(entry.el, fragment);
     }
 
     /**
@@ -3474,7 +3510,7 @@
     async _afterFilesPagePinAnswer(el, pin, answer){
       const entry = this._getEntry(el);
       if (answer.ok) {
-        if (entry && entry.data) entry.data[FILES_PAGE_PIN_FIELD] = filesPagePinStamp(answer);
+        if (entry && entry.data) entry.data[FILES_PAGE_PIN_FIELD] = filesPagePinStamp(answer[FILES_PAGE_PIN_FIELD]);
         // התשובה היא מבט טרי על השרת: קריאה של הפתק שיצאה לפניה מתארת את הנעיצה הקודמת (``_markServerObserved``) —
         // אחרי נעיצה מחדש היא הייתה מורידה פתק נעוץ, ואחרי הסרה מנקה את הסימון שהוא עזב (``_applyFetchedNote``).
         if (entry) this._markServerObserved(entry);
@@ -7150,8 +7186,15 @@
         // נבדק, ועדיין ממתין לשמירה שהטיוטה זכרה ועשויה לנחות (``draftSettling``, ``_afterDraftRestored``).
         const finishingDraft = !!(entry.draftAwaitingServer || entry.draftSettling);
         entry.draftAwaitingServer = false;
+        // הבסיס לפני הפיוס — כדי לדעת אם הוא התיישר לשמירה שלנו שנחתה (``_reconcileFields``, ``isOurs``).
+        const base = this._noteBase(entry);
+        const before = { content: base.content, title: base.title };
         const outcome = this._reconcileFields(entry, server, source);
         if (finishingDraft) this._afterDraftRestored(entry, outcome);
+        else if ((outcome === 'adopted' || outcome === 'same') && (base.content !== before.content || base.title !== before.title)) {
+          // בלי שינוי ממקום אחר, הבסיס זז רק כשהתיישר לשמירה שלנו — ומה שבמסך נשלח מעליה (``_sendScreenOverOwnSave``).
+          this._sendScreenOverOwnSave(entry);
+        }
         return outcome;
       }
 
@@ -7164,7 +7207,12 @@
         const remoteContent = String(server.content == null ? '' : server.content);
         const remoteTitle = canonicalTitleText(String(server.title == null ? '' : server.title));
         const own = entry.unconfirmed || [];
-        const isOurs = (field, value) => own.some((s) => Object.prototype.hasOwnProperty.call(s, field) && s[field] === value);
+        // **שמירה שלנו מסבירה את מה שבשרת רק כשהיא יכלה לנחות** (``sendCouldLand``, מול האסימון שבבסיס לפני הפיוס) — לא
+        // לפי הטקסט בלבד. שמירה שהאסימון שלה כבר זז (נצפתה מאז כתיבה אחרת) הייתה נדחית ב-409, ולכן גוף זהה לשלה הוא
+        // כתיבה של מישהו אחר. עד נובמבר 2026 ההשוואה הייתה לפי הטקסט: הבסיס התיישר אליו בשקט, בלי התראה, והשמירה הבאה
+        // של מה שבמסך דרסה אותו.
+        const isOurs = (field, value) => own.some((s) => Object.prototype.hasOwnProperty.call(s, field) && s[field] === value
+          && sendCouldLand(s, base.updated_at));
         // שמירה שלנו שנחתה (התשובה עליה הלכה לאיבוד, או שתיים היו באוויר): הבסיס מתיישר איתה.
         if (remoteContent !== base.content && isOurs('content', remoteContent)) base.content = remoteContent;
         if (remoteTitle !== base.title && isOurs('title', remoteTitle)) base.title = remoteTitle;
@@ -7451,15 +7499,10 @@
       /**
        * **האם שמירה שלנו שעוד לא אושרה, ששונה ממה שבמסך, עוד יכולה לנחות** (``entry.unconfirmed``). אם כן, השרת עלול
        * להחזיק אותה ולא את מה שבמסך — למשל שמירה שנכשלה ברשת (אולי השרת כתב, ואולי עוד יכתוב), ואחריה המשתמש החזיר את
-       * הטקסט למה שהיה. **ההכרעה היא של המקום היחיד שקובע:** ``prev_updated_at`` — שמירה נוחתת רק כשהאסימון בשרת עדיין
-       * זה שהיא נשאה (``update_note`` דוחה ב-409 אסימון ישן). לכן היא "עוד יכולה לנחות" כשהאסימון שהיא נשאה
-       * (``sentToken``) הוא האסימון של הבסיס עכשיו — כלומר שום כתיבה שהזיזה אותו לא נצפתה מאז שהיא יצאה. נצפתה (אישור
-       * שהזיז אותו, פיוס שיישר אליו, "עדכן" או "התעלם") — היא כבר תידחה. **ושמירה שיצאה בלי אסימון** (``sentToken``
-       * ``null`` — לפתק שאין לו אסימון בבסיס השמירה יוצאת בלי ``prev_updated_at``, ``_withToken``) תמיד יכולה לנחות:
-       * השרת בודק התנגשות רק כשהאסימון נשלח (``update_note`` ו-``batch_update_notes``), ולכן שום כתיבה אינה חוסמת אותה.
-       * **ובגבול זמן:** שמירה שיצאה לפני יותר מ-``HELD_DRAFT_MAX_AGE_MS`` אינה נחשבת, אחרת שמירה שלא נחתה לעולם הייתה
-       * מחזיקה טיוטה לתמיד בפתק שאיש לא עורך. צילום שאין בו השדה ``sentToken`` בכלל — אין ממה לדעת, והוא אינו נחשב.
-       * ההשוואה למסך כמו ב-``_inFlightCarriesLocalText``.
+       * הטקסט למה שהיה. **"יכולה לנחות" לפי האסימון** — ``sendCouldLand``, ההגדרה שגם הפיוס משתמש בה: האסימון שהיא נשאה
+       * הוא של הבסיס עכשיו, או שהיא יצאה בלי אסימון. נצפתה כתיבה שהזיזה אותו (אישור, פיוס שיישר אליו, "עדכן" או
+       * "התעלם") — היא כבר תידחה. **ובגבול זמן:** שמירה שיצאה לפני יותר מ-``HELD_DRAFT_MAX_AGE_MS`` אינה נחשבת, אחרת
+       * שמירה שלא נחתה לעולם הייתה מחזיקה טיוטה לתמיד בפתק שאיש לא עורך. ההשוואה למסך כמו ב-``_inFlightCarriesLocalText``.
        */
       _unconfirmedMayLand(entry){
         const own = (entry && entry.unconfirmed) || [];
@@ -7468,11 +7511,10 @@
         const token = this._noteBase(entry).updated_at || null;
         const now = Date.now();
         const has = (s, field) => Object.prototype.hasOwnProperty.call(s, field);
-        const unfenced = (s) => s.sentToken === null || (typeof s.sentToken === 'string' && s.sentToken === token);
         const recent = (s) => Number.isFinite(s.sentAt) && now - s.sentAt <= HELD_DRAFT_MAX_AGE_MS;
         const differs = (s) => (has(s, 'content') && asTextareaValue(String(s.content == null ? '' : s.content)) !== asTextareaValue(local.content))
           || (has(s, 'title') && canonicalTitleText(String(s.title == null ? '' : s.title)) !== local.title);
-        return own.some((s) => unfenced(s) && recent(s) && differs(s));
+        return own.some((s) => sendCouldLand(s, token) && recent(s) && differs(s));
       }
 
       /**
@@ -7691,6 +7733,9 @@
         if (entry && typeof res.seq === 'number' && (entry.readSeq || 0) > res.seq) return;
         const gone = (res.status === 404) || (res.ok && !this._noteBelongsHere(res.note));
         if (gone) {
+          // **התשובה נקלטה גם כשהפתק נשאר** (עבודה עליו — ``_removeIfGone``): קריאה ישנה ממנה, שנענתה אחריה, אינה ראיה
+          // לכלום — למשל גרסה שבה הפתק עוד שייך, שהייתה מגיעה לפיוס ומעלה "יש עדכון חדש" על מה שכבר אינו בשרת.
+          if (entry && typeof res.seq === 'number') entry.readSeq = res.seq;
           // טיוטה שחיכתה לשרת (``_restoreHeldDraft``) — גם פתק שעזב מסיים את השחזור, אחרת השמירות שלו היו
           // מוחזקות לתמיד והדגימה הייתה מושכת אותו בכל סבב. עזב למשטח אחר — הפיוס מול הנתונים שלו מכריע; נמחק
           // — אין לשמירה לאן להגיע, והטיוטה יוצאת מהמאגר.
@@ -7714,7 +7759,7 @@
           // **ומצב הנעיצה — מהקריאה הזו**, אחרי בדיקת המספר למעלה, כך שקריאה ישנה אינה משנה אותו. זה השדה היחיד שבו
           // ההכרעה על השייכות נשענת על משהו שהלשונית כתבה בעצמה (תשובת 📎, ``_afterFilesPagePinAnswer``): בלי זה, פתק
           // שנשאר אחרי הסרה ונעוץ שוב ממקום אחר נשאר "לא נעוץ", ו-📎 הבא היה שולח נעיצה במקום הסרה.
-          if (entry.data) entry.data[FILES_PAGE_PIN_FIELD] = filesPagePinStamp(res.note);
+          if (entry.data) entry.data[FILES_PAGE_PIN_FIELD] = filesPagePinStamp(res.note[FILES_PAGE_PIN_FIELD]);
           this._reconcileServerNote(res.note, 'poll', res.seq);
           return;
         }

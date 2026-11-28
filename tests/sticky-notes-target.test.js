@@ -6287,9 +6287,20 @@ check('📎 בעמוד הקבצים: ההסרה חיכתה לשמירה, ובי�
     await run;
     eq(m.notes.has('fl5'), true, 'בקרה: הקריאה הראתה שהוא נעוץ — הוא נשאר');
     eq(gone.length, 0, 'בקרה: והעמוד לא קיבל הודעה שהכרטיס יורד');
+    eq(pinRequests(env.requests).map((r) => r.method).join(), 'DELETE', 'בקרה: יצאה בקשת הסרה אחת, ושום נעיצה');
     eq(m.notes.get('fl5').data.files_page_pinned_at, pinnedAt, 'מצב הנעיצה מהקריאה הטרייה');
     eq(m._isPinnedToFilesPage(el), true, '📎 יודע שהוא נעוץ');
   } finally { stopSaveTimers(m); }
+});
+
+check('📎 בלוח: מצב נעיצה שאינו מחרוזת בתשובה נחשב "לא נעוץ" (U3)', async () => {
+  // התשובה היא קלט חיצוני: ערך מכל סוג אחר (מספר, אובייקט) אינו נכנס לנתונים של הפתק, ו-📎 אינו מסמן אותו.
+  const env = archiveSandbox((req) => (req.url.endsWith('/files-page-pin')
+    ? [200, { ok: true, already_pinned: false, files_page_pinned_at: 1764331200 }] : [200, { ok: true }]));
+  const { m, menuItems, clickPin } = await pinnableNote(env, { id: 'pb8', content: 'x' });
+  await clickPin();
+  eq(m.notes.get('pb8').data.files_page_pinned_at, null, 'הערך לא נכנס');
+  eq(menuItem(menuItems(), 'files-page-pin').getAttribute('aria-checked'), 'false', 'ו-📎 אינו מסמן אותו');
 });
 
 check('📎 בלוח: קריאה של הפתק שיצאה לפני הנעיצה, ונענתה אחריה, אינה מבטלת את מצב הנעיצה', async () => {
@@ -7495,15 +7506,103 @@ check('שמירה שאושרה בלי שהאסימון זז אינה מוחקת 
   // השרת לא כתב כלום ("בסיס" כבר שם), ולכן האסימון לא זז, ו"בסיס B" — שנשלחה עם אותו אסימון — עוד יכולה לנחות.
   // עד התיקון כל אישור מחק מהזיכרון את מה שנשלח לפניו, ו"בסיס B" שנחתה נראתה כעדכון ממקום אחר: היא הוחלה על המסך
   // בלי שאלה, ומה שהמשתמש החזיר אבד.
-  const { mgr, storage, n, notices } = await revertConfirmedAfterAFailedSave('ka29-file', 'T0');
+  const { mgr, calls, n, notices } = await revertConfirmedAfterAFailedSave('ka29-file', 'T0');
   try {
     mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס B', title: '', updated_at: 'T1' }, 'poll');
     eq(n.ta.value, 'בסיס', '"בסיס B" נחתה — מה שהמשתמש החזיר נשאר במסך');
     eq(JSON.stringify(notices), '[]', 'בלי "יש עדכון חדש" על שמירה של המשתמש עצמו');
+    // מה שבמסך נכנס לתור מעל "בסיס B" (``_sendScreenOverOwnSave``), ובהסתרה הוא יוצא — עם האסימון של מה שנחת.
     mgr._flushPendingKeepalive();
-    mgr._persistDraftsThatWontSurviveClose();
-    eq(JSON.stringify(draftsOf(storage).map((d) => d.draft.local.content)), JSON.stringify(['בסיס']),
-       'ובהסתרה הוא נשמר כטיוטה — הוא עוד לא בשרת');
+    const sent = calls[calls.length - 1];
+    eq(sent.opts.keepalive, true, 'ובהסתרה הוא יוצא ב-keepalive');
+    eq(JSON.parse(sent.opts.body).prev_updated_at, 'T1', 'מעל "בסיס B", עם האסימון שלה');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('שמירה ישנה שלנו שנחתה מזוהה בעמוד שנשאר פתוח — ומה שבמסך נשלח מעליה מיד', async () => {
+  // "בסיס B" נכשלה ברשת, המשתמש החזיר את הטקסט, וההחזרה אושרה בלי שהאסימון זז. אחר כך "בסיס B" נחתה: הפיוס מזהה
+  // אותה כשלנו, והבסיס מתיישר אליה — אבל בשרת עכשיו "בסיס B", ובמסך מה שהמשתמש החזיר. עד התיקון שום דבר לא שלח
+  // אותו, עד העריכה הבאה או הטעינה הבאה, ובינתיים מכשירים אחרים ראו את "בסיס B". זה הענף של "יש מה לשמור" בשחזור
+  // (``_afterDraftRestored``), בעמוד שאין בו שחזור.
+  const { mgr, n, notices } = await revertConfirmedAfterAFailedSave('ka44-file', 'T0');
+  try {
+    eq(mgr._pending.has(DRAFT_ID), false, 'בקרה: אין מה לשלוח');
+    mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס B', title: '', updated_at: 'T1' }, 'poll');
+    eq(n.ta.value, 'בסיס', 'מה שהמשתמש החזיר נשאר במסך');
+    eq(JSON.stringify(notices), '[]', 'בלי "יש עדכון חדש"');
+    eq(mgr._pending.get(DRAFT_ID) && mgr._pending.get(DRAFT_ID).content, 'בסיס', 'ונכנס לתור, לשמירה מעל "בסיס B"');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('פיוס שלא זיהה שמירה שלנו אינו שולח את מה שבמסך — גם כשיש בו שינוי (בקרה)', async () => {
+  // למשל שמירה שנדחתה סופית (400): המטען יצא מהתור, והטקסט נשאר רק במסך. שליחה שלו כאן הייתה נדחית שוב, בלולאה.
+  const { mgr } = keepaliveSandbox('ka45-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.ta.value = 'בסיס + שנדחה';
+    eq(mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס', title: '', updated_at: 'T0' }, 'poll'), 'same', 'בקרה');
+    eq(mgr._pending.has(DRAFT_ID), false, 'שום דבר לא נכנס לתור');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('שמירה שלנו שהאסימון שלה כבר לא יכול לנחות אינה מסבירה גוף זהה בשרת — הוא שינוי ממקום אחר', async () => {
+  // "בסיס B" יצאה עם T0 ונכשלה ברשת; אחר כך עדכון ממקום אחר הוחל (T1), והבסיס זז. מכאן "בסיס B" תידחה ב-409 אם
+  // תגיע, ולכן "בסיס B" שמופיעה בשרת אחר כך היא כתיבה של מישהו אחר. עד התיקון ההשוואה הייתה לפי הטקסט בלבד: הבסיס
+  // התיישר אליה בשקט, והמסך נשאר עם הגרסה הקודמת — בלי התראה, ועם שמירה שהייתה דורסת אותה.
+  const { mgr, calls } = keepaliveSandbox('ka46-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.ta.value = 'בסיס B';
+    const first = mgr._sendUpdate(DRAFT_ID, { content: 'בסיס B' }, 0);
+    calls[0].fail();
+    await first;
+    mgr._saveDebounced.cancel();
+    mgr._pending.delete(DRAFT_ID);
+    n.ta.value = 'בסיס';
+    eq(mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס R', title: '', updated_at: 'T1' }, 'poll'), 'applied',
+       'בקרה: עדכון ממקום אחר הוחל');
+    eq(n.entry.unconfirmed.some((s) => s.content === 'בסיס B' && s.sentToken === 'T0'), true, 'בקרה: "בסיס B" עוד בזיכרון, עם T0');
+    mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס B', title: '', updated_at: 'T2' }, 'poll');
+    eq(n.ta.value, 'בסיס B', 'השינוי ממקום אחר הוחל על המסך');
+    eq(n.entry.base.updated_at, 'T2', 'עם האסימון שלו');
+    eq(mgr._pending.has(DRAFT_ID), false, 'ושום דבר לא נשלח מעליו');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('צילום של שמירה בלי השדה sentToken אינו מסביר גוף בשרת — אין ממה לדעת שהוא יכול היה לנחות (בקרה)', () => {
+  // בעמוד אמיתי לכל צילום יש השדה (``_rememberUnconfirmed``, והשחזור משלים אותו — ``restoredUnconfirmed``). ההגדרה
+  // היא של ``sendCouldLand``, וזה מה שהיא אומרת על צילום שאין בו.
+  const { mgr } = keepaliveSandbox('ka48-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.entry.unconfirmed = [{ content: 'בסיס B' }];
+    eq(mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס B', title: '', updated_at: 'T1' }, 'poll'), 'applied',
+       'הגוף בשרת הוא שינוי ממקום אחר, ומוחל');
+    eq(n.ta.value, 'בסיס B', 'על המסך');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('שמירה ישנה של השם שנחתה מזוהה בעמוד שנשאר פתוח — והשם שבמסך נשלח מעליה', async () => {
+  // אותו מקרה של הגוף (``_sendScreenOverOwnSave``), בשדה השם: "שם B" נכשלה ברשת, המשתמש מחק את השם, והמחיקה אושרה
+  // בלי שהאסימון זז. "שם B" נחתה אחר כך.
+  const { mgr, calls } = keepaliveSandbox('ka47-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  try {
+    n.titleInput.value = 'שם B';
+    const first = mgr._sendUpdate(DRAFT_ID, { title: 'שם B' }, 0);
+    calls[0].fail();
+    await first;
+    mgr._saveDebounced.cancel();
+    mgr._pending.delete(DRAFT_ID);
+    n.titleInput.value = '';
+    const second = mgr._sendUpdate(DRAFT_ID, { title: '' }, 0);
+    calls[1].release(200, { ok: true, updated_at: 'T0' });
+    await second;
+    eq(mgr._pending.has(DRAFT_ID), false, 'בקרה: אין מה לשלוח');
+    mgr._reconcileServerNote({ id: DRAFT_ID, content: 'בסיס', title: 'שם B', updated_at: 'T1' }, 'poll');
+    eq(n.titleInput.value, '', 'השם שהמשתמש מחק נשאר מחוק');
+    const queued = mgr._pending.get(DRAFT_ID);
+    eq(!!queued && queued.title, '', 'ונכנס לתור, לשמירה מעל "שם B"');
   } finally { cleanupMgr(mgr); }
 });
 
@@ -7745,6 +7844,26 @@ check('עדכון מהשרת שממתין ללחיצה נחשב כנקלט: קר
     mgr._applyFetchedNote(DRAFT_ID, { ok: true, status: 200, seq: a,
       note: SRV(DRAFT_ID, 'בסיס', 'T0', { archived_at: '2026-11-28T10:00:00+00:00' }) });
     eq(mgr.notes.has(DRAFT_ID), true, 'הקריאה הישנה לא הורידה אותו');
+  } finally { cleanupMgr(mgr); }
+});
+
+check('קריאה שמראה שהפתק עזב נחשבת כנקלטת גם כשהוא נשאר במסך בגלל עבודה עליו — קריאה ישנה ממנה נזרקת', () => {
+  // B יצאה אחרי A, ומראה שהפתק בארכיון; הוא נשאר במסך, כי יש בו שינוי שלא נשמר (``_removeIfGone``). A מראה גרסה ישנה
+  // שבה הוא שייך, ונענתה אחריה. עד התיקון המספר של B לא נרשם, ו-A עברה את הפיוס: "יש עדכון חדש" על גרסה ישנה.
+  const { mgr } = keepaliveSandbox('rs2-file');
+  const n = liveNoteOn(mgr, DRAFT_ID, 'בסיס', 'T0');
+  const notices = [];
+  mgr._showRemoteNotice = (el, server) => { notices.push(server && server.content); };
+  try {
+    n.ta.value = 'בסיס + שלא נשמר';
+    const a = mgr._nextReadSeq();
+    const b = mgr._nextReadSeq();
+    mgr._applyFetchedNote(DRAFT_ID, { ok: true, status: 200, seq: b,
+      note: SRV(DRAFT_ID, 'בסיס', 'T0', { archived_at: '2026-11-28T10:00:00+00:00' }) });
+    eq(mgr.notes.has(DRAFT_ID), true, 'בקרה: הפתק נשאר — יש בו שינוי שלא נשמר');
+    mgr._applyFetchedNote(DRAFT_ID, { ok: true, status: 200, note: SRV(DRAFT_ID, 'בסיס ישן', 'T-1'), seq: a });
+    eq(JSON.stringify(notices), '[]', 'הקריאה הישנה לא העלתה התראה');
+    eq(n.ta.value, 'בסיס + שלא נשמר', 'ומה שבמסך לא השתנה');
   } finally { cleanupMgr(mgr); }
 });
 
