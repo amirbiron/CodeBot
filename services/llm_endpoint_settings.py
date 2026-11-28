@@ -13,7 +13,11 @@ from typing import List, Mapping, Optional, Tuple
 from urllib.parse import urlsplit
 
 
-def is_full_url(value: str, schemes: Tuple[str, ...]) -> bool:
+#: הסכמות שכתובת של מודל השפה (``<prefix>BASE_URL``) יכולה להתחיל בהן.
+BASE_URL_SCHEMES = ("https", "http")
+
+
+def _is_full_url(value: str, schemes: Tuple[str, ...]) -> bool:
     """האם ``value`` הוא כתובת עם אחת מ-``schemes`` ועם שרת.
 
     ``urlsplit`` זורק ``ValueError`` על כתובת שהשרת בה בסוגריים מרובעים פגומים, כמו ``https://[::1``
@@ -25,6 +29,19 @@ def is_full_url(value: str, schemes: Tuple[str, ...]) -> bool:
     except ValueError:
         return False
     return parts.scheme in schemes and bool(parts.netloc)
+
+
+def url_error(name: str, value: str, schemes: Tuple[str, ...]) -> Optional[str]:
+    """``None`` כשהערך של ``name`` הוא כתובת מלאה באחת מ-``schemes``; אחרת השגיאה, שנוקבת בכל הסכמות.
+
+    ההודעה נבנית מאותן ``schemes`` שהבדיקה משתמשת בהן, כדי שלא תוכל לומר משהו אחר ממה שנבדק: עד 28.11.2026
+    ההודעות היו מוקלדות, והן הזכירו רק ``https://`` בזמן שגם ``http://`` עבר.
+    """
+    if _is_full_url(value, schemes):
+        return None
+    options = [f"ב-{scheme}://" for scheme in schemes]
+    allowed = options[0] if len(options) == 1 else ", ".join(options[:-1]) + " או " + options[-1]
+    return f"{name} חייב להיות כתובת מלאה שמתחילה {allowed}"
 
 
 @dataclass(frozen=True)
@@ -57,8 +74,9 @@ def load_endpoint(prefix: str, environ: Mapping[str, str]) -> Tuple[Optional[Llm
         errors.append(f"{key_name} חייב להיות ASCII בלי רווחים")
     # הכתובת היא חובה: בלי ``base_url`` מפורש ה-SDK קורא בעצמו את ``OPENAI_BASE_URL`` מהסביבה
     # (openai 3.36.1, ``openai/_client.py``).
-    if not is_full_url(base_url, ("https", "http")):
-        errors.append(f"{url_name} חייב להיות כתובת מלאה שמתחילה ב-https://")
+    base_url_error = url_error(url_name, base_url, BASE_URL_SCHEMES)
+    if base_url_error:
+        errors.append(base_url_error)
     if not model:
         errors.append(f"{model_name} לא מוגדר")
     if errors:

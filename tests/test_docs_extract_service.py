@@ -427,11 +427,11 @@ def test_without_any_setting_there_is_no_extract_and_no_model_call(world):
         ({"DOCS_EXTRACT_MODEL": ""}, "DOCS_EXTRACT_MODEL לא מוגדר"),
         ({"DOCS_EXTRACT_API_KEY": "extract key"}, "DOCS_EXTRACT_API_KEY חייב להיות ASCII בלי רווחים"),
         ({"DOCS_EXTRACT_BASE_URL": "llm.example.test/v1"},
-         "DOCS_EXTRACT_BASE_URL חייב להיות כתובת מלאה שמתחילה ב-https://"),
+         "DOCS_EXTRACT_BASE_URL חייב להיות כתובת מלאה שמתחילה ב-https:// או ב-http://"),
         # ``urlsplit`` זורק ``ValueError`` על הכתובת הזו. בלי הטיפול בו, החריגה הייתה עולה מכאן — ומתבנית עמוד
         # הקבצים, שבודקת את ההגדרות בכל רינדור לאדמין.
         ({"DOCS_EXTRACT_BASE_URL": "https://[::1"},
-         "DOCS_EXTRACT_BASE_URL חייב להיות כתובת מלאה שמתחילה ב-https://"),
+         "DOCS_EXTRACT_BASE_URL חייב להיות כתובת מלאה שמתחילה ב-https:// או ב-http://"),
     ],
     ids=["no-model", "key-with-space", "url-without-scheme", "url-urlsplit-refuses"],
 )

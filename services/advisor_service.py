@@ -28,7 +28,7 @@ from typing import List, Mapping, Optional, Tuple
 
 import openai
 
-from services.llm_endpoint_settings import is_full_url, load_endpoint
+from services.llm_endpoint_settings import load_endpoint, url_error
 
 logger = logging.getLogger(__name__)
 
@@ -108,8 +108,9 @@ def load_settings(environ: Mapping[str, str] = os.environ) -> Tuple[Optional[Adv
             errors.append(f"ADVISOR_CONTEXT_EXCHANGES חייב להיות מספר שלם בין 1 ל-{MAX_CONTEXT_EXCHANGES}")
     # Bot API מקבל בכפתור url רק "HTTP or tg:// URL" — כתובת אחרת הייתה נכשלת
     # בכל תשובה שמציגה את הכפתור, לא בעלייה.
-    if contact_url and not is_full_url(contact_url, ("https", "http", "tg")):
-        errors.append("ADVISOR_CONTACT_URL חייב להתחיל ב-https:// או ב-tg://")
+    contact_url_error = url_error("ADVISOR_CONTACT_URL", contact_url, ("https", "http", "tg")) if contact_url else None
+    if contact_url_error:
+        errors.append(contact_url_error)
     if errors or endpoint is None:
         return None, errors
     return AdvisorSettings(
