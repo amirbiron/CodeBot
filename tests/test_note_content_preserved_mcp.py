@@ -140,8 +140,11 @@ def test_create_board_note_stores_exactly_what_was_sent(mcp, store, case):
 
     assert res.get("ok") is True and res["content_changed"] is False, res
     assert _stored(store, res["note"]["id"]) == sent
-    assert res["note"]["content"] == sent
-    assert res["note"]["content_sha256"] == _sha(sent)
+    # תשובת הכתיבה אינה נושאת את הגוף (``backend._note_write_answer``): ה-hash הוא מה שמאמת
+    # אותה, והגוף עצמו נקרא בחזרה מהכלי שקורא פתק.
+    assert "content" not in res["note"] and res["note"]["content_sha256"] == _sha(sent)
+    read = _call(mcp, "codekeeper_get_note", note_id=res["note"]["id"])
+    assert read["note"]["content"] == sent
 
 
 @pytest.mark.parametrize("case", sorted(CASES))

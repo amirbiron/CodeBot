@@ -255,12 +255,29 @@ def test_push_projection_includes_board_id():
     ``r.get("board_id")`` החזיר תמיד מחרוזת ריקה — כלומר ההתראה על פתק
     לוח נשלחה בלי היעד שלה. שדה שנוסף לפלט ולא למקור הוא בדיוק סוג
     הכשל שנראה עובד עד שבודקים.
-    """
-    text = _repo_file("webapp/push_api.py")
 
-    projection = text[text.index("    projection = {"):]
-    projection = projection[:projection.index("}")]
-    assert '"board_id": 1' in projection
+    ה-projection נמצא לפי הפונקציה שהוא בה (``_send_due_once``) ולא לפי המופע הראשון של ``projection = {`` בקובץ:
+    עד נובמבר 2026 הבדיקה חיפשה טקסט, וכשנוסף projection אחר מעליו (``_record_reporting_device``, מנויי push מכתובת
+    קודמת) היא קראה אותו ונכשלה, אף שהשולח לא השתנה.
+    """
+    import ast
+
+    tree = ast.parse(_repo_file("webapp/push_api.py"))
+    (sender,) = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_send_due_once"]
+    projections = [
+        n.value
+        for n in ast.walk(sender)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "projection" for t in n.targets)
+        and isinstance(n.value, ast.Dict)
+    ]
+    assert len(projections) == 1, "ה-projection של שולח התזכורות לא נמצא ב-_send_due_once"
+    fields = {
+        key.value: value.value
+        for key, value in zip(projections[0].keys, projections[0].values)
+        if isinstance(key, ast.Constant) and isinstance(value, ast.Constant)
+    }
+    assert fields.get("board_id") == 1, fields
 
 
 def test_repo_note_redirects_to_the_repo_browser(client):

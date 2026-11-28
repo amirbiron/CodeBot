@@ -312,6 +312,8 @@ def test_create_and_read_back_a_board_note(mcp_backend, mongo_db):
 
     res = mcp_backend.create_board_note(7, board_id=board, content="פתק מ-MCP", color="#FFFFCC", mode="screen")
     assert res["ok"] is True
+    # תשובת כתיבה אומרת איפה הפתק יושב — בתוך ``note``, כי אין בה ``target`` חיצוני (``_note_write_answer``).
+    assert res["note"]["board_id"] == board
 
     doc = mongo_db.sticky_notes.find_one({"user_id": 7, "board_id": board})
     assert doc is not None, "הפתק לא הגיע למסד"
@@ -320,8 +322,9 @@ def test_create_and_read_back_a_board_note(mcp_backend, mongo_db):
     assert "file_id" not in doc and "scope_id" not in doc, "פתק לוח אינו נושא יעד קובץ"
 
     listed = mcp_backend.list_board_notes(7, board_id=board)
-    assert listed["count"] == 1
-    assert listed["notes"][0]["board_id"] == board
+    # הלוח בראש הרשימה, פעם אחת, ולא בכל פתק בה (``_as_listed_note``).
+    assert listed["count"] == 1 and listed["board_id"] == board
+    assert listed["notes"][0]["id"] == res["note"]["id"] and "board_id" not in listed["notes"][0]
 
 
 def test_a_lean_listing_measures_the_bodies_inside_the_database(mcp_backend, mongo_db):

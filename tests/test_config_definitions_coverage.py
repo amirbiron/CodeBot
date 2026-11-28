@@ -147,14 +147,22 @@ def test_declared_vars_appear_in_the_env_reference():
 #: הזה עצמו לא יכיל אותה ברצף.
 _OLD_WEBAPP_HOST = "code-keeper-webapp" + ".onrender.com"
 
-#: הקבצים שהוובאפ והבוט טוענים בזמן ריצה ואינם פייתון: תבניות, JS, קובץ הידע של היועץ (נכנס לפרומפט), ומדריך
-#: המשתמש (מוגש כשיתוף מובנה). שאר הריפו — תיעוד, README, ``render.yaml`` — נבדק ב-
+#: תת-הדומיין של Render שהוובאפ רץ בו מאז המעבר לפרנקפורט, לפני הדומיין ``codekeeper.dev``. הוא נשאר פעיל לתמיד —
+#: קישורים ישנים, webhooks ומנויי push תלויים בו, והוובאפ מפנה ממנו (``webapp/legacy_host_redirect.py``) — ולכן מותר
+#: לו להופיע בתיעוד ובדוגמאות של ``WEBAPP_LEGACY_HOSTS``. בקוד שרץ — לא: שם הוא יכול להיות רק ברירת מחדל שקטה.
+_FRANKFURT_WEBAPP_HOST = "codekeeper-webapp" + ".onrender.com"
+
+#: הקבצים שהוובאפ והבוט טוענים בזמן ריצה ואינם פייתון: תבניות, JS, קובץ הידע של היועץ (נכנס לפרומפט), מדריך
+#: המשתמש (מוגש כשיתוף מובנה), וסקריפטי ה-shell שהשירותים עולים איתם (``docker/prometheus/entrypoint.sh`` החזיק את
+#: כתובת הוובאפ כברירת מחדל). שאר הריפו — תיעוד, README, ``render.yaml`` — נבדק ב-
 #: ``test_retired_hosts_appear_only_in_the_changelog``.
 _RUNTIME_TEXT_GLOBS = (
     "webapp/templates/**/*.html",
     "webapp/static/**/*.js",
     "services/advisor_knowledge/*.md",
     "webapp/USER_GUIDE.md",
+    "docker/**/*.sh",
+    "scripts/**/*.sh",
 )
 
 
@@ -171,8 +179,10 @@ def test_webapp_url_has_one_reader():
         assert retired not in consumed, (retired, consumed.get(retired))
 
 
-def test_the_old_webapp_host_is_not_in_code_that_runs():
-    """אין כתובת ברירת מחדל: הכתובת של השירות באורגון לא מופיעה בקוד הייצור ובקבצים שהוא טוען."""
+@pytest.mark.parametrize("host", [_OLD_WEBAPP_HOST, _FRANKFURT_WEBAPP_HOST])
+def test_the_old_webapp_host_is_not_in_code_that_runs(host):
+    """אין כתובת ברירת מחדל: אף כתובת קודמת של הוובאפ — באורגון, ותת-הדומיין של Render בפרנקפורט — לא מופיעה בקוד
+    הייצור ובקבצים שהוא טוען. הכתובת מגיעה מ-``WEBAPP_URL``, והכתובות הקודמות שמופנות מ-``WEBAPP_LEGACY_HOSTS``."""
     audit = _load_audit_module()
     files = list(audit.iter_python_files())
     for pattern in _RUNTIME_TEXT_GLOBS:
@@ -181,7 +191,7 @@ def test_the_old_webapp_host_is_not_in_code_that_runs():
     offenders = sorted(
         p.relative_to(REPO_ROOT).as_posix()
         for p in files
-        if _OLD_WEBAPP_HOST in p.read_text(encoding="utf-8", errors="replace")
+        if host in p.read_text(encoding="utf-8", errors="replace")
     )
     assert not offenders, offenders
 

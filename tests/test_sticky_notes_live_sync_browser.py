@@ -1651,3 +1651,346 @@ def test_drafts_written_in_the_same_millisecond_are_ordered_reliably(board):
         board.wait_note(N1)
         board.page.wait_for_selector(board.sel(N1, ".sticky-note-remote"), timeout=8000)
         assert board.textarea(N1) == "החדשה", (newer, older, board.textarea(N1))
+
+
+# ---------------------------------------------------------------------------
+# פתק גדול: keepalive רק כשהגוף נכנס במכסה, וטקסט שלא ישרוד סגירה נשמר כטיוטה
+# ---------------------------------------------------------------------------
+#
+# לבקשות keepalive יש מכסה משותפת של 64KiB לכל מה שבאוויר (Fetch Standard, 4.6 צעד 10). עד נובמבר 2026 כל שמירה
+# יצאה עם keepalive, וגוף מעל המכסה **לא יצא מהעמוד בכלל** — ``Failed to fetch``, והשרת לא ראה כלום. כרומיום אוכף
+# את המכסה לפני שהבקשה מגיעה ל-``page.route``, ולכן הבדיקות כאן רואות בדיוק מה שהמשתמש ראה.
+
+def _paste(lp, nid, text):
+    """הדבקה: בחירת הכול ו-``insert_text`` — אירוע ``input`` אחד, כמו הדבקה אמיתית ולא הקלדה של תו אחרי תו."""
+    lp.page.click(lp.sel(nid, ".sticky-note-content"))
+    lp.page.wait_for_timeout(400)
+    lp.page.keyboard.press("Control+A")
+    lp.page.keyboard.insert_text(text)
+
+
+def _save_failures(lp):
+    return [text for kind, text in lp.console if "save note failed" in text]
+
+
+def _set_visibility(lp, state):
+    lp.page.evaluate("""(state) => {
+        Object.defineProperty(document, 'visibilityState', { get: () => state, configurable: true });
+        document.dispatchEvent(new Event('visibilitychange')); }""", state)
+
+
+def test_a_full_note_of_the_heaviest_character_is_saved_through_the_page(board):
+    """**הצרכן האמיתי, מקצה לקצה.** ``MAX_NOTE_CHARS`` אימוג'י (ארבעה בתים לתו) הם הגוף הגדול ביותר שפתק חוקי יכול
+    לשלוח. הדף שולח אותו, והשרת — הראוט האמיתי — מפענח ושומר אותו בדיוק. עד נובמבר 2026 הבקשה לא יצאה מהדף
+    (keepalive מעל המכסה), וגם אילו יצאה — השרת היה דוחה אותה כ-``invalid_content_b64``."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    text = "😀" * MAX_NOTE_CHARS
+    _paste(board, N1, text)
+    board.page.locator(board.sel(N1, ".sticky-note-content")).blur()
+    board.wait_saved(N1, text, timeout_s=15.0)
+    assert len(board.doc(N1)["content"]) == MAX_NOTE_CHARS
+    assert not _save_failures(board), _save_failures(board)
+
+
+def test_two_large_saves_in_flight_together_both_arrive_without_a_failed_attempt(browser, client):
+    """**המכסה משותפת.** שני פתקים, שכל אחד מהם נכנס לבדו במכסה ושניהם יחד לא, נשמרים בזמן שהראשון עדיין באוויר.
+    השני יוצא כבקשה רגילה — ולא כ-keepalive שהדפדפן היה מפיל לפני שהוא יוצא, עם ``save note failed`` וניסיון חוזר."""
+    client.db.sticky_notes.docs.append(_doc(N1, "ראשון"))
+    client.db.sticky_notes.docs.append(_doc(N2, "שני", position_x=440))
+    lp = LivePage(browser, client, BOARD_MANAGER, viewport=(1280, 800))
+    lp.wait_note(N1)
+    lp.wait_note(N2)
+    big = "א" * 24_000  # 64,000 תווי base64: לבד — מתחת למכסה; שניים — מעליה
+    lp.hold_saves = True
+    _paste(lp, N1, big)
+    lp.page.locator(lp.sel(N1, ".sticky-note-content")).blur()
+    _wait_until(lp, lambda: len(lp.held_saves) >= 1, what="השמירה של הראשון יצאה")
+    _paste(lp, N2, big + "ב")
+    lp.page.locator(lp.sel(N2, ".sticky-note-content")).blur()
+    _wait_until(lp, lambda: len(lp.held_saves) >= 2, what="השמירה של השני יצאה בזמן שהראשון באוויר")
+    lp.release_saves()
+    lp.wait_saved(N1, big)
+    lp.wait_saved(N2, big + "ב")
+    assert not _save_failures(lp), _save_failures(lp)
+    assert not lp.errors, lp.errors
+    lp.close()
+
+
+def test_closing_the_tab_while_a_large_save_is_in_flight_asks_first(board):
+    """שמירה שאינה keepalive נקטעת עם העמוד, ולכן הדפדפן שואל לפני סגירה — כמו על עריכה שמחכה מאחורי שמירה.
+
+    **במסלול של יציאה מעריכה** (``_flushFor`` ← ``_sendUpdate``), שמוציא את המטען מהתור לפני השליחה. במסלול
+    המרוכז המטען נשאר בתור עד התשובה, ושם השאלה הייתה מופיעה גם בלי הבדיקה של השמירה שבאוויר — כלומר בדיקה עליו
+    הייתה עוברת גם כשהבדיקה הזו חסרה (נמדד במוטציה)."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    board.hold_saves = True
+    _paste(board, N1, "א" * MAX_NOTE_CHARS)
+    board.page.locator(board.sel(N1, ".sticky-note-content")).blur()
+    _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה יצאה")
+    assert board.held_saves[0].request.method == "PUT", "השמירה יצאה במסלול המרוכז ולא ביציאה מעריכה"
+    assert board.page.evaluate("(id) => !window.__mgr._pending.has(id) && window.__mgr._inFlightWithoutKeepalive(id)", N1), \
+        "המצב שהבדיקה מתיימרת לבדוק: אין מטען בתור, והשמירה שבאוויר אינה keepalive"
+    assert _try_to_close(board) == ["beforeunload"]
+    assert not board.page.is_closed(), "בחירה להישאר משאירה את העמוד"
+
+
+def test_a_tablet_tab_closed_while_a_large_save_is_in_flight_keeps_the_text_and_saves_it_on_return(board):
+    """**הטאבלט:** סגירת לשונית אינה מציגה את שאלת ``beforeunload``. השמירה באוויר בבקשה רגילה, הלשונית מוסתרת
+    ונסגרת לפני שהיא נוחתת — והטקסט נשמר כטיוטה בדפדפן. בפתיחה מחדש הוא חוזר למסך ונשמר."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    text = "א" * MAX_NOTE_CHARS
+    board.hold_saves = True
+    _paste(board, N1, text)
+    _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה יצאה")
+    _set_visibility(board, "hidden")
+    drafts = board.page.evaluate(
+        "(id) => { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i);"
+        " if (k.startsWith('sticky-notes:held-draft:' + id)) out.push(JSON.parse(localStorage.getItem(k)).local.content); }"
+        " return out; }", N1)
+    assert drafts == [text], f"אין טיוטה של הטקסט שבדרך ({len(drafts)} טיוטות)"
+    # השמירה שבאוויר לא תגיע: הלשונית נסגרת לפני שהשרת עונה, והשרת לא רואה אותה.
+    board.hold_saves = False
+    board.held_saves = []
+    assert board.doc(N1)["content"] == "גרסה ישנה"
+    board.reopen()
+    board.wait_note(N1)
+    board.page.wait_for_function("(sel) => document.querySelector(sel).value.length > 100",
+                                 arg=board.sel(N1, ".sticky-note-content"), timeout=10_000)
+    assert board.textarea(N1) == text, "הטקסט לא חזר מהטיוטה"
+    board.wait_saved(N1, text, timeout_s=15.0)
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None, "התראה על הטקסט של המשתמש עצמו"
+
+
+def _close_while_a_save_is_in_flight_and_let_it_land(lp, nid):
+    """הלשונית מוסתרת ונסגרת בזמן שהשמירה של ``nid`` באוויר, **והשמירה נוחתת בשרת** — אבל התשובה לא מגיעה לדף שנסגר.
+    כמו בטאבלט: סגירת לשונית בלי שאלה, ובקשה שממשיכה בלי העמוד. ואז הלשונית נפתחת מחדש."""
+    _set_visibility(lp, "hidden")
+    assert len(lp.held_saves) == 1, lp.held_saves
+    lp._answer(lp.held_saves[0], deliver=False)  # השרת כותב; התשובה לא מגיעה
+    lp.hold_saves = False
+    lp.held_saves = []
+    lp.reopen()
+    lp.wait_note(nid)
+
+
+def test_a_tablet_tab_closed_with_an_edit_behind_a_save_that_landed_saves_the_edit_without_a_notice(board):
+    """עריכה שהוקלדה בזמן ששמירה הייתה באוויר נשמרת כטיוטה בסגירה. השמירה שבאוויר נחתה בשרת, ובפתיחה מחדש הפיוס
+    מזהה אותה **כשלנו** — כי הטיוטה זוכרת את השמירות שבאוויר — ולכן אין "יש עדכון חדש" על הטקסט של המשתמש עצמו,
+    והעריכה נשמרת מעליה."""
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_timeout(400)
+    board.page.keyboard.press("End")
+    board.hold_saves = True
+    board.page.keyboard.type(" א")
+    _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה הראשונה יצאה")
+    board.page.keyboard.type(" ב")
+    board.page.wait_for_timeout(800)  # ה-debounce עבר, והמסלול המרוכז דילג על הפתק שבאוויר
+    _close_while_a_save_is_in_flight_and_let_it_land(board, N1)
+    assert board.doc(N1)["content"] == "גרסה ישנה א", "בקרת שפיות: השמירה שבאוויר נחתה"
+    board.wait_saved(N1, "גרסה ישנה א ב")
+    assert board.textarea(N1) == "גרסה ישנה א ב"
+    board.page.wait_for_timeout(800)
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None, "התראה על הטקסט של המשתמש עצמו"
+
+
+def test_a_tablet_tab_closed_after_reverting_the_text_behind_a_save_keeps_the_revert(board):
+    """המשתמש שינה, השמירה יצאה, והוא החזיר את הטקסט בדיוק למה שהיה — מה שבמסך שווה לבסיס, אבל מטען בתור. השמירה
+    שבאוויר נוחתת והלשונית נסגרת: בפתיחה מחדש השרת מחזיק את השינוי, והטיוטה מחזירה את מה שהמשתמש השאיר."""
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_timeout(400)
+    board.page.keyboard.press("End")
+    board.hold_saves = True
+    board.page.keyboard.type(" א")
+    _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה הראשונה יצאה")
+    board.page.keyboard.press("Backspace")
+    board.page.keyboard.press("Backspace")
+    assert board.textarea(N1) == "גרסה ישנה", "בקרת שפיות: הטקסט חזר בדיוק לבסיס"
+    board.page.wait_for_timeout(800)
+    _close_while_a_save_is_in_flight_and_let_it_land(board, N1)
+    assert board.doc(N1)["content"] == "גרסה ישנה א", "בקרת שפיות: השמירה שבאוויר נחתה"
+    board.wait_saved(N1, "גרסה ישנה")
+    assert board.textarea(N1) == "גרסה ישנה"
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None
+
+
+def _drafts_of(lp, nid):
+    """הטקסט שבכל טיוטה של ``nid`` שנשמרה בדפדפן — מה שהטעינה הבאה תמצא."""
+    return lp.page.evaluate(
+        "(id) => { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i);"
+        " if (k.startsWith('sticky-notes:held-draft:' + id)) out.push(JSON.parse(localStorage.getItem(k)).local.content); }"
+        " return out; }", nid)
+
+
+def _failed_saves(lp):
+    return sum(1 for _method, _path, status in lp.answers if status == 503)
+
+
+#: **מסתיר את הלשונית ברגע שהמצב מוכן, באותה משימה של הדפדפן**: אין שחזור שממתין לשרת, אין שמירה באוויר, ויש מטען
+#: בתור — ואז ``visibilitychange``, בלי שום ``await`` ביניהם. בדיקה ואחריה הסתרה בשתי קריאות נפרדות השאירו חלון שבו
+#: טיימר השמירה (ה-debounce או הניסיון החוזר ברקע) שלח ``POST /batch``, והפתק היה נשאר בתור. מחזיר ``true`` רק כשהסתיר.
+HIDE_WHEN_QUEUED_JS = """(id) => {
+    const m = window.__mgr; const e = m && m.notes.get(id);
+    if (!e || e.draftAwaitingServer || m._inFlight.has(id) || !m._pending.has(id)) return false;
+    Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    return true; }"""
+
+
+#: **טיימרי השמירה של העמוד נעצרים** — ה-debounce והניסיון החוזר ברקע — כמו בלשונית שנסגרת, שאינה מגיעה אליהם. מטען
+#: שהשחזור מוסיף לתור, או שחוזר אליו אחרי כשל, נשאר בתור עד ההסתרה, ויוצא רק בה (``_flushPendingKeepalive``). ההסתרה
+#: עצמה אינה משתנה: ``flush`` של debounce שאין לו טיימר מחזיר ``undefined`` גם בקוד האמיתי, ואז ``_flushDebounceTimer``
+#: שולח את מה שנשאר בתור. בלי העצירה, ה-debounce (``AUTO_SAVE_DEBOUNCE_MS``) יכול לשלוח ``POST /batch`` לפני שהבדיקה
+#: מתחילה לחכות למצב — והיא נכשלת בתום הזמן, לפי מהירות המכונה. מסמן את העמוד (``__saveTimersFrozen``).
+FREEZE_SAVE_TIMERS_JS = """() => { const m = window.__mgr;
+    m._saveDebounced.cancel();
+    m._saveDebounced = Object.assign(() => {}, { cancel() {}, flush() {} });
+    if (m._autoFlushTimer) { clearInterval(m._autoFlushTimer); m._autoFlushTimer = null; }
+    m._ensureBackgroundAutoFlush = () => {};
+    window.__saveTimersFrozen = true; }"""
+
+
+def _freeze_save_timers(lp):
+    lp.page.evaluate(FREEZE_SAVE_TIMERS_JS)
+
+
+def _hidden_with_the_text_leaving_in_keepalive(lp, nid):
+    """הלשונית מוסתרת, והשמירה שיוצאת בהסתרה נעצרת לפני השרת. **המצב שהבדיקות כאן בודקות**: אין מטען בתור, והשמירה
+    שבאוויר היא ``PUT`` עם ``keepalive`` — הטקסט "בדרך". שמירה מרוכזת שהייתה יוצאת במקום (הניסיון החוזר ברקע) הייתה
+    משאירה את הפתק בתור, ואז טיוטה נכתבת ממילא, והבדיקה הייתה עוברת בלי קשר לתיקון.
+
+    **הקורא עוצר את טיימרי השמירה לפני שהמטען נכנס לתור** (``_freeze_save_timers``) — לפני הטעינה שבה השחזור מוסיף
+    אותו, או לפני הכשל שמחזיר אותו לתור. עצירה כאן הייתה מאוחרת מדי: הטיימר כבר דרוך, ואולי כבר שלח."""
+    assert lp.page.evaluate("() => window.__saveTimersFrozen === true"), "טיימרי השמירה לא נעצרו לפני שהמטען נכנס לתור"
+    lp.hold_saves = True
+    lp.page.wait_for_function(HIDE_WHEN_QUEUED_JS, arg=nid, timeout=8000)
+    # השמירה נולדת בהסתרה עצמה, ו-``fetch`` מגיע ל-``page.route`` רק אחרי שהאירוע כבר טופל.
+    _wait_until(lp, lambda: len(lp.held_saves) >= 1, what="השמירה של ההסתרה יצאה")
+    lp.page.wait_for_timeout(300)
+    assert len(lp.held_saves) == 1, lp.held_saves
+    assert lp.held_saves[0].request.method == "PUT", "השמירה יצאה במסלול המרוכז ולא בהסתרה"
+    assert lp.page.evaluate(
+        "(id) => { const r = window.__mgr._inFlight.get(id);"
+        " return !window.__mgr._pending.has(id) && !!r && !!r.flight && r.flight.keepalive === true; }", nid), \
+        "המצב שהבדיקה מתיימרת לבדוק: אין מטען בתור, והשמירה שבאוויר היא keepalive"
+
+
+def test_a_tablet_tab_closed_again_after_failed_saves_comes_back_with_the_newest_text_and_no_notice(board):
+    """**טיוטה מהסתרה קודמת מתעדכנת גם כשהטקסט יוצא ב-keepalive.** הסתרה ראשונה כותבת טיוטה (עריכה מאחורי שמירה
+    שבאוויר). הלשונית חוזרת, השמירות נכשלות, והמשתמש ממשיך להקליד. בהסתרה השנייה הרשת חזרה: הטקסט יוצא ב-keepalive,
+    נוחת בשרת, והלשונית נסגרת לפני שהתשובה מגיעה. עד התיקון נשארה הטיוטה של ההסתרה הראשונה, ובפתיחה מחדש הוצג
+    הטקסט הישן עם "יש עדכון חדש" על הטקסט החדש של המשתמש עצמו — ו"התעלם" היה שומר את הישן מעליו."""
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_timeout(400)
+    board.page.keyboard.press("End")
+    board.hold_saves = True
+    board.page.keyboard.type(" א")
+    _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה הראשונה יצאה")
+    board.page.keyboard.type(" ב")
+    board.page.wait_for_timeout(800)  # ה-debounce עבר, והמסלול המרוכז דילג על הפתק שבאוויר
+    _set_visibility(board, "hidden")
+    assert _drafts_of(board, N1) == ["גרסה ישנה א ב"], "בקרת שפיות: ההסתרה הראשונה כתבה טיוטה"
+    _set_visibility(board, "visible")
+    # אין רשת: השמירה שבאוויר נכשלת, וכך גם כל שמירה בזמן שהלשונית פתוחה — שום אישור לא מעדכן את הטיוטה.
+    board.fail_saves = 50
+    board.hold_saves = False
+    held, board.held_saves = board.held_saves, []
+    held[0].fulfill(status=503, content_type="application/json", body='{"ok": false}')
+    in_flight = "(id) => window.__mgr._inFlight.has(id)"
+    _wait_until(board, lambda: not board.page.evaluate(in_flight, N1), what="הניסיון אחרי הכשל נגמר")
+    failed = _failed_saves(board)
+    board.page.keyboard.type(" ג")
+    _wait_until(board, lambda: _failed_saves(board) > failed and not board.page.evaluate(in_flight, N1),
+                what="גם השמירה של מה שהוקלד אחר כך נכשלה")
+    # עוד לפני שהרשת חוזרת: ניסיון שיוצא מעכשיו נכשל, והמטען חוזר לתור ונשאר בו — עד ההסתרה.
+    _freeze_save_timers(board)
+    _wait_until(board, lambda: not board.page.evaluate(in_flight, N1), what="ניסיון שיצא לפני העצירה נגמר")
+    board.fail_saves = 0
+    _hidden_with_the_text_leaving_in_keepalive(board, N1)
+    board._answer(board.held_saves[0], deliver=False)  # השרת כותב; התשובה לא מגיעה לדף שנסגר
+    board.hold_saves = False
+    board.held_saves = []
+    board.reopen()
+    board.wait_note(N1)
+    assert board.doc(N1)["content"] == "גרסה ישנה א ב ג", "בקרת שפיות: השמירה שיצאה בהסתרה נחתה"
+    _wait_until(board, lambda: board.textarea(N1) == "גרסה ישנה א ב ג", what="הטקסט החדש במסך")
+    board.page.wait_for_timeout(800)
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None, "התראה על הטקסט של המשתמש עצמו"
+    assert board.textarea(N1) == "גרסה ישנה א ב ג"
+
+
+def test_a_tablet_tab_closed_offline_keeps_the_text_of_a_short_note_and_saves_it_on_return(board):
+    """**בלי רשת, גם טקסט שיוצא ב-keepalive נשמר כטיוטה.** השמירות נכשלות, והלשונית מוסתרת ונסגרת. השמירה שיוצאת
+    בהסתרה היא keepalive (הגוף קטן), אבל היא לא מגיעה לשרת. עד התיקון לא נכתבה טיוטה, כי הטקסט נחשב "בדרך" — והוא
+    אבד. בפתיחה מחדש הוא חוזר מהטיוטה ונשמר."""
+    board.fail_saves = 50
+    board.page.click(board.sel(N1, ".sticky-note-content"))
+    board.page.wait_for_timeout(400)
+    board.page.keyboard.press("End")
+    board.page.keyboard.type(" בלי רשת")
+    in_flight = "(id) => window.__mgr._inFlight.has(id)"
+    _wait_until(board, lambda: _failed_saves(board) > 0 and not board.page.evaluate(in_flight, N1),
+                what="השמירה נכשלה")
+    # עוד לפני שהרשת חוזרת: ניסיון שיוצא מעכשיו נכשל, והמטען חוזר לתור ונשאר בו — עד ההסתרה.
+    _freeze_save_timers(board)
+    _wait_until(board, lambda: not board.page.evaluate(in_flight, N1), what="ניסיון שיצא לפני העצירה נגמר")
+    board.fail_saves = 0
+    _hidden_with_the_text_leaving_in_keepalive(board, N1)
+    assert _drafts_of(board, N1) == ["גרסה ישנה בלי רשת"], "אין טיוטה של טקסט ששמירתו נכשלה"
+    # השמירה שבאוויר לא מגיעה: אין רשת, והלשונית נסגרת.
+    board.hold_saves = False
+    board.held_saves = []
+    assert board.doc(N1)["content"] == "גרסה ישנה"
+    board.reopen()
+    board.wait_note(N1)
+    board.wait_saved(N1, "גרסה ישנה בלי רשת", timeout_s=15.0)
+    assert board.textarea(N1) == "גרסה ישנה בלי רשת"
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None
+
+
+@pytest.mark.parametrize("save_path", ["PUT", "POST"])
+def test_a_restored_draft_survives_until_its_save_is_confirmed_even_when_the_save_fails_after_the_close(board, save_path):
+    """**טיוטה ששוחזרה נשארת עד שהשמירה של הטקסט שלה מאושרת.** השרת לא השתנה מאז הטיוטה, ולכן אין על מה להחליט:
+    הטקסט ששוחזר נשלח לשמירה — ``PUT`` עם ``keepalive`` כשהלשונית מוסתרת מיד (``_flushPendingKeepalive``), או
+    ``POST /batch`` כשה-debounce הספיק לשלוח אותו. הלשונית נסגרת לפני שהשמירה מגיעה לשרת. עד התיקון הטיוטה נמחקה
+    ברגע השחזור, ובמסלול של ``PUT`` הטקסט ששוחזר אבד: הוא נחשב "בדרך", ולא נכתב שוב."""
+    restored = "גרסה ישנה + מהטיוטה"
+    draft = {"v": 1, "ts": 0, "base": {"content": "גרסה ישנה", "title": "", "updated_at": T0.isoformat()},
+             "local": {"content": restored, "title": ""}, "unconfirmed": []}
+    board.page.evaluate("""([id, raw]) => { const d = JSON.parse(raw); d.ts = Date.now(); d.at = d.ts;
+        localStorage.setItem('sticky-notes:held-draft:' + id + ':earlier-tab', JSON.stringify(d)); }""",
+                        [N1, json.dumps(draft, ensure_ascii=False)])
+    board.hold_saves = True
+    # במסלול של ``PUT`` הטיימרים נעצרים לפני שהשחזור מסתיים: הרשימה מהשרת — הקריאה שמסיימת אותו ומוסיפה את הטקסט
+    # לתור — מוחזקת עד שהם עצורים.
+    board.hold_list = save_path == "PUT"
+    board.reopen()
+    if save_path == "PUT":
+        _freeze_save_timers(board)
+        board.release_list()
+    board.wait_note(N1)
+    if save_path == "PUT":
+        _hidden_with_the_text_leaving_in_keepalive(board, N1)
+    else:
+        _wait_until(board, lambda: len(board.held_saves) >= 1, what="השמירה המרוכזת יצאה")
+        assert board.held_saves[0].request.method == "POST", "בקרת שפיות: המסלול המרוכז"
+        # **לפני ההסתרה**: במסלול המרוכז הפתק נשאר בתור בזמן שהשמירה באוויר, והסתרה כותבת טיוטה לכל פתק שבתור — ולכן
+        # רק כאן נראה אם השחזור מחק אותה (נמדד: בלי הבדיקה הזו, המסלול הזה עבר גם על הקוד שמחק).
+        assert _drafts_of(board, N1) == [restored], "השחזור מחק את הטיוטה לפני שהשמירה של הטקסט אושרה"
+        _set_visibility(board, "hidden")
+        board.page.wait_for_timeout(300)
+    assert board.textarea(N1) == restored, "בקרת שפיות: הטקסט ששוחזר במסך"
+    assert _drafts_of(board, N1) == [restored], "אין טיוטה של הטקסט ששוחזר בזמן שהשמירה שלו באוויר"
+    # השמירה לא מגיעה לשרת: הלשונית נסגרת לפני כן.
+    board.hold_saves = False
+    board.held_saves = []
+    assert board.doc(N1)["content"] == "גרסה ישנה"
+    board.reopen()
+    board.wait_note(N1)
+    board.wait_saved(N1, restored, timeout_s=15.0)
+    assert board.textarea(N1) == restored
+    assert board.page.query_selector(board.sel(N1, ".sticky-note-remote")) is None
+    board.page.wait_for_timeout(500)
+    assert _drafts_of(board, N1) == [], "השמירה אושרה — הטיוטה יצאה"

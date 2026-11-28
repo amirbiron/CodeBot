@@ -45,10 +45,13 @@ _BODY = "# " + _BODY_MARKER + "\nשורה שנייה"
 
 
 class _NoteBackend:
-    """backend שמחזיק פתק אחד ורושם כל קריאה. ``get_note`` ו-``update_note`` בצורה של ``ProductionBackend``."""
+    """backend שמחזיק פתק אחד ורושם כל קריאה. ``get_note`` ו-``update_note`` בצורה של ``ProductionBackend``
+    כשהם נקראים מהתצוגה (``for_note_view=True``): הצבע ``hex`` בלבד, היעד מחוץ ל-``note``, והגוף בתשובת
+    השמירה. ``for_note_view`` נרשם בצד (``views``), כך שצורת הרשומות שהטסטים משווים לא זזה."""
 
     def __init__(self, answer=None, orphaned=False):
         self.calls = []
+        self.views = []
         self.orphaned = orphaned
         self.answer = answer if answer is not None else {
             "ok": True,
@@ -57,19 +60,20 @@ class _NoteBackend:
                 "title": "רשימה",
                 "content": _BODY,
                 "color": "#ffeddb",
-                "color_id": "orange_light",
                 "content_sha256": _sha(_BODY),
             },
             "target": "board",
             "board_id": _BOARD_ID,
         }
 
-    def get_note(self, user_id, *, note_id, with_version=False):
+    def get_note(self, user_id, *, note_id, with_version=False, for_note_view=False):
         self.calls.append(("get_note", user_id, note_id, with_version))
+        self.views.append(("get_note", for_note_view))
         return self.answer
 
-    def update_note(self, user_id, *, note_id, fields, expected_content=None):
+    def update_note(self, user_id, *, note_id, fields, expected_content=None, for_note_view=False):
         self.calls.append(("update_note", user_id, note_id, expected_content))
+        self.views.append(("update_note", for_note_view))
         body = fields["content"]
         return {"ok": True, "note": {**self.answer["note"], "content": body, "content_sha256": _sha(body)}}
 
@@ -81,8 +85,7 @@ class _NoteBackend:
 def _repo_note_answer():
     return {
         "ok": True,
-        "note": {"id": _NOTE_ID, "title": None, "content": "x", "color": "#ffffcc",
-                 "repo_name": "CodeBot", "repo_path": "a.py"},
+        "note": {"id": _NOTE_ID, "content": "x", "color": "#ffffcc"},
         "target": "repo",
         "repo_name": "CodeBot",
         "repo_path": "a.py",
@@ -439,10 +442,12 @@ def test_a_repo_note_is_for_the_admin_only_like_get_note():
         backend = _NoteBackend(answer=_repo_note_answer())
         assert handlers.show_note(backend, _USER, note_id=_NOTE_ID, is_admin=not_admin, can_write=True) == {
             "ok": False, "error": "not_found"}, not_admin
-    admin = handlers.show_note(_NoteBackend(answer=_repo_note_answer(), orphaned=True), _USER,
-                               note_id=_NOTE_ID, is_admin=True, can_write=True)
+    admin_backend = _NoteBackend(answer=_repo_note_answer(), orphaned=True)
+    admin = handlers.show_note(admin_backend, _USER, note_id=_NOTE_ID, is_admin=True, can_write=True)
     assert admin["ok"] is True and admin["orphaned"] is True
     assert (admin["target"], admin["repo_name"], admin["repo_path"]) == ("repo", "CodeBot", "a.py")
+    # היתמות נשאלת על הזוג שמחוץ ל-``note`` — שם הוא יושב בתשובה של ``get_note``, ולא בתוכו.
+    assert ("repo_path_orphaned", "CodeBot", "a.py") in admin_backend.calls, admin_backend.calls
 
 
 def test_show_note_is_get_note_without_threads_and_version(monkeypatch):

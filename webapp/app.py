@@ -29,6 +29,7 @@ import atexit
 import time as _time
 from werkzeug.http import http_date, parse_date
 from werkzeug.utils import secure_filename
+from werkzeug.security import safe_join
 from urllib.parse import urlparse, urlunparse, quote as url_quote
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from flask_compress import Compress
@@ -290,6 +291,11 @@ from webapp import html_preview_frame  # noqa: E402
 # והרישום של בחירת ערכה "רק במכשיר הזה".
 from webapp import first_steps  # noqa: E402
 from webapp.gallery import GALLERY_SLIDES, share_image as gallery_share_image  # noqa: E402
+from webapp.legacy_host_redirect import (  # noqa: E402
+    legacy_redirect_config,
+    legacy_redirect_for,
+    log_legacy_redirect_status,
+)
 from webapp.markdown_editor import THEME_ID as MARKDOWN_EDITOR_THEME_ID, demo_text as markdown_editor_demo_text  # noqa: E402
 from webapp.markdown_editor import (  # noqa: E402
     EXPORT_THEME_IDS as MARKDOWN_EDITOR_EXPORT_THEME_IDS,
@@ -874,6 +880,20 @@ app.config['COMPRESS_BR_LEVEL'] = 5
 Compress(app)
 
 
+# ראשון מבין ה-``before_request``, ולכן רשום כאן, מיד אחרי יצירת האפליקציה: בקשה שמופנית לא מגיעה להתחברות
+# האוטומטית מ-``remember_me`` (שאילתה למסד), למגבלת הקצב או ל-handler — למשל ``GET`` של פעולת אדמין לא רץ בכתובת
+# הישנה. Flask מריץ את ה-``before_request`` של האפליקציה לפי סדר הרישום, ותשובה שאחד מהם מחזיר עוצרת את השאר
+# (``Flask.preprocess_request``). ``tests/test_legacy_host_redirect.py`` בודק שהוא ראשון.
+@app.before_request
+def _redirect_legacy_host():
+    """מפנה דף שנפתח בכתובת ישנה של ה-WebApp לאותו נתיב ב-``WEBAPP_URL``. מה מופנה ומה לא — ב-``webapp/legacy_host_redirect.py``."""
+    decision = legacy_redirect_for(request)
+    if decision is None:
+        return None
+    location, status_code = decision
+    return redirect(location, code=status_code)
+
+
 @app.get("/favicon.ico")
 def favicon():
     """favicon ברירת מחדל (לכל האתר). דפים ספציפיים יכולים להגדיר icon אחר ב-HTML."""
@@ -1174,6 +1194,7 @@ def _is_webapp_runtime() -> bool:
 # ``webapp.app`` (חימום הקאש), והוא כותב את השורה שלו בעצמו (``main()``). מוצג גם ב-``/health``.
 if _is_webapp_runtime():
     log_webapp_url_status(logger, service="webapp")
+    log_legacy_redirect_status(logger)
 
 try:
     if str(os.getenv("DISABLE_BACKUP_SCHEDULER", "")).lower() not in {"1", "true", "yes"}:
@@ -12172,6 +12193,29 @@ def privacy_policy():
     return render_template('privacy.html')
 
 
+@lru_cache(maxsize=None)
+def _static_content_version(filename: str) -> str:
+    """שמונה התווים הראשונים של SHA-256 של התוכן של קובץ תחת ``static/`` — ה-``?v=`` של :func:`static_url_by_content`.
+
+    הנתיב מחובר ב-``safe_join``, כמו ש-Flask מחבר אותו כשהוא מגיש את הקובץ (``send_static_file`` ← ``send_from_directory``, נקרא ב-Flask 3.1.2 וב-Werkzeug 3.1.9), כך שה-hash הוא של הקובץ שמוגש בכתובת. שם שיוצא מ-``static/`` זורק ``ValueError``. נקרא בבקשה הראשונה ולא בזמן ייבוא, ונשמר בזיכרון של התהליך: הקבצים משתנים רק בדיפלוי, ודיפלוי מעלה תהליך חדש. ``lru_cache`` לא שומר חריגה (קובץ חסר), ולכן הבקשה הבאה תנסה שוב. בלי תקרה, כי השמות מגיעים רק מהקוד — תבניות ו-``GALLERY_SLIDES`` — ולא מהבקשה.
+    """
+    path = safe_join(app.static_folder, filename)
+    if path is None:
+        raise ValueError(f"_static_content_version: {filename!r} אינו נתיב תחת static/")
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:8]
+
+
+def static_url_by_content(filename: str) -> str:
+    """הנתיב של קובץ תחת ``static/``, עם ``?v=`` שנגזר מהתוכן שלו (:func:`_static_content_version`) ולא מהדיפלוי.
+
+    לתמונות שגורם חיצוני שומר לפי הכתובת שלהן: צילומי הגלריה, שגוגל מאנדקס (בעמוד וב-:func:`sitemap_xml`), ותמונות ה-``og:image`` של עמוד הבית, העורך הציבורי והגלריה, שוואטסאפ וטלגרם שומרים את התצוגה המקדימה לפיהן. ``static_version`` (``_STATIC_VERSION``) מתחלף בכל דיפלוי, ואיתו הייתה מתחלפת הכתובת של תמונה שלא השתנתה; גוגל ממליץ להפנות לתמונה תמיד באותה כתובת (https://developers.google.com/search/docs/appearance/google-images). כאן הכתובת משתנה רק כשהקובץ משתנה — ולכן צילום שהוחלף באותו שם עדיין מגיע למבקרים, למרות ``SEND_FILE_MAX_AGE_DEFAULT`` של שנה. ``?nc=1`` (``inject_globals``) לא משפיע על הכתובות האלה. זמינה בכל תבנית, בשם הזה.
+    """
+    return url_for('static', filename=filename) + '?v=' + _static_content_version(filename)
+
+
+app.jinja_env.globals['static_url_by_content'] = static_url_by_content
+
+
 @app.route('/gallery', methods=['GET'])
 @_limiter_exempt()
 def gallery():
@@ -12529,19 +12573,32 @@ def sitemap_xml():
 
     כל ``<loc>`` הוא כתובת מלאה, עם escaping של ``& < > ' "`` כמו שהפרוטוקול דורש. פטור ממגבלת הקצב כמו
     ``robots.txt``.
+
+    ב-``<url>`` של הגלריה יש ``<image:image>`` עם ``<image:loc>`` לכל צילום ב-``GALLERY_SLIDES``, לפי הסדר — הרחבת ה-image sitemap של גוגל (https://developers.google.com/search/docs/crawling-indexing/sitemaps/image-sitemaps). ב-HTML שהשרת שולח (``gallery.html``) יש ``<img>`` אחד, עם הצילום הראשון, ואת השאר ה-JS מחליף בדפדפן; גוגל מוצא תמונות לפי ה-``src`` של ``<img>``, וכאן הוא מקבל כתובת ישירה לכל צילום. הכתובת היא זו שבעמוד (:func:`static_url_by_content`). רק ``image:loc``: את ``image:caption``, ``image:title``, ``image:license`` ו-``image:geo_location`` גוגל הסיר ב-2022 (https://developers.google.com/search/blog/2022/05/spring-cleaning-sitemap-extensions), ואת התיאור של התמונה הוא לוקח מה-``alt`` ומהטקסט בעמוד.
     """
     from xml.sax.saxutils import escape as xml_escape
 
+    def loc(url: str) -> str:
+        return xml_escape(url, {"'": '&apos;', '"': '&quot;'})
+
     base_url = _webapp_base_url()
+    page_images = {
+        'gallery': [base_url + static_url_by_content('gallery/' + slide.image) for slide in GALLERY_SLIDES],
+    }
     entries = ''.join(
-        '<url><loc>{}</loc></url>'.format(
-            xml_escape(base_url + url_for(endpoint), {"'": '&apos;', '"': '&quot;'})
+        '<url><loc>{}</loc>{}</url>'.format(
+            loc(base_url + url_for(endpoint)),
+            ''.join(
+                '<image:image><image:loc>{}</image:loc></image:image>'.format(loc(src))
+                for src in page_images.get(endpoint, ())
+            ),
         )
         for endpoint in SITEMAP_ENDPOINTS
     )
     body = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"'
+        ' xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">'
         f'{entries}</urlset>\n'
     )
     return Response(body, mimetype='application/xml')
@@ -20782,7 +20839,15 @@ def health():
     }
     if _webapp_url_status.problem:
         health_data['config']['WEBAPP_URL_PROBLEM'] = _webapp_url_status.problem
-    
+    # ההפניה מכתובת ישנה (``webapp/legacy_host_redirect.py``): ``off`` / ``on`` / ``invalid``, הקוד כשהיא פעילה, והבעיה
+    # כשהתצורה פגומה — אז שום דבר לא מופנה. המעבר מ-302 ל-301 נבדק כאן.
+    _legacy_redirect = legacy_redirect_config()
+    health_data['config']['WEBAPP_LEGACY_REDIRECT'] = _legacy_redirect.state
+    if _legacy_redirect.status_code:
+        health_data['config']['WEBAPP_LEGACY_REDIRECT_CODE'] = _legacy_redirect.status_code
+    if _legacy_redirect.problem:
+        health_data['config']['WEBAPP_LEGACY_REDIRECT_PROBLEM'] = _legacy_redirect.problem
+
     # בדיקת חיבור למסד נתונים
     try:
         if not MONGODB_URL:
@@ -23182,6 +23247,7 @@ def run_dev_server() -> None:
     logger.info("BOT_USERNAME: %s", BOT_USERNAME)
     logger.info("DATABASE_NAME: %s", DATABASE_NAME)
     log_webapp_url_status(logger, service="webapp")
+    log_legacy_redirect_status(logger)
 
     if check_configuration():
         logger.info("Configuration check passed")

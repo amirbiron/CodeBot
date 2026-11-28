@@ -2714,6 +2714,7 @@ def create_board_note(
     ``mode`` בוחר בין ``surface`` (יושב על הלוח, ברירת המחדל) לבין
     ``screen`` (צף מול המסך). ``anchored`` אינו חוקי כאן — הוא דורש שורות
     מקור, ובלוח אין כאלה; פתק כזה היה מחשב מיקום מול עוגן שאינו קיים.
+    ``mode_sent`` אומר ל-backend אם הסוכן בחר ``mode`` — רק אז הוא חוזר בתשובה.
     """
     from sticky_notes_target import (
         DEFAULT_BOARD_MODE, is_valid_board_mode, normalize_mode, normalize_note_title,
@@ -2748,6 +2749,7 @@ def create_board_note(
         color=color_s,
         mode=normalize_mode(mode, DEFAULT_BOARD_MODE),
         title=normalize_note_title(title),
+        mode_sent=mode is not None,
     )
 
 
@@ -2859,6 +2861,7 @@ def create_repo_note(
         color=color_s,
         mode=normalize_mode(mode, DEFAULT_BOARD_MODE),
         title=normalize_note_title(title),
+        mode_sent=mode is not None,
     )
 
 
@@ -2910,7 +2913,7 @@ def add_to_collection(
 
 
 def _write_note_body(
-    backend: Any, user_id: int, nid: str, *, current_body: str, new_body: Any
+    backend: Any, user_id: int, nid: str, *, current_body: str, new_body: Any, for_note_view: bool
 ) -> dict[str, Any]:
     """**הכתיבה של גוף פתק שנבנה על גוף שנקרא** — החלק המשותף ל-:func:`note_str_replace` ול-
     :func:`save_note_from_view`, כדי שהעריכה מהתצוגה בתוך Claude לא תהיה מסלול כתיבה שלישי.
@@ -2923,13 +2926,16 @@ def _write_note_body(
     3. ``conflict`` מקבל ``hint`` — הפתק השתנה בין הקריאה לכתיבה.
 
     התשובה היא של ``backend.update_note`` כמו שהיא — ``ok``, ``note`` מהמסמך שהכתיבה השאירה,
-    ``content_changed`` — או הסירוב.
+    ``content_changed`` — או הסירוב. ``for_note_view`` — **חובה ובלי ברירת מחדל**, כדי שכל קורא
+    יחליט: ``True`` רק בשמירה מהתצוגה, שהתשובה שלה חוזרת לדף ונושאת את הגוף
+    (``backend._note_write_answer``); ``False`` בכלי שהמודל רואה, שהתשובה שלו בלי הגוף.
     """
     refused = _note_content_error(new_body)
     if refused:
         return refused
     res = backend.update_note(
-        user_id, note_id=nid, fields={"content": new_body}, expected_content=current_body
+        user_id, note_id=nid, fields={"content": new_body}, expected_content=current_body,
+        for_note_view=for_note_view,
     )
     if not res.get("ok") and res.get("error") == "conflict":
         res = dict(res)
@@ -3018,7 +3024,7 @@ def note_str_replace(
     # בעותק שלה: ריקנות על עותק אחרי ``strip``, ואורך כרשת על מה שנכתב, כי
     # ``backend.update_note`` אינו בודק אורך. האורך אינו ההגנה כאן — ``_apply_edit``
     # כבר סירב לפני שהתוצאה נבנתה, וכל עוד החשבון שם מדויק הוא אינו נדלק.
-    res = _write_note_body(backend, user_id, nid, current_body=body, new_body=new_body)
+    res = _write_note_body(backend, user_id, nid, current_body=body, new_body=new_body, for_note_view=False)
     if not res.get("ok"):
         return res
     # ``content_changed`` (ו-``content_diff`` כשהוא נדלק) עוברים כמו שה-backend
@@ -3040,7 +3046,8 @@ def is_repo_note(target: Any, fields: Any) -> bool:
 
 
 def _readable_note(
-    backend: Any, user_id: int, *, note_id: str, is_admin: bool, with_version: bool
+    backend: Any, user_id: int, *, note_id: str, is_admin: bool, with_version: bool,
+    for_note_view: bool,
 ) -> dict[str, Any]:
     """**השער של פתק בודד** — מה ש-``backend.get_note`` החזיר, או הסירוב.
 
@@ -3056,8 +3063,18 @@ def _readable_note(
 
     ``note_id`` הוא המזהה הקנוני (:func:`_clean_note_id`). התשובה היא ``backend.get_note``
     כמו שהוא — ``ok``, ``note``, שדות היעד, ``version`` כשביקשו — או מילון סירוב.
+    ``for_note_view`` (חובה, כמו ``with_version``) עובר ל-``backend.get_note``: ``True`` רק
+    בקריאה של ``codekeeper_show_note``, שהדף שלה צובע לפי ``color`` ב-``hex``.
+
+    **השער קורא את שדות הריפו משני המקומות — מחוץ ל-``note`` ובתוכו** (:func:`_note_location`). בפתק
+    ריפו תקין הוא נסגר כבר לפי ``target: "repo"``, והשדות יושבים בחוץ, ליד ``target`` (``backend._as_note``
+    עם ``target_inside=False``). השדות מכריעים רק בפתק שהיעד שלו אינו חוקי (``target: "unknown"`` — חצי
+    יעד ריפו), ושם הם בתוך ``note``, כי בחוץ אין שדות. ``_note_location`` היא ההגדרה האחת של "איפה הפתק
+    יושב", שגם בדיקת היתמות ב-:func:`_note_with_target` קוראת — ושם השדות שבחוץ הם מה שנשלח למניפסט.
+    שער שהיה קורא רק את מה שמחוץ ל-``note`` היה נפתח על חצי יעד ריפו.
     """
-    current = backend.get_note(user_id, note_id=note_id, with_version=with_version)
+    current = backend.get_note(
+        user_id, note_id=note_id, with_version=with_version, for_note_view=for_note_view)
     if not isinstance(current, dict) or not current.get("ok"):
         refused: dict[str, Any] = {
             "ok": False, "error": str((current or {}).get("error") or "not_found"),
@@ -3065,9 +3082,22 @@ def _readable_note(
         if isinstance(current, dict) and current.get("hint"):
             refused["hint"] = str(current["hint"])
         return refused
-    if is_repo_note(current.get("target"), current.get("note")) and is_admin is not True:
+    if is_repo_note(current.get("target"), _note_location(current)) and is_admin is not True:
         return {"ok": False, "error": "not_found"}
     return current
+
+
+def _note_location(current: dict[str, Any]) -> dict[str, Any]:
+    """שדות היעד של פתק מתשובה של ``backend.get_note`` — מ-``note`` ומחוץ לו יחד.
+
+    היעד חוזר פעם אחת: בפתק עם יעד חוקי — מחוץ ל-``note``, ליד ``target``; בפתק שהיעד שלו אינו
+    חוקי — בתוך ``note`` (ה-docstring של ``backend._as_note``). מי שצריך לדעת איפה הפתק יושב
+    (השער, בדיקת היתמות) קורא כאן ולא ממקום אחד מהשניים.
+    """
+    note = current.get("note")
+    inside: dict[str, Any] = note if isinstance(note, dict) else {}
+    outside = {key: value for key, value in current.items() if key not in ("ok", "note", "version")}
+    return {**inside, **outside}
 
 
 def get_note(
@@ -3131,7 +3161,8 @@ def get_note(
 
     # הגרסה מתארת את הגוף, ולכן היא נקראת רק כשהגוף חוזר.
     current = _readable_note(
-        backend, user_id, note_id=nid, is_admin=is_admin, with_version=part == "all"
+        backend, user_id, note_id=nid, is_admin=is_admin, with_version=part == "all",
+        for_note_view=False,
     )
     if not current.get("ok"):
         return current
@@ -3139,9 +3170,12 @@ def get_note(
     if part == "all":
         out = _note_with_target(backend, current)
     else:
-        # בלי הגוף: מזהה, שם, והיעד — כדי שהקורא יידע על איזה פתק מדובר.
+        # בלי הגוף: מזהה, שם, והיעד — כדי שהקורא יידע על איזה פתק מדובר. השם חוזר רק כשיש
+        # לפתק שם, באותו כלל של ``note`` (``backend._NOTE_FIELDS``): שדה נעדר הוא "אין".
         note = current.get("note") or {}
-        out = {"ok": True, "note_id": nid, "title": note.get("title")}
+        out = {"ok": True, "note_id": nid}
+        if "title" in note:
+            out["title"] = note["title"]
         out.update({k: v for k, v in current.items() if k not in ("ok", "note", "version")})
     return _with_threads(backend, user_id, out, note_id=nid, part=part, thread_id=tid)
 
@@ -3158,8 +3192,9 @@ def _note_with_target(backend: Any, current: dict[str, Any]) -> dict[str, Any]:
     note = dict(current.get("note") or {})
     out: dict[str, Any] = {"ok": True, "note": note}
     out.update({k: v for k, v in current.items() if k not in ("ok", "note")})
-    if is_repo_note(current.get("target"), note) and backend.repo_path_orphaned(
-        repo_name=str(note.get("repo_name") or ""), repo_path=str(note.get("repo_path") or "")
+    where = _note_location(current)
+    if is_repo_note(current.get("target"), where) and backend.repo_path_orphaned(
+        repo_name=str(where.get("repo_name") or ""), repo_path=str(where.get("repo_path") or "")
     ):
         out["orphaned"] = True
     return out
@@ -3182,8 +3217,9 @@ def show_note(
     פתק ריפו לאדמין בלבד, ``not_found`` אחיד שאינו מגלה שהמזהה קיים), ואחריו
     :func:`_note_with_target`. ההבדל: **בלי שרשורים ובלי ``version``.** התצוגה מציגה
     את הפתק בלבד, וזה גם מה שהמודל ולקוח שאינו מציג תצוגה מקבלים — הטקסט המלא של הפתק,
-    כפי שהמפרט של MCP Apps דורש מכלי שיש לו תצוגה. ``is_admin`` הוא חובה ובלי ברירת מחדל,
-    מאותה סיבה כמו ב-:func:`get_note` (K12 §3).
+    כפי שהמפרט של MCP Apps דורש מכלי שיש לו תצוגה. והצבע: ``color`` ב-``hex`` תמיד ולא
+    ``color_id`` (``for_note_view=True``), כי הדף צובע את הפתק לפיו. ``is_admin`` הוא חובה ובלי
+    ברירת מחדל, מאותה סיבה כמו ב-:func:`get_note` (K12 §3).
 
     **``editable``** — האם החיבור יכול לשמור (``can_write``, מ-``auth.has_write_scope``). התצוגה
     מציעה עריכה רק כשהוא ``True``; גם הוא חובה ובלי ברירת מחדל, כדי שקורא ששכח אותו ייכשל ולא
@@ -3208,7 +3244,8 @@ def show_note(
     nid = _clean_note_id(note_id)
     if nid is None:
         return {"ok": False, "error": "invalid_note_id"}
-    current = _readable_note(backend, user_id, note_id=nid, is_admin=is_admin, with_version=False)
+    current = _readable_note(
+        backend, user_id, note_id=nid, is_admin=is_admin, with_version=False, for_note_view=True)
     if not current.get("ok"):
         return current
     out = _note_with_target(backend, current)
@@ -3293,6 +3330,8 @@ def save_note_from_view(
       שהתצוגה קיבלה עם הפתק. בלעדיה העריכה הייתה דורסת עדכון שהגיע מהוובאפ או מסוכן בזמן
       שהמשתמש הקליד. hash שאינו תואם לגוף שבמסד הוא ``conflict``, ושום דבר לא נכתב.
     - **הגוף נשלח שלם** — זו תיבת טקסט, לא מצא-והחלף.
+    - **התשובה נושאת את הגוף**, בניגוד לכל כלי כתיבה שהמודל רואה: היא חוזרת לדף ולא למודל, והדף
+      מעדכן ממנה את הגרסה שהוא מחזיק (``for_note_view=True``, ראו ``backend._note_write_answer``).
 
     ``conflict`` יכול להגיע משני מקומות: מההשוואה כאן (הפתק השתנה מאז שהתצוגה קיבלה אותו), או
     מהכתיבה המותנית (השתנה בין הקריאה כאן לכתיבה). בשניהם התצוגה קוראת את הפתק מחדש.
@@ -3307,7 +3346,8 @@ def save_note_from_view(
     )
     if bad_expected:
         return bad_expected
-    current = _readable_note(backend, user_id, note_id=nid, is_admin=is_admin, with_version=False)
+    current = _readable_note(
+        backend, user_id, note_id=nid, is_admin=is_admin, with_version=False, for_note_view=False)
     if not current.get("ok"):
         return current
     note = current.get("note") if isinstance(current.get("note"), dict) else {}
@@ -3321,7 +3361,7 @@ def save_note_from_view(
             "error": "conflict",
             "hint": "the note changed since the view received it — read it again",
         }
-    res = _write_note_body(backend, user_id, nid, current_body=body, new_body=content)
+    res = _write_note_body(backend, user_id, nid, current_body=body, new_body=content, for_note_view=True)
     if not res.get("ok"):
         return res
     out: dict[str, Any] = {"ok": True, "note": res.get("note")}
@@ -3386,17 +3426,32 @@ def _thread_cost_bounds() -> tuple[int, int, int, int]:
     return collapsed, one - step, step, body_max
 
 
+#: הסיכומים של שרשור — כולם נגזרים מרשימת התגובות: הספירה היא מספר התגובות, הכותב והזמן
+#: האחרונים הם של התגובה האחרונה, ו-``created_at`` של השרשור הוא הזמן של התגובה הראשונה
+#: (``note_threads.create_thread`` כותב את אותו רגע לשלושתם).
+_THREAD_SUMMARY_KEYS = ("comment_count", "last_author_kind", "last_at", "created_at")
+
+
 def _thread_row(meta: dict[str, Any], *, comments: list | None = None, earlier: int = 0) -> dict[str, Any]:
-    """שורת שרשור בתשובה. ``comments`` חסר — השורה מקופלת (אין מפתח ``comments`` בכלל)."""
+    """שורת שרשור בתשובה. ``comments`` חסר — השורה מקופלת (אין מפתח ``comments`` בכלל).
+
+    **הסיכומים (:data:`_THREAD_SUMMARY_KEYS`) חוזרים רק כשלא כל התגובות של השרשור בשורה**: שורה
+    מקופלת (שרשור שנפתר ב-``part="all"``, או שלא נכנס בתקציב), או שורה עם ``earlier_comments``.
+    שם הם כל מה שידוע על מה שלא הוצג — למשל שמישהו הגיב בשרשור אחרי שנסגר. כשכל התגובות בשורה
+    הם כפילות שלהן. ``resolved_by`` ו-``resolved_at`` חוזרים בכל שרשור שנפתר.
+
+    **הצורה הרזה נבנית כאן, לפני המדידה** (``_with_threads`` מודד את השורות שנבנו כאן), ולא
+    כהשמטה אחריה: ``fit_lists`` רושם את מה שנמדד, ו-``answer_fits_match_what_was_sent`` ב-
+    ``tests/conftest.py`` נופל כשמה שנמדד אינו מה שנשלח. החסמים של :func:`_thread_cost_bounds`
+    נמדדים על השורה הכבדה ביותר — מקופלת, עם כל הסיכומים — ולכן נשארים חסם עליון.
+    """
     row: dict[str, Any] = {
         "id": meta.get("id"),
         "number": meta.get("number"),
         "status": meta.get("status"),
-        "comment_count": meta.get("comment_count"),
-        "last_author_kind": meta.get("last_author_kind"),
-        "last_at": meta.get("last_at"),
-        "created_at": meta.get("created_at"),
     }
+    if comments is None or earlier:
+        row.update({key: meta.get(key) for key in _THREAD_SUMMARY_KEYS})
     if meta.get("status") == STATUS_RESOLVED:
         row["resolved_by"] = meta.get("resolved_by")
         row["resolved_at"] = meta.get("resolved_at")
@@ -3624,7 +3679,8 @@ def comment_note(
         if escapes_refused is not None:
             return escapes_refused
 
-    current = _readable_note(backend, user_id, note_id=nid, is_admin=is_admin, with_version=False)
+    current = _readable_note(
+        backend, user_id, note_id=nid, is_admin=is_admin, with_version=False, for_note_view=False)
     if not current.get("ok"):
         return current
 

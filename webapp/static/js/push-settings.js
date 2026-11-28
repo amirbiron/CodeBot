@@ -89,6 +89,24 @@
     });
   }
 
+  // אחרי הפעלה בכתובת הקנונית השרת מחזיר ``legacy_remaining``: כמה מנויים מכתובת אחרת (הכתובת הקודמת של ה-WebApp)
+  // נשארו למשתמש. מנוי מאותו דפדפן כבר הוחלף בשרת; מה שנשאר הוא כנראה מכשירים אחרים, שממשיכים לקבל התראות משם
+  // עד שמפעילים בהם מחדש. הכלל בשרת — ההערה שמעל ``_LEGACY_RETIRED_EVENT`` ב-``webapp/push_api.py``.
+  // ההודעה נכתבת ל-``pushLegacyNote`` ולא ל-``pushStatus``, כי ``refreshUi`` דורס את שורת המצב מיד אחרי ההפעלה.
+  function showLegacyNote(saved) {
+    var note = el('pushLegacyNote');
+    if (!note) return;
+    var remaining = 0;
+    try { remaining = Number(saved && saved.legacy_remaining) || 0; } catch (_) { remaining = 0; }
+    if (remaining <= 0) {
+      note.textContent = '';
+      note.hidden = true;
+      return;
+    }
+    note.textContent = 'במכשירים שבהם הפעלת התראות בכתובת הקודמת של האתר, הן ממשיכות להגיע משם. כדי להעביר גם אותם, פתחו בהם את העמוד הזה והפעילו התראות מחדש.';
+    note.hidden = false;
+  }
+
   // כשכבר קיים מנוי עם מפתח אחר, הדפדפן זורק InvalidStateError.
   // במקרה כזה מבטלים את הישן ומנסים שוב — פעם אחת בלבד.
   function subscribeWithRecovery(reg, keyBytes, retried) {
@@ -134,8 +152,9 @@
         setStatus('מפתח ההתראות התחלף, מחדש מנוי...');
         return existing.unsubscribe().catch(function () { }).then(function () { return null; });
       }
-      return saveSubscription(existing).then(function () {
+      return saveSubscription(existing).then(function (saved) {
         setStatus('ההתראות כבר מופעלות');
+        showLegacyNote(saved);
         refreshUi();
         return 'done';
       });
@@ -145,8 +164,9 @@
         if (perm !== 'granted') { setStatus('הרשאת התראות נדחתה'); return; }
         setStatus('יוצר מנוי...');
         return subscribeWithRecovery(reg, keyBytes, false).then(function (sub) {
-          return saveSubscription(sub).then(function () {
+          return saveSubscription(sub).then(function (saved) {
             setStatus('התראות הופעלו בהצלחה');
+            showLegacyNote(saved);
             refreshUi();
           });
         });

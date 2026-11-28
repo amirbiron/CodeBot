@@ -23,13 +23,16 @@
   - ``twitter:card`` הוא התגית היחידה של X כאן. כשאין ``twitter:title`` / ``twitter:description`` / ``twitter:image``, X לוקח את תגיות ה-``og:`` המקבילות (טבלת ה-fallback ב-https://developer.x.com/cards/markup). הדף הזה חוסם קריאה אוטומטית (402), והטענה נלקחה מהתקציר שלו בתוצאות החיפוש ולא מקריאה של הדף המלא (8.11.2026).
 #}
 <meta name="description" content="{{ home_tagline }}">
+{# הכתובת הקנונית של הדף, לסורקים: ``WEBAPP_URL`` כמו ב-``og:url``, ולכן גם דף שנסרק דרך כתובת אחרת מצביע לדומיין הנוכחי. כל הדפים שב-``SITEMAP_ENDPOINTS`` נושאים אותה, ו-``tests/test_legacy_host_redirect.py`` בודק את זה #}
+<link rel="canonical" href="{{ base_url }}{{ url_for('index') }}">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="CodeKeeper">
 <meta property="og:locale" content="he_IL">
 <meta property="og:title" content="{{ '\u200f' ~ home_title }}">
 <meta property="og:description" content="{{ home_tagline }}">
 <meta property="og:url" content="{{ base_url }}{{ url_for('index') }}">
-<meta property="og:image" content="{{ base_url }}{{ url_for('static', filename='og/og-image.jpg') }}?v={{ static_version }}">
+{# ``?v=`` לפי התוכן של הקובץ ולא לפי הדיפלוי (``static_url_by_content`` ב-``webapp/app.py``): וואטסאפ וטלגרם שומרים את התצוגה המקדימה לפי הכתובת #}
+<meta property="og:image" content="{{ base_url }}{{ static_url_by_content('og/og-image.jpg') }}">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">

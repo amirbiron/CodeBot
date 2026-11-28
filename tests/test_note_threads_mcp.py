@@ -207,11 +207,14 @@ async def test_a_comment_is_saved_as_sent_and_the_answer_is_read_back(server, db
     comment = stored["comments"][0]
     assert comment["body"] == body
     assert comment["author"] == {"kind": "agent", "client": "claude-code", "working_on": "העברת תיקון bidi"}
-    assert res["ok"] is True and res["action"] == "created" and res["note_id"] == note
+    # התשובה אינה מהדהדת את מה שהסוכן שלח (``backend.comment_note``): בלי ``note_id`` ו-``action``,
+    # ומהכותב רק ``client``, שנקבע מהחיבור. שרשור חדש — רק המזהה שלו.
+    assert res["ok"] is True and "action" not in res and "note_id" not in res, res
     assert res["comment"]["body_sha256"] == _sha(body)
     assert res["comment"]["id"] == comment["id"]
-    assert res["thread"]["id"] == str(stored["_id"]) and res["thread"]["status"] == "open"
-    assert "comments" not in res["thread"] and "body_bytes" not in res["thread"]
+    assert res["comment"]["author"] == {"client": "claude-code"}
+    assert res["comment"]["created_at"] == comment["created_at"].isoformat()
+    assert res["thread"] == {"id": str(stored["_id"])}
 
 
 async def test_a_declared_count_guards_the_comment_body_and_lets_the_text_through(server, db):
@@ -316,7 +319,7 @@ async def test_answering_a_resolved_thread_reopens_it_with_the_new_last_author(s
     res = await server.call("codekeeper_comment_note", note_id=note, working_on="תיקון",
                             thread_id=thread, body="עכשיו?")
 
-    assert res["action"] == "replied" and res["thread"]["status"] == "open"
+    assert res["thread"]["status"] == "open" and res["thread"]["comment_count"] == 3, res
     (stored,) = server.threads()
     assert (stored["status"], stored["last_author_kind"], stored["resolved_by"]) == ("open", "agent", None)
 

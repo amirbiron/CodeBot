@@ -97,10 +97,11 @@ def check_preview_image(client, tags: dict[str, str]) -> None:
     assert re.fullmatch(r"v=[^&\s]+", og_image.query), tags["og:image"]
     assert tags["twitter:card"] == "summary_large_image", tags["twitter:card"]
 
-    resp = client.get(f"{og_image.path}?{og_image.query}")
-    assert resp.status_code == 200, (og_image.path, resp.status_code)
-    assert resp.mimetype == tags["og:image:type"], resp.mimetype
-    data = resp.get_data()
+    # ``with`` סוגר את התשובה: קובץ סטטי מוגש ב-``send_file``, ותשובה שלא נסגרה משאירה את הקובץ פתוח (ResourceWarning)
+    with client.get(f"{og_image.path}?{og_image.query}") as resp:
+        assert resp.status_code == 200, (og_image.path, resp.status_code)
+        assert resp.mimetype == tags["og:image:type"], resp.mimetype
+        data = resp.get_data()
     assert len(data) < WHATSAPP_IMAGE_MAX_BYTES, (og_image.path, len(data))
     with image_module.open(io.BytesIO(data)) as im:
         assert image_module.MIME[im.format] == tags["og:image:type"], im.format

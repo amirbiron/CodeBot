@@ -5,7 +5,8 @@ same duck-typed stand-in, so the collection semantics — filter matching
 (``$ne``, ``$in``, ``$nin``, ``$exists``, the range operators, and ``$not`` over them; ``$or`` at
 the top level), inclusion
 and exclusion projections, ``find_one`` with pymongo's positional projection and ``sort``,
-upsert with ``$setOnInsert``, ``$push`` with ``$each``/``$slice``, ``$unset``,
+upsert with ``$setOnInsert``, ``$push`` with ``$each``/``$slice``, ``$unset``, ``$inc``,
+a ``$slice`` projection,
 ``update_many``, ``delete_many``, ``bulk_write`` of ``ReplaceOne``, counting, and
 the matched/modified/upserted/deleted counts and ``inserted_id`` the callers
 read — live here in one place. An operator outside those sets raises
@@ -72,6 +73,55 @@ def _unset_path(doc: dict, key: str) -> None:
     current.pop(parts[-1], None)
 
 
+def _inc_path(doc: dict, key: str, by: Any) -> None:
+    """``$inc`` as the MongoDB 8.0 manual describes it
+    (https://www.mongodb.com/docs/v8.0/reference/operator/update/inc/): "If the field does not
+    exist, $inc creates the field and sets the field to the specified value", and "Using the $inc
+    operator on a field with a null value generates an error". The page says nothing about other
+    non-numeric values, so the fake raises ``NotImplementedError`` there instead of guessing.
+    """
+    from pymongo.errors import WriteError
+
+    current = _get_path(doc, key)
+    if current is _MISSING:
+        _set_path(doc, key, by)
+    elif current is None:
+        raise WriteError(f"Cannot apply $inc to the null field {key!r}")
+    elif isinstance(current, (int, float)) and not isinstance(current, bool):
+        _set_path(doc, key, current + by)
+    else:
+        raise _unsupported("$inc on a value of type", [type(current).__name__])
+
+
+def _slice_specs(projection: dict) -> dict:
+    """The ``{field: {"$slice": n}}`` entries of a projection, as ``{field: n}``.
+
+    The MongoDB 8.0 manual (https://www.mongodb.com/docs/v8.0/reference/operator/projection/slice/):
+    "The $slice projection by itself is considered an exclusion" — every other field comes back —
+    and next to an inclusion only the included fields (and ``_id``) do; ``note_threads.load_comments``
+    measured the same against ``mongod`` 8.0. Only an ``int`` count is implemented: the
+    ``[skip, limit]`` form, and any other operator in a projection, raise.
+    """
+    slices = {}
+    for field, spec in projection.items():
+        if not isinstance(spec, dict):
+            continue
+        if set(spec) != {"$slice"} or not isinstance(spec["$slice"], int) or isinstance(spec["$slice"], bool):
+            raise _unsupported("projection operator(s)", [str(k) for k in spec])
+        slices[str(field)] = spec["$slice"]
+    return slices
+
+
+def _apply_slices(doc: dict, slices: dict) -> dict:
+    """"Specify a positive number n to return the first n elements", "a negative number n to return
+    the last n elements", and a count larger than the array returns all of it (the same page)."""
+    for field, n in slices.items():
+        value = doc.get(field)
+        if isinstance(value, list):
+            doc[field] = value[:n] if n >= 0 else value[n:]
+    return doc
+
+
 class _Res:
     """Mimics pymongo write results (only the fields our callers inspect).
 
@@ -120,7 +170,7 @@ class _BulkRes:
 QUERY_OPERATORS = frozenset({"$ne", "$in", "$nin", "$exists", "$lt", "$lte", "$gt", "$gte", "$not"})
 #: Top-level operators of a filter. Only ``$or`` — ``$and``, ``$nor``, ``$expr`` and ``$where`` still raise.
 TOP_LEVEL_QUERY_OPERATORS = frozenset({"$or"})
-UPDATE_OPERATORS = frozenset({"$set", "$unset", "$push", "$setOnInsert"})
+UPDATE_OPERATORS = frozenset({"$set", "$unset", "$push", "$setOnInsert", "$inc"})
 PUSH_MODIFIERS = frozenset({"$each", "$slice"})
 
 
@@ -267,8 +317,10 @@ class FakeCollection:
         """
         if not projection:
             return docs
-        keep = {str(f) for f, on in projection.items() if on}
-        drop = {str(f) for f, on in projection.items() if not on}
+        slices = _slice_specs(projection)
+        plain = {f: on for f, on in projection.items() if f not in slices}
+        keep = {str(f) for f, on in plain.items() if on}
+        drop = {str(f) for f, on in plain.items() if not on}
         if keep:
             mixed = sorted(drop - {"_id"})
             if mixed:
@@ -280,8 +332,10 @@ class FakeCollection:
                 )
             if "_id" not in drop:
                 keep.add("_id")
-            return [_include_paths(d, keep) for d in docs]
-        return [_exclude_paths(d, drop) for d in docs]
+            projected = [_include_paths(d, keep | set(slices)) for d in docs]
+        else:
+            projected = [_exclude_paths(d, drop) for d in docs]
+        return [_apply_slices(d, slices) for d in projected]
 
     def find(self, q, projection=None, *a, **k):
         docs = [copy.deepcopy(d) for d in self.docs if self._match(d, q)]
@@ -331,6 +385,8 @@ class FakeCollection:
             _set_path(doc, field, value)
         for field in u.get("$unset", {}):
             _unset_path(doc, field)
+        for field, by in (u.get("$inc") or {}).items():
+            _inc_path(doc, field, by)
         for field, spec in (u.get("$push") or {}).items():
             current = list(doc.get(field) or [])
             if isinstance(spec, dict) and "$each" in spec:
