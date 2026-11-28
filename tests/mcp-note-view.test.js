@@ -20,6 +20,10 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MODULE_PATH = path.join(__dirname, '..', 'mcp_server', 'apps', 'note_view.js');
+// **התקרה ש-``content_too_long`` נושא ב-``max``** — ``sticky_notes_target.MAX_NOTE_CHARS``, נקראת מהמקור כדי
+// שהתשובה המדומה תהיה זו שהשרת שולח, ולא עותק של מספר שנשאר מאחור בהגדלה הבאה של התקרה.
+const SERVER_MAX_NOTE_CHARS = Number(/^MAX_NOTE_CHARS\s*=\s*([\d_]+)/m
+  .exec(fs.readFileSync(path.join(__dirname, '..', 'sticky_notes_target.py'), 'utf8'))[1].replace(/_/g, ''));
 
 let passed = 0;
 let failed = 0;
@@ -1175,7 +1179,7 @@ console.log('\nשמירה');
 for (const [name, reply, expect] of [
   ['rate_limited', toolAnswer({ ok: false, error: 'rate_limited' }), 'יותר מדי קריאות'],
   ['empty_content', toolAnswer({ ok: false, error: 'empty_content' }), 'פתק ריק'],
-  ['content_too_long עם max', toolAnswer({ ok: false, error: 'content_too_long', max: 20000 }), 'עד 20000 תווים'],
+  ['content_too_long עם max', toolAnswer({ ok: false, error: 'content_too_long', max: SERVER_MAX_NOTE_CHARS }), `עד ${SERVER_MAX_NOTE_CHARS} תווים`],
   ['קוד לא מוכר', toolAnswer({ ok: false, error: 'weird_code' }), '(weird_code)'],
   ['isError של insufficient_scope', { isError: true, content: [{ type: 'text', text: 'Error executing tool codekeeper_note_view_save: insufficient_scope: this action needs write permission.' }] }, 'הרשאת כתיבה'],
 ]) {
