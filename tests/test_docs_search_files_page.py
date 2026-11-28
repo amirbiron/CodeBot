@@ -56,6 +56,17 @@ def test_the_client_deadline_outlasts_the_server_waits():
     assert int(match.group(1)) > server_worst_case_ms
 
 
+def test_the_client_extract_deadline_outlasts_the_server_waits():
+    """"חלץ": קריאת הסעיפים מהמסד והקריאה למודל רצות בזו אחר זו, וכל אחת מוגבלת בשרת לחוד. הדדליין בדפדפן
+    ארוך מסכומן, כדי שלא יציג "לא הסתיים בזמן" על חילוץ שהשרת עוד עונה עליו."""
+    from services import docs_extract_service as docs_extract
+
+    match = re.search(r"const DOCS_EXTRACT_DEADLINE_MS = (\d+);", GLOBAL_SEARCH_JS.read_text(encoding="utf-8"))
+    assert match, "לא נמצא DOCS_EXTRACT_DEADLINE_MS ב-global_search.js"
+    server_worst_case_ms = 1000 * (docs_search.SEARCH_DB_TIMEOUT_SECONDS + docs_extract.EXTRACT_DEADLINE_SECONDS)
+    assert int(match.group(1)) > server_worst_case_ms
+
+
 class _Page(HTMLParser):
     """האפשרויות של ``#searchType`` עם המאפיינים שלהן, והכתובות של התגיות שטוענות נכסים."""
 
@@ -81,10 +92,21 @@ class _Page(HTMLParser):
             self._in_select = False
 
 
+#: ההגדרות של "חלץ", כמו שהן מוגדרות ב-Render.
+EXTRACT_ENV = {
+    "DOCS_EXTRACT_API_KEY": "extract-key-123",
+    "DOCS_EXTRACT_BASE_URL": "https://llm.example.test/v1/",
+    "DOCS_EXTRACT_MODEL": "extract-model",
+}
+
+
 @pytest.fixture
 def files_page(wired_mongo, monkeypatch):
-    """``/files`` כפי שהשרת מגיש אותו, למשתמש שנבחר. 1 הוא האדמין."""
+    """``/files`` כפי שהשרת מגיש אותו, למשתמש שנבחר. 1 הוא האדמין. ההגדרות של "חלץ" ריקות, וטסט שצריך אותן
+    מגדיר אותן ב-``monkeypatch.setenv``."""
     wa = wired_mongo
+    for name in EXTRACT_ENV:
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ADMIN_USER_IDS", "1")
     monkeypatch.setitem(wa.app.config, "SECRET_KEY", "docs-search-files-page")
     client = wa.app.test_client()
@@ -119,6 +141,34 @@ def test_an_admin_gets_the_docs_option_with_the_registered_urls(files_page):
     assert option["data-search-url"] == rules["api_search_docs"].rule
     assert "POST" in rules["api_search_docs"].methods
     assert option["data-admin-url"] == rules["admin_docs_index_page"].rule
+
+
+@pytest.mark.parametrize(
+    "environ",
+    [EXTRACT_ENV, {"DOCS_EXTRACT_MODEL": "extract-model"}],
+    ids=["configured", "partial"],
+)
+def test_an_admin_gets_the_extract_url_from_the_registered_route_unless_nothing_is_set(
+        files_page, monkeypatch, environ):
+    """הכתובת של "חלץ" נגזרת מהנתיב הרשום. גם בהגדרות חלקיות — אז הלחיצה אומרת מה חסר."""
+    wa, render = files_page
+    for name, value in environ.items():
+        monkeypatch.setenv(name, value)
+
+    option = render(1).options["docs"]
+
+    rules = {rule.endpoint: rule for rule in wa.app.url_map.iter_rules()}
+    assert option.get("data-extract-url") == rules["api_search_docs_extract"].rule
+    assert "POST" in rules["api_search_docs_extract"].methods
+
+
+def test_without_any_extract_setting_there_is_no_extract_url(files_page):
+    _wa, render = files_page
+
+    option = render(1).options["docs"]
+
+    assert "data-extract-url" not in option
+    assert option.get("data-search-url"), "בלי ההגדרות של החילוץ החיפוש עצמו לא אמור להשתנות"
 
 
 def test_an_admin_gets_the_rendering_assets_with_a_version_id(files_page):

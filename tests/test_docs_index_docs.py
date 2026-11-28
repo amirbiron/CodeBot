@@ -60,6 +60,11 @@ def _section(path: Path, label: str) -> str:
         ("services.docs_search_service", "DEFAULT_LIMIT"),
         ("services.docs_search_service", "CHUNKS_PER_RESULT"),
         ("services.docs_search_service", "MAX_NUM_CANDIDATES"),
+        ("services.docs_search_service", "section_result"),
+        ("webapp.app", "api_search_docs_extract"),
+        ("services.llm_endpoint_settings", "load_endpoint"),
+        ("services.docs_extract_service", "EXTRACT_DEADLINE_SECONDS"),
+        ("services.docs_extract_service", "MAX_SECTIONS_BYTES"),
     ],
 )
 def test_a_name_the_docs_cite_exists_in_the_code(module, name):
@@ -100,6 +105,7 @@ def test_the_values_the_docs_spell_out_are_the_codes_in_the_code():
         ("webapp/static/js/markdown-deps.js", "BUNDLE_DEADLINE_MS"),
         ("webapp/static/js/live-preview.js", "MarkdownLiveRenderer"),
         ("webapp/static/js/global_search.js", "DOCS_SEARCH_DEADLINE_MS"),
+        ("webapp/static/js/global_search.js", "DOCS_EXTRACT_DEADLINE_MS"),
         ("webapp/static/js/global_search.js", "syncDocsExpandButton"),
     ],
 )
@@ -137,3 +143,42 @@ def test_the_catalog_spells_out_the_name_of_the_alert_that_is_sent():
     from services import docs_index_service as svc
 
     assert f"``{svc.ALERT_APPROVAL_NEEDED}``" in _section(EVENTS_CATALOG, "docs-index-events")
+
+
+def test_the_extract_codes_the_search_section_spells_out_are_the_ones_the_service_returns(monkeypatch):
+    """הקודים של "חלץ" שהסעיף נוקב בהם, כמו שהשירות מחזיר אותם — בלי מסד, כי כולם נקבעים לפני הקריאה ממנו."""
+    from services import docs_extract_service as docs_extract
+    from services import docs_search_service as docs_search
+
+    monkeypatch.setattr(docs_extract, "emit_event", lambda *args, **kwargs: None)
+    section = _section(GLOBAL_SEARCH, "global-search-docs")
+    configured = {"DOCS_EXTRACT_API_KEY": "k", "DOCS_EXTRACT_BASE_URL": "https://llm.example.test/v1/",
+                  "DOCS_EXTRACT_MODEL": "m"}
+    for kwargs in ({"environ": {"DOCS_EXTRACT_MODEL": "m"}},
+                   {"environ": configured, "can_enforce_deadline": lambda: False}):
+        with pytest.raises(docs_search.DocsSearchError) as caught:
+            docs_extract.extract(None, "שאלה", ["a" * 64], **kwargs)
+        assert f"``{caught.value.code}``" in section
+    with pytest.raises(docs_search.DocsSearchError) as caught:
+        docs_extract.parse_answer("", 1, 1)
+    assert f"``{caught.value.code}``" in section
+
+
+def test_the_catalog_lists_the_extract_event(monkeypatch):
+    """``docs_extract`` נשלח דרך הקבוע ``EVENT``, ולכן הביטוי של ``test_the_catalog_lists_exactly_the_events_that_are_emitted``
+    לא רואה אותו. כאן נבדק שהוא בקטלוג, עם כל ערכי ``outcome``."""
+    from services import docs_extract_service as docs_extract
+
+    section = _section(EVENTS_CATALOG, "docs-index-events")
+    assert f"- ``{docs_extract.EVENT}``" in section
+    for outcome in (docs_extract.OUTCOME_FOUND, docs_extract.OUTCOME_NOT_FOUND, docs_extract.OUTCOME_FAILED):
+        assert f"``{outcome}``" in section
+
+
+def test_the_commit_the_size_cap_was_measured_at_is_the_one_the_code_names():
+    """המספר עצמו כתוב רק בקוד, ליד ``MAX_SECTIONS_BYTES``, עם התאריך. העמוד נוקב בשם ובקומיט, וכאן נבדק שהם
+    אותו קומיט."""
+    source = (ROOT / "services" / "docs_extract_service.py").read_text(encoding="utf-8")
+    commits = set(re.findall(r"בקומיט ``([0-9a-f]{7,40})``", source))
+    assert len(commits) == 1, commits
+    assert f"``{commits.pop()}``" in _section(GLOBAL_SEARCH, "global-search-docs")

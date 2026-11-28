@@ -562,3 +562,169 @@ def test_choosing_docs_disables_the_filters_it_ignores(admin_live_server, chromi
     assert with_docs == [True, True, True], with_docs
     assert with_content == [False, False, False], with_content
     assert after_clear == [False, False, False], after_clear
+
+
+# ---------------------------------------------------------------------------
+# "חלץ" מעל הכרטיסים
+# ---------------------------------------------------------------------------
+
+#: ההגדרות של "חלץ", כמו ב-Render. השרת של ``admin_live_server`` רץ בתהליך הזה, והתבנית קוראת אותן בכל רינדור.
+EXTRACT_ENV = {
+    "DOCS_EXTRACT_API_KEY": "extract-key-123",
+    "DOCS_EXTRACT_BASE_URL": "https://llm.example.test/v1/",
+    "DOCS_EXTRACT_MODEL": "extract-model",
+}
+
+#: תשובה של "נמצא": הקטע במארקדאון, והסעיף השני בצורה של כרטיס, בלי המארקדאון שלו.
+FOUND = {
+    "ok": True,
+    "found": True,
+    "quote": "**סעיף קצר** עם התשובה.",
+    "section": {key: value for key, value in RESULTS[1].items() if key not in ("markdown", "score")},
+}
+
+#: מה שמוצג מעל הכרטיסים: הכפתור, מצבו, והתוצאה — ואיפה הם ביחס לכרטיס הראשון.
+EXTRACT_STATE_JS = """() => {
+  const bar = document.querySelector('[data-testid="docs-extract"]');
+  if (!bar) return {bar: false};
+  const button = bar.querySelector('[data-docs-extract]');
+  const card = document.querySelector('[data-testid="docs-result"]');
+  const found = bar.querySelector('[data-testid="docs-extract-found"]');
+  const link = found && found.querySelector('a[target="_blank"]');
+  return {
+    bar: true,
+    above: !!card && bar.getBoundingClientRect().bottom <= card.getBoundingClientRect().top,
+    button: button && button.textContent.trim(),
+    disabled: !!button && button.disabled,
+    running: !!button && button.classList.contains('is-running'),
+    found: !!found,
+    strong: found ? (found.querySelector('[data-docs-extract-body] strong') || {}).textContent || null : null,
+    title: found ? found.querySelector('.docs-result-title').textContent : null,
+    trail: found ? (found.querySelector('.docs-result-trail') || {}).textContent || null : null,
+    href: link && link.getAttribute('href'),
+    rel: link && link.getAttribute('rel'),
+    notFound: (bar.querySelector('[data-testid="docs-extract-not-found"]') || {}).textContent || null,
+    problem: (bar.querySelector('[data-testid="docs-extract-problem"]') || {}).textContent || null,
+  };
+}"""
+
+
+@pytest.fixture
+def extract_env(monkeypatch):
+    for name, value in EXTRACT_ENV.items():
+        monkeypatch.setenv(name, value)
+
+
+def until(state_js: str, field: str, waiting: str) -> str:
+    """ביטוי ל-``poll``: המצב של ``state_js`` כשהשדה ``field`` אמת, ואחרת ``waiting``."""
+    return f"() => {{ const s = ({state_js})(); return s.{field} ? {{ok: true, ...s}} : {waiting!r}; }}"
+
+
+@contextlib.contextmanager
+def extract_page(server, executable, search_api: DocsApi, extract_api: DocsApi):
+    """עמוד הקבצים, עם תשובות מזויפות גם ל-``/api/search/docs/extract`` — הן נבדקות לבד ב-
+    ``tests/test_docs_extract_service.py``, וכאן נבדק מה הדפדפן עושה איתן."""
+    with files_page(server, executable, search_api) as page:
+        page.route(re.compile(r".*/api/search/docs/extract$"), extract_api.handle)
+        yield page
+
+
+def test_extract_sits_above_the_cards_is_disabled_while_it_runs_and_shows_the_quote_with_its_link(
+        admin_live_server, chromium_executable, wired_mongo, extract_env):
+    search, extract = DocsApi((200, ok_response())), DocsApi(None)
+    with extract_page(admin_live_server, chromium_executable, search, extract) as page:
+        search_docs(page, "איך מחלצים")
+        wait_rendered(page)
+        before = page.evaluate(EXTRACT_STATE_JS)
+        page.click('[data-docs-extract]')
+        running = poll(page, until(EXTRACT_STATE_JS, "running", "not running yet"), "החילוץ רץ")
+        extract.release(200, FOUND)
+        after = poll(page, until(EXTRACT_STATE_JS, "strong", "no quote yet"), "הקטע מרונדר")
+
+    assert (before["bar"], before["above"], before["button"], before["disabled"]) == (True, True, "חלץ", False), before
+    assert (running["disabled"], running["button"]) == (True, "מחלץ"), running
+    assert extract.requests == [{"query": "איך מחלצים", "section_ids": [r["section_id"] for r in RESULTS]}]
+    assert (after["strong"], after["title"], after["trail"]) == ("סעיף קצר", "אינדקס התיעוד", "חיפוש גלובלי"), after
+    assert after["href"] == RESULTS[1]["url"] and "noopener" in after["rel"].split(), after
+    assert (after["disabled"], after["running"], after["button"], after["above"]) == (False, False, "חלץ", True), after
+
+
+@pytest.mark.parametrize("complete", [True, False], ids=["complete-index", "partial-index"])
+def test_not_found_says_so_and_mentions_a_partial_index(
+        admin_live_server, chromium_executable, wired_mongo, extract_env, complete):
+    search, extract = DocsApi((200, ok_response(complete=complete))), DocsApi((200, {"ok": True, "found": False}))
+    with extract_page(admin_live_server, chromium_executable, search, extract) as page:
+        search_docs(page, "לא קיים")
+        wait_rendered(page)
+        page.click('[data-docs-extract]')
+        state = poll(page, until(EXTRACT_STATE_JS, "notFound", "no answer yet"), "תשובת לא נמצא")
+
+    assert "לא נמצא" in state["notFound"] and not state["found"], state
+    assert ("ייתכן שחסרים" in state["notFound"]) is (not complete), state
+
+
+def test_a_failed_extract_names_the_code_and_what_is_missing(
+        admin_live_server, chromium_executable, wired_mongo, extract_env):
+    body = {"ok": False, "error": "extract_misconfigured", "detail": "DOCS_EXTRACT_MODEL לא מוגדר"}
+    search, extract = DocsApi((200, ok_response())), DocsApi((503, body))
+    with extract_page(admin_live_server, chromium_executable, search, extract) as page:
+        search_docs(page, "הגדרות")
+        wait_rendered(page)
+        page.click('[data-docs-extract]')
+        state = poll(page, until(EXTRACT_STATE_JS, "problem", "no answer yet"), "הודעת כשל")
+
+    assert "extract_misconfigured" in state["problem"] and "DOCS_EXTRACT_MODEL" in state["problem"], state
+    assert state["disabled"] is False, state
+
+
+def test_a_new_search_removes_the_extract_at_once_and_a_late_extract_answer_is_not_shown(
+        admin_live_server, chromium_executable, wired_mongo, extract_env):
+    """החילוץ נתקע אצל השרת, ובינתיים מתחיל חיפוש חדש — שגם הוא מחכה. הכפתור ותוצאת החילוץ יורדים מיד, ולא
+    כשהחיפוש החדש עונה. ואז החילוץ הישן חוזר: הוא לא מוצג, גם לא אחרי שהחיפוש החדש מציג כפתור משלו."""
+    search, extract = DocsApi((200, ok_response()), None), DocsApi(None)
+    with extract_page(admin_live_server, chromium_executable, search, extract) as page:
+        search_docs(page, "ישן")
+        wait_rendered(page)
+        page.click('[data-docs-extract]')
+        poll(page, until(EXTRACT_STATE_JS, "running", "not running yet"), "החילוץ רץ")
+        page.fill("#globalSearchInput", "חדש")
+        page.press("#globalSearchInput", "Enter")
+        gone = poll(page, f"() => {{ const s = ({EXTRACT_STATE_JS})(); return s.bar ? 'still there' : {{ok: true}}; }}",
+                    "הכפתור ירד עם תחילת החיפוש החדש")
+        with page.expect_event("requestfinished", lambda request: request.url.endswith("/api/search/docs/extract")):
+            extract.release(200, FOUND)
+        search.release(200, ok_response())
+        wait_rendered(page)
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            final = page.evaluate(EXTRACT_STATE_JS)
+            assert final["bar"] and not final["found"] and not final["running"], final
+            time.sleep(0.1)
+
+    assert gone == {"ok": True}
+    assert [r["query"] for r in search.requests] == ["ישן", "חדש"]
+    assert (final["button"], final["disabled"]) == ("חלץ", False), final
+
+
+def test_without_extract_settings_there_is_no_extract_button(admin_live_server, chromium_executable, wired_mongo,
+                                                             monkeypatch):
+    for name in EXTRACT_ENV:
+        monkeypatch.delenv(name, raising=False)
+    search = DocsApi((200, ok_response()))
+    with files_page(admin_live_server, chromium_executable, search) as page:
+        search_docs(page, "בלי הגדרות")
+        wait_rendered(page)
+        state = page.evaluate(EXTRACT_STATE_JS)
+
+    assert state == {"bar": False}
+
+
+def test_a_search_without_results_has_no_extract_button(admin_live_server, chromium_executable, wired_mongo,
+                                                        extract_env):
+    search = DocsApi((200, ok_response([])))
+    with files_page(admin_live_server, chromium_executable, search) as page:
+        search_docs(page, "כלום")
+        poll(page, "() => !!document.querySelector('[data-testid=\"docs-search-status\"]')", "שורת המצב")
+        state = page.evaluate(EXTRACT_STATE_JS)
+
+    assert state == {"bar": False}

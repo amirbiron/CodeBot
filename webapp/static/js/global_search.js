@@ -12,6 +12,11 @@
   // בדרך ולא חיפוש שהשרת עוד עונה עליו. ``tests/test_docs_search_files_page.py`` משווה ביניהם.
   const DOCS_SEARCH_DEADLINE_MS = 30000;
 
+  // "חלץ" מעל התוצאות של החיפוש בתיעוד (``POST /api/search/docs/extract``). השרת מגביל את קריאת הסעיפים מהמסד
+  // (``SEARCH_DB_TIMEOUT_SECONDS``) ואת הקריאה למודל (``EXTRACT_DEADLINE_SECONDS`` ב-``services/docs_extract_service.py``).
+  // הדדליין כאן ארוך מסכומן, ו-``tests/test_docs_search_files_page.py`` משווה ביניהם.
+  const DOCS_EXTRACT_DEADLINE_MS = 75000;
+
   let currentSearchQuery = '';
   let currentSearchPage = 1;
   let suggestionsTimeout = null;
@@ -25,6 +30,9 @@
   let searchButtonHtml = null;
   // הסעיפים של החיפוש האחרון בתיעוד. "העתק כמארקדאון" מפנה לכאן לפי מספר הכרטיס.
   let docsResults = [];
+  // מה ש"חלץ" שולח ומה שהוא מציג, מהחיפוש בתיעוד שמוצג עכשיו: השאלה, המזהים של הסעיפים, והאם האינדקס שלם.
+  // ``null`` כשאין חיפוש כזה על המסך.
+  let docsExtractContext = null;
   const META_ICONS = {
     score: '<svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>',
     size: '<svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>',
@@ -116,6 +124,12 @@
       if (result) copyToClipboard(result.markdown, copyBtn, 'לא הצלחתי להעתיק את הסעיף ללוח');
     });
     document.addEventListener('click', function(e){
+      const extractBtn = e.target.closest('button[data-docs-extract]');
+      if (!extractBtn) return;
+      e.preventDefault();
+      performDocsExtract(extractBtn);
+    });
+    document.addEventListener('click', function(e){
       const expandBtn = e.target.closest('button[data-docs-expand]');
       if (!expandBtn) return;
       e.preventDefault();
@@ -196,6 +210,7 @@
       currentSearchQuery = '';
       currentSearchPage = 1;
       docsResults = [];
+      docsExtractContext = null;
       // חיפוש שעוד באוויר לא יכתוב תוצאות אחרי הניקוי. הוא גם לא יחזיר את הכפתור, ולכן כאן.
       searchSeq += 1;
       resetSearchButton();
@@ -234,6 +249,10 @@
     currentSearchPage = page;
 
     const seq = ++searchSeq;
+    // "חלץ" ותוצאת החילוץ שייכים לחיפוש הקודם, ולכן הם יורדים מהמסך עכשיו ולא כשהתשובה החדשה מגיעה. זה גם מה
+    // שמונע הצגה של חילוץ שעוד באוויר: התיבה שהוא היה כותב אליה כבר לא בעמוד. הבדיקה של ``searchSeq`` כשהוא חוזר
+    // רק עוצרת אותו מלהמשיך לעבוד בשבילה.
+    removeDocsExtract();
     // הכפתור נשמר כשהוא במנוחה. חיפוש שמתחיל בזמן שאחר באוויר היה שומר את "מחפש..." ומחזיר אותו.
     if (searchButtonHtml === null) searchButtonHtml = btn.innerHTML;
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> מחפש...';
@@ -387,6 +406,8 @@
     const option = docsOption();
     const searchUrl = option ? option.dataset.searchUrl : '';
     const adminUrl = option ? option.dataset.adminUrl : '';
+    // רק כשההגדרות של החילוץ לא ריקות כולן (``docs_extract_offered`` בתבנית). בלעדיה אין כפתור "חלץ".
+    const extractUrl = option ? (option.dataset.extractUrl || '') : '';
     let res;
     let data = null;
     try {
@@ -419,7 +440,7 @@
       showDocsProblem(code, reason, adminUrl);
       return;
     }
-    await renderDocsResults(query, data, adminUrl, seq);
+    await renderDocsResults(query, data, adminUrl, extractUrl, seq);
   }
 
   function adminLinkHtml(adminUrl){
@@ -444,6 +465,7 @@
     results.innerHTML = '';
     pagination.innerHTML = '';
     docsResults = [];
+    docsExtractContext = null;
     container.style.display = 'block';
   }
 
@@ -471,10 +493,27 @@
     }
   }
 
-  function renderDocsCard(r, index){
+  // השביל שמעל הכותרת והכותרת עצמה, מסעיף בתשובה של השרת. הכרטיס ותוצאת "חלץ" מציגים סעיף מכאן.
+  function docsHeading(r){
     const trail = Array.isArray(r.breadcrumb) ? r.breadcrumb.filter(function(part){ return typeof part === 'string'; }) : [];
-    const path = trail.slice(0, -1);
-    const title = typeof r.title === 'string' && r.title ? r.title : (trail[trail.length - 1] || '');
+    return {
+      path: trail.slice(0, -1),
+      title: typeof r.title === 'string' && r.title ? r.title : (trail[trail.length - 1] || '')
+    };
+  }
+
+  function docsSiteLinkHtml(siteUrl){
+    return siteUrl
+      ? '<a class="btn btn-primary btn-icon" href="' + escapeHtml(siteUrl) + '" target="_blank" rel="noopener">' +
+          '<i class="fas fa-book-open"></i><span class="btn-text"> פתח באתר התיעוד</span>' +
+        '</a>'
+      : '';
+  }
+
+  function renderDocsCard(r, index){
+    const heading = docsHeading(r);
+    const path = heading.path;
+    const title = heading.title;
     const sourcePath = typeof r.source_path === 'string' ? r.source_path : '';
     const score = typeof r.score === 'number' && isFinite(r.score) ? r.score.toFixed(2) : '—';
     const siteUrl = docsSiteUrl(r.url);
@@ -497,11 +536,7 @@
         '<div class="result-card-footer docs-result-actions">' +
           // התוכן והמצב נקבעים ב-``syncDocsExpandButton`` כשהכפתור נחשף.
           '<button type="button" class="btn btn-secondary btn-icon" data-docs-expand hidden></button>' +
-          (siteUrl
-            ? '<a class="btn btn-primary btn-icon" href="' + escapeHtml(siteUrl) + '" target="_blank" rel="noopener">' +
-                '<i class="fas fa-book-open"></i><span class="btn-text"> פתח באתר התיעוד</span>' +
-              '</a>'
-            : '') +
+          docsSiteLinkHtml(siteUrl) +
           '<button type="button" class="btn btn-secondary btn-icon" data-docs-copy="' + index + '">' +
             '<i class="fas fa-copy"></i><span class="btn-text"> העתק כמארקדאון</span>' +
           '</button>' +
@@ -510,7 +545,7 @@
     );
   }
 
-  async function renderDocsResults(query, data, adminUrl, seq){
+  async function renderDocsResults(query, data, adminUrl, extractUrl, seq){
     const container = $('searchResultsContainer');
     const info = $('searchInfo');
     const results = $('searchResults');
@@ -520,6 +555,11 @@
     docsResults = data.results.map(function(r){
       return Object.assign({}, r, { markdown: typeof r.markdown === 'string' ? r.markdown : '' });
     });
+    docsExtractContext = {
+      query: query,
+      sectionIds: docsResults.map(function(r){ return r.section_id; }).filter(function(id){ return typeof id === 'string'; }),
+      indexComplete: data.index_complete === true
+    };
     info.innerHTML = docsStatusHtml(query, docsResults.length, data, adminUrl);
     renderCommandShortcuts('');
     pagination.innerHTML = '';
@@ -528,22 +568,13 @@
       container.style.display = 'block';
       return;
     }
-    results.innerHTML = '<div class="results-container"><div class="global-search-results stagger-feed" role="list">' +
+    results.innerHTML = (extractUrl && docsExtractContext.sectionIds.length ? docsExtractBarHtml() : '') +
+      '<div class="results-container"><div class="global-search-results stagger-feed" role="list">' +
       docsResults.map(renderDocsCard).join('') + '</div></div>';
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-    let renderer = null;
-    try {
-      if (typeof window.loadMarkdownDependencies !== 'function' || typeof window.MarkdownLiveRenderer === 'undefined') {
-        throw new Error('markdown_scripts_missing');
-      }
-      await window.loadMarkdownDependencies();
-      if (!window.MarkdownLiveRenderer.isSupported()) throw new Error('markdown_renderer_unsupported');
-      renderer = window.MarkdownLiveRenderer;
-    } catch (err) {
-      console.warn('Markdown dependencies failed to load', err);
-    }
+    const renderer = await loadDocsRenderer();
     if (seq !== searchSeq) return;
 
     const bodies = results.querySelectorAll('[data-docs-body]');
@@ -553,24 +584,43 @@
     }
   }
 
-  // סעיף אחד: אותו רינדור כמו בדפדפן הריפו (``renderWithAnchors`` ואז ``enhance``). כשהרינדור לא
-  // זמין, מוצג המקור עם הודעה גלויה, ולא כרטיס ריק או רינדור חלקי שנראה תקין.
-  async function renderDocsBody(body, markdown, index, renderer){
+  // ``MarkdownLiveRenderer`` אחרי שהתלויות שלו נטענו, או ``null`` כשאין אותו. הכרטיסים ותוצאת "חלץ" מרונדרים בו.
+  async function loadDocsRenderer(){
+    try {
+      if (typeof window.loadMarkdownDependencies !== 'function' || typeof window.MarkdownLiveRenderer === 'undefined') {
+        throw new Error('markdown_scripts_missing');
+      }
+      await window.loadMarkdownDependencies();
+      if (!window.MarkdownLiveRenderer.isSupported()) throw new Error('markdown_renderer_unsupported');
+      return window.MarkdownLiveRenderer;
+    } catch (err) {
+      console.warn('Markdown dependencies failed to load', err);
+      return null;
+    }
+  }
+
+  // מארקדאון מהתיעוד בתוך ``body``: אותו רינדור כמו בדפדפן הריפו (``renderWithAnchors`` ואז ``enhance``),
+  // עם קידומת ``idPrefix`` למזהים. כשהרינדור לא זמין, מוצג המקור עם הודעה גלויה, ולא גוף ריק או רינדור
+  // חלקי שנראה תקין.
+  async function renderDocsMarkdown(body, markdown, idPrefix, renderer){
     if (renderer) {
       try {
         const rendered = await renderer.renderWithAnchors(markdown);
         body.innerHTML = rendered.html;
-        scopeIds(body, 'docs-result-' + index + '-');
+        scopeIds(body, idPrefix);
         await renderer.enhance(body, rendered.anchors);
+        return;
       } catch (err) {
         console.warn('docs section render failed', err);
-        renderer = null;
       }
     }
-    if (!renderer) {
-      body.innerHTML = '<p class="docs-result-render-note">התצוגה המעוצבת לא נטענה, ולכן מוצג המקור.</p>' +
-        '<pre class="docs-result-source" dir="auto">' + escapeHtml(markdown) + '</pre>';
-    }
+    body.innerHTML = '<p class="docs-result-render-note">התצוגה המעוצבת לא נטענה, ולכן מוצג המקור.</p>' +
+      '<pre class="docs-result-source" dir="auto">' + escapeHtml(markdown) + '</pre>';
+  }
+
+  // סעיף אחד בכרטיס, ואחריו הקיפול של סעיף ארוך.
+  async function renderDocsBody(body, markdown, index, renderer){
+    await renderDocsMarkdown(body, markdown, 'docs-result-' + index + '-', renderer);
     const clip = body.closest('[data-docs-clip]');
     const card = body.closest('.search-result-card--docs');
     const expandBtn = card ? card.querySelector('[data-docs-expand]') : null;
@@ -625,6 +675,141 @@
         a.setAttribute('href', '#' + prefix + target);
       }
     });
+  }
+
+  // ── "חלץ" בחיפוש בתיעוד ──────────────────────────────────────────────────
+
+  // הקודים של ``services/docs_extract_service.py``. קוד שאינו כאן נלקח מ-``DOCS_SEARCH_PROBLEMS`` (למשל
+  // ``database_unavailable`` או ``admin_only``), ואחרת מוצגת הודעה כללית עם הקוד.
+  const DOCS_EXTRACT_PROBLEMS = {
+    extract_not_configured: 'החילוץ לא מוגדר.',
+    extract_misconfigured: 'ההגדרות של החילוץ לא תקינות.',
+    extract_needs_gevent: 'השרת לא רץ עם gevent, ולכן אי אפשר להגביל את זמן החילוץ.',
+    extract_timeout: 'המודל לא ענה בזמן. נסו שוב.',
+    extract_quota: 'הספק של המודל הגביל את קצב הבקשות. נסו שוב בעוד רגע.',
+    extract_failed: 'הקריאה למודל נכשלה.',
+    extract_bad_answer: 'המודל ענה בצורה לא צפויה. נסו שוב.',
+    sections_gone: 'הסעיפים כבר לא באינדקס. חפשו שוב.',
+    sections_too_large: 'הסעיפים ארוכים מדי לשליחה למודל.',
+    invalid_section_ids: 'רשימת הסעיפים לא תקינה.',
+    database_timeout: 'קריאת הסעיפים מהמסד לקחה יותר מדי זמן. נסו שוב.',
+    timeout: 'החילוץ לא הסתיים בזמן. נסו שוב.'
+  };
+
+  function docsExtractBarHtml(){
+    return '<div class="docs-extract" dir="rtl" data-docs-extract-bar data-testid="docs-extract">' +
+        '<div class="docs-extract-actions">' +
+          '<button type="button" class="btn btn-secondary docs-extract-btn" data-docs-extract>חלץ</button>' +
+        '</div>' +
+        '<div class="docs-extract-result" data-docs-extract-result hidden></div>' +
+      '</div>';
+  }
+
+  function removeDocsExtract(){
+    const bar = document.querySelector('[data-docs-extract-bar]');
+    if (bar) bar.remove();
+  }
+
+  // בזמן ריצה הכפתור מושבת, ובמקום "חלץ" מופיע "מחלץ" עם התנועה של ``thinking-text`` מ-finesse (``global_search.css``).
+  function setDocsExtractRunning(button, running){
+    button.disabled = running;
+    button.classList.toggle('is-running', running);
+    button.setAttribute('aria-busy', running ? 'true' : 'false');
+    button.innerHTML = running
+      ? '<span class="docs-extract-label">מחלץ</span>' +
+        '<span class="docs-extract-dots" aria-hidden="true"><span></span><span></span><span></span></span>'
+      : 'חלץ';
+  }
+
+  async function performDocsExtract(button){
+    const context = docsExtractContext;
+    const option = docsOption();
+    const extractUrl = option ? (option.dataset.extractUrl || '') : '';
+    const bar = button.closest('[data-docs-extract-bar]');
+    const box = bar ? bar.querySelector('[data-docs-extract-result]') : null;
+    if (!context || !extractUrl || !box || button.disabled) return;
+    // החילוץ שייך לחיפוש שמוצג עכשיו. חיפוש חדש מקדם את ``searchSeq`` ומוריד את הכפתור, ותשובה שמגיעה אחריו
+    // לא מוצגת.
+    const seq = searchSeq;
+    setDocsExtractRunning(button, true);
+    box.hidden = true;
+    box.innerHTML = '';
+    let res;
+    let data = null;
+    try {
+      res = await fetch(extractUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ query: context.query, section_ids: context.sectionIds }),
+        signal: AbortSignal.timeout(DOCS_EXTRACT_DEADLINE_MS)
+      });
+      if (res.status === 401 || res.redirected) {
+        window.location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search + location.hash);
+        return;
+      }
+      if ((res.headers.get('content-type') || '').includes('application/json')) {
+        data = await res.json();
+      }
+    } catch (err) {
+      if (seq !== searchSeq) return;
+      console.warn('docs extract failed', err);
+      // ``AbortSignal.timeout`` מבטל עם ``DOMException`` בשם ``TimeoutError``, כמו בחיפוש.
+      showDocsExtractProblem(box, err && err.name === 'TimeoutError' ? 'timeout' : 'network', '');
+      return;
+    } finally {
+      // הכפתור חוזר רק אם הוא עדיין של החיפוש שמוצג; אחרי חיפוש חדש הוא כבר לא בעמוד.
+      if (seq === searchSeq) setDocsExtractRunning(button, false);
+    }
+    if (seq !== searchSeq) return;
+    if (!res.ok || !data || data.ok !== true || typeof data.found !== 'boolean') {
+      const code = data && typeof data.error === 'string' ? data.error : 'http_' + res.status;
+      const detail = data && typeof data.detail === 'string' ? data.detail : '';
+      showDocsExtractProblem(box, code, detail);
+      return;
+    }
+    if (!data.found) {
+      box.innerHTML = '<div class="alert alert-info" data-testid="docs-extract-not-found">' +
+        'לא נמצא בסעיפים קטע שעונה על השאלה.' +
+        (context.indexComplete ? '' : ' האינדקס לא מעודכן לפריסה האחרונה של האתר, וייתכן שחסרים בו סעיפים.') +
+        '</div>';
+      box.hidden = false;
+      return;
+    }
+    await showDocsExtractFound(box, data, seq);
+  }
+
+  function showDocsExtractProblem(box, code, detail){
+    const message = DOCS_EXTRACT_PROBLEMS[code] || DOCS_SEARCH_PROBLEMS[code] || 'החילוץ נכשל.';
+    box.innerHTML = '<div class="alert alert-warning" data-testid="docs-extract-problem">' +
+      escapeHtml(message) + ' <code>' + escapeHtml(code) + '</code>' +
+      (detail ? ' <span class="docs-extract-detail" dir="auto">' + escapeHtml(detail) + '</span>' : '') +
+      '</div>';
+    box.hidden = false;
+  }
+
+  // הקטע כמו שהמודל החזיר אותו, מרונדר כמו סעיף בכרטיס, עם השביל, הכותרת והקישור של הסעיף שממנו הוא נלקח
+  // (אותו ``url`` של הכרטיס, כולל הקפיצה לעדכון ביומן עדכונים).
+  async function showDocsExtractFound(box, data, seq){
+    const section = data.section && typeof data.section === 'object' ? data.section : {};
+    const quote = typeof data.quote === 'string' ? data.quote : '';
+    const heading = docsHeading(section);
+    box.innerHTML =
+      '<div class="docs-extract-found" data-testid="docs-extract-found">' +
+        '<div class="docs-result-heading">' +
+          (heading.path.length ? '<div class="docs-result-trail">' + heading.path.map(escapeHtml).join(' ← ') + '</div>' : '') +
+          '<div class="docs-result-title">' + escapeHtml(heading.title) + '</div>' +
+        '</div>' +
+        '<div class="markdown-preview-container docs-extract-surface">' +
+          '<div class="markdown-preview-content markdown-body" data-docs-extract-body></div>' +
+        '</div>' +
+        '<div class="docs-extract-actions">' + docsSiteLinkHtml(docsSiteUrl(section.url)) + '</div>' +
+      '</div>';
+    box.hidden = false;
+    const renderer = await loadDocsRenderer();
+    if (seq !== searchSeq) return;
+    const body = box.querySelector('[data-docs-extract-body]');
+    if (body) await renderDocsMarkdown(body, quote, 'docs-extract-', renderer);
   }
 
   function getSelectedLanguages(){
