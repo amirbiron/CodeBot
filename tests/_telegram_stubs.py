@@ -138,6 +138,13 @@ class TypeHandler:
 class ApplicationHandlerStop(Exception):
     pass
 
+# ``services/telegram_observability_scope.py`` יורש מ-``JobQueue``. כאן רק הצורה: ``job_callback`` סטטי שמריץ את הג'וב,
+# כמו ב-python-telegram-bot 22.5. ההתנהגות מול הספרייה האמיתית נבדקת ב-``tests/helpers/observability_scope_probe.py``.
+class JobQueue:
+    @staticmethod
+    async def job_callback(job_queue, job):
+        await job.run(job_queue.application)
+
 class ConversationHandler:
     # Sentinel used across code/tests to signal conversation end
     END = object()
@@ -197,6 +204,7 @@ te.Defaults = Defaults
 te.Application = Application
 te.TypeHandler = TypeHandler
 te.ApplicationHandlerStop = ApplicationHandlerStop
+te.JobQueue = JobQueue
 te.ConversationHandler = ConversationHandler
 te.filters = filters
 sys.modules['telegram.ext'] = te

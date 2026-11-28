@@ -9,7 +9,7 @@
 - ``event`` (שם קנוני ב-``snake_case``)
 - ``severity`` (``info``/``warn``/``error``)
 - ``timestamp`` (``ISO8601``, מוסף אוטומטית על ידי structlog)
-- ``request_id`` (מזהה בקשה קצר, מ-ContextVar)
+- ``request_id`` (מזהה בקשה קצר, מ-ContextVar). בבוט — חדש לכל עדכון, לכל ריצה של ג'וב ולכל בקשה לשרת הפנימי: :doc:`observability/guidelines`, בסעיף "קורלציה עם request_id".
 - ``trace_id``/``span_id`` (מוזרקים אוטומטית כש-OpenTelemetry פעיל)
 
 שדות מומלצים

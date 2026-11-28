@@ -33,6 +33,10 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+# מקור האמת ל"מי אדמין" — מודול טהור, בלי תלות ב-``main``. ``main`` מייבא את המודול הזה, וייבוא של ``main`` מכאן טען
+# בעבר את ``main.py`` פעם שנייה בתוך הבוט שרץ כ-``__main__`` (``docs/whats-new/2026-11.rst``, 2026-11-20).
+from user_roles import is_admin
+
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "blocked_users"
@@ -124,20 +128,6 @@ def _parse_ids(raw: str | None) -> frozenset[int]:
 def env_blocked_ids() -> frozenset[int]:
     """הרשימה מ-ENV. נקראת בכל פעם, כי ``os.environ`` זול ובדיקות משנות אותו."""
     return _parse_ids(os.getenv("BLOCKED_USER_IDS"))
-
-
-def _admin_ids() -> frozenset[int]:
-    """מזהי האדמינים, מאותו מקור שהבוט כבר משתמש בו.
-
-    הייבוא מקומי כדי לא ליצור תלות מעגלית: ``main`` מייבא את המודול
-    הזה, ולכן ייבוא ברמת המודול היה נסגר על עצמו.
-    """
-    try:
-        from main import get_admin_ids  # type: ignore
-
-        return frozenset(get_admin_ids() or [])
-    except Exception:
-        return _parse_ids(os.getenv("ADMIN_USER_IDS"))
 
 
 def _collection() -> Any | None:
@@ -251,7 +241,7 @@ async def is_blocked(user_id: int) -> bool:
 
     # אדמין ראשון, ולפני שתי הרשימות: מזהה אדמין שנכנס לרשימה בטעות
     # לא ינעל את מי שאמור לשחרר אותו.
-    if uid in _admin_ids():
+    if is_admin(uid):
         return False
 
     if uid in env_blocked_ids():

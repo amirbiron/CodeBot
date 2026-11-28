@@ -31,10 +31,19 @@ def _ids_from_env(var_name: str) -> List[int]:
         return []
 
 
+def admin_user_ids() -> List[int]:
+    """מזהי האדמינים מ-``ADMIN_USER_IDS``, לפי הסדר שבמשתנה.
+
+    לקוראים שצריכים את הרשימה עצמה ולא רק בדיקת חברות — ``get_admin_ids`` ב-``main.py`` מחזיר אותה. בדיקת "האם X
+    אדמין" עוברת דרך :func:`is_admin`.
+    """
+    return _ids_from_env("ADMIN_USER_IDS")
+
+
 def is_admin(user_id: int) -> bool:
     """בודק אם משתמש הוא אדמין לפי ``ADMIN_USER_IDS``."""
     try:
-        return int(user_id) in _ids_from_env("ADMIN_USER_IDS")
+        return int(user_id) in admin_user_ids()
     except Exception:
         return False
 

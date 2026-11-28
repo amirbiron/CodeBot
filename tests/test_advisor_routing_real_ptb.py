@@ -67,8 +67,9 @@ def _run_probe(tmp_path: Path, scenario: str, env: dict[str, str] | None = None)
         f"הפרוב לא הסתיים כרגיל (קוד {completed.returncode}).\nstderr:\n{completed.stderr[-3000:]}"
     )
     assert report["outcome"] == "done", report.get("traceback")
-    # נבדקה האפליקציה של הפרודקשן, ולא אחד ממסלולי ה-fallback של ``CodeKeeperBot``
-    assert report["application"] == "telegram.ext._application.Application"
+    # נבדקה האפליקציה של הפרודקשן, ולא אחד ממסלולי ה-fallback של ``CodeKeeperBot`` — המחלקה ש-``main.py`` מעביר
+    # ל-``ApplicationBuilder.application_class``
+    assert report["application"] == "services.telegram_observability_scope.IsolatedUpdateApplication"
     assert report["fake_server_errors"] == []
     return report
 

@@ -9,11 +9,12 @@ Structured logging, correlation IDs, and optional Sentry initialization.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import os
 import uuid
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, ContextManager, Dict, Iterator, Mapping, Optional
 import time
 from fnmatch import fnmatch
 import threading
@@ -622,6 +623,60 @@ def setup_structlog_logging(min_level: str | int = "INFO") -> None:
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=False,
     )
+
+
+def _fresh_sentry_isolation_scope() -> ContextManager[Any]:
+    """scope בידוד חדש וריק של Sentry לבלוק, ולא עותק של הנוכחי.
+
+    ``sentry_sdk.isolation_scope()`` מעתיק את ה-scope הנוכחי (``Scope.get_isolation_scope().fork()`` ב-sentry-sdk 2.42.1,
+    ``sentry_sdk/scope.py``), ובג'וב ה-scope הנוכחי הוא של העדכון שבזמן הטיפול בו APScheduler צילם את ההקשר — כך שהעותק
+    היה נושא את התגיות של אותו משתמש. לכן ``Scope(ty=ScopeType.ISOLATION)`` חדש — מה ש-``Scope.get_isolation_scope``
+    עצמו בונה כשאין scope — דרך ``use_isolation_scope``. ה-client לא הולך לאיבוד: ``sentry_sdk.init`` שם אותו על ה-scope
+    הגלובלי (``_init_implementation._init``), ו-scope חדש גם מייצר לעצמו trace משלו (``Scope.__init__``).
+    """
+    try:
+        from sentry_sdk.scope import Scope, ScopeType, use_isolation_scope  # type: ignore
+    except ImportError:
+        # בלי sentry-sdk אין scope לבודד: גם ``_set_sentry_tag`` לא כותב אז לשום מקום.
+        return contextlib.nullcontext()
+    return use_isolation_scope(Scope(ty=ScopeType.ISOLATION))
+
+
+@contextlib.contextmanager
+def isolated_observability_scope() -> Iterator[None]:
+    """מריץ יחידת עבודה אחת — עדכון של הבוט או ריצה של ג'וב — בהקשר משלה, שמתחיל ריק.
+
+    השרת הפנימי לא עובר כאן: הוא עולה בהקשר ריק (``start_site_in_empty_context`` ב-``services/webserver.py``), aiohttp
+    פותח כל בקשה במשימה משלה מתוך ההקשר הזה, ואת ה-scope של בקשה ב-Sentry פותח ``AioHttpIntegration``. scope חדש שהיה
+    נפתח כאן היה מחליף את שלו — יחד עם פרטי ה-HTTP שהוא מצרף לאירוע, ועם האירוע עצמו כשהחריגה לא יוצאת אליו.
+
+    שני דברים בתהליך של הבוט הם הקשר משותף בלי שזה נראה: ה-contextvars של structlog (``request_id``, ``user_id``,
+    ``chat_id``, ``command``), ותגיות ה-scope של Sentry ש-``bind_request_id``, ``bind_user_context`` ו-``bind_command``
+    כותבים. בלי הבלוק הזה הם דלפו בין יחידות:
+
+    - **מעדכון לעדכון.** הבוט מעבד עדכון אחד בכל פעם, באותה משימת asyncio של PTB, ולכן מה שנכרך בעדכון אחד נשאר לבא —
+      ``command`` של לחיצה הופיע על ההודעה שאחריה.
+    - **מעדכון לכל הג'ובים.** ``add_job`` של APScheduler קורא ל-``wakeup`` דרך ``call_soon_threadsafe``, והטיימר שלו
+      ב-``call_later`` — שניהם מצלמים את ההקשר שבו נקראו, וכל ג'וב רץ ב-``create_task`` בתוך הצילום
+      (``apscheduler/schedulers/asyncio.py``, APScheduler 3.11.3). ``run_once`` אחד מתוך handler, ומאז כל הג'ובים בתהליך
+      נשאו את ה-``request_id`` ואת המשתמש של אותו עדכון.
+    - **ב-Sentry, לכל התהליך.** ``sentry_sdk.set_tag`` כותב ל-isolation scope אחד, משותף לכל המשימות.
+
+    בכניסה: ההקשר של structlog מתרוקן, ו-Sentry מקבל scope חדש (:func:`_fresh_sentry_isolation_scope`). מי שקורא לבלוק
+    כורך מיד אחר כך את ההקשר של היחידה. ביציאה — גם בחריגה — שניהם חוזרים למה שהיה לפני. הבלוק סינכרוני ואפשר להחזיק
+    אותו לרוחב ``await``: ההקשר שייך למשימה, וכניסה ויציאה קורות באותה משימה.
+
+    ההיסטוריה: ``docs/whats-new/2026-11.rst``, 2026-11-20.
+    """
+    previous = structlog.contextvars.get_contextvars()
+    structlog.contextvars.clear_contextvars()
+    try:
+        with _fresh_sentry_isolation_scope():
+            yield
+    finally:
+        structlog.contextvars.clear_contextvars()
+        if previous:
+            structlog.contextvars.bind_contextvars(**previous)
 
 
 def generate_request_id() -> str:

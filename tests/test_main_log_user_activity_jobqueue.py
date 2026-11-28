@@ -41,7 +41,8 @@ async def test_log_user_activity_jobqueue_milestone(monkeypatch):
         async def send_message(self, **_k):
             sent["count"] += 1
     class JQ:
-        def run_once(self, cb, when=0, name=None):
+        # החתימה של ``JobQueue.run_once`` ב-python-telegram-bot 22.5 — ``log_user_activity`` מעביר גם ``user_id``/``chat_id``.
+        def run_once(self, cb, when=0, data=None, name=None, chat_id=None, user_id=None, job_kwargs=None):
             # execute immediately
             cb(None)
     class App:
@@ -57,6 +58,9 @@ async def test_log_user_activity_jobqueue_milestone(monkeypatch):
         @property
         def effective_user(self):
             return types.SimpleNamespace(id=99, username="u")
+        @property
+        def effective_chat(self):
+            return types.SimpleNamespace(id=99)
 
     await log_user_activity(Upd(), ctx)
     # run the scheduled coroutine to execute milestone logic

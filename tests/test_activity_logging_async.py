@@ -31,7 +31,8 @@ async def test_log_user_activity_sampling_and_async(monkeypatch):
     # job_queue stub
     captured = {'ran': False}
     class DummyJQ:
-        def run_once(self, cb, when=0, name=None):
+        # החתימה של ``JobQueue.run_once`` ב-python-telegram-bot 22.5 — ``log_user_activity`` מעביר גם ``user_id``/``chat_id``.
+        def run_once(self, cb, when=0, data=None, name=None, chat_id=None, user_id=None, job_kwargs=None):
             # simulate calling the callback immediately
             asyncio.get_event_loop().call_soon(lambda: cb(None))
             return None
@@ -42,6 +43,9 @@ async def test_log_user_activity_sampling_and_async(monkeypatch):
         @property
         def effective_user(self):
             return SimpleNamespace(id=1, username='u')
+        @property
+        def effective_chat(self):
+            return SimpleNamespace(id=1)
     upd = U()
 
     # Call

@@ -71,6 +71,7 @@ except PyMongoError as e:
 ## קורלציה עם request_id
 - תמיד קושרים `request_id` בהתחלה ומעבירים אותו הלאה.
 - מוסיפים לכותרות HTTP/תגובה כשאפשר, כדי להקל על תחקור.
+- **בבוט, כל יחידת עבודה מתחילה בהקשר ריק משלה.** עדכון מטלגרם וריצה של ג'וב רצים כל אחד ב-`isolated_observability_scope` (`observability.py`): ההקשר של structlog מתרוקן, ו-Sentry מקבל scope חדש, כך ששום `request_id`, משתמש או `command` לא עוברים מיחידה ליחידה. השרת הפנימי (`services/webserver.py`) עולה בהקשר ריק (`start_site_in_empty_context`), ו-aiohttp פותח כל בקשה במשימה משלה מתוך ההקשר הזה; את ה-scope של בקשה ב-Sentry פותח `AioHttpIntegration`, והוא גם זה שתופס חריגה של handler. עדכון מקבל `request_id` חדש, את המשתמש ואת הצ'אט, ו-`command=bot:<פקודה>` כשיש פקודה (`IsolatedUpdateApplication`). ריצה של ג'וב מקבלת `request_id` משלה ו-`command=job:<שם הפונקציה>`, ואת המשתמש רק אם הוא הועבר ל-`run_once` (או לחבריו) ב-`user_id` / `chat_id` (`IsolatedJobQueue`). שתי המחלקות ב-`services/telegram_observability_scope.py`. ג'וב **אינו** יורש את ההקשר של העדכון שתזמן אותו: מי שרוצה שהלוגים של ג'וב יישאו משתמש, מעביר אותו בתזמון. למה זה בנוי ככה — הרשומה ב-`docs/whats-new/2026-11.rst`, 2026-11-20.
 
 ```python
 request_id = generate_request_id()

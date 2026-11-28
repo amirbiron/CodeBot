@@ -1,5 +1,6 @@
 import asyncio
 import atexit
+import contextvars
 import logging
 import os
 import secrets
@@ -547,6 +548,24 @@ def _should_emit_sentry_alert(dedup_key: str) -> bool:
         return False
     _SENTRY_DEDUP[dedup_key] = now
     return True
+
+
+async def start_site_in_empty_context(site: web.BaseSite) -> None:
+    """מעלה את השרת בהקשר ריק, כך שכל בקשה מתחילה בלי הקשר לוגים ובלי scope של Sentry ממי שהעלה אותו.
+
+    aiohttp פותח משימה לכל בקשה (``RequestHandler.start``, aiohttp 3.13.1), והיא יורשת את ההקשר שבו השרת התחיל להאזין:
+    ``loop.create_server`` שבתוך ``site.start()`` רושם את קבלת החיבורים ב-``Handle`` שמעתיק את ההקשר הנוכחי. ב-``main.py``
+    השרת עולה מתוך ג'וב (``_start_web_job``), והג'וב רץ ב-``isolated_observability_scope`` עם ``command=job:_start_web_job``
+    ו-scope משלו ב-Sentry. בלי הקשר ריק כל בקשה הייתה יורשת את שניהם — את ה-``command`` בלוגים, ואת התגיות ב-scope ש-
+    ``AioHttpIntegration`` של Sentry מעתיק לכל בקשה (``isolation_scope()`` ב-``sentry_app_handle``, sentry-sdk 2.42.1; היא
+    נדלקת לבד כש-aiohttp מותקן, ו-``init_sentry`` לא מכבה אינטגרציות כאלה). בהקשר ריק ה-scope של כל בקשה נוצר חדש,
+    ``_request_id_mw`` כורך בו את ה-``request_id``, וחריגה של handler נתפסת ב-``AioHttpIntegration`` בתוך ה-scope הזה,
+    פעם אחת: האינטגרציה משתיקה את הלוג ``aiohttp.server`` (``ignore_logger``), שבו aiohttp רושם את אותה חריגה.
+
+    ``context=`` של ``asyncio.create_task`` — Python 3.11 ומעלה. השרת העצמאי (``web.run_app`` בתחתית הקובץ) רץ בתהליך משלו,
+    ולא צריך את זה.
+    """
+    await asyncio.create_task(site.start(), context=contextvars.Context())
 
 
 def create_app() -> web.Application:
