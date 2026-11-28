@@ -300,6 +300,178 @@ def test_the_recommended_cleanup_passes_and_close_alone_does_not(tmp_path):
     )
 
 
+#: מודול מזויף של ``sentry_sdk`` שנשאר ב-``sys.modules``, כמו ב-``test_observability_basic.py`` וב-
+#: ``test_observability_sentry_bridge.py`` עד 28.11.2026. הבדיקה הבאה מייבאת את ``sentry_sdk`` בזמן הריצה — כמו
+#: ``_set_sentry_tag`` ב-``observability.py`` — ובודקת שהיא קיבלה את האמיתי.
+_FAKE_MODULE = """
+import sys
+import types
+
+
+def test_leaves_a_fake_sentry_sdk():
+    sys.modules["sentry_sdk"] = types.ModuleType("sentry_sdk")
+
+
+def test_next_one_imports_the_real_sentry_sdk():
+    import sentry_sdk
+
+    assert hasattr(sentry_sdk, "init") and sentry_sdk.__spec__ is not None
+"""
+
+
+def test_a_test_that_leaves_a_fake_sentry_sdk_errors_and_the_next_gets_the_real_one(tmp_path):
+    output = _run_inner(tmp_path, _FAKE_MODULE, with_guard=True)
+
+    assert "ERROR test_inner.py::test_leaves_a_fake_sentry_sdk" in output, (
+        f"הבדיקה שהשאירה sentry_sdk מזויף לא נכשלה בשמה:\n{output}"
+    )
+    assert "monkeypatch.setitem(sys.modules" in output, f"הכישלון אינו אומר מה לעשות במקום:\n{output}"
+    assert "PASSED test_inner.py::test_next_one_imports_the_real_sentry_sdk" in output, (
+        f"הבדיקה הבאה קיבלה את המודול המזויף:\n{output}"
+    )
+
+
+def test_without_the_guard_a_fake_sentry_sdk_does_reach_the_next_test(tmp_path):
+    output = _run_inner(tmp_path, _FAKE_MODULE, with_guard=False)
+
+    assert "FAILED test_inner.py::test_next_one_imports_the_real_sentry_sdk" in output, (
+        f"בלי הפלאגין המודול המזויף לא הגיע לבדיקה הבאה — התרחיש אינו משחזר את הדליפה:\n{output}"
+    )
+
+
+def test_a_fake_sentry_sdk_through_monkeypatch_is_not_flagged(tmp_path):
+    """הדרך הנכונה: ``monkeypatch.setitem`` מחזיר את האמיתי לפני שהשומר בודק."""
+    body = """
+import sys
+import types
+
+
+def test_fakes_sentry_sdk_the_right_way(monkeypatch):
+    monkeypatch.setitem(sys.modules, "sentry_sdk", types.ModuleType("sentry_sdk"))
+    logging_name = "sentry_sdk.integrations.logging"
+    monkeypatch.setitem(sys.modules, logging_name, types.ModuleType(logging_name))
+
+
+def test_next_one_imports_the_real_sentry_sdk():
+    import sentry_sdk
+
+    assert hasattr(sentry_sdk, "init")
+"""
+    output = _run_inner(tmp_path, body, with_guard=True)
+
+    assert "ERROR test_inner.py::" not in output and "2 passed" in output, (
+        f"בדיקה שהחליפה את sentry_sdk דרך monkeypatch נתפסה כדולפת:\n{output}"
+    )
+
+
+#: תת-מודול מזויף שהוחלף גם ב-``sys.modules`` וגם כמאפיין על ``sentry_sdk``. ``importlib.import_module`` קורא
+#: מ-``sys.modules``, ו-``sentry_sdk.scope`` קורא מהמאפיין — הבדיקה הבאה בודקת ששתי הדרכים מחזירות את אותו מודול אמיתי.
+_FAKE_SUBMODULE_ON_BOTH_PATHS = """
+import importlib
+import sys
+import types
+
+import sentry_sdk
+
+
+def test_leaves_a_fake_scope_on_both_paths():
+    fake = types.ModuleType("sentry_sdk.scope")
+    sys.modules["sentry_sdk.scope"] = fake
+    sentry_sdk.scope = fake
+
+
+def test_next_one_gets_the_same_real_scope_both_ways():
+    via_import = importlib.import_module("sentry_sdk.scope")
+
+    assert sentry_sdk.scope is via_import
+    assert hasattr(via_import, "Scope")
+"""
+
+
+def test_a_fake_submodule_on_both_paths_is_undone_on_both(tmp_path):
+    """ניקוי של ``sys.modules`` בלבד היה מחזיר את האמיתי ל-``import``, ומשאיר את המזויף כמאפיין על ``sentry_sdk``."""
+    output = _run_inner(tmp_path, _FAKE_SUBMODULE_ON_BOTH_PATHS, with_guard=True)
+
+    assert "ERROR test_inner.py::test_leaves_a_fake_scope_on_both_paths" in output, (
+        f"הבדיקה שהשאירה תת-מודול מזויף לא נכשלה בשמה:\n{output}"
+    )
+    assert "PASSED test_inner.py::test_next_one_gets_the_same_real_scope_both_ways" in output, (
+        f"אחרי הניקוי המאפיין על sentry_sdk והייבוא אינם אותו מודול אמיתי:\n{output}"
+    )
+
+
+def test_without_the_guard_a_fake_submodule_on_both_paths_does_reach_the_next_test(tmp_path):
+    output = _run_inner(tmp_path, _FAKE_SUBMODULE_ON_BOTH_PATHS, with_guard=False)
+
+    assert "FAILED test_inner.py::test_next_one_gets_the_same_real_scope_both_ways" in output, (
+        f"בלי הפלאגין התת-מודול המזויף לא הגיע לבדיקה הבאה — התרחיש אינו משחזר את הדליפה:\n{output}"
+    )
+
+
+#: ``sentry_sdk.monitor`` הוא הדקורטור מ-``sentry_sdk.crons``, ולא המודול ``sentry_sdk.monitor``. כשהמודול הוחלף
+#: ב-``sys.modules`` בלבד, הניקוי מחזיר אותו לשם — ואינו דורס את הדקורטור במודול.
+_FAKE_MONITOR_MODULE = """
+import importlib
+import sys
+import types
+
+import sentry_sdk
+import sentry_sdk.crons
+
+
+def test_leaves_a_fake_monitor_module():
+    sys.modules["sentry_sdk.monitor"] = types.ModuleType("sentry_sdk.monitor")
+
+
+def test_next_one_still_has_the_monitor_decorator():
+    assert sentry_sdk.monitor is sentry_sdk.crons.monitor
+    assert hasattr(importlib.import_module("sentry_sdk.monitor"), "Monitor")
+"""
+
+
+def test_an_attribute_that_is_not_the_submodule_is_left_alone(tmp_path):
+    output = _run_inner(tmp_path, _FAKE_MONITOR_MODULE, with_guard=True)
+
+    assert "ERROR test_inner.py::test_leaves_a_fake_monitor_module" in output, (
+        f"הבדיקה שהשאירה מודול מזויף לא נכשלה בשמה:\n{output}"
+    )
+    assert "PASSED test_inner.py::test_next_one_still_has_the_monitor_decorator" in output, (
+        f"הניקוי דרס את sentry_sdk.monitor, או לא החזיר את המודול:\n{output}"
+    )
+
+
+def test_only_a_module_located_inside_the_installed_package_counts_as_real(tmp_path):
+    """תת-מודול שנטען מתוך החבילה נחשב אמיתי — גם חבילה בלי ``__init__.py``, שאין לה ``origin`` — וכל השאר לא.
+
+    ב-sentry-sdk 2.42.1 אין תיקייה בלי ``__init__.py``, ולכן חבילה כזו נבנית כאן ביד, כמו שפייתון בונה אותה:
+    ``origin`` הוא ``None``, והתיקייה שלה ב-``submodule_search_locations``.
+    """
+    import importlib.machinery
+    import types
+
+    import sentry_sdk
+
+    is_real = _sentry_isolation._comes_from_the_installed_sentry_sdk
+
+    def module_with(spec: importlib.machinery.ModuleSpec) -> types.ModuleType:
+        module = types.ModuleType(spec.name)
+        module.__spec__ = spec
+        return module
+
+    def package_in(directory: str) -> types.ModuleType:
+        spec = importlib.machinery.ModuleSpec("sentry_sdk.no_init", None, is_package=True)
+        spec.submodule_search_locations = [directory]
+        return module_with(spec)
+
+    assert is_real(sys.modules["sentry_sdk.scope"])
+    assert is_real(package_in(os.path.join(sentry_sdk.__path__[0], "no_init"))), (
+        "חבילה בלי __init__.py מתוך sentry_sdk סווגה כמזויפת — הייתה יוצאת מ-sys.modules ומכשילה את הבדיקה שטענה אותה"
+    )
+    assert not is_real(package_in(str(tmp_path / "no_init")))
+    assert not is_real(types.ModuleType("sentry_sdk.fake"))
+    assert not is_real(module_with(importlib.machinery.ModuleSpec("sentry_sdk.no_origin", None)))
+
+
 def test_a_dsn_from_the_outer_environment_never_reaches_the_tests(tmp_path):
     """כתובת אמיתית מהמעטפת של מי שמריץ — או מסוד ב-CI — אינה מגיעה לאף בדיקה."""
     body = "import os\n" + _NEXT_STARTS_CLEAN

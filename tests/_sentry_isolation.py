@@ -22,8 +22,16 @@ redis, httpx, aiohttp, flask. הן עוטפות את הספריות האלה ע�
 - בתחילת הריצה מסיר את ``SENTRY_DSN`` מהסביבה, כך שגם כתובת אמיתית מהמעטפת
   של מי שמריץ לא מגיעה לבדיקות.
 - אחרי כל בדיקה, אחרי שכל הפיקסצ'רים שלה פורקו — כולל ``monkeypatch``, ולכן
-  בדיקה שהשתמשה בו נכון אינה נתפסת — ``SENTRY_DSN`` שנשאר בסביבה או לקוח
-  Sentry חי מוחזרים למצב נקי, והבדיקה **שהשאירה אותם** נכשלת בשמה.
+  בדיקה שהשתמשה בו נכון אינה נתפסת — ``SENTRY_DSN`` שנשאר בסביבה, לקוח Sentry
+  חי, או מודול מזויף של ``sentry_sdk`` שנשאר ב-``sys.modules`` מוחזרים למצב
+  נקי, והבדיקה **שהשאירה אותם** נכשלת בשמה.
+
+**ומודול מזויף.** קוד שמייבא את ``sentry_sdk`` בזמן הקריאה — ``_set_sentry_tag``
+ב-``observability.py`` — מקבל את מה שיש ב-``sys.modules`` באותו רגע. בדיקה ששמה
+שם מודול מזויף בלי להחזיר את האמיתי גרמה לכך שבכל הבדיקות שאחריה התגיות לא
+הגיעו ל-scope האמיתי, בזמן שבדיקה שייבאה את ``sentry_sdk`` בזמן האיסוף קיבלה
+אירועים אמיתיים — בלי תגיות. כך נפלו טסטים של ``tests/test_webserver_observability_scope.py``
+בריצה הסדרתית של ``deploy.yml`` ב-28.11.2026, אחרי ``tests/test_observability_basic.py``.
 
 **למה להכשיל ולא לנקות בשקט.** ניקוי שקט היה מסתיר את הבדיקה הדולפת, והכשל
 הבא היה מופיע שוב אצל בדיקה אחרת, תמימה — בדיוק מה שקרה כאן.
@@ -36,6 +44,8 @@ redis, httpx, aiohttp, flask. הן עוטפות את הספריות האלה ע�
 from __future__ import annotations
 
 import os
+import sys
+from types import ModuleType
 
 import pytest
 
@@ -51,8 +61,85 @@ DSN_ENV = "SENTRY_DSN"
 REPORT_PREFIX = "[sentry-isolation]"
 
 
+#: המודולים האמיתיים של sentry-sdk שנטענו עד תחילת הריצה, לפי שם (``pytest_configure``). בדיקה שהחליפה אחד מהם
+#: ב-``sys.modules`` ולא החזירה אותו נתפסת מול הרשימה הזו.
+_REAL_SENTRY_MODULES: dict[str, ModuleType] = {}
+
+
+def _is_sentry_module_name(name: str) -> bool:
+    return name == "sentry_sdk" or name.startswith("sentry_sdk.")
+
+
 def pytest_configure(config: pytest.Config) -> None:
     os.environ.pop(DSN_ENV, None)
+    _REAL_SENTRY_MODULES.update({name: mod for name, mod in sys.modules.items() if _is_sentry_module_name(name)})
+
+
+def _comes_from_the_installed_sentry_sdk(module: object) -> bool:
+    """האם המודול נטען מהחבילה המותקנת. למודול מזויף (``types.ModuleType``) ה-``__spec__`` הוא ``None``.
+
+    המקום של מודול הוא ה-``origin`` שלו, ובחבילה בלי ``__init__.py`` — שבה ``origin`` הוא ``None`` — התיקיות שלה
+    (``submodule_search_locations``). המקום של sentry-sdk נלקח מ-``sentry_sdk.__path__`` מאותה סיבה, ולא מה-``origin``
+    של ``sentry_sdk``. מודול בלי אף מקום אינו מהחבילה.
+    """
+    if sentry_sdk is None:
+        return False
+    spec = getattr(module, "__spec__", None)
+    origin = getattr(spec, "origin", None)
+    locations = [origin] if origin else list(getattr(spec, "submodule_search_locations", None) or ())
+    if not locations:
+        return False
+    roots = [os.path.abspath(path) + os.sep for path in sentry_sdk.__path__]
+    return all(any(os.path.abspath(location).startswith(root) for root in roots) for location in locations)
+
+
+def _undo_replacement(name: str, found: object, real: ModuleType | None) -> None:
+    """מחזיר את ``real`` ל-``sys.modules`` במקום ``found`` (או מוציא את השם כש-``real`` הוא ``None``).
+
+    גם המאפיין על המודול ההורה מתוקן — אבל רק כשהוא מצביע על ``found``. ``import x.y`` ו-``importlib.import_module``
+    קוראים מ-``sys.modules``, ו-``x.y`` קורא מהמאפיין, ובדיקה שהחליפה את שניהם הייתה משאירה אחרי ניקוי של
+    ``sys.modules`` בלבד שני מודולים שונים לאותו שם. ולמה רק כשהוא ``found``: לא כל מאפיין בשם של תת-מודול הוא
+    התת-מודול.
+    ב-sentry-sdk 2.42.1 ``sentry_sdk.monitor`` הוא הדקורטור מ-``sentry_sdk.crons``, ולא המודול ``sentry_sdk.monitor``.
+    """
+    if real is None:
+        del sys.modules[name]
+    else:
+        sys.modules[name] = real
+    parent_name, _, child = name.rpartition(".")
+    parent = sys.modules.get(parent_name) if parent_name else None
+    if parent is None or found is None or getattr(parent, child, None) is not found:
+        return
+    if real is None:
+        delattr(parent, child)
+    else:
+        setattr(parent, child, real)
+
+
+def restore_real_sentry_modules() -> list[str]:
+    """מחזיר ל-``sys.modules`` את המודולים האמיתיים של sentry-sdk, ומחזיר את שמות אלה שהיו מוחלפים.
+
+    שם שהיה ברשימה של תחילת הריצה ומוחזק עכשיו במודול אחר — חוזר למודול האמיתי. שם שלא היה ברשימה (תת-מודול
+    שנטען מאוחר יותר) ואינו מהחבילה המותקנת — יוצא מ-``sys.modules``, והייבוא הבא טוען את האמיתי. בשני המקרים גם
+    המאפיין על המודול ההורה מתוקן, כשהוא מצביע על המודול שהוחלף (``_undo_replacement``).
+    """
+    replaced: list[str] = []
+    # ההורה לפני הילדים: כשגם ``sentry_sdk`` עצמו הוחלף, המאפיין של כל ילד נבדק על ההורה האמיתי.
+    names = sorted(
+        {name for name in sys.modules if _is_sentry_module_name(name)} | set(_REAL_SENTRY_MODULES),
+        key=lambda name: (name.count("."), name),
+    )
+    for name in names:
+        real = _REAL_SENTRY_MODULES.get(name)
+        found = sys.modules.get(name)
+        if real is not None:
+            if found is not real:
+                _undo_replacement(name, found, real)
+                replaced.append(name)
+        elif found is not None and not _comes_from_the_installed_sentry_sdk(found):
+            _undo_replacement(name, found, None)
+            replaced.append(name)
+    return sorted(replaced)
 
 
 def shut_down_sentry() -> bool:
@@ -104,6 +191,13 @@ def restore_sentry_isolation() -> list[str]:
             f"{DSN_ENV} נשאר בסביבה. כותבים אותו ב-monkeypatch.setenv ולא ב-os.environ[...] = ..., "
             "ו-monkeypatch.delenv אחרי השמה ישירה אינו ניקוי: הוא זוכר את הערך שמצא ומחזיר אותו "
             "בסוף הבדיקה."
+        )
+    replaced = restore_real_sentry_modules()
+    if replaced:
+        problems.append(
+            f"מודול של sentry_sdk הוחלף ב-sys.modules ולא הוחזר ({', '.join(replaced)}). מחליפים אותו ב-"
+            "monkeypatch.setitem(sys.modules, ...), שמחזיר את האמיתי בסוף הבדיקה. השמה ישירה נשארת לכל שאר "
+            "הריצה, וכל קוד שמייבא את sentry_sdk בזמן הקריאה מקבל אחריה את המזויף."
         )
     if shut_down_sentry():
         problems.append(

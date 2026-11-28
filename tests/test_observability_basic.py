@@ -68,8 +68,13 @@ def test_init_sentry_with_dsn_invokes_init(monkeypatch):
             self.event_level = event_level
     integ_mod.LoggingIntegration = LoggingIntegration
 
-    sys.modules["sentry_sdk"] = sentry_mod
-    sys.modules["sentry_sdk.integrations.logging"] = integ_mod
+    # דרך monkeypatch, שמחזיר את המודולים האמיתיים בסוף הבדיקה. השמה ישירה נשארת לכל שאר הריצה
+    # (``tests/_sentry_isolation.py`` מכשיל אותה).
+    monkeypatch.setitem(sys.modules, "sentry_sdk", sentry_mod)
+    monkeypatch.setitem(sys.modules, "sentry_sdk.integrations.logging", integ_mod)
+    # ``init_sentry`` זוכר שכבר רץ ועם איזו כתובת, ובלי זה הזיכרון נשאר לבדיקות שאחריה.
+    monkeypatch.setattr(obs, "_SENTRY_INIT_DONE", False)
+    monkeypatch.setattr(obs, "_SENTRY_DSN_USED", None)
 
     monkeypatch.setenv("SENTRY_DSN", "https://example@sentry.io/1")
 
